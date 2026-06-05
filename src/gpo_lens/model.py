@@ -44,7 +44,7 @@ class Setting:
     identity: str           # CSE-specific natural key (conflict identity)
     display_name: str
     display_value: str
-    raw: dict               # preserved CSE-specific subtree
+    raw: dict[str, object]  # preserved CSE-specific subtree
     from_disabled_side: bool  # side's Enabled=false but settings present
     source_state: str = "normal"   # "normal" | "blocked" (<Blocked/> extension)
 
