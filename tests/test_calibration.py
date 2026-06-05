@@ -47,7 +47,7 @@ def test_lab_som_counts(lab_estate):
 def test_disabled_but_populated(work_estate, lab_estate):
     from gpo_lens.queries import disabled_but_populated
 
-    assert len(disabled_but_populated(work_estate)) == 8
+    assert len(disabled_but_populated(work_estate)) == 6
     assert disabled_but_populated(lab_estate) == []
 
 

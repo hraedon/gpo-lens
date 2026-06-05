@@ -132,7 +132,7 @@ inventory walk the GPP XML (`Groups.xml`, `Services.xml`, `Drives.xml`,
 | GPOs | 129 | 12 |
 | duplicate display names | 0 | 0 |
 | one-side-disabled GPOs | many (33 user / 12 computer off) | 0 |
-| disabled-but-populated sides | 8 | 0 |
+| disabled-but-populated sides | 6 | 0 |
 | top CSEs | Registry, Security, Windows Registry, Printers, Public Key | Registry, Security, Public Key |
 | SOMs | 1,551 | 28 |
 | inheritance-blocked SOMs | 12 | 3 |
