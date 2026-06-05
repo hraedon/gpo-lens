@@ -118,7 +118,7 @@ def init_db(conn: sqlite3.Connection) -> None:
             enabled INTEGER NOT NULL,
             enforced INTEGER NOT NULL,
             target TEXT NOT NULL,
-            PRIMARY KEY (snapshot_id, som_path, gpo_id, order_)
+            PRIMARY KEY (snapshot_id, som_path, gpo_id, order_, target)
         )
         """
     )

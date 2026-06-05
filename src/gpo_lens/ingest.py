@@ -195,7 +195,13 @@ def _parse_links(gpo_elem: ET.Element, gpo_id: str) -> list[GpoLink]:
 
 
 def _parse_delegation(gpo_elem: ET.Element, gpo_id: str) -> list[DelegationEntry]:
-    """Parse delegation entries from SecurityDescriptor/Permissions."""
+    """Parse delegation entries from SecurityDescriptor/Permissions.
+
+    Handles both the older flat ``Permission`` element (where Trustee/Standard
+    are text) and the newer ``TrusteePermissions`` nested structure observed
+    in real exports (Trustee/Name, Trustee/SID, Standard/GPOGroupedAccessEnum,
+    Type/PermissionType).
+    """
     entries: list[DelegationEntry] = []
     sd = _child_by_localname(gpo_elem, "SecurityDescriptor")
     if sd is None:
@@ -206,17 +212,47 @@ def _parse_delegation(gpo_elem: ET.Element, gpo_id: str) -> list[DelegationEntry
     present = _child_by_localname(perms, "PermissionsPresent")
     if present is not None and present.text and present.text.strip().lower() == "false":
         return entries
+
+    # First try the newer nested TrusteePermissions structure
+    for perm in _children_by_localname(perms, "TrusteePermissions"):
+        trustee_elem = _child_by_localname(perm, "Trustee")
+        trustee = ""
+        trustee_sid = None
+        if trustee_elem is not None:
+            trustee = _text(_child_by_localname(trustee_elem, "Name")) or _text(trustee_elem) or ""
+            trustee_sid = _text(_child_by_localname(trustee_elem, "SID"))
+            if trustee_sid is None:
+                trustee_sid = _text(_child_by_localname(trustee_elem, "TrusteeSID"))
+
+        perm_type = ""
+        standard_elem = _child_by_localname(perm, "Standard")
+        if standard_elem is not None:
+            perm_type = _text(_child_by_localname(standard_elem, "GPOGroupedAccessEnum")) or ""
+
+        allowed = True
+        type_elem = _child_by_localname(perm, "Type")
+        if type_elem is not None:
+            type_text = _text(_child_by_localname(type_elem, "PermissionType")) or ""
+            if type_text.strip().lower() == "deny":
+                allowed = False
+
+        entries.append(
+            DelegationEntry(
+                gpo_id=gpo_id,
+                trustee=trustee,
+                trustee_sid=trustee_sid,
+                permission=perm_type,
+                allowed=allowed,
+            )
+        )
+
+    # Then fall back to the older flat Permission structure
     for perm in _children_by_localname(perms, "Permission"):
         trustee = _text(_child_by_localname(perm, "Trustee")) or ""
         trustee_sid = _text(_child_by_localname(perm, "TrusteeSID"))
         if trustee_sid is None:
             trustee_sid = _text(_child_by_localname(perm, "SID"))
-        # The permission type could be in Standard or different child
-        perm_type = _text(_child_by_localname(perm, "Standard"))
-        if perm_type is None:
-            perm_type = _text(_child_by_localname(perm, "Type"))
-        if perm_type is None:
-            perm_type = ""
+        perm_type = _text(_child_by_localname(perm, "Standard")) or _text(_child_by_localname(perm, "Type")) or ""
         allowed = True
         deny = _child_by_localname(perm, "AccessDenied")
         if deny is not None and deny.text and deny.text.strip().lower() == "true":
