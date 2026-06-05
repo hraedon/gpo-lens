@@ -3,304 +3,236 @@
 from __future__ import annotations
 
 import argparse
+import code
 import json
 import sqlite3
 import sys
 from pathlib import Path
-from typing import Any
 
 from gpo_lens import ingest, queries, store
-from gpo_lens.model import Estate, Gpo, Setting
-
+from gpo_lens.display import render_table
+from gpo_lens.model import Estate
 
 DEFAULT_DB = "./gpo-lens.sqlite3"
 
 
-def _get_estate(args: argparse.Namespace) -> Estate:
-    """Return an estate from ``src`` if given, else from the latest DB snapshot."""
-    if getattr(args, "src", None):
-        return ingest.load_estate(args.src)
-    db_path = Path(args.db)
-    if not db_path.exists():
-        print(f"Database not found: {db_path}", file=sys.stderr)
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _get_estate(args) -> Estate:
+    src = getattr(args, "src", None) or getattr(args, "sample_dir", None)
+    if src:
+        return ingest.load_estate(src)
+    db = Path(args.db)
+    if not db.exists():
+        print(f"Database not found: {db}", file=sys.stderr)
         sys.exit(2)
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(str(db))
     try:
         return store.load_estate(conn)
     finally:
         conn.close()
 
 
-def _render_json(rows: list[dict[str, Any]]) -> None:
-    print(json.dumps(rows, indent=2))
+def _render_json(obj: object) -> None:
+    print(json.dumps(obj, indent=2, default=str))
 
 
-def _render_table(headers: list[str], rows: list[list[str]]) -> None:
-    if not rows:
-        print("No results.")
-        return
-    # Compute widths
-    widths = [len(h) for h in headers]
-    for row in rows:
-        for i, cell in enumerate(row):
-            widths[i] = max(widths[i], len(str(cell)))
-    # Print header
-    print("  ".join(h.ljust(w) for h, w in zip(headers, widths)))
-    print("  ".join("-" * w for w in widths))
-    for row in rows:
-        print("  ".join(str(cell).ljust(w) for cell, w in zip(row, widths)))
+def _print_table(headers: list[str], rows: list) -> None:
+    print(render_table(headers, rows))
 
 
-def _gpo_rows(gpos: list[Gpo]) -> list[dict[str, Any]]:
-    return [{"id": g.id, "name": g.name, "domain": g.domain} for g in gpos]
+# ---------------------------------------------------------------------------
+# Commands
+# ---------------------------------------------------------------------------
 
-
-def _setting_rows(settings: list[Setting]) -> list[dict[str, Any]]:
-    return [
-        {
-            "gpo_id": s.gpo_id,
-            "side": s.side,
-            "cse": s.cse,
-            "identity": s.identity,
-            "display_name": s.display_name,
-            "display_value": s.display_value,
-        }
-        for s in settings
-    ]
-
-
-def _conflict_rows(conflicts: list[queries.Conflict]) -> list[dict[str, Any]]:
-    return [
-        {
-            "cse": c.cse,
-            "side": c.side,
-            "identity": c.identity,
-            "display_name": c.display_name,
-            "entries": [{"gpo_id": gid, "display_value": val} for gid, val in c.entries],
-        }
-        for c in conflicts
-    ]
-
-
-def _cpassword_rows(hits: list[queries.CpasswordHit]) -> list[dict[str, Any]]:
-    return [
-        {
-            "gpo_id": h.gpo_id,
-            "gpo_name": h.gpo_name,
-            "file": h.file,
-            "tag": h.tag,
-            "cpassword": h.cpassword,
-        }
-        for h in hits
-    ]
-
-
-def cmd_ingest(args: argparse.Namespace) -> int:
-    try:
-        estate = ingest.load_estate(args.sample_dir)
-    except FileNotFoundError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        return 2
-    db_path = Path(args.db)
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(db_path)
+def cmd_ingest(args: argparse.Namespace) -> None:
+    estate = ingest.load_estate(args.sample_dir)
+    conn = sqlite3.connect(args.db)
     try:
         store.init_db(conn)
         sid = store.save_estate(conn, estate)
+        print(f"Snapshot {sid} saved ({len(estate.gpos)} GPOs, {len(estate.soms)} SOMs)")
     finally:
         conn.close()
-    print(f"{estate.domain}, {len(estate.gpos)} GPOs, {len(estate.soms)} SOMs, snapshot={sid}")
-    return 0
 
 
-def cmd_unlinked(args: argparse.Namespace) -> int:
+def cmd_unlinked(args: argparse.Namespace) -> None:
     estate = _get_estate(args)
-    gpos = queries.unlinked_gpos(estate)
-    if args.json:
-        _render_json(_gpo_rows(gpos))
-    else:
-        _render_table(["ID", "Name", "Domain"], [[g.id, g.name, g.domain] for g in gpos])
-    return 0
+    for g in queries.unlinked_gpos(estate):
+        print(f"{g.id}\t{g.name}")
 
 
-def cmd_empty(args: argparse.Namespace) -> int:
+def cmd_empty(args: argparse.Namespace) -> None:
     estate = _get_estate(args)
-    gpos = queries.empty_gpos(estate)
-    if args.json:
-        _render_json(_gpo_rows(gpos))
-    else:
-        _render_table(["ID", "Name", "Domain"], [[g.id, g.name, g.domain] for g in gpos])
-    return 0
+    for g in queries.empty_gpos(estate):
+        print(f"{g.id}\t{g.name}")
 
 
-def cmd_disabled_populated(args: argparse.Namespace) -> int:
+def cmd_disabled_populated(args: argparse.Namespace) -> None:
     estate = _get_estate(args)
-    results = queries.disabled_but_populated(estate)
-    if args.json:
-        _render_json([{"gpo_id": g.id, "name": g.name, "side": side} for g, side in results])
-    else:
-        _render_table(
-            ["ID", "Name", "Side"],
-            [[g.id, g.name, side] for g, side in results],
-        )
-    return 0
+    for g, side in queries.disabled_but_populated(estate):
+        print(f"{g.id}\t{g.name}\t{side}")
 
 
-def cmd_who_sets(args: argparse.Namespace) -> int:
+def cmd_who_sets(args: argparse.Namespace) -> None:
     estate = _get_estate(args)
-    settings = queries.who_sets(estate, args.term)
-    if args.json:
-        _render_json(_setting_rows(settings))
-    else:
-        _render_table(
-            ["GPO ID", "Side", "CSE", "Identity", "Display Name", "Display Value"],
-            [[s.gpo_id, s.side, s.cse, s.identity, s.display_name, s.display_value] for s in settings],
-        )
-    return 0
+    for s in queries.who_sets(estate, args.term):
+        print(f"{s.gpo_id}\t{s.cse}\t{s.identity}\t{s.display_value}")
 
 
-def cmd_conflicts(args: argparse.Namespace) -> int:
+def cmd_conflicts(args: argparse.Namespace) -> None:
     estate = _get_estate(args)
-    conflicts = queries.conflicts(estate)
-    if args.json:
-        _render_json(_conflict_rows(conflicts))
-    else:
-        rows: list[list[str]] = []
-        for c in conflicts:
-            for gid, val in c.entries:
-                rows.append([c.cse, c.side, c.identity, c.display_name, gid, val])
-        _render_table(
-            ["CSE", "Side", "Identity", "Display Name", "GPO ID", "Display Value"],
-            rows,
-        )
-    return 0
+    for c in queries.conflicts(estate):
+        for gid, val in c.entries:
+            print(f"CONFLICT {c.cse}/{c.side}/{c.identity}: {gid}={val}")
 
 
-def cmd_blocked(args: argparse.Namespace) -> int:
+def cmd_blocked(args: argparse.Namespace) -> None:
     estate = _get_estate(args)
-    results = queries.blocked_extensions(estate)
-    if args.json:
-        _render_json([{"gpo_id": g.id, "name": g.name, "side": side, "cse": cse} for g, side, cse in results])
-    else:
-        _render_table(
-            ["ID", "Name", "Side", "CSE"],
-            [[g.id, g.name, side, cse] for g, side, cse in results],
-        )
-    return 0
+    for g, side, cse in queries.blocked_extensions(estate):
+        print(f"{g.id}\t{g.name}\t{side}\t{cse}")
 
 
-def cmd_version_skew(args: argparse.Namespace) -> int:
+def cmd_version_skew(args: argparse.Namespace) -> None:
     estate = _get_estate(args)
-    results = queries.version_skew(estate)
-    if args.json:
-        _render_json([{"gpo_id": g.id, "name": g.name, "side": side} for g, side in results])
-    else:
-        _render_table(
-            ["ID", "Name", "Side"],
-            [[g.id, g.name, side] for g, side in results],
-        )
-    return 0
+    for g, side in queries.version_skew(estate):
+        print(f"{g.id}\t{g.name}\t{side}")
 
 
-def cmd_ms16_072(args: argparse.Namespace) -> int:
+def cmd_ms16_072(args: argparse.Namespace) -> None:
     estate = _get_estate(args)
-    gpos = queries.ms16_072_vulnerable(estate)
-    if args.json:
-        _render_json(_gpo_rows(gpos))
-    else:
-        _render_table(["ID", "Name", "Domain"], [[g.id, g.name, g.domain] for g in gpos])
-    return 0
+    for g in queries.ms16_072_vulnerable(estate):
+        print(f"{g.id}\t{g.name}")
 
 
-def cmd_cpassword(args: argparse.Namespace) -> int:
+def cmd_cpassword(args: argparse.Namespace) -> None:
     estate = _get_estate(args)
-    hits = queries.cpassword_scan(estate)
+    for hit in queries.cpassword_scan(estate):
+        print(f"{hit.gpo_id}\t{hit.file}\t{hit.tag}")
+
+
+def cmd_search(args: argparse.Namespace) -> None:
+    estate = _get_estate(args)
+    results = queries.search(estate, args.term, scope=args.scope)
     if args.json:
-        _render_json(_cpassword_rows(hits))
+        _render_json([{"gpo_id": r.gpo_id, "field": r.match_field,
+                        "detail": r.detail} for r in results])
     else:
-        _render_table(
-            ["GPO ID", "GPO Name", "File", "Tag", "cpassword"],
-            [[h.gpo_id, h.gpo_name, h.file, h.tag, h.cpassword] for h in hits],
-        )
-    return 0
+        for r in results:
+            print(f"{r.gpo_id}\t{r.gpo_name}\t{r.match_field}\t{r.detail}")
 
 
-def cmd_snapshots(args: argparse.Namespace) -> int:
-    db_path = Path(args.db)
-    if not db_path.exists():
-        print(f"Database not found: {db_path}", file=sys.stderr)
-        return 2
-    conn = sqlite3.connect(db_path)
-    try:
-        snaps = store.list_snapshots(conn)
-    finally:
-        conn.close()
-    if args.json:
-        _render_json([{"id": s[0], "domain": s[1], "taken_at": s[2].isoformat() if s[2] else None} for s in snaps])
+def cmd_show(args: argparse.Namespace) -> None:
+    estate = _get_estate(args)
+    target = args.gpo_id
+    gpo = None
+    for g in estate.gpos:
+        if g.id == target or g.name == target:
+            gpo = g
+            break
+    if gpo is None:
+        print(f"GPO {target} not found", file=sys.stderr)
+        return
+    if args.format == "json":
+        _render_json({
+            "id": gpo.id, "name": gpo.name, "domain": gpo.domain,
+        })
     else:
-        _render_table(
-            ["ID", "Domain", "Taken At"],
-            [[str(s[0]), s[1], s[2].isoformat() if s[2] else ""] for s in snaps],
-        )
-    return 0
+        print(f"GPO: {gpo.name} ({gpo.id})")
+        print(f"  Domain: {gpo.domain}")
+        for s in gpo.settings:
+            print(f"  [{s.cse}] {s.side}/{s.identity}: {s.display_value}")
 
+
+def cmd_perms(args: argparse.Namespace) -> None:
+    estate = _get_estate(args)
+    for g, desc in queries.permissions_audit(estate):
+        print(f"{g.id}\t{g.name}\t{desc}")
+
+
+def cmd_diff(args: argparse.Namespace) -> None:
+    conn = sqlite3.connect(args.db)
+    diff = queries.snapshot_diff(conn, args.snapshot_a, args.snapshot_b)
+    _render_json(diff)
+    conn.close()
+
+
+def cmd_snapshots(args: argparse.Namespace) -> None:
+    conn = sqlite3.connect(args.db)
+    for sid, domain, taken in store.list_snapshots(conn):
+        print(f"{sid}\t{domain}\t{taken}")
+    conn.close()
+
+
+def cmd_repl(args: argparse.Namespace) -> None:
+    """Drop into a Python REPL with the estate loaded."""
+    estate = _get_estate(args)
+    local_vars = {"estate": estate, "queries": queries}
+    code.interact(
+        banner="gpo-lens REPL — `estate` and `queries` are available",
+        local=local_vars,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Argument parsing
+# ---------------------------------------------------------------------------
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="gpo-lens")
-    parser.add_argument("--db", default=DEFAULT_DB, help="SQLite database path")
-    parser.add_argument("--json", action="store_true", help="Emit JSON instead of text tables")
+    parser.add_argument("--db", default=DEFAULT_DB, help="SQLite DB path")
+    parser.add_argument("--json", action="store_true")
     sub = parser.add_subparsers(dest="command", required=True)
 
     # ingest
-    p_ingest = sub.add_parser("ingest", help="Ingest a sample directory into the database")
-    p_ingest.add_argument("sample_dir", help="Directory containing AllGPOs.xml, gp-inheritance.json, etc.")
-    p_ingest.set_defaults(func=cmd_ingest)
+    p = sub.add_parser("ingest")
+    p.add_argument("sample_dir")
+    p.set_defaults(func=cmd_ingest)
 
     # analysis commands
-    p_unlinked = sub.add_parser("unlinked", help="List unlinked GPOs")
-    p_unlinked.add_argument("src", nargs="?", help="Sample directory (optional; reads DB if omitted)")
-    p_unlinked.set_defaults(func=cmd_unlinked)
+    sub.add_parser("unlinked").set_defaults(func=cmd_unlinked)
+    sub.add_parser("empty").set_defaults(func=cmd_empty)
+    sub.add_parser("disabled-populated").set_defaults(func=cmd_disabled_populated)
 
-    p_empty = sub.add_parser("empty", help="List empty GPOs")
-    p_empty.add_argument("src", nargs="?", help="Sample directory (optional; reads DB if omitted)")
-    p_empty.set_defaults(func=cmd_empty)
+    p = sub.add_parser("who-sets")
+    p.add_argument("term")
+    p.set_defaults(func=cmd_who_sets)
 
-    p_disabled = sub.add_parser("disabled-populated", help="List disabled-but-populated sides")
-    p_disabled.add_argument("src", nargs="?", help="Sample directory (optional; reads DB if omitted)")
-    p_disabled.set_defaults(func=cmd_disabled_populated)
+    sub.add_parser("conflicts").set_defaults(func=cmd_conflicts)
+    sub.add_parser("blocked").set_defaults(func=cmd_blocked)
+    sub.add_parser("version-skew").set_defaults(func=cmd_version_skew)
+    sub.add_parser("ms16-072").set_defaults(func=cmd_ms16_072)
+    sub.add_parser("cpassword").set_defaults(func=cmd_cpassword)
 
-    p_who = sub.add_parser("who-sets", help="Find settings matching a term")
-    p_who.add_argument("term", help="Search term")
-    p_who.add_argument("src", nargs="?", help="Sample directory (optional; reads DB if omitted)")
-    p_who.set_defaults(func=cmd_who_sets)
+    # search
+    p = sub.add_parser("search", help="Full-text search")
+    p.add_argument("term")
+    p.add_argument("--scope", default="all", choices=["all", "settings", "names", "delegation"])
+    p.set_defaults(func=cmd_search)
 
-    p_conflicts = sub.add_parser("conflicts", help="Show conflict surface")
-    p_conflicts.add_argument("src", nargs="?", help="Sample directory (optional; reads DB if omitted)")
-    p_conflicts.set_defaults(func=cmd_conflicts)
+    # show
+    p = sub.add_parser("show")
+    p.add_argument("gpo_id")
+    p.add_argument("--format", choices=["text", "json"], default="text")
+    p.set_defaults(func=cmd_show)
 
-    p_blocked = sub.add_parser("blocked", help="List blocked extensions")
-    p_blocked.add_argument("src", nargs="?", help="Sample directory (optional; reads DB if omitted)")
-    p_blocked.set_defaults(func=cmd_blocked)
+    sub.add_parser("perms").set_defaults(func=cmd_perms)
 
-    p_skew = sub.add_parser("version-skew", help="List GPOs with GPC vs GPT version mismatch")
-    p_skew.add_argument("src", nargs="?", help="Sample directory (optional; reads DB if omitted)")
-    p_skew.set_defaults(func=cmd_version_skew)
+    p = sub.add_parser("diff")
+    p.add_argument("snapshot_a", type=int)
+    p.add_argument("snapshot_b", type=int)
+    p.set_defaults(func=cmd_diff)
 
-    p_ms16 = sub.add_parser("ms16-072", help="Flag GPOs missing AU/DC read + apply (MS16-072 trap)")
-    p_ms16.add_argument("src", nargs="?", help="Sample directory (optional; reads DB if omitted)")
-    p_ms16.set_defaults(func=cmd_ms16_072)
+    sub.add_parser("snapshots").set_defaults(func=cmd_snapshots)
 
-    p_cpw = sub.add_parser("cpassword", help="Scan SYSVOL GPP XML for lingering cpassword secrets (MS14-025)")
-    p_cpw.add_argument("src", nargs="?", help="Sample directory (optional; reads DB if omitted)")
-    p_cpw.set_defaults(func=cmd_cpassword)
+    # REPL
+    p = sub.add_parser("repl", help="Interactive Python REPL with the estate loaded")
+    p.set_defaults(func=cmd_repl)
 
-    # snapshots
-    p_snaps = sub.add_parser("snapshots", help="List stored snapshots")
-    p_snaps.set_defaults(func=cmd_snapshots)
-
-    args = parser.parse_args(argv)
-    return int(args.func(args))
-
-
-if __name__ == "__main__":
-    sys.exit(main())
+    args = parser.parse_args()
+    if not hasattr(args, "func"):
+        parser.print_help()
+        return 1
+    return args.func(args) or 0

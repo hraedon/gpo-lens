@@ -1,13 +1,11 @@
 [project]
 name = "gpo-lens"
 version = "0.0.1"
-description = "Local-first, read-only Group Policy analysis: searchable settings, conflict/topology analysis, baseline comparison, hygiene/security scans, and a change log over time."
+description = "Local-first, read-only Group Policy analysis"
 readme = "README.md"
 requires-python = ">=3.12"
-license = { text = "MIT" }
+license = {text = "MIT"}
 authors = [{ name = "hraedon" }]
-# Slice 1 (ingest + queries + CLI) is intentionally stdlib-only:
-# xml.etree.ElementTree, json, sqlite3, argparse. No runtime deps.
 dependencies = []
 
 [project.optional-dependencies]
@@ -17,7 +15,6 @@ dev = [
     "ruff>=0.7",
     "mypy>=1.13",
 ]
-# Web/UI layer (later tier) will add: fastapi, uvicorn[standard], jinja2.
 
 [project.scripts]
 gpo-lens = "gpo_lens.cli:main"
@@ -32,13 +29,13 @@ packages = ["src/gpo_lens"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
-markers = [
-    "samples: tests that require the local sample exports in samples/ (skipped if absent)",
-]
 
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
 
 [tool.mypy]
 python_version = "3.12"
