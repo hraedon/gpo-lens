@@ -6,7 +6,6 @@ import json
 import sqlite3
 from datetime import datetime, timezone
 
-
 from gpo_lens.model import (
     DelegationEntry,
     Estate,
