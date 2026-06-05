@@ -82,6 +82,19 @@ def _conflict_rows(conflicts: list[queries.Conflict]) -> list[dict[str, Any]]:
     ]
 
 
+def _cpassword_rows(hits: list[queries.CpasswordHit]) -> list[dict[str, Any]]:
+    return [
+        {
+            "gpo_id": h.gpo_id,
+            "gpo_name": h.gpo_name,
+            "file": h.file,
+            "tag": h.tag,
+            "cpassword": h.cpassword,
+        }
+        for h in hits
+    ]
+
+
 def cmd_ingest(args: argparse.Namespace) -> int:
     try:
         estate = ingest.load_estate(args.sample_dir)
@@ -176,6 +189,42 @@ def cmd_blocked(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_version_skew(args: argparse.Namespace) -> int:
+    estate = _get_estate(args)
+    results = queries.version_skew(estate)
+    if args.json:
+        _render_json([{"gpo_id": g.id, "name": g.name, "side": side} for g, side in results])
+    else:
+        _render_table(
+            ["ID", "Name", "Side"],
+            [[g.id, g.name, side] for g, side in results],
+        )
+    return 0
+
+
+def cmd_ms16_072(args: argparse.Namespace) -> int:
+    estate = _get_estate(args)
+    gpos = queries.ms16_072_vulnerable(estate)
+    if args.json:
+        _render_json(_gpo_rows(gpos))
+    else:
+        _render_table(["ID", "Name", "Domain"], [[g.id, g.name, g.domain] for g in gpos])
+    return 0
+
+
+def cmd_cpassword(args: argparse.Namespace) -> int:
+    estate = _get_estate(args)
+    hits = queries.cpassword_scan(estate)
+    if args.json:
+        _render_json(_cpassword_rows(hits))
+    else:
+        _render_table(
+            ["GPO ID", "GPO Name", "File", "Tag", "cpassword"],
+            [[h.gpo_id, h.gpo_name, h.file, h.tag, h.cpassword] for h in hits],
+        )
+    return 0
+
+
 def cmd_snapshots(args: argparse.Namespace) -> int:
     db_path = Path(args.db)
     if not db_path.exists():
@@ -232,6 +281,18 @@ def main(argv: list[str] | None = None) -> int:
     p_blocked = sub.add_parser("blocked", help="List blocked extensions")
     p_blocked.add_argument("src", nargs="?", help="Sample directory (optional; reads DB if omitted)")
     p_blocked.set_defaults(func=cmd_blocked)
+
+    p_skew = sub.add_parser("version-skew", help="List GPOs with GPC vs GPT version mismatch")
+    p_skew.add_argument("src", nargs="?", help="Sample directory (optional; reads DB if omitted)")
+    p_skew.set_defaults(func=cmd_version_skew)
+
+    p_ms16 = sub.add_parser("ms16-072", help="Flag GPOs missing AU/DC read + apply (MS16-072 trap)")
+    p_ms16.add_argument("src", nargs="?", help="Sample directory (optional; reads DB if omitted)")
+    p_ms16.set_defaults(func=cmd_ms16_072)
+
+    p_cpw = sub.add_parser("cpassword", help="Scan SYSVOL GPP XML for lingering cpassword secrets (MS14-025)")
+    p_cpw.add_argument("src", nargs="?", help="Sample directory (optional; reads DB if omitted)")
+    p_cpw.set_defaults(func=cmd_cpassword)
 
     # snapshots
     p_snaps = sub.add_parser("snapshots", help="List stored snapshots")

@@ -76,6 +76,50 @@ def test_loopback_is_present_somewhere(work_estate):
     assert who_sets(work_estate, "loopback") or raw_has("loopback")
 
 
+# ---- Version skew -------------------------------------------------------------
+
+def test_work_version_skew(work_estate):
+    from gpo_lens.queries import version_skew
+
+    assert len(version_skew(work_estate)) == 0
+
+
+def test_lab_version_skew(lab_estate):
+    from gpo_lens.queries import version_skew
+
+    assert len(version_skew(lab_estate)) == 0
+
+
+# ---- MS16-072 (delegation audit) ---------------------------------------------
+
+def test_ms16_072_work(work_estate):
+    from gpo_lens.queries import ms16_072_vulnerable
+
+    # Work domain: 112 of 129 GPOs lack Read for AU or DC
+    assert len(ms16_072_vulnerable(work_estate)) == 112
+
+
+def test_ms16_072_lab(lab_estate):
+    from gpo_lens.queries import ms16_072_vulnerable
+
+    # Lab domain: 10 of 12 GPOs lack Read for AU or DC
+    assert len(ms16_072_vulnerable(lab_estate)) == 10
+
+
+# ---- cpassword (MS14-025) -----------------------------------------------------
+
+def test_cpassword_clean_work(work_estate):
+    from gpo_lens.queries import cpassword_scan
+
+    assert len(cpassword_scan(work_estate)) == 0
+
+
+def test_cpassword_clean_lab(lab_estate):
+    from gpo_lens.queries import cpassword_scan
+
+    assert len(cpassword_scan(lab_estate)) == 0
+
+
 # ---- Smoke: every query runs and returns a list -------------------------------
 
 def test_queries_smoke(work_estate):
@@ -85,3 +129,6 @@ def test_queries_smoke(work_estate):
     assert isinstance(queries.empty_gpos(work_estate), list)
     assert isinstance(queries.conflicts(work_estate), list)
     assert isinstance(queries.blocked_extensions(work_estate), list)
+    assert isinstance(queries.version_skew(work_estate), list)
+    assert isinstance(queries.ms16_072_vulnerable(work_estate), list)
+    assert isinstance(queries.cpassword_scan(work_estate), list)
