@@ -1,0 +1,26 @@
+# --- data / samples: NEVER commit (real domain SYSVOL + GPO exports live here) ---
+samples/
+*.zip
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+.coverage
+htmlcov/
+
+# local store / generated
+*.sqlite3
+*.db
+
+# agent-notes breadcrumb export-index (regenerated; a committed copy goes stale)
+OPEN_BREADCRUMBS.txt
+
+# plan scratch space
+plans/design/
