@@ -27,3 +27,15 @@ def test_render_table_unicode() -> None:
 def test_render_table_long_cell() -> None:
     out = render_table(["x"], [["verylongstringindeed"]])
     assert "verylongstringindeed" in out
+
+
+def test_render_table_truncation() -> None:
+    out = render_table(
+        ["id", "description"],
+        [["1", "this is a very long description"]],
+        max_col_width=10,
+    )
+    # Header "description" (11 chars) clipped to 10 -> "descripti\u2026"
+    assert "descripti\u2026" in out
+    # Cell "this is a very long description" clipped to 10 -> "this is a\u2026"
+    assert "this is a\u2026" in out

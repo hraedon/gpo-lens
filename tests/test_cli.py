@@ -100,3 +100,42 @@ class TestCLI:
             capture_output=True, text=True,
         )
         assert r.returncode != 0
+
+    def test_diff(self, db_path):
+        # Need at least 2 snapshots to diff
+        from gpo_lens import model, store
+
+        conn = sqlite3.connect(str(db_path))
+        store.init_db(conn)
+        estate = model.Estate(
+            domain="test.local",
+            gpos=[
+                model.Gpo(
+                    id="bbb-ccc", name="GPO 2", domain="test.local",
+                    created=None, modified=None, read=None,
+                    computer_enabled=True, user_enabled=True,
+                    computer_ver_ds=None, computer_ver_sysvol=None,
+                    user_ver_ds=None, user_ver_sysvol=None,
+                    sddl=None, owner=None, filter_data_available=False,
+                    wmi_filter=None, sysvol_path=None,
+                ),
+            ],
+        )
+        store.save_estate(conn, estate)
+        conn.close()
+
+        r = subprocess.run(
+            GPO_LENS + ["--db", str(db_path), "diff", "1", "2"],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+        assert "added" in r.stdout or "changed" in r.stdout
+
+    def test_repl_exit_immediately(self, db_path):
+        # Feed "exit()" into REPL so it exits immediately
+        r = subprocess.run(
+            GPO_LENS + ["--db", str(db_path), "repl"],
+            input="exit()\n",
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
