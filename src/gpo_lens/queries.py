@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import sqlite3
 import xml.etree.ElementTree as ET
 from collections import defaultdict
@@ -9,7 +10,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from gpo_lens.model import Estate, Gpo, Setting, Side, Som, SomLink
+    from gpo_lens.model import DelegationEntry, Estate, Gpo, Setting, Side, Som, SomLink
 
 Side = str  # type: ignore[misc]
 
@@ -110,7 +111,13 @@ def conflicts(estate: Estate) -> list[Conflict]:
         values = {s.display_value for s in settings}
         if len(values) < 2:
             continue
-        entries = [(s.gpo_id, s.display_value) for s in settings]
+        seen_pairs: set[tuple[str, str]] = set()
+        entries: list[tuple[str, str]] = []
+        for s in settings:
+            pair = (s.gpo_id, s.display_value)
+            if pair not in seen_pairs:
+                seen_pairs.add(pair)
+                entries.append(pair)
         results.append(Conflict(
             cse=cse, side=side, identity=identity,
             display_name=settings[0].display_name, entries=entries,
@@ -143,7 +150,7 @@ def version_skew(estate: Estate) -> list[tuple[Gpo, Side]]:
 # Security / hygiene
 # ---------------------------------------------------------------------------
 
-_MS16_072_TRUSTEES = {"authenticated users", "domain computers", "domain computers"}
+_MS16_072_TRUSTEES = {"authenticated users", "domain computers"}
 
 def _trustee_matches_ms16_072(trustee: str, sid: str | None) -> bool:
     t = trustee.strip().lower()
@@ -158,19 +165,19 @@ def _trustee_matches_ms16_072(trustee: str, sid: str | None) -> bool:
     return False
 
 
+def _has_ms16_072_read(delegation: list[DelegationEntry]) -> bool:
+    """Check whether a delegation list grants Read to AU/DC."""
+    return any(
+        e.allowed
+        and _trustee_matches_ms16_072(e.trustee, e.trustee_sid)
+        and e.permission.lower() == "read"
+        for e in delegation
+    )
+
+
 def ms16_072_vulnerable(estate: Estate) -> list[Gpo]:
     """GPOs missing Read for Authenticated Users or Domain Computers (MS16-072)."""
-    results: list[Gpo] = []
-    for g in estate.gpos:
-        has_read = any(
-            e.allowed
-            and _trustee_matches_ms16_072(e.trustee, e.trustee_sid)
-            and e.permission.lower() == "read"
-            for e in g.delegation
-        )
-        if not has_read:
-            results.append(g)
-    return results
+    return [g for g in estate.gpos if not _has_ms16_072_read(g.delegation)]
 
 
 def permissions_audit(estate: Estate) -> list[tuple[Gpo, str]]:
@@ -181,13 +188,7 @@ def permissions_audit(estate: Estate) -> list[tuple[Gpo, str]]:
     issues: list[tuple[Gpo, str]] = []
     for g in estate.gpos:
         # 1. MS16-072: no Authenticated Users / Domain Computers read
-        has_read = any(
-            e.allowed
-            and e.permission.lower() in ("read", "read, apply")
-            and _trustee_matches_ms16_072(e.trustee, e.trustee_sid)
-            for e in g.delegation
-        )
-        if not has_read:
+        if not _has_ms16_072_read(g.delegation):
             issues.append((g, "No Authenticated Users / Domain Computers Read (MS16-072)"))
 
         # 2. Too many principals with Edit rights
@@ -682,9 +683,8 @@ class EffectiveSetting:
 
 def _scan_text_for_unc(text: str) -> list[str]:
     """Find UNC paths in a string."""
-    # Simple regex-free scan for \\server\share patterns
-    import re as _re
-    return _re.findall(r"\\\\[^\s\"'<>|]+", text)
+    # Match \\server\share followed by an optional path component
+    return re.findall(r"\\\\[^\s\"'<>|]+", text)
 
 
 def broken_refs(estate: Estate) -> list[BrokenRef]:
