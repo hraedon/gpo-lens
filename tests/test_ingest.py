@@ -1,0 +1,377 @@
+"""Unit tests for the ingest module (no samples required)."""
+
+from __future__ import annotations
+
+import xml.etree.ElementTree as ET
+from pathlib import Path
+
+import pytest
+
+from gpo_lens import ingest
+from gpo_lens.model import Estate, Gpo
+
+
+def _min_gpo_xml(
+    gpo_id: str = "{31B2F340-016D-11D2-945F-00C04FB984F9}",
+    name: str = "Test GPO",
+    domain: str = "test.local",
+    computer_enabled: str = "true",
+    user_enabled: str = "true",
+) -> str:
+    """Minimal valid GPOReport XML with one GPO."""
+    return f"""<?xml version="1.0" encoding="utf-8"?>
+<GPO xmlns="http://www.microsoft.com/GroupPolicy/Settings">
+    <GPO>
+        <Identifier>
+            <Identifier>{gpo_id}</Identifier>
+            <Domain>{domain}</Domain>
+        </Identifier>
+        <Name>{name}</Name>
+        <CreatedTime>2026-01-01T00:00:00</CreatedTime>
+        <ModifiedTime>2026-01-02T00:00:00</ModifiedTime>
+        <ReadTime>2026-01-03T00:00:00</ReadTime>
+        <Computer>
+            <VersionDirectory>1</VersionDirectory>
+            <VersionSysvol>2</VersionSysvol>
+            <Enabled>{computer_enabled}</Enabled>
+        </Computer>
+        <User>
+            <VersionDirectory>3</VersionDirectory>
+            <VersionSysvol>4</VersionSysvol>
+            <Enabled>{user_enabled}</Enabled>
+        </User>
+        <FilterDataAvailable>true</FilterDataAvailable>
+    </GPO>
+</GPO>
+"""
+
+
+class TestParseReport:
+    def test_parse_minimal_gpo(self, tmp_path: Path) -> None:
+        xml_path = tmp_path / "report.xml"
+        xml_path.write_text(_min_gpo_xml(), encoding="utf-8")
+        gpos = ingest.parse_report(xml_path)
+        assert len(gpos) == 1
+        gpo = gpos[0]
+        assert gpo.id == "31b2f340-016d-11d2-945f-00c04fb984f9"
+        assert gpo.name == "Test GPO"
+        assert gpo.domain == "test.local"
+        assert gpo.computer_enabled is True
+        assert gpo.user_enabled is True
+        assert gpo.computer_ver_ds == 1
+        assert gpo.computer_ver_sysvol == 2
+        assert gpo.user_ver_ds == 3
+        assert gpo.user_ver_sysvol == 4
+        assert gpo.filter_data_available is True
+
+    def test_parse_multiple_gpos(self, tmp_path: Path) -> None:
+        body_a = (
+            '    <GPO>\n'
+            '        <Identifier>\n'
+            '            <Identifier>{31B2F340-016D-11D2-945F-00C04FB984F9}</Identifier>\n'
+            '            <Domain>test.local</Domain>\n'
+            '        </Identifier>\n'
+            '        <Name>GPO A</Name>\n'
+            '        <CreatedTime>2026-01-01T00:00:00</CreatedTime>\n'
+            '        <ModifiedTime>2026-01-02T00:00:00</ModifiedTime>\n'
+            '        <ReadTime>2026-01-03T00:00:00</ReadTime>\n'
+            '        <Computer><VersionDirectory>1</VersionDirectory>'
+            '<VersionSysvol>2</VersionSysvol><Enabled>true</Enabled></Computer>\n'
+            '        <User><VersionDirectory>3</VersionDirectory>'
+            '<VersionSysvol>4</VersionSysvol><Enabled>true</Enabled></User>\n'
+            '        <FilterDataAvailable>true</FilterDataAvailable>\n'
+            '    </GPO>\n'
+        )
+        body_b = (
+            '    <GPO>\n'
+            '        <Identifier>\n'
+            '            <Identifier>{11111111-1111-1111-1111-111111111111}</Identifier>\n'
+            '            <Domain>test.local</Domain>\n'
+            '        </Identifier>\n'
+            '        <Name>GPO B</Name>\n'
+            '        <CreatedTime>2026-01-01T00:00:00</CreatedTime>\n'
+            '        <ModifiedTime>2026-01-02T00:00:00</ModifiedTime>\n'
+            '        <ReadTime>2026-01-03T00:00:00</ReadTime>\n'
+            '        <Computer><VersionDirectory>1</VersionDirectory>'
+            '<VersionSysvol>2</VersionSysvol><Enabled>true</Enabled></Computer>\n'
+            '        <User><VersionDirectory>3</VersionDirectory>'
+            '<VersionSysvol>4</VersionSysvol><Enabled>true</Enabled></User>\n'
+            '        <FilterDataAvailable>true</FilterDataAvailable>\n'
+            '    </GPO>\n'
+        )
+        xml = (
+            '<?xml version="1.0" encoding="utf-8"?>\n'
+            '<GPO xmlns="http://www.microsoft.com/GroupPolicy/Settings">\n'
+            + body_a + body_b
+            + "</GPO>\n"
+        )
+        xml_path = tmp_path / "report.xml"
+        xml_path.write_text(xml, encoding="utf-8")
+        gpos = ingest.parse_report(xml_path)
+        assert len(gpos) == 2
+        assert {g.name for g in gpos} == {"GPO A", "GPO B"}
+
+    def test_parse_empty_file_raises(self, tmp_path: Path) -> None:
+        xml_path = tmp_path / "empty.xml"
+        xml_path.write_text('<?xml version="1.0"?>\n<root/>', encoding="utf-8")
+        # No <GPO> elements → returns empty list, does not crash
+        gpos = ingest.parse_report(xml_path)
+        assert gpos == []
+
+    def test_malformed_xml_raises(self, tmp_path: Path) -> None:
+        xml_path = tmp_path / "bad.xml"
+        xml_path.write_text("not xml at all", encoding="utf-8")
+        with pytest.raises(ET.ParseError):
+            ingest.parse_report(xml_path)
+
+    def test_bom_tolerant(self, tmp_path: Path) -> None:
+        xml_path = tmp_path / "bom.xml"
+        xml_path.write_bytes(
+            b"\xef\xbb\xbf"
+            + _min_gpo_xml().encode("utf-8")
+        )
+        gpos = ingest.parse_report(xml_path)
+        assert len(gpos) == 1
+        assert gpos[0].name == "Test GPO"
+
+
+class TestParseSingleGpoEdgeCases:
+    def test_missing_identifier_gives_empty_id(self, tmp_path: Path) -> None:
+        xml = (
+            '<?xml version="1.0" encoding="utf-8"?>\n'
+            '<GPO xmlns="http://www.microsoft.com/GroupPolicy/Settings">\n'
+            '  <GPO>\n'
+            '    <Name>NoID</Name>\n'
+            '    <Computer><Enabled>false</Enabled></Computer>\n'
+            '    <User><Enabled>false</Enabled></User>\n'
+            '  </GPO>\n'
+            '</GPO>\n'
+        )
+        xml_path = tmp_path / "report.xml"
+        xml_path.write_text(xml, encoding="utf-8")
+        gpos = ingest.parse_report(xml_path)
+        assert len(gpos) == 1
+        assert gpos[0].id == ""
+        assert gpos[0].name == "NoID"
+
+    def test_no_sides(self, tmp_path: Path) -> None:
+        xml = (
+            '<?xml version="1.0" encoding="utf-8"?>\n'
+            '<GPO xmlns="http://www.microsoft.com/GroupPolicy/Settings">\n'
+            '  <GPO>\n'
+            '    <Identifier><Identifier>'
+            '{11111111-1111-1111-1111-111111111111}'
+            '</Identifier></Identifier>\n'
+            '    <Name>NoSides</Name>\n'
+            '  </GPO>\n'
+            '</GPO>\n'
+        )
+        xml_path = tmp_path / "report.xml"
+        xml_path.write_text(xml, encoding="utf-8")
+        gpos = ingest.parse_report(xml_path)
+        assert len(gpos) == 1
+        assert gpos[0].computer_enabled is False
+        assert gpos[0].user_enabled is False
+
+    def test_parse_bool_case_insensitive(self, tmp_path: Path) -> None:
+        xml = _min_gpo_xml(computer_enabled="True", user_enabled="FALSE")
+        xml_path = tmp_path / "report.xml"
+        xml_path.write_text(xml, encoding="utf-8")
+        gpos = ingest.parse_report(xml_path)
+        assert gpos[0].computer_enabled is True
+        assert gpos[0].user_enabled is False
+
+
+class TestLoadEstate:
+    def test_load_estate_missing_allgpos(self, tmp_path: Path) -> None:
+        with pytest.raises(FileNotFoundError):
+            ingest.load_estate(tmp_path)
+
+    def test_load_estate_minimal(self, tmp_path: Path) -> None:
+        xml_path = tmp_path / "AllGPOs.xml"
+        xml_path.write_text(_min_gpo_xml(), encoding="utf-8")
+        estate = ingest.load_estate(tmp_path)
+        assert isinstance(estate, Estate)
+        assert len(estate.gpos) == 1
+        assert estate.domain == "test.local"
+        assert len(estate.soms) == 0  # no gp-inheritance.json
+
+    def test_load_estate_with_inheritance(self, tmp_path: Path) -> None:
+        xml_path = tmp_path / "AllGPOs.xml"
+        xml_path.write_text(_min_gpo_xml(), encoding="utf-8")
+        inheritance = tmp_path / "gp-inheritance.json"
+        inheritance.write_text(
+            '[{"Path":"dc=test,dc=local","Name":"test","ContainerType":"domain","GpoInheritanceBlocked":false,"InheritedGpoLinks":[]}]',
+            encoding="utf-8",
+        )
+        estate = ingest.load_estate(tmp_path)
+        assert len(estate.soms) == 1
+        assert estate.soms[0].path == "dc=test,dc=local"
+
+    def test_load_estate_with_metadata(self, tmp_path: Path) -> None:
+        xml_path = tmp_path / "AllGPOs.xml"
+        xml_path.write_text(_min_gpo_xml(), encoding="utf-8")
+        metadata = tmp_path / "gpo-metadata.json"
+        metadata.write_text(
+            '[{"Id":"{31B2F340-016D-11D2-945F-00C04FB984F9}","WmiFilter":"MyFilter"}]',
+            encoding="utf-8",
+        )
+        estate = ingest.load_estate(tmp_path)
+        assert estate.gpos[0].wmi_filter == "MyFilter"
+
+    def test_load_estate_missing_backfill_versions(self, tmp_path: Path) -> None:
+        # XML has empty version fields but metadata provides them
+        xml = (
+            '<?xml version="1.0" encoding="utf-8"?>\n'
+            '<GPO xmlns="http://www.microsoft.com/GroupPolicy/Settings">\n'
+            '    <GPO>\n'
+            '        <Identifier>\n'
+            '            <Identifier>{31B2F340-016D-11D2-945F-00C04FB984F9}</Identifier>\n'
+            '            <Domain>test.local</Domain>\n'
+            '        </Identifier>\n'
+            '        <Name>Test GPO</Name>\n'
+            '        <Computer>\n'
+            '            <VersionDirectory />\n'
+            '            <VersionSysvol />\n'
+            '            <Enabled>true</Enabled>\n'
+            '        </Computer>\n'
+            '        <User>\n'
+            '            <VersionDirectory />\n'
+            '            <VersionSysvol />\n'
+            '            <Enabled>true</Enabled>\n'
+            '        </User>\n'
+            '        <FilterDataAvailable>true</FilterDataAvailable>\n'
+            '    </GPO>\n'
+            '</GPO>\n'
+        )
+        xml_path = tmp_path / "AllGPOs.xml"
+        xml_path.write_text(xml, encoding="utf-8")
+        metadata = tmp_path / "gpo-metadata.json"
+        metadata.write_text(
+            '[{"Id":"{31B2F340-016D-11D2-945F-00C04FB984F9}",'
+            '"ComputerVersionDirectory":"5","ComputerVersionSysvol":"6",'
+            '"UserVersionDirectory":"7","UserVersionSysvol":"8"}]',
+            encoding="utf-8",
+        )
+        estate = ingest.load_estate(tmp_path)
+        gpo = estate.gpos[0]
+        assert gpo.computer_ver_ds == 5
+        assert gpo.computer_ver_sysvol == 6
+        assert gpo.user_ver_ds == 7
+        assert gpo.user_ver_sysvol == 8
+
+    def test_load_estate_sysvol_match(self, tmp_path: Path) -> None:
+        xml_path = tmp_path / "AllGPOs.xml"
+        xml_path.write_text(_min_gpo_xml(), encoding="utf-8")
+        sysvol = tmp_path / "SYSVOL-Policies"
+        guid_dir = sysvol / "31B2F340-016D-11D2-945F-00C04FB984F9"
+        guid_dir.mkdir(parents=True)
+        (guid_dir / "dummy.txt").write_text("hello", encoding="utf-8")
+        estate = ingest.load_estate(tmp_path)
+        assert estate.gpos[0].sysvol_path is not None
+
+    def test_load_estate_sysvol_alt_path(self, tmp_path: Path) -> None:
+        xml_path = tmp_path / "AllGPOs.xml"
+        xml_path.write_text(_min_gpo_xml(), encoding="utf-8")
+        sysvol = tmp_path / "SYSVOL" / "Policies"
+        guid_dir = sysvol / "31B2F340-016D-11D2-945F-00C04FB984F9"
+        guid_dir.mkdir(parents=True)
+        estate = ingest.load_estate(tmp_path)
+        assert estate.gpos[0].sysvol_path is not None
+
+
+class TestParseInheritanceEdgeCases:
+    def test_single_dict_not_list(self, tmp_path: Path) -> None:
+        json_path = tmp_path / "inheritance.json"
+        json_path.write_text(
+            '{"Path":"dc=test,dc=local","Name":"test","ContainerType":"domain","GpoInheritanceBlocked":"false","InheritedGpoLinks":[]}',
+            encoding="utf-8",
+        )
+        soms = ingest.parse_inheritance(json_path)
+        assert len(soms) == 1
+        assert soms[0].inheritance_blocked is False
+
+    def test_gpo_inheritance_blocked_true_string(self, tmp_path: Path) -> None:
+        json_path = tmp_path / "inheritance.json"
+        json_path.write_text(
+            '[{"Path":"dc=test,dc=local","Name":"test","ContainerType":"domain","GpoInheritanceBlocked":"true","InheritedGpoLinks":[]}]',
+            encoding="utf-8",
+        )
+        soms = ingest.parse_inheritance(json_path)
+        assert soms[0].inheritance_blocked is True
+
+    def test_links_raw_is_dict(self, tmp_path: Path) -> None:
+        json_path = tmp_path / "inheritance.json"
+        json_path.write_text(
+            '[{"Path":"dc=test,dc=local","Name":"test","ContainerType":"domain","GpoInheritanceBlocked":false,"InheritedGpoLinks":{"GpoId":"{31B2F340-016D-11D2-945F-00C04FB984F9}","Order":1,"Enabled":true,"Enforced":false,"Target":"dc=test,dc=local"}}]',
+            encoding="utf-8",
+        )
+        soms = ingest.parse_inheritance(json_path)
+        assert len(soms[0].links) == 1
+        assert soms[0].links[0].gpo_id == "31b2f340-016d-11d2-945f-00c04fb984f9"
+
+    def test_missing_gpo_id_skipped(self, tmp_path: Path) -> None:
+        json_path = tmp_path / "inheritance.json"
+        json_path.write_text(
+            '[{"Path":"dc=test,dc=local","Name":"test","ContainerType":"domain","GpoInheritanceBlocked":false,"InheritedGpoLinks":[{"Order":1,"Enabled":true,"Enforced":false,"Target":"dc=test,dc=local"}]}]',
+            encoding="utf-8",
+        )
+        soms = ingest.parse_inheritance(json_path)
+        assert len(soms[0].links) == 0
+
+
+class TestMergeMetadataEdgeCases:
+    def test_gpo_not_found_is_skipped(self, tmp_path: Path) -> None:
+        gpo = Gpo(
+            id="aaa-bbb", name="Test", domain="test.local",
+            created=None, modified=None, read=None,
+            computer_enabled=True, user_enabled=True,
+            computer_ver_ds=None, computer_ver_sysvol=None,
+            user_ver_ds=None, user_ver_sysvol=None,
+            sddl=None, owner=None, filter_data_available=False,
+            wmi_filter=None, sysvol_path=None,
+        )
+        metadata = tmp_path / "meta.json"
+        metadata.write_text(
+            '[{"Id":"{00000000-0000-0000-0000-000000000000}","WmiFilter":"Other"}]',
+            encoding="utf-8",
+        )
+        # Should not crash even though GPO id mismatch
+        ingest.merge_metadata(metadata, [gpo])
+        assert gpo.wmi_filter is None
+
+    def test_wmi_filter_null(self, tmp_path: Path) -> None:
+        gpo = Gpo(
+            id="aaa-bbb", name="Test", domain="test.local",
+            created=None, modified=None, read=None,
+            computer_enabled=True, user_enabled=True,
+            computer_ver_ds=None, computer_ver_sysvol=None,
+            user_ver_ds=None, user_ver_sysvol=None,
+            sddl=None, owner=None, filter_data_available=False,
+            wmi_filter=None, sysvol_path=None,
+        )
+        metadata = tmp_path / "meta.json"
+        metadata.write_text(
+            '[{"Id":"{00000000-0000-0000-0000-000000000000}","WmiFilter":null}]',
+            encoding="utf-8",
+        )
+        ingest.merge_metadata(metadata, [gpo])
+        assert gpo.wmi_filter is None
+
+    def test_non_string_wmi_filter_coerces_to_none(self, tmp_path: Path) -> None:
+        gpo = Gpo(
+            id="aaa-bbb", name="Test", domain="test.local",
+            created=None, modified=None, read=None,
+            computer_enabled=True, user_enabled=True,
+            computer_ver_ds=None, computer_ver_sysvol=None,
+            user_ver_ds=None, user_ver_sysvol=None,
+            sddl=None, owner=None, filter_data_available=False,
+            wmi_filter=None, sysvol_path=None,
+        )
+        metadata = tmp_path / "meta.json"
+        metadata.write_text(
+            '[{"Id":"{00000000-0000-0000-0000-000000000000}","WmiFilter":123}]',
+            encoding="utf-8",
+        )
+        ingest.merge_metadata(metadata, [gpo])
+        assert gpo.wmi_filter is None

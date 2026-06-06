@@ -121,6 +121,37 @@ def init_db(conn: sqlite3.Connection) -> None:
         )
         """
     )
+    # Indexes for query performance
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_setting_snapshot_gpo
+        ON setting(snapshot_id, gpo_id)
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_gpo_link_snapshot_gpo
+        ON gpo_link(snapshot_id, gpo_id)
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_delegation_snapshot_gpo
+        ON delegation(snapshot_id, gpo_id)
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_som_link_snapshot_som
+        ON som_link(snapshot_id, som_path)
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_som_link_snapshot_gpo
+        ON som_link(snapshot_id, gpo_id)
+        """
+    )
     conn.commit()
 
 

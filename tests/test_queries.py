@@ -6,7 +6,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from gpo_lens import queries
-from gpo_lens.model import DelegationEntry, Estate, Gpo
+from gpo_lens.model import DelegationEntry, Estate, Gpo, Setting
 
 
 def _make_gpo(**kwargs) -> Gpo:
@@ -482,6 +482,80 @@ def test_unlinked_gpos():
     gpo = _make_gpo(links=[])
     estate = Estate(gpos=[gpo])
     assert queries.unlinked_gpos(estate) == [gpo]
+
+
+# ---- disabled_but_populated --------------------------------------------------
+
+
+def test_disabled_but_populated_computer_side():
+    gpo = _make_gpo(
+        computer_enabled=False,
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="Computer", cse="Security",
+                identity="X", display_name="X", display_value="1",
+                raw={}, from_disabled_side=True,
+            ),
+        ],
+    )
+    estate = Estate(gpos=[gpo])
+    result = queries.disabled_but_populated(estate)
+    assert result == [(gpo, "Computer")]
+
+
+def test_disabled_but_populated_user_side():
+    gpo = _make_gpo(
+        user_enabled=False,
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="User", cse="Registry",
+                identity="Y", display_name="Y", display_value="2",
+                raw={}, from_disabled_side=True,
+            ),
+        ],
+    )
+    estate = Estate(gpos=[gpo])
+    result = queries.disabled_but_populated(estate)
+    assert result == [(gpo, "User")]
+
+
+def test_disabled_but_populated_both_sides():
+    gpo = _make_gpo(
+        computer_enabled=False,
+        user_enabled=False,
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="Computer", cse="Security",
+                identity="X", display_name="X", display_value="1",
+                raw={}, from_disabled_side=True,
+            ),
+            Setting(
+                gpo_id="gpo-1", side="User", cse="Registry",
+                identity="Y", display_name="Y", display_value="2",
+                raw={}, from_disabled_side=True,
+            ),
+        ],
+    )
+    estate = Estate(gpos=[gpo])
+    result = queries.disabled_but_populated(estate)
+    assert len(result) == 2
+    assert (gpo, "Computer") in result
+    assert (gpo, "User") in result
+
+
+def test_disabled_but_populated_enabled_side_ignored():
+    gpo = _make_gpo(
+        computer_enabled=True,
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="Computer", cse="Security",
+                identity="X", display_name="X", display_value="1",
+                raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    estate = Estate(gpos=[gpo])
+    assert queries.disabled_but_populated(estate) == []
 
 
 # ---- settings_at_som --------------------------------------------------------

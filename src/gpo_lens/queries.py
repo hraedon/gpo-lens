@@ -460,6 +460,48 @@ class SomConflict:
     winner: str                          # gpo_name of the last in chain
 
 
+def _resolve_som_chain(
+    estate: Estate, som_path: str
+) -> tuple[list[SomLink], dict[str, Gpo], dict[str, str]] | None:
+    """Find a SOM and return (enabled_chain, gpo_by_id, names) or None."""
+    target_som = None
+    for som in estate.soms:
+        if som.path.lower() == som_path.lower():
+            target_som = som
+            break
+    if target_som is None:
+        return None
+    chain = [link for link in target_som.links if link.enabled]
+    if not chain:
+        return None
+    gpo_by_id = {g.id: g for g in estate.gpos}
+    names = {g.id: g.name for g in estate.gpos}
+    return chain, gpo_by_id, names
+
+
+def _chain_buckets(
+    chain: list[SomLink],
+    gpo_by_id: dict[str, Gpo],
+) -> dict[tuple[str, str, str], list[tuple[str, str, int]]]:
+    """Fold a SOM chain into buckets keyed by (cse, side, identity).
+
+    Each bucket entry is (gpo_name, display_value, order).
+    """
+    names = {g.id: g.name for g in gpo_by_id.values()}
+    buckets: dict[tuple[str, str, str], list[tuple[str, str, int]]] = (
+        defaultdict(list)
+    )
+    for link in chain:
+        gpo = gpo_by_id.get(link.gpo_id)
+        if gpo is None:
+            continue
+        for s in gpo.settings:
+            key = (s.cse, s.side, s.identity)
+            gpo_name = names.get(link.gpo_id, "<unknown>")
+            buckets[key].append((gpo_name, s.display_value, link.order))
+    return dict(buckets)
+
+
 def som_conflicts(estate: Estate, som_path: str) -> list[SomConflict]:
     """Settings that appear in the SOM chain with differing values.
 
@@ -468,38 +510,11 @@ def som_conflicts(estate: Estate, som_path: str) -> list[SomConflict]:
     ``display_value`` s**, emits a conflict. The later (higher ``order``) GPO
     wins platform precedence — annotated as ``winner``.
     """
-    # Find the SOM
-    target_som = None
-    for som in estate.soms:
-        if som.path.lower() == som_path.lower():
-            target_som = som
-            break
-    if target_som is None:
+    resolved = _resolve_som_chain(estate, som_path)
+    if resolved is None:
         return []
-
-    # Build GPO id → name lookup
-    names = {g.id: g.name for g in estate.gpos}
-    # Build GPO id → settings list
-    settings_by_gpo: dict[str, list[Setting]] = {
-        g.id: g.settings for g in estate.gpos
-    }
-
-    # Walk chain in order, keeping only enabled links
-    chain = [link for link in target_som.links if link.enabled]
-    if not chain:
-        return []
-
-    # Accumulate settings seen so far: (cse, side, identity) -> list of entries
-    buckets: dict[tuple[str, str, str], list[tuple[str, str, int]]] = (
-        defaultdict(list)
-    )
-
-    for link in chain:
-        gpo_settings = settings_by_gpo.get(link.gpo_id, [])
-        for s in gpo_settings:
-            key = (s.cse, s.side, s.identity)
-            gpo_name = names.get(link.gpo_id, "<unknown>")
-            buckets[key].append((gpo_name, s.display_value, link.order))
+    chain, gpo_by_id, _names = resolved
+    buckets = _chain_buckets(chain, gpo_by_id)
 
     results: list[SomConflict] = []
     for (cse, side, identity), entries in buckets.items():
@@ -517,10 +532,12 @@ def som_conflicts(estate: Estate, som_path: str) -> list[SomConflict]:
             status = "winner" if gpo_name == winner else "overridden"
             conflict_entries.append((gpo_name, value, status))
         # Get display_name from first entry's setting — any will do
-        # We need to recover it. Look up from any GPO in the chain.
         display_name = ""
         for link in chain:
-            for s in settings_by_gpo.get(link.gpo_id, []):
+            gpo = gpo_by_id.get(link.gpo_id)
+            if gpo is None:
+                continue
+            for s in gpo.settings:
                 if (s.cse, s.side, s.identity) == (cse, side, identity):
                     display_name = s.display_name
                     break
@@ -569,23 +586,10 @@ def settings_at_som(estate: Estate, som_path: str) -> list[EffectiveSetting]:
     chain wins. Returns the folded state: one ``EffectiveSetting`` per
     unique identity, annotated with the winner and any overridden values.
     """
-    # Find the SOM
-    target_som = None
-    for som in estate.soms:
-        if som.path.lower() == som_path.lower():
-            target_som = som
-            break
-    if target_som is None:
+    resolved = _resolve_som_chain(estate, som_path)
+    if resolved is None:
         return []
-
-    # Build lookups
-    gpo_by_id = {g.id: g for g in estate.gpos}
-    names = {g.id: g.name for g in estate.gpos}
-
-    # Walk chain in order, keeping only enabled links
-    chain = [link for link in target_som.links if link.enabled]
-    if not chain:
-        return []
+    chain, gpo_by_id, names = resolved
 
     # Accumulate: (cse, side, identity) -> list of (gpo_id, gpo_name, value, order, enforced)
     buckets: dict[tuple[str, str, str], list[tuple[str, str, str, int, bool]]] = (
