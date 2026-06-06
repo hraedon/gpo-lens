@@ -191,9 +191,16 @@ def cmd_ms16_072(args: argparse.Namespace) -> None:
         _print_table(["id", "name"], [[g.id, g.name] for g in result])
 
 
+def _mask_cpassword(cpw: str) -> str:
+    if len(cpw) <= 4:
+        return "****"
+    return cpw[:4] + "****"
+
+
 def cmd_cpassword(args: argparse.Namespace) -> None:
     estate = _get_estate(args)
     result = queries.cpassword_scan(estate)
+    show = getattr(args, "show_secrets", False)
     if args.json:
         _render_json(
             [
@@ -202,7 +209,7 @@ def cmd_cpassword(args: argparse.Namespace) -> None:
                     "gpo_name": h.gpo_name,
                     "file": h.file,
                     "tag": h.tag,
-                    "cpassword": h.cpassword,
+                    "cpassword": h.cpassword if show else _mask_cpassword(h.cpassword),
                 }
                 for h in result
             ]
@@ -210,7 +217,11 @@ def cmd_cpassword(args: argparse.Namespace) -> None:
     else:
         _print_table(
             ["gpo_id", "file", "tag", "cpassword"],
-            [[h.gpo_id, h.file, h.tag, h.cpassword] for h in result],
+            [
+                [h.gpo_id, h.file, h.tag,
+                 h.cpassword if show else _mask_cpassword(h.cpassword)]
+                for h in result
+            ],
         )
 
 
@@ -634,6 +645,10 @@ def main(argv: list[str] | None = None) -> int:
     p.set_defaults(func=cmd_ms16_072)
 
     p = sub.add_parser("cpassword")
+    p.add_argument(
+        "--show-secrets", action="store_true",
+        help="Reveal full cpassword values (default: masked)",
+    )
     _add_src(p)
     p.set_defaults(func=cmd_cpassword)
 

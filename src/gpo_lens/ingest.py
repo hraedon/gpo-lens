@@ -278,8 +278,12 @@ def parse_report(xml_path: str | Path) -> list[Gpo]:
     tree = ET.parse(xml_path)
     root = tree.getroot()
     gpos: list[Gpo] = []
-    # The report may contain many GPO elements (AllGPOs.xml) or one
+    # The report may contain many <GPO> elements as children of the root
+    # wrapper (AllGPOs.xml) or one <GPO> as the root itself.  We only look
+    # at descendants that are actual GPO blocks, never the root wrapper.
     for gpo_elem in root.iter():
+        if gpo_elem is root:
+            continue
         if _localname(gpo_elem.tag) == "GPO":
             gpo = _parse_single_gpo(gpo_elem)
             gpos.append(gpo)
@@ -398,7 +402,10 @@ def merge_metadata(json_path: str | Path, gpos: list[Gpo]) -> None:
         raw_id = record.get("Id", "")
         if not raw_id:
             continue
-        gpo_id = canonical_guid(raw_id)
+        try:
+            gpo_id = canonical_guid(raw_id)
+        except ValueError:
+            continue
         gpo = by_id.get(gpo_id)
         if gpo is None:
             continue
