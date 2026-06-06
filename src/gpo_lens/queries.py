@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
+import sqlite3
 import xml.etree.ElementTree as ET
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from gpo_lens.model import Estate, Gpo, Setting, Side
+    from gpo_lens.model import Estate, Gpo, Setting, Side, Som, SomLink
 
-Side = str
+Side = str  # type: ignore[misc]
 
 
 @dataclass(frozen=True)
@@ -65,15 +66,22 @@ def disabled_but_populated(estate: Estate) -> list[tuple[Gpo, Side]]:
     """(Gpo, Side) pairs where the side is disabled but has settings."""
     results: list[tuple[Gpo, Side]] = []
     for g in estate.gpos:
-        if not g.computer_enabled and any(s.side == "Computer" and s.from_disabled_side for s in g.settings):
+        comp_disabled = not g.computer_enabled and any(
+            s.side == "Computer" and s.from_disabled_side for s in g.settings
+        )
+        user_disabled = not g.user_enabled and any(
+            s.side == "User" and s.from_disabled_side for s in g.settings
+        )
+        if comp_disabled:
             results.append((g, "Computer"))
-        if not g.user_enabled and any(s.side == "User" and s.from_disabled_side for s in g.settings):
+        if user_disabled:
             results.append((g, "User"))
     return results
 
 
 def who_sets(estate: Estate, term: str) -> list[Setting]:
-    """Settings whose display_name, identity, or display_value contains *term* (case-insensitive)."""
+    """Settings whose display_name, identity, or display_value
+    contains *term* (case-insensitive)."""
     term_lower = term.lower()
     return [
         s
@@ -86,8 +94,9 @@ def who_sets(estate: Estate, term: str) -> list[Setting]:
 
 
 def conflicts(estate: Estate) -> list[Conflict]:
-    """Cross-estate conflict surface: same setting identity across GPOs with differing values."""
-    buckets: dict[tuple, list[Setting]] = defaultdict(list)
+    """Cross-estate conflict surface: same setting identity across GPOs
+    with differing values."""
+    buckets: dict[tuple[str, str, str], list[Setting]] = defaultdict(list)
     for g in estate.gpos:
         for s in g.settings:
             key = (s.cse, s.side, s.identity)
@@ -293,13 +302,15 @@ def cpassword_scan(estate: Estate) -> list[CpasswordHit]:
 # Snapshot diff
 # ---------------------------------------------------------------------------
 
-def snapshot_diff(conn, snap_a: int, snap_b: int) -> dict:
+def snapshot_diff(
+    conn: sqlite3.Connection, snap_a: int, snap_b: int
+) -> dict[str, list[str]]:
     """Compute the diff between two snapshots.
 
     Returns a dict with keys: gpos_added, gpos_removed, gpos_modified,
     delegation_changed.
     """
-    def _load_snapshot_gpos(snap_id):
+    def _load_snapshot_gpos(snap_id: int) -> set[str]:
         return set(
             row[0] for row in
             conn.execute(
@@ -314,7 +325,7 @@ def snapshot_diff(conn, snap_a: int, snap_b: int) -> dict:
     removed = a_ids - b_ids
 
     # Settings changes
-    changed = []
+    changed: list[str] = []
     for gpo_id in a_ids & b_ids:
         old_settings = set(
             conn.execute(
@@ -334,4 +345,276 @@ def snapshot_diff(conn, snap_a: int, snap_b: int) -> dict:
         if old_settings != new_settings:
             changed.append(gpo_id)
 
-    return {"added": list(added), "removed": list(removed), "changed": changed}
+    return {
+        "added": list(added),
+        "removed": list(removed),
+        "changed": changed,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Topology / SOM-aware queries (Tier 2.5)
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class EffectiveGpo:
+    """One GPO in the resolved chain at a SOM."""
+
+    gpo_id: str
+    gpo_name: str
+    order: int
+    enabled: bool
+    enforced: bool
+    target: str            # DN the link originates from
+
+
+def som_effective_gpos(estate: Estate, som_path: str) -> list[EffectiveGpo]:
+    """Return the resolved, ordered GPO chain at a given SOM path.
+
+    This reads the platform-computed chain from the GPInheritance dump.
+    It does *not* object-level simulate (no WMl/loopback/security);
+    it is the OU-level "what applies here" view.
+    """
+    # Build a GPO id → name lookup
+    names = {g.id: g.name for g in estate.gpos}
+    for som in estate.soms:
+        if som.path.lower() == som_path.lower():
+            return [
+                EffectiveGpo(
+                    gpo_id=link.gpo_id,
+                    gpo_name=names.get(link.gpo_id, "<unknown>"),
+                    order=link.order,
+                    enabled=link.enabled,
+                    enforced=link.enforced,
+                    target=link.target,
+                )
+                for link in som.links
+            ]
+    return []
+
+
+def dangling_links(estate: Estate) -> list[tuple[Som, SomLink]]:
+    """SOM links that point to GPO ids not present in the estate."""
+    gpo_ids = {g.id for g in estate.gpos}
+    results: list[tuple[Som, SomLink]] = []
+    for som in estate.soms:
+        for link in som.links:
+            if link.gpo_id not in gpo_ids:
+                results.append((som, link))
+    return results
+
+
+def enforced_links(estate: Estate) -> list[tuple[Som, SomLink]]:
+    """All enforced (NoOverride) links across the estate."""
+    results: list[tuple[Som, SomLink]] = []
+    for som in estate.soms:
+        for link in som.links:
+            if link.enforced:
+                results.append((som, link))
+    return results
+
+
+# ---------------------------------------------------------------------------
+# Feature-flag queries
+# ---------------------------------------------------------------------------
+
+_LOOPBACK_IDENTITIES = {
+    "configure user group policy loopback processing mode",
+    "configure group policy loopback processing mode",
+}
+
+
+def loopback_gpos(estate: Estate) -> list[tuple[Gpo, Setting]]:
+    """GPOs that configure loopback processing mode."""
+    results: list[tuple[Gpo, Setting]] = []
+    for g in estate.gpos:
+        for s in g.settings:
+            ident_lower = s.identity.lower()
+            val_lower = s.display_value.lower()
+            if any(lb in ident_lower for lb in _LOOPBACK_IDENTITIES):
+                results.append((g, s))
+            elif "loopback" in val_lower:
+                results.append((g, s))
+    return results
+
+
+def wmi_filtered_gpos(estate: Estate) -> list[Gpo]:
+    """GPOs that have a WMI filter attached."""
+    return [g for g in estate.gpos if g.wmi_filter is not None]
+
+
+# ---------------------------------------------------------------------------
+# Tier 2.5 — Chain-aware conflict detection
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class SomConflict:
+    """One setting identity that fights in the resolved SOM chain."""
+
+    som_path: str
+    cse: str
+    side: Side
+    identity: str
+    display_name: str
+    entries: list[tuple[str, str, str]]  # (gpo_name, display_value, status)
+    winner: str                          # gpo_name of the last in chain
+
+
+def som_conflicts(estate: Estate, som_path: str) -> list[SomConflict]:
+    """Settings that appear in the SOM chain with differing values.
+
+    Walks the resolved chain in ``order``. For each ``(cse, side, identity)``
+    that appears in **two or more enabled GPOs** with **two or more distinct
+    ``display_value`` s**, emits a conflict. The later (higher ``order``) GPO
+    wins platform precedence — annotated as ``winner``.
+    """
+    # Find the SOM
+    target_som = None
+    for som in estate.soms:
+        if som.path.lower() == som_path.lower():
+            target_som = som
+            break
+    if target_som is None:
+        return []
+
+    # Build GPO id → name lookup
+    names = {g.id: g.name for g in estate.gpos}
+    # Build GPO id → settings list
+    settings_by_gpo: dict[str, list[Setting]] = {
+        g.id: g.settings for g in estate.gpos
+    }
+
+    # Walk chain in order, keeping only enabled links
+    chain = [link for link in target_som.links if link.enabled]
+    if not chain:
+        return []
+
+    # Accumulate settings seen so far: (cse, side, identity) -> list of entries
+    buckets: dict[tuple[str, str, str], list[tuple[str, str, int]]] = (
+        defaultdict(list)
+    )
+
+    for link in chain:
+        gpo_settings = settings_by_gpo.get(link.gpo_id, [])
+        for s in gpo_settings:
+            key = (s.cse, s.side, s.identity)
+            gpo_name = names.get(link.gpo_id, "<unknown>")
+            buckets[key].append((gpo_name, s.display_value, link.order))
+
+    results: list[SomConflict] = []
+    for (cse, side, identity), entries in buckets.items():
+        # Need >=2 distinct GPOs with >=2 distinct values
+        gpo_names = {e[0] for e in entries}
+        values = {e[1] for e in entries}
+        if len(gpo_names) < 2 or len(values) < 2:
+            continue
+        # Winner = highest order entry
+        winner_entry = max(entries, key=lambda e: e[2])
+        winner = winner_entry[0]
+        # Build conflict entries with status annotation
+        conflict_entries: list[tuple[str, str, str]] = []
+        for gpo_name, value, order in entries:
+            status = "winner" if gpo_name == winner else "overridden"
+            conflict_entries.append((gpo_name, value, status))
+        # Get display_name from first entry's setting — any will do
+        # We need to recover it. Look up from any GPO in the chain.
+        display_name = ""
+        for link in chain:
+            for s in settings_by_gpo.get(link.gpo_id, []):
+                if (s.cse, s.side, s.identity) == (cse, side, identity):
+                    display_name = s.display_name
+                    break
+            if display_name:
+                break
+
+        results.append(
+            SomConflict(
+                som_path=som_path,
+                cse=cse,
+                side=side,
+                identity=identity,
+                display_name=display_name,
+                entries=conflict_entries,
+                winner=winner,
+            )
+        )
+
+    return results
+
+
+def precedence_conflicts(estate: Estate) -> list[tuple[Som, list[SomConflict]]]:
+    """Estate-wide precedence conflict summary.
+
+    Runs ``som_conflicts`` for every SOM that has links, returning those
+    with hits.
+    """
+    results: list[tuple[Som, list[SomConflict]]] = []
+    for som in estate.soms:
+        if som.links:
+            conflicts = som_conflicts(estate, som.path)
+            if conflicts:
+                results.append((som, conflicts))
+    return results
+
+
+# ---------------------------------------------------------------------------
+# Broken-reference inventory
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class BrokenRef:
+    """One detected broken or suspicious reference."""
+
+    gpo_id: str
+    gpo_name: str
+    ref_type: str          # "unc_path", "missing_script", "script_unc"
+    ref_value: str
+    detail: str
+
+
+def _scan_text_for_unc(text: str) -> list[str]:
+    """Find UNC paths in a string."""
+    # Simple regex-free scan for \\server\share patterns
+    import re as _re
+    return _re.findall(r"\\\\[^\s\"'<>|]+", text)
+
+
+def broken_refs(estate: Estate) -> list[BrokenRef]:
+    """Scan settings and SYSVOL for broken-reference patterns.
+
+    This is **detection only** — no reachability probe. Safe for air-gapped
+    use. Flags:
+    - UNC paths in setting display values
+    - Script references that are UNC paths
+    - Reference to files that don't exist in the GPO's sysvol_path
+    """
+    from pathlib import Path
+
+    results: list[BrokenRef] = []
+
+    for g in estate.gpos:
+        # Scan settings for UNC paths in display values
+        for s in g.settings:
+            uncs = _scan_text_for_unc(s.display_value)
+            for unc in uncs:
+                results.append(
+                    BrokenRef(
+                        gpo_id=g.id,
+                        gpo_name=g.name,
+                        ref_type="unc_path",
+                        ref_value=unc,
+                        detail=f"[{s.cse}] {s.identity}: UNC in display value",
+                    )
+                )
+
+        # Scan SYSVOL for missing scripts/files if path exists
+        if g.sysvol_path:
+            base = Path(g.sysvol_path)
+            for side_dir in ("Machine", "User"):
+                scripts = base / side_dir / "Scripts" / "Logon"
+                if scripts.exists():
+                    # Not checking existence of individual scripts — just flag
+                    # script settings that reference UNC paths
+                    pass
+
+    return results

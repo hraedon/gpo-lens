@@ -27,7 +27,6 @@ def render_table(headers: list[str], rows: list[Sequence[str]]) -> str:
 
     # Convert everything to strings
     str_rows = [[str(cell) for cell in row] for row in rows]
-    headers_str = [str(h) for h in headers]
     ncols = len(headers)
 
     # Compute column widths

@@ -5,8 +5,8 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from gpo_lens.model import DelegationEntry, Estate, Gpo
 from gpo_lens import queries
+from gpo_lens.model import DelegationEntry, Estate, Gpo
 
 
 def _make_gpo(**kwargs) -> Gpo:
@@ -215,6 +215,259 @@ def test_cpassword_scan_skips_broken_xml(tmp_path):
     gpo = _make_gpo(sysvol_path=str(gpo_dir))
     estate = Estate(gpos=[gpo])
     assert queries.cpassword_scan(estate) == []
+
+
+# ---- topology queries ------------------------------------------------------
+
+def test_som_effective_gpos():
+    from gpo_lens.model import Som, SomLink
+
+    gpo = _make_gpo(id="gpo-1", name="Test GPO")
+    som = Som(
+        path="ou=workstations,dc=test,dc=local",
+        name="Workstations",
+        container_type="ou",
+        inheritance_blocked=False,
+        links=[
+            SomLink(
+                gpo_id="gpo-1", order=1, enabled=True,
+                enforced=False, target="ou=workstations,dc=test,dc=local",
+            ),
+        ],
+    )
+    estate = Estate(gpos=[gpo], soms=[som])
+    result = queries.som_effective_gpos(estate, "ou=workstations,dc=test,dc=local")
+    assert len(result) == 1
+    assert result[0].gpo_id == "gpo-1"
+    assert result[0].gpo_name == "Test GPO"
+
+
+def test_som_effective_gpos_case_insensitive():
+    from gpo_lens.model import Som, SomLink
+
+    gpo = _make_gpo(id="gpo-1", name="Test GPO")
+    som = Som(
+        path="OU=Workstations,DC=test,DC=local",
+        name="Workstations",
+        container_type="ou",
+        inheritance_blocked=False,
+        links=[SomLink(gpo_id="gpo-1", order=1, enabled=True, enforced=False, target="")],
+    )
+    estate = Estate(gpos=[gpo], soms=[som])
+    result = queries.som_effective_gpos(estate, "ou=workstations,dc=test,dc=local")
+    assert len(result) == 1
+
+
+def test_dangling_links():
+    from gpo_lens.model import Som, SomLink
+
+    som = Som(
+        path="ou=workstations,dc=test,dc=local",
+        name="Workstations",
+        container_type="ou",
+        inheritance_blocked=False,
+        links=[SomLink(gpo_id="missing-gpo", order=1, enabled=True, enforced=False, target="")],
+    )
+    estate = Estate(gpos=[], soms=[som])
+    result = queries.dangling_links(estate)
+    assert len(result) == 1
+    assert result[0][1].gpo_id == "missing-gpo"
+
+
+def test_enforced_links():
+    from gpo_lens.model import Som, SomLink
+
+    gpo = _make_gpo(id="gpo-1")
+    som = Som(
+        path="ou=workstations,dc=test,dc=local",
+        name="Workstations",
+        container_type="ou",
+        inheritance_blocked=False,
+        links=[
+            SomLink(gpo_id="gpo-1", order=1, enabled=True, enforced=True, target=""),
+        ],
+    )
+    estate = Estate(gpos=[gpo], soms=[som])
+    result = queries.enforced_links(estate)
+    assert len(result) == 1
+    assert result[0][1].enforced is True
+
+
+def test_loopback_gpos_detects_loopback_setting():
+    from gpo_lens.model import Setting
+
+    gpo = _make_gpo(
+        id="gpo-1",
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="Computer", cse="Registry",
+                identity="Configure user Group Policy loopback processing mode",
+                display_name="Loopback", display_value="Enabled",
+                raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    estate = Estate(gpos=[gpo])
+    result = queries.loopback_gpos(estate)
+    assert len(result) == 1
+    assert result[0][0].id == "gpo-1"
+
+
+def test_wmi_filtered_gpos():
+    gpo = _make_gpo(id="gpo-1", wmi_filter="MyFilter")
+    estate = Estate(gpos=[gpo])
+    result = queries.wmi_filtered_gpos(estate)
+    assert len(result) == 1
+    assert result[0].wmi_filter == "MyFilter"
+
+
+# ---- Tier 2.5 chain-aware queries -----------------------------------------
+
+def test_som_conflicts_empty_when_no_som():
+    estate = Estate(gpos=[], soms=[])
+    assert queries.som_conflicts(estate, "dc=test,dc=local") == []
+
+
+def test_som_conflicts_empty_when_single_gpo():
+    from gpo_lens.model import Setting, Som, SomLink
+
+    gpo = _make_gpo(
+        id="gpo-1",
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="Computer", cse="Security",
+                identity="Account:Foo", display_name="Foo",
+                display_value="bar", raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    som = Som(
+        path="ou=ws,dc=test,dc=local",
+        name="WS",
+        container_type="ou",
+        inheritance_blocked=False,
+        links=[SomLink(gpo_id="gpo-1", order=1, enabled=True, enforced=False, target="")],
+    )
+    estate = Estate(gpos=[gpo], soms=[som])
+    result = queries.som_conflicts(estate, "ou=ws,dc=test,dc=local")
+    assert result == []
+
+
+def test_som_conflicts_detects_value_mismatch():
+    from gpo_lens.model import Setting, Som, SomLink
+
+    gpo_a = _make_gpo(
+        id="gpo-a", name="GPO A",
+        settings=[
+            Setting(
+                gpo_id="gpo-a", side="Computer", cse="Security",
+                identity="Account:LockoutBadCount",
+                display_name="LockoutBadCount",
+                display_value="5", raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    gpo_b = _make_gpo(
+        id="gpo-b", name="GPO B",
+        settings=[
+            Setting(
+                gpo_id="gpo-b", side="Computer", cse="Security",
+                identity="Account:LockoutBadCount",
+                display_name="LockoutBadCount",
+                display_value="10", raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    som = Som(
+        path="ou=ws,dc=test,dc=local",
+        name="WS",
+        container_type="ou",
+        inheritance_blocked=False,
+        links=[
+            SomLink(gpo_id="gpo-a", order=1, enabled=True, enforced=False, target=""),
+            SomLink(gpo_id="gpo-b", order=2, enabled=True, enforced=False, target=""),
+        ],
+    )
+    estate = Estate(gpos=[gpo_a, gpo_b], soms=[som])
+    result = queries.som_conflicts(estate, "ou=ws,dc=test,dc=local")
+    assert len(result) == 1
+    c = result[0]
+    assert c.identity == "Account:LockoutBadCount"
+    assert c.winner == "GPO B"
+    assert len(c.entries) == 2
+
+
+def test_som_conflicts_ignores_disabled_links():
+    from gpo_lens.model import Setting, Som, SomLink
+
+    gpo_a = _make_gpo(
+        id="gpo-a",
+        settings=[
+            Setting(
+                gpo_id="gpo-a", side="Computer", cse="Security",
+                identity="Account:Foo", display_name="Foo",
+                display_value="5", raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    gpo_b = _make_gpo(
+        id="gpo-b",
+        settings=[
+            Setting(
+                gpo_id="gpo-b", side="Computer", cse="Security",
+                identity="Account:Foo", display_name="Foo",
+                display_value="10", raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    som = Som(
+        path="ou=ws,dc=test,dc=local",
+        name="WS",
+        container_type="ou",
+        inheritance_blocked=False,
+        links=[
+            SomLink(gpo_id="gpo-a", order=1, enabled=True, enforced=False, target=""),
+            SomLink(
+                gpo_id="gpo-b", order=2, enabled=False,
+                enforced=False, target="",
+            ),
+        ],
+    )
+    estate = Estate(gpos=[gpo_a, gpo_b], soms=[som])
+    result = queries.som_conflicts(estate, "ou=ws,dc=test,dc=local")
+    assert result == []
+
+
+def test_precedence_conflicts_empty_when_clean():
+    estate = Estate(gpos=[], soms=[])
+    assert queries.precedence_conflicts(estate) == []
+
+
+def test_broken_refs_detects_unc_in_display_value():
+    from gpo_lens.model import Setting
+
+    gpo = _make_gpo(
+        id="gpo-1",
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="Computer", cse="Registry",
+                identity="InstallDir", display_name="Install Dir",
+                display_value=r"\\server\share\app", raw={},
+                from_disabled_side=False,
+            ),
+        ],
+    )
+    estate = Estate(gpos=[gpo])
+    result = queries.broken_refs(estate)
+    assert len(result) == 1
+    assert result[0].ref_type == "unc_path"
+    assert result[0].ref_value == r"\\server\share\app"
+
+
+def test_broken_refs_empty_when_clean():
+    gpo = _make_gpo(id="gpo-1", settings=[])
+    estate = Estate(gpos=[gpo])
+    assert queries.broken_refs(estate) == []
 
 
 # ---- existing queries still pass smoke --------------------------------------
