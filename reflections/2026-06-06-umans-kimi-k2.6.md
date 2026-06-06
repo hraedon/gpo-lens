@@ -1,91 +1,90 @@
 ---
 model: umans/umans-kimi-k2.6
-datetime: 2026-06-06T05:30Z
+datetime: 2026-06-06T06:00Z
 project: gpo-lens
 ---
 
 # Session Reflection — 2026-06-06
 
-**Work summary:** Implemented Plan 007 — Tier 2.5 Topology & Hygiene Queries. Added
-`som_conflicts` (chain-aware precedence conflict detection), `precedence_conflicts`
-(estate-wide summary), and `broken_refs` (UNC detection in settings). Wired all three
-to the CLI with `--json` support. Added unit tests and calibration tests that pass
-against the real WORK-DOMAIN.local and lab.example.com exports. Also fixed lint/mypy
-degradation across the codebase and added `__main__.py` for proper `python -m`
-entry points.
+**Work summary:** Implemented Plan 009 — SOM Resolution Deep View. Added
+`EffectiveSetting` dataclass and `settings_at_som(estate, som_path)` query that
+walks the resolved GPO chain and folds settings by precedence (last-GPO-wins).
+Wired `settings-at <som_path>` CLI subcommand with text (grouped by winner GPO)
+and `--json` output. Added 5 unit tests and 2 calibration tests (lab root
++ work root performance/unicity). All 64 tests pass; ruff and mypy clean.
 
 ---
 
 ## On the project
 
-The architecture is holding well. The separation of ingest → model → queries → CLI
-gives us clean test boundaries. The `Setting.identity` field is the right abstraction
-for conflict detection — it collapses differently-shaped CSE blocks into a single
-comparable key.
+The architecture continues to hold. The `settings_at_som` function reuses the
+same chain-walking pattern as `som_conflicts` but with a different fold
+semantic: conflicts look for *disagreement*, while `settings_at_som` looks for
+the *winner*. The code duplication is minimal (the chain lookup and GPO lookup
+are the same), but if more SOM-chain queries land, extracting a
+`_walk_som_chain(estate, som_path)` iterator would be worth doing.
 
-One concern: `queries.py` is now ~620 lines and growing. It covers tier-1 hygiene,
-security scans, topology, snapshot diff, and feature flags. There's no urgent need
-to split it (imports stay simple), but if the Plan 009 deep SOM resolution lands,
-that module will hit 800+ lines and a split into `queries/hygiene.py`,
-`queries/topology.py`, `queries/security.py` becomes worth doing.
+One thing that feels right: the deterministic core is still zero-AI, stdlib-only,
+and air-gap safe. `settings_at_som` is the capstone of Tier 2.5 — it answers the
+question no other tool answers cleanly: "what actually applies here?" After this,
+the natural next tier is either baseline diff (Plan 008) or the LLM narration
+layer (Plan 010+), which sits *outside* the truth path.
 
 ## On the work done
 
 **What went well:**
-- `som_conflicts` correctly distinguishes distinct-GPO vs distinct-value criteria.
-  Two GPOs setting the same value is *not* a conflict (aggregation); two GPOs with
-  different values *is*.
-- The unit tests for `som_conflicts` cover the three edge cases that matter: empty
-  SOM, single GPO (no conflict), and disabled links ignored.
-- The `broken_refs` query is intentionally minimal — UNC regex detection only, no
-  network probes. This preserves the air-gap safety promise.
+- The `EffectiveSetting` dataclass is a clean contract: `winner_gpo_id/name`,
+  `overridden_by`, and `enforced` annotations make the fold semantics explicit.
+- The text CLI output groups by winner GPO, which is the view domain admins
+  actually want. The `--json` output preserves the full `overridden_by` list for
+  machine consumption.
+- Calibration tests on the lab domain root confirmed the chain resolves and
+  produces settings. The work domain performance test passed comfortably (<2s).
 
 **What was awkward:**
-- The `_make_gpo` default `name="Test GPO"` caused a subtle test bug: both test GPOs
-  had the same name, so the conflict check (which looks at distinct GPO names) saw
-  only one distinct GPO and returned no conflicts. Lesson: always vary names in
-  multi-GPO test fixtures.
-- Calibration tests for "how many loopback GPOs" are brittle — the count drifts
-  based on how the `loopback_gpo` heuristic is tuned. I relaxed from `>=30` to
-  `>=28` after seeing the real export. A better calibration would be `>0` with a
-  comment, but the user clearly wants hard numbers from real exports.
+- The `test_settings_at_som_multiple_identities` test initially assumed
+  `Computer` would sort before `User`. The actual sort is `(cse, side, identity)`,
+  so `Registry` (User) comes before `Security` (Computer). This is fine — the
+  sort is stable and deterministic — but it caught me because I wasn't thinking
+  about the CSE dimension in the ordering. Lesson: when testing sorted output,
+  always verify the full sort key, not just the intuitive one.
+- The sample DB (`gpo-lens.sqlite3`) only contains the *lab* snapshot, not the
+  *work* snapshot. So the CLI smoke test against the work domain root required
+  the samples directory. This is by design (work exports are large and
+  gitignored), but it means the CLI can't be casually demoed against work domain
+  data without the samples present.
 
 **Confidence:**
-- `som_conflicts` and `precedence_conflicts` logic is solid and verified against
-  synthetic chains.
-- The calibration numbers against the work domain are as exact as the data allows.
+- `settings_at_som` logic is straightforward and well-covered by unit tests.
+- The performance claim (<2s) is verified against the real 129-GPO work domain.
 
 ## On what remains
 
-1. **Plan 009 — SOM Resolution Deep View** (`settings_at_som`): fold the chain into
-   an effective-settings catalog. This is the "what actually applies at OU X?" view.
-   High ROI, and the `som_conflicts` helper already does the chain-walking.
+1. **Plan 008 — Baseline Diff Framework:** The contract is written but not
+   implemented. This would let users define a "desired state" for settings and
+diff against the actual estate. High value for compliance.
 
-2. **Plan 008 — Baseline Diff Framework**: the contract is written, but the mapping
-   research is the hard part. Could build the framework code (load baseline JSON,
-   diff against estate) with a 5-rule synthetic baseline so the feature is testable
-   before a real baseline exists.
+2. **Plan 010+ — LLM Narration Layer:** Once the deterministic core is fully
+   complete, a thin LLM layer that narrates query results back in natural
+   language could sit cleanly outside the truth path.
 
-3. **Broken-reference expansion**: `broken_refs` currently only scans display values.
-   It could also scan `Setting.raw` (e.g., GPP XML dicts for `filePath` fields) and
-   walk the SYSVOL `Scripts` directories for script references.
+3. **CLI `--json` ordering fix (from reflection 2026-06-06):** The `--json` flag
+   must come before subcommands. A user who types `gpo-lens settings-at X --json`
+   gets an unrecognized-arguments error. Consider `parse_known_args` or a manual
+   parser to fix this.
 
-4. **Performance**: work domain has 1,551 SOMs. `precedence_conflicts` walks all of
-   them. If that becomes slow, memoize the `settings_by_gpo` lookup or pre-build a
-   setting index per GPO. Not needed now (sub-second on current hardware).
+4. **Broken-reference expansion:** `broken_refs` only scans `display_value`. It
+   could also walk `Setting.raw` for nested dicts containing UNC paths, and scan
+   SYSVOL `Scripts` directories.
+
+5. **Extract `_walk_som_chain` helper:** If more SOM-chain queries are added,
+   factor the repeated "find SOM, build lookups, filter enabled chain" logic.
 
 ## Gaps to flag
 
-- `src/gpo_lens/queries.py:380` — `broken_refs` only scans `display_value` for UNC
-  patterns. `Setting.raw` may contain UNC paths in nested dict structures that are
-  not surfaced in `display_value`. A recursive `raw` walk would catch more.
-- `tests/test_calibration.py:161` — `test_work_enforced_links` asserts `count > 0`
-  but does not pin the exact count. If the work domain's enforced links change,
-  this test won't detect the drift. Consider measuring and locking the number.
-- `src/gpo_lens/cli.py:620` — The `--json` flag must come before subcommands when
-  using argparse subparsers. Users naturally put `--json` after the subcommand.
-  Consider switching to a manually-built argument parser or using `parse_known_args`
-  to allow either ordering.
-- `plans/007-tier25-topology-and-hygiene.md` references `settings_at_som` in the
-  out-of-scope section, but that function does not exist yet — it is defined in
-  Plan 009.
+- `src/gpo_lens/queries.py:380` — `broken_refs` only scans `display_value` for
+  UNC patterns. `Setting.raw` may contain UNC paths in nested dict structures.
+- `src/gpo_lens/cli.py:620` — `--json` flag ordering issue remains unfixed.
+- `tests/test_calibration.py:198` — `test_settings_at_som_work_domain` does a
+  fuzzy path match for `dc=work-domain,dc=local`. If the work domain root path format
+  changes, the skip will silently fire. Consider hardening the lookup.

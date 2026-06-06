@@ -558,6 +558,92 @@ def precedence_conflicts(estate: Estate) -> list[tuple[Som, list[SomConflict]]]:
 
 
 # ---------------------------------------------------------------------------
+# SOM Resolution Deep View
+# ---------------------------------------------------------------------------
+
+def settings_at_som(estate: Estate, som_path: str) -> list[EffectiveSetting]:
+    """Return the effective settings that apply at a given SOM path.
+
+    Walks the resolved chain in precedence order. For each
+    ``(cse, side, identity)``, the last (highest-precedence) GPO in the
+    chain wins. Returns the folded state: one ``EffectiveSetting`` per
+    unique identity, annotated with the winner and any overridden values.
+    """
+    # Find the SOM
+    target_som = None
+    for som in estate.soms:
+        if som.path.lower() == som_path.lower():
+            target_som = som
+            break
+    if target_som is None:
+        return []
+
+    # Build lookups
+    gpo_by_id = {g.id: g for g in estate.gpos}
+    names = {g.id: g.name for g in estate.gpos}
+
+    # Walk chain in order, keeping only enabled links
+    chain = [link for link in target_som.links if link.enabled]
+    if not chain:
+        return []
+
+    # Accumulate: (cse, side, identity) -> list of (gpo_id, gpo_name, value, order, enforced)
+    buckets: dict[tuple[str, str, str], list[tuple[str, str, str, int, bool]]] = (
+        defaultdict(list)
+    )
+
+    for link in chain:
+        gpo = gpo_by_id.get(link.gpo_id)
+        if gpo is None:
+            continue
+        for s in gpo.settings:
+            key = (s.cse, s.side, s.identity)
+            gpo_name = names.get(link.gpo_id, "<unknown>")
+            buckets[key].append(
+                (link.gpo_id, gpo_name, s.display_value, link.order, link.enforced)
+            )
+
+    results: list[EffectiveSetting] = []
+    for (cse, side, identity), entries in buckets.items():
+        # Winner = highest order entry
+        winner_entry = max(entries, key=lambda e: e[3])
+        winner_gpo_id, winner_gpo_name, winner_value, _, winner_enforced = winner_entry
+
+        # Build overridden_by list (all *earlier* entries in the chain)
+        overridden: list[tuple[str, str]] = []
+        for gpo_id, gpo_name, value, order, _ in entries:
+            if order < winner_entry[3]:
+                overridden.append((gpo_name, value))
+
+        # Recover display_name from the winner's GPO settings
+        winner_gpo = gpo_by_id.get(winner_gpo_id)
+        display_name = ""
+        if winner_gpo is not None:
+            for s in winner_gpo.settings:
+                if (s.cse, s.side, s.identity) == (cse, side, identity):
+                    display_name = s.display_name
+                    break
+
+        results.append(
+            EffectiveSetting(
+                cse=cse,
+                side=side,
+                identity=identity,
+                display_name=display_name,
+                display_value=winner_value,
+                winner_gpo_id=winner_gpo_id,
+                winner_gpo_name=winner_gpo_name,
+                overridden_by=overridden,
+                enforced=winner_enforced,
+            )
+        )
+
+    # Sort for stable output: by CSE, then side, then identity
+    results.sort(key=lambda es: (es.cse, es.side, es.identity.lower()))
+    return results
+
+
+# ---------------------------------------------------------------------------
 # Broken-reference inventory
 # ---------------------------------------------------------------------------
 
@@ -571,6 +657,24 @@ class BrokenRef:
     ref_value: str
     detail: str
 
+
+@dataclass(frozen=True)
+class EffectiveSetting:
+    """One setting that applies at a SOM after chain folding.
+
+    Represents the winning value for a given (cse, side, identity)
+    after all GPOs in the SOM chain have been evaluated in precedence order.
+    """
+
+    cse: str
+    side: Side
+    identity: str
+    display_name: str
+    display_value: str
+    winner_gpo_id: str
+    winner_gpo_name: str
+    overridden_by: list[tuple[str, str]]  # (gpo_name, display_value)
+    enforced: bool
 
 def _scan_text_for_unc(text: str) -> list[str]:
     """Find UNC paths in a string."""

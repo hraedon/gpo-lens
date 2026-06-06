@@ -538,6 +538,49 @@ def cmd_wmi(args: argparse.Namespace) -> None:
         )
 
 
+def cmd_settings_at(args: argparse.Namespace) -> None:
+    estate = _get_estate(args)
+    result = queries.settings_at_som(estate, args.som_path)
+    if args.json:
+        _render_json(
+            [
+                {
+                    "cse": r.cse,
+                    "side": r.side,
+                    "identity": r.identity,
+                    "display_name": r.display_name,
+                    "display_value": r.display_value,
+                    "winner_gpo_id": r.winner_gpo_id,
+                    "winner_gpo_name": r.winner_gpo_name,
+                    "overridden_by": [
+                        {"gpo_name": n, "value": v} for n, v in r.overridden_by
+                    ],
+                    "enforced": r.enforced,
+                }
+                for r in result
+            ]
+        )
+    else:
+        if not result:
+            print(f"No effective settings at {args.som_path}")
+            return
+        # Group by winner GPO for easier reading
+        by_gpo: dict[str, list[queries.EffectiveSetting]] = {}
+        for r in result:
+            by_gpo.setdefault(r.winner_gpo_name, []).append(r)
+        for gpo_name, settings in by_gpo.items():
+            print(f"\n  [{gpo_name}]")
+            for s in settings:
+                enforced_flag = " [ENFORCED]" if s.enforced else ""
+                print(
+                    f"    [{s.cse}] {s.side}/{s.identity}{enforced_flag}\n"
+                    f"      {s.display_name}: {s.display_value}"
+                )
+                if s.overridden_by:
+                    for o_name, o_val in s.overridden_by:
+                        print(f"      (overridden: {o_name} = {o_val})")
+
+
 # ---------------------------------------------------------------------------
 # Argument parsing
 # ---------------------------------------------------------------------------
@@ -642,6 +685,15 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("wmi", help="GPOs with WMI filters attached")
     _add_src(p)
     p.set_defaults(func=cmd_wmi)
+
+    # new Plan 009 command
+    p = sub.add_parser(
+        "settings-at",
+        help="Show effective settings at a SOM path",
+    )
+    p.add_argument("som_path")
+    _add_src(p)
+    p.set_defaults(func=cmd_settings_at)
 
     # new Plan 007 commands
     p = sub.add_parser(
