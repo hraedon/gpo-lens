@@ -168,3 +168,62 @@ def test_work_no_precedence_conflicts_on_clean_soms(work_estate):
     ]
     if soms_with_one_link:
         assert som_conflicts(work_estate, soms_with_one_link[0].path) == []
+
+
+# ---- Plan 009: settings_at_som calibration -----------------------------------
+
+def test_settings_at_som_lab_domain(lab_estate):
+    from gpo_lens.queries import settings_at_som
+
+    # Lab domain root: dc=lab,dc=example,dc=com
+    # The root SOM should have a resolved chain (multiple GPOs at root)
+    root_som = next(
+        (s for s in lab_estate.soms if s.path.lower() == "dc=lab,dc=example,dc=com"),
+        None,
+    )
+    if root_som is None:
+        pytest.skip("Root SOM not found in lab domain")
+
+    result = settings_at_som(lab_estate, root_som.path)
+    # Should have effective settings from the chain
+    assert len(result) > 0
+    # Every result should have a valid winner
+    for es in result:
+        assert es.winner_gpo_id
+        assert es.winner_gpo_name
+        assert es.identity
+        assert es.display_name is not None
+
+
+def test_settings_at_som_work_domain(work_estate):
+    from gpo_lens.queries import settings_at_som
+
+    # Work domain root
+    root_som = next(
+        (s for s in work_estate.soms
+         if s.path.lower().replace(" ", "") == "dc=work-domain,dc=local"),
+        None,
+    )
+    if root_som is None:
+        # Try relaxed match
+        root_som = next(
+            (s for s in work_estate.soms
+             if "work-domain" in s.path.lower() and "local" in s.path.lower()),
+            None,
+        )
+    if root_som is None:
+        pytest.skip("Root SOM not found in work domain")
+
+    # Performance: fold the largest chain in < 2 seconds
+    import time
+    start = time.perf_counter()
+    result = settings_at_som(work_estate, root_som.path)
+    elapsed = time.perf_counter() - start
+    assert elapsed < 2.0
+    assert len(result) > 0
+    # Verify no duplicates by (cse, side, identity) — the fold should be unique
+    seen = set()
+    for es in result:
+        key = (es.cse, es.side, es.identity)
+        assert key not in seen, f"Duplicate identity {key} in settings_at_som"
+        seen.add(key)

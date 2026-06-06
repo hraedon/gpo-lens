@@ -482,3 +482,196 @@ def test_unlinked_gpos():
     gpo = _make_gpo(links=[])
     estate = Estate(gpos=[gpo])
     assert queries.unlinked_gpos(estate) == [gpo]
+
+
+# ---- settings_at_som --------------------------------------------------------
+
+def test_settings_at_som_empty_when_no_som():
+    estate = Estate(gpos=[], soms=[])
+    assert queries.settings_at_som(estate, "dc=test,dc=local") == []
+
+
+def test_settings_at_som_empty_when_single_gpo():
+    from gpo_lens.model import Setting, Som, SomLink
+
+    gpo = _make_gpo(
+        id="gpo-1",
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="Computer", cse="Security",
+                identity="Account:Foo", display_name="Foo",
+                display_value="bar", raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    som = Som(
+        path="ou=ws,dc=test,dc=local",
+        name="WS",
+        container_type="ou",
+        inheritance_blocked=False,
+        links=[SomLink(gpo_id="gpo-1", order=1, enabled=True, enforced=False, target="")],
+    )
+    estate = Estate(gpos=[gpo], soms=[som])
+    result = queries.settings_at_som(estate, "ou=ws,dc=test,dc=local")
+    assert len(result) == 1
+    assert result[0].identity == "Account:Foo"
+    assert result[0].display_value == "bar"
+    assert result[0].winner_gpo_id == "gpo-1"
+    assert result[0].overridden_by == []
+    assert result[0].enforced is False
+
+
+def test_settings_at_som_last_gpo_wins():
+    from gpo_lens.model import Setting, Som, SomLink
+
+    gpo_a = _make_gpo(
+        id="gpo-a", name="GPO A",
+        settings=[
+            Setting(
+                gpo_id="gpo-a", side="Computer", cse="Security",
+                identity="Account:LockoutBadCount",
+                display_name="LockoutBadCount",
+                display_value="5", raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    gpo_b = _make_gpo(
+        id="gpo-b", name="GPO B",
+        settings=[
+            Setting(
+                gpo_id="gpo-b", side="Computer", cse="Security",
+                identity="Account:LockoutBadCount",
+                display_name="LockoutBadCount",
+                display_value="10", raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    som = Som(
+        path="ou=ws,dc=test,dc=local",
+        name="WS",
+        container_type="ou",
+        inheritance_blocked=False,
+        links=[
+            SomLink(gpo_id="gpo-a", order=1, enabled=True, enforced=False, target=""),
+            SomLink(gpo_id="gpo-b", order=2, enabled=True, enforced=False, target=""),
+        ],
+    )
+    estate = Estate(gpos=[gpo_a, gpo_b], soms=[som])
+    result = queries.settings_at_som(estate, "ou=ws,dc=test,dc=local")
+    assert len(result) == 1
+    es = result[0]
+    assert es.identity == "Account:LockoutBadCount"
+    assert es.display_value == "10"
+    assert es.winner_gpo_name == "GPO B"
+    assert es.overridden_by == [("GPO A", "5")]
+
+
+def test_settings_at_som_ignores_disabled_links():
+    from gpo_lens.model import Setting, Som, SomLink
+
+    gpo_a = _make_gpo(
+        id="gpo-a", name="GPO A",
+        settings=[
+            Setting(
+                gpo_id="gpo-a", side="Computer", cse="Security",
+                identity="Account:Foo", display_name="Foo",
+                display_value="5", raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    gpo_b = _make_gpo(
+        id="gpo-b", name="GPO B",
+        settings=[
+            Setting(
+                gpo_id="gpo-b", side="Computer", cse="Security",
+                identity="Account:Foo", display_name="Foo",
+                display_value="10", raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    som = Som(
+        path="ou=ws,dc=test,dc=local",
+        name="WS",
+        container_type="ou",
+        inheritance_blocked=False,
+        links=[
+            SomLink(gpo_id="gpo-a", order=1, enabled=True, enforced=False, target=""),
+            SomLink(
+                gpo_id="gpo-b", order=2, enabled=False,
+                enforced=False, target="",
+            ),
+        ],
+    )
+    estate = Estate(gpos=[gpo_a, gpo_b], soms=[som])
+    result = queries.settings_at_som(estate, "ou=ws,dc=test,dc=local")
+    assert len(result) == 1
+    assert result[0].display_value == "5"
+    assert result[0].overridden_by == []
+
+
+def test_settings_at_som_enforced_flag():
+    from gpo_lens.model import Setting, Som, SomLink
+
+    gpo = _make_gpo(
+        id="gpo-1", name="GPO One",
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="Computer", cse="Security",
+                identity="Account:Foo", display_name="Foo",
+                display_value="5", raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    som = Som(
+        path="ou=ws,dc=test,dc=local",
+        name="WS",
+        container_type="ou",
+        inheritance_blocked=False,
+        links=[
+            SomLink(gpo_id="gpo-1", order=1, enabled=True, enforced=True, target=""),
+        ],
+    )
+    estate = Estate(gpos=[gpo], soms=[som])
+    result = queries.settings_at_som(estate, "ou=ws,dc=test,dc=local")
+    assert len(result) == 1
+    assert result[0].enforced is True
+
+
+def test_settings_at_som_multiple_identities():
+    from gpo_lens.model import Setting, Som, SomLink
+
+    gpo = _make_gpo(
+        id="gpo-1", name="GPO One",
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="Computer", cse="Security",
+                identity="Account:Foo", display_name="Foo",
+                display_value="A", raw={}, from_disabled_side=False,
+            ),
+            Setting(
+                gpo_id="gpo-1", side="User", cse="Registry",
+                identity="Bar", display_name="Bar",
+                display_value="B", raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    som = Som(
+        path="ou=ws,dc=test,dc=local",
+        name="WS",
+        container_type="ou",
+        inheritance_blocked=False,
+        links=[
+            SomLink(gpo_id="gpo-1", order=1, enabled=True, enforced=False, target=""),
+        ],
+    )
+    estate = Estate(gpos=[gpo], soms=[som])
+    result = queries.settings_at_som(estate, "ou=ws,dc=test,dc=local")
+    # Should be stable sorted: by (cse, side, identity)
+    # Registry (User) sorts before Security (Computer)
+    assert len(result) == 2
+    assert result[0].cse == "Registry"
+    assert result[0].side == "User"
+    assert result[0].identity == "Bar"
+    assert result[1].cse == "Security"
+    assert result[1].side == "Computer"
+    assert result[1].identity == "Account:Foo"
