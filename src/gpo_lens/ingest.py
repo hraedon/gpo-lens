@@ -252,7 +252,11 @@ def _parse_delegation(gpo_elem: ET.Element, gpo_id: str) -> list[DelegationEntry
         trustee_sid = _text(_child_by_localname(perm, "TrusteeSID"))
         if trustee_sid is None:
             trustee_sid = _text(_child_by_localname(perm, "SID"))
-        perm_type = _text(_child_by_localname(perm, "Standard")) or _text(_child_by_localname(perm, "Type")) or ""
+        perm_type = (
+            _text(_child_by_localname(perm, "Standard"))
+            or _text(_child_by_localname(perm, "Type"))
+            or ""
+        )
         allowed = True
         deny = _child_by_localname(perm, "AccessDenied")
         if deny is not None and deny.text and deny.text.strip().lower() == "true":
@@ -282,6 +286,18 @@ def parse_report(xml_path: str | Path) -> list[Gpo]:
     return gpos
 
 
+def _side_bool(side_elem: ET.Element | None, child_name: str) -> bool:
+    """Parse a boolean child under a side element."""
+    text = _text(_child_by_localname(side_elem, child_name)) if side_elem is not None else None
+    return parse_bool(text)
+
+
+def _side_int(side_elem: ET.Element | None, child_name: str) -> int | None:
+    """Parse an int child under a side element."""
+    text = _text(_child_by_localname(side_elem, child_name)) if side_elem is not None else None
+    return parse_int(text)
+
+
 def _parse_single_gpo(gpo_elem: ET.Element) -> Gpo:
     """Parse a single GPO element."""
     id_elem = _child_by_localname(gpo_elem, "Identifier")
@@ -296,12 +312,12 @@ def _parse_single_gpo(gpo_elem: ET.Element) -> Gpo:
     computer = _child_by_localname(gpo_elem, "Computer")
     user = _child_by_localname(gpo_elem, "User")
 
-    computer_enabled = parse_bool(_text(_child_by_localname(computer, "Enabled")) if computer is not None else None)
-    user_enabled = parse_bool(_text(_child_by_localname(user, "Enabled")) if user is not None else None)
-    computer_ver_ds = parse_int(_text(_child_by_localname(computer, "VersionDirectory")) if computer is not None else None)
-    computer_ver_sysvol = parse_int(_text(_child_by_localname(computer, "VersionSysvol")) if computer is not None else None)
-    user_ver_ds = parse_int(_text(_child_by_localname(user, "VersionDirectory")) if user is not None else None)
-    user_ver_sysvol = parse_int(_text(_child_by_localname(user, "VersionSysvol")) if user is not None else None)
+    computer_enabled = _side_bool(computer, "Enabled")
+    user_enabled = _side_bool(user, "Enabled")
+    computer_ver_ds = _side_int(computer, "VersionDirectory")
+    computer_ver_sysvol = _side_int(computer, "VersionSysvol")
+    user_ver_ds = _side_int(user, "VersionDirectory")
+    user_ver_sysvol = _side_int(user, "VersionSysvol")
 
     sd = _child_by_localname(gpo_elem, "SecurityDescriptor")
     sddl = _text(_child_by_localname(sd, "SDDL")) if sd is not None else None

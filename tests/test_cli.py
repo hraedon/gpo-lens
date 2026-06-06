@@ -5,7 +5,6 @@ from __future__ import annotations
 import sqlite3
 import subprocess
 import sys
-from pathlib import Path
 
 import pytest
 
@@ -15,7 +14,7 @@ GPO_LENS = [sys.executable, "-m", "gpo_lens.cli"]
 @pytest.fixture
 def db_path(tmp_path):
     """Create a small SQLite DB with one snapshot for testing."""
-    from gpo_lens import store, model
+    from gpo_lens import model, store
 
     db = tmp_path / "test.db"
     conn = sqlite3.connect(str(db))
@@ -78,3 +77,26 @@ class TestCLI:
             capture_output=True, text=True,
         )
         assert r.returncode == 0
+
+    def test_snapshots_json(self, db_path):
+        r = subprocess.run(
+            GPO_LENS + ["--json", "--db", str(db_path), "snapshots"],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+        assert "[" in r.stdout
+
+    def test_unlinked_json(self, db_path):
+        r = subprocess.run(
+            GPO_LENS + ["--json", "--db", str(db_path), "unlinked"],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+        assert "[" in r.stdout
+
+    def test_ingest_missing_allgpos(self, tmp_path):
+        r = subprocess.run(
+            GPO_LENS + ["ingest", str(tmp_path)],
+            capture_output=True, text=True,
+        )
+        assert r.returncode != 0

@@ -132,3 +132,39 @@ def test_queries_smoke(work_estate):
     assert isinstance(queries.version_skew(work_estate), list)
     assert isinstance(queries.ms16_072_vulnerable(work_estate), list)
     assert isinstance(queries.cpassword_scan(work_estate), list)
+
+
+# ---- Tier 2.5 topology calibration -------------------------------------------
+
+def test_work_no_dangling_links(work_estate):
+    from gpo_lens.queries import dangling_links
+
+    # Clean domain: no SOM links to missing GPOs
+    assert len(dangling_links(work_estate)) == 0
+
+
+def test_work_enforced_links(work_estate):
+    from gpo_lens.queries import enforced_links
+
+    # Work domain has enforced links (NoOverride)
+    count = len(enforced_links(work_estate))
+    assert count > 0
+
+
+def test_loopback_detected(work_estate):
+    from gpo_lens.queries import loopback_gpos
+
+    # Work domain has loopback (31 raw hits in calibration notes)
+    assert len(loopback_gpos(work_estate)) >= 28
+
+
+def test_work_no_precedence_conflicts_on_clean_soms(work_estate):
+    from gpo_lens.queries import som_conflicts
+
+    # Find a SOM that only links to one GPO — should have zero conflicts
+    # Instead let's just assert the whole-work run doesn't crash
+    soms_with_one_link = [
+        s for s in work_estate.soms if len(s.links) == 1
+    ]
+    if soms_with_one_link:
+        assert som_conflicts(work_estate, soms_with_one_link[0].path) == []

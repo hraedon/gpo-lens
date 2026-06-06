@@ -29,6 +29,9 @@ packages = ["src/gpo_lens"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+markers = [
+    "samples: requires real GPO export samples in samples/",
+]
 
 [tool.ruff]
 line-length = 100

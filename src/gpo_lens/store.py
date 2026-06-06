@@ -322,7 +322,10 @@ def load_estate(conn: sqlite3.Connection, snapshot_id: int | None = None) -> Est
 
     # Load links
     for row in conn.execute(
-        "SELECT gpo_id, som_name, som_path, link_enabled, enforced FROM gpo_link WHERE snapshot_id = ?",
+        """
+        SELECT gpo_id, som_name, som_path, link_enabled, enforced
+        FROM gpo_link WHERE snapshot_id = ?
+        """,
         (snapshot_id,),
     ):
         gpo = gpos[row[0]]
@@ -362,7 +365,10 @@ def load_estate(conn: sqlite3.Connection, snapshot_id: int | None = None) -> Est
 
     # Load delegation
     for row in conn.execute(
-        "SELECT gpo_id, trustee, trustee_sid, permission, allowed FROM delegation WHERE snapshot_id = ?",
+        """
+        SELECT gpo_id, trustee, trustee_sid, permission, allowed
+        FROM delegation WHERE snapshot_id = ?
+        """,
         (snapshot_id,),
     ):
         gpo = gpos[row[0]]
@@ -391,7 +397,10 @@ def load_estate(conn: sqlite3.Connection, snapshot_id: int | None = None) -> Est
         soms[som.path] = som
 
     for row in conn.execute(
-        "SELECT som_path, gpo_id, order_, enabled, enforced, target FROM som_link WHERE snapshot_id = ?",
+        """
+        SELECT som_path, gpo_id, order_, enabled, enforced, target
+        FROM som_link WHERE snapshot_id = ?
+        """,
         (snapshot_id,),
     ):
         som = soms[row[0]]
