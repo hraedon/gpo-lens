@@ -1314,6 +1314,299 @@ def test_snapshot_diff_wmi_filter_changes(tmp_path):
     assert ("wmi_filter", "OldFilter", "NewFilter") in wmi
 
 
+# ---- snapshot_settings_diff (per-setting delta) -----------------------------
+
+
+def test_snapshot_settings_diff_modified(tmp_path):
+    from gpo_lens import store
+
+    db = tmp_path / "test.db"
+    conn = sqlite3.connect(str(db))
+    store.init_db(conn)
+
+    gpo_a = _make_gpo(
+        id="gpo-1",
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="Computer", cse="Registry",
+                identity="HKLM\\Software\\Foo", display_name="Foo",
+                display_value="old_val", raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    estate_a = Estate(domain="test.local", gpos=[gpo_a])
+    sid_a = store.save_estate(conn, estate_a)
+
+    gpo_b = _make_gpo(
+        id="gpo-1",
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="Computer", cse="Registry",
+                identity="HKLM\\Software\\Foo", display_name="Foo",
+                display_value="new_val", raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    estate_b = Estate(domain="test.local", gpos=[gpo_b])
+    sid_b = store.save_estate(conn, estate_b)
+
+    changes = queries.snapshot_settings_diff(conn, sid_a, sid_b)
+    conn.close()
+
+    assert len(changes) == 1
+    c = changes[0]
+    assert c.gpo_id == "gpo-1"
+    assert c.change_type == "modified"
+    assert c.old_value == "old_val"
+    assert c.new_value == "new_val"
+    assert c.cse == "Registry"
+    assert c.identity == "HKLM\\Software\\Foo"
+
+
+def test_snapshot_settings_diff_added(tmp_path):
+    from gpo_lens import store
+
+    db = tmp_path / "test.db"
+    conn = sqlite3.connect(str(db))
+    store.init_db(conn)
+
+    gpo_a = _make_gpo(id="gpo-1", settings=[])
+    estate_a = Estate(domain="test.local", gpos=[gpo_a])
+    sid_a = store.save_estate(conn, estate_a)
+
+    gpo_b = _make_gpo(
+        id="gpo-1",
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="Computer", cse="Registry",
+                identity="HKLM\\Software\\New", display_name="New",
+                display_value="enabled", raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    estate_b = Estate(domain="test.local", gpos=[gpo_b])
+    sid_b = store.save_estate(conn, estate_b)
+
+    changes = queries.snapshot_settings_diff(conn, sid_a, sid_b)
+    conn.close()
+
+    assert len(changes) == 1
+    assert changes[0].change_type == "added"
+    assert changes[0].old_value is None
+    assert changes[0].new_value == "enabled"
+
+
+def test_snapshot_settings_diff_removed(tmp_path):
+    from gpo_lens import store
+
+    db = tmp_path / "test.db"
+    conn = sqlite3.connect(str(db))
+    store.init_db(conn)
+
+    gpo_a = _make_gpo(
+        id="gpo-1",
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="User", cse="Folders",
+                identity="Folder:Desktop", display_name="Desktop",
+                display_value=r"\\server\desktop", raw={},
+                from_disabled_side=False,
+            ),
+        ],
+    )
+    estate_a = Estate(domain="test.local", gpos=[gpo_a])
+    sid_a = store.save_estate(conn, estate_a)
+
+    gpo_b = _make_gpo(id="gpo-1", settings=[])
+    estate_b = Estate(domain="test.local", gpos=[gpo_b])
+    sid_b = store.save_estate(conn, estate_b)
+
+    changes = queries.snapshot_settings_diff(conn, sid_a, sid_b)
+    conn.close()
+
+    assert len(changes) == 1
+    assert changes[0].change_type == "removed"
+    assert changes[0].old_value == r"\\server\desktop"
+    assert changes[0].new_value is None
+
+
+def test_snapshot_settings_diff_no_changes(tmp_path):
+    from gpo_lens import store
+
+    db = tmp_path / "test.db"
+    conn = sqlite3.connect(str(db))
+    store.init_db(conn)
+
+    s = Setting(
+        gpo_id="gpo-1", side="Computer", cse="Registry",
+        identity="HKLM\\Software\\Foo", display_name="Foo",
+        display_value="same", raw={}, from_disabled_side=False,
+    )
+    gpo_a = _make_gpo(id="gpo-1", settings=[s])
+    gpo_b = _make_gpo(id="gpo-1", settings=[s])
+    estate_a = Estate(domain="test.local", gpos=[gpo_a])
+    estate_b = Estate(domain="test.local", gpos=[gpo_b])
+    sid_a = store.save_estate(conn, estate_a)
+    sid_b = store.save_estate(conn, estate_b)
+
+    changes = queries.snapshot_settings_diff(conn, sid_a, sid_b)
+    conn.close()
+
+    assert changes == []
+
+
+def test_snapshot_settings_diff_filter_by_gpo_id(tmp_path):
+    from gpo_lens import store
+
+    db = tmp_path / "test.db"
+    conn = sqlite3.connect(str(db))
+    store.init_db(conn)
+
+    gpo_a = _make_gpo(
+        id="gpo-1",
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="Computer", cse="Registry",
+                identity="Key1", display_name="K1",
+                display_value="v1", raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    gpo_b_gpo = _make_gpo(
+        id="gpo-2",
+        settings=[
+            Setting(
+                gpo_id="gpo-2", side="Computer", cse="Registry",
+                identity="Key2", display_name="K2",
+                display_value="v2", raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    estate_a = Estate(domain="test.local", gpos=[gpo_a, gpo_b_gpo])
+    sid_a = store.save_estate(conn, estate_a)
+
+    estate_b = Estate(domain="test.local", gpos=[gpo_a, gpo_b_gpo])
+    sid_b = store.save_estate(conn, estate_b)
+
+    changes_all = queries.snapshot_settings_diff(conn, sid_a, sid_b)
+    assert changes_all == []
+
+    gpo_a_changed = _make_gpo(
+        id="gpo-1",
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="Computer", cse="Registry",
+                identity="Key1", display_name="K1",
+                display_value="changed", raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    estate_c = Estate(domain="test.local", gpos=[gpo_a_changed, gpo_b_gpo])
+    sid_c = store.save_estate(conn, estate_c)
+
+    changes_filtered = queries.snapshot_settings_diff(
+        conn, sid_a, sid_c, gpo_id="gpo-1",
+    )
+    assert len(changes_filtered) == 1
+    assert changes_filtered[0].gpo_id == "gpo-1"
+
+    changes_other = queries.snapshot_settings_diff(
+        conn, sid_a, sid_c, gpo_id="gpo-2",
+    )
+    assert changes_other == []
+
+    conn.close()
+
+
+def test_snapshot_settings_diff_filter_by_side(tmp_path):
+    from gpo_lens import store
+
+    db = tmp_path / "test.db"
+    conn = sqlite3.connect(str(db))
+    store.init_db(conn)
+
+    s_comp = Setting(
+        gpo_id="gpo-1", side="Computer", cse="Registry",
+        identity="Key1", display_name="K1",
+        display_value="v1", raw={}, from_disabled_side=False,
+    )
+    s_user = Setting(
+        gpo_id="gpo-1", side="User", cse="Registry",
+        identity="Key2", display_name="K2",
+        display_value="v2", raw={}, from_disabled_side=False,
+    )
+    gpo_a = _make_gpo(id="gpo-1", settings=[s_comp, s_user])
+    estate_a = Estate(domain="test.local", gpos=[gpo_a])
+    sid_a = store.save_estate(conn, estate_a)
+
+    s_comp_mod = Setting(
+        gpo_id="gpo-1", side="Computer", cse="Registry",
+        identity="Key1", display_name="K1",
+        display_value="changed", raw={}, from_disabled_side=False,
+    )
+    s_user_mod = Setting(
+        gpo_id="gpo-1", side="User", cse="Registry",
+        identity="Key2", display_name="K2",
+        display_value="changed_user", raw={}, from_disabled_side=False,
+    )
+    gpo_b = _make_gpo(id="gpo-1", settings=[s_comp_mod, s_user_mod])
+    estate_b = Estate(domain="test.local", gpos=[gpo_b])
+    sid_b = store.save_estate(conn, estate_b)
+
+    comp_only = queries.snapshot_settings_diff(
+        conn, sid_a, sid_b, side="Computer",
+    )
+    assert len(comp_only) == 1
+    assert comp_only[0].side == "Computer"
+
+    user_only = queries.snapshot_settings_diff(
+        conn, sid_a, sid_b, side="User",
+    )
+    assert len(user_only) == 1
+    assert user_only[0].side == "User"
+
+    conn.close()
+
+
+def test_snapshot_settings_diff_gpo_name_resolved(tmp_path):
+    from gpo_lens import store
+
+    db = tmp_path / "test.db"
+    conn = sqlite3.connect(str(db))
+    store.init_db(conn)
+
+    gpo_a = _make_gpo(
+        id="gpo-1", name="My Policy",
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="Computer", cse="Registry",
+                identity="Key1", display_name="K1",
+                display_value="v1", raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    estate_a = Estate(domain="test.local", gpos=[gpo_a])
+    sid_a = store.save_estate(conn, estate_a)
+
+    gpo_b = _make_gpo(
+        id="gpo-1", name="My Policy",
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="Computer", cse="Registry",
+                identity="Key1", display_name="K1",
+                display_value="v2", raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    estate_b = Estate(domain="test.local", gpos=[gpo_b])
+    sid_b = store.save_estate(conn, estate_b)
+
+    changes = queries.snapshot_settings_diff(conn, sid_a, sid_b)
+    conn.close()
+
+    assert changes[0].gpo_name == "My Policy"
+
+
 # ---- ou_tree persistence ---------------------------------------------------
 
 

@@ -411,6 +411,41 @@ def cmd_diff(args: argparse.Namespace) -> None:
             print("No differences found.")
 
 
+def cmd_diff_settings(args: argparse.Namespace) -> None:
+    conn = sqlite3.connect(args.db)
+    changes = queries.snapshot_settings_diff(
+        conn, args.snapshot_a, args.snapshot_b,
+        gpo_id=args.gpo_id, side=args.side, cse=args.cse,
+    )
+    conn.close()
+    if args.json:
+        _render_json([
+            {
+                "gpo_id": c.gpo_id,
+                "gpo_name": c.gpo_name,
+                "side": c.side,
+                "cse": c.cse,
+                "identity": c.identity,
+                "change_type": c.change_type,
+                "old_value": c.old_value,
+                "new_value": c.new_value,
+            }
+            for c in changes
+        ])
+    else:
+        if not changes:
+            print("No setting differences found.")
+            return
+        _print_table(
+            ["GPO", "Side", "CSE", "Identity", "Change", "Old", "New"],
+            [
+                [c.gpo_name, c.side, c.cse, c.identity, c.change_type,
+                 c.old_value or "", c.new_value or ""]
+                for c in changes
+            ],
+        )
+
+
 def cmd_snapshots(args: argparse.Namespace) -> None:
     conn = sqlite3.connect(args.db)
     result = store.list_snapshots(conn)
@@ -1003,6 +1038,17 @@ def main(argv: list[str] | None = None) -> int:
 
     p = sub.add_parser("snapshots")
     p.set_defaults(func=cmd_snapshots)
+
+    p = sub.add_parser(
+        "diff-settings",
+        help="Per-setting delta between two snapshots",
+    )
+    p.add_argument("snapshot_a", type=int)
+    p.add_argument("snapshot_b", type=int)
+    p.add_argument("--gpo-id", help="Filter to a specific GPO ID")
+    p.add_argument("--side", help="Filter by side (Computer/User)")
+    p.add_argument("--cse", help="Filter by CSE name")
+    p.set_defaults(func=cmd_diff_settings)
 
     # topology commands
     p = sub.add_parser("som", help="Show effective GPOs at a SOM path")

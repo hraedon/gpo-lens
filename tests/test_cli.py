@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import subprocess
 import sys
@@ -240,6 +241,82 @@ class TestCLI:
         )
         assert r.returncode == 0
         assert "added" in r.stdout or "changed" in r.stdout or "gpos_added" in r.stdout
+
+    def test_diff_settings(self, db_path):
+        from gpo_lens import model, store
+
+        conn = sqlite3.connect(str(db_path))
+        store.init_db(conn)
+        estate = model.Estate(
+            domain="test.local",
+            gpos=[
+                model.Gpo(
+                    id="aaa-111", name="GPO A", domain="test.local",
+                    created=None, modified=None, read=None,
+                    computer_enabled=True, user_enabled=True,
+                    computer_ver_ds=None, computer_ver_sysvol=None,
+                    user_ver_ds=None, user_ver_sysvol=None,
+                    sddl=None, owner=None, filter_data_available=False,
+                    wmi_filter=None, sysvol_path=None,
+                ),
+            ],
+        )
+        sid_a = store.save_estate(conn, estate)
+        estate.gpos[0].settings.append(
+            model.Setting(
+                gpo_id="aaa-111", side="Computer", cse="Registry",
+                identity="HKLM\\Software\\Test", display_name="Test",
+                display_value="enabled", raw={}, from_disabled_side=False,
+            ),
+        )
+        sid_b = store.save_estate(conn, estate)
+        conn.close()
+
+        r = subprocess.run(
+            GPO_LENS + ["--db", str(db_path), "diff-settings", str(sid_a), str(sid_b)],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+        assert "added" in r.stdout
+
+        r_json = subprocess.run(
+            GPO_LENS + ["--json", "--db", str(db_path), "diff-settings", str(sid_a), str(sid_b)],
+            capture_output=True, text=True,
+        )
+        assert r_json.returncode == 0
+        data = json.loads(r_json.stdout)
+        assert len(data) == 1
+        assert data[0]["change_type"] == "added"
+
+    def test_diff_settings_no_changes(self, db_path):
+        from gpo_lens import model, store
+
+        conn = sqlite3.connect(str(db_path))
+        store.init_db(conn)
+        estate = model.Estate(
+            domain="test.local",
+            gpos=[
+                model.Gpo(
+                    id="aaa-111", name="GPO A", domain="test.local",
+                    created=None, modified=None, read=None,
+                    computer_enabled=True, user_enabled=True,
+                    computer_ver_ds=None, computer_ver_sysvol=None,
+                    user_ver_ds=None, user_ver_sysvol=None,
+                    sddl=None, owner=None, filter_data_available=False,
+                    wmi_filter=None, sysvol_path=None,
+                ),
+            ],
+        )
+        sid_a = store.save_estate(conn, estate)
+        sid_b = store.save_estate(conn, estate)
+        conn.close()
+
+        r = subprocess.run(
+            GPO_LENS + ["--db", str(db_path), "diff-settings", str(sid_a), str(sid_b)],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+        assert "No setting differences" in r.stdout
 
     def test_summary(self, db_path):
         r = subprocess.run(
