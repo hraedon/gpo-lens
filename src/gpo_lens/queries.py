@@ -430,6 +430,111 @@ class SnapshotDiff:
 
 
 @dataclass(frozen=True)
+class SnapshotSettingChange:
+    """One setting that changed between two snapshots."""
+
+    gpo_id: str
+    gpo_name: str
+    side: str
+    cse: str
+    identity: str
+    change_type: str  # "added", "removed", "modified"
+    old_value: str | None
+    new_value: str | None
+
+
+def snapshot_settings_diff(
+    conn: sqlite3.Connection,
+    snap_a: int,
+    snap_b: int,
+    *,
+    gpo_id: str | None = None,
+    side: str | None = None,
+    cse: str | None = None,
+) -> list[SnapshotSettingChange]:
+    """Per-setting delta between two snapshots.
+
+    Joins ``setting`` rows on ``(gpo_id, side, cse, identity)`` and reports
+    settings that were added, removed, or had their ``display_value`` change.
+    """
+    gpo_name_map: dict[str, str] = {}
+    for row in conn.execute(
+        "SELECT id, name FROM gpo WHERE snapshot_id = ?", (snap_b,)
+    ):
+        gpo_name_map[row[0]] = row[1]
+    for row in conn.execute(
+        "SELECT id, name FROM gpo WHERE snapshot_id = ?", (snap_a,)
+    ):
+        gpo_name_map.setdefault(row[0], row[1])
+
+    constraints_a: list[str] = ["snapshot_id = ?"]
+    params_a: list[object] = [snap_a]
+    constraints_b: list[str] = ["snapshot_id = ?"]
+    params_b: list[object] = [snap_b]
+    if gpo_id:
+        constraints_a.append("gpo_id = ?")
+        params_a.append(gpo_id)
+        constraints_b.append("gpo_id = ?")
+        params_b.append(gpo_id)
+    if side:
+        constraints_a.append("side = ?")
+        params_a.append(side)
+        constraints_b.append("side = ?")
+        params_b.append(side)
+    if cse:
+        constraints_a.append("cse = ?")
+        params_a.append(cse)
+        params_b.append(cse)
+
+    where_a = " AND ".join(constraints_a)
+    where_b = " AND ".join(constraints_b)
+
+    key_cols = "gpo_id, side, cse, identity"
+
+    old_rows: dict[tuple[str, str, str, str], str] = {}
+    for row in conn.execute(
+        f"SELECT {key_cols}, display_value FROM setting WHERE {where_a}",
+        params_a,
+    ):
+        old_rows[(row[0], row[1], row[2], row[3])] = row[4]
+
+    new_rows: dict[tuple[str, str, str, str], str] = {}
+    for row in conn.execute(
+        f"SELECT {key_cols}, display_value FROM setting WHERE {where_b}",
+        params_b,
+    ):
+        new_rows[(row[0], row[1], row[2], row[3])] = row[4]
+
+    results: list[SnapshotSettingChange] = []
+    all_keys = set(old_rows) | set(new_rows)
+
+    for key in sorted(all_keys):
+        gid, s, c, ident = key
+        old_v = old_rows.get(key)
+        new_v = new_rows.get(key)
+        if old_v is None and new_v is not None:
+            results.append(SnapshotSettingChange(
+                gpo_id=gid, gpo_name=gpo_name_map.get(gid, gid),
+                side=s, cse=c, identity=ident,
+                change_type="added", old_value=None, new_value=new_v,
+            ))
+        elif old_v is not None and new_v is None:
+            results.append(SnapshotSettingChange(
+                gpo_id=gid, gpo_name=gpo_name_map.get(gid, gid),
+                side=s, cse=c, identity=ident,
+                change_type="removed", old_value=old_v, new_value=None,
+            ))
+        elif old_v != new_v:
+            results.append(SnapshotSettingChange(
+                gpo_id=gid, gpo_name=gpo_name_map.get(gid, gid),
+                side=s, cse=c, identity=ident,
+                change_type="modified", old_value=old_v, new_value=new_v,
+            ))
+
+    return results
+
+
+@dataclass(frozen=True)
 class EstateSummary:
     """One-command estate health overview."""
 
