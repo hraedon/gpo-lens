@@ -14,6 +14,7 @@ from gpo_lens.model import (
     Setting,
     Som,
     SomLink,
+    WmiFilter,
 )
 
 
@@ -150,6 +151,16 @@ def init_db(conn: sqlite3.Connection) -> None:
         """
         CREATE INDEX IF NOT EXISTS idx_som_link_snapshot_gpo
         ON som_link(snapshot_id, gpo_id)
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS wmi_filter (
+            snapshot_id INTEGER NOT NULL REFERENCES snapshot(id) ON DELETE CASCADE,
+            name TEXT NOT NULL,
+            query TEXT NOT NULL,
+            PRIMARY KEY (snapshot_id, name)
+        )
         """
     )
     conn.commit()
@@ -295,6 +306,12 @@ def save_estate(conn: sqlite3.Connection, estate: Estate, taken_at: datetime | N
                     som_link.target,
                 ),
             )
+
+    for wf in estate.wmi_filters:
+        conn.execute(
+            "INSERT INTO wmi_filter (snapshot_id, name, query) VALUES (?, ?, ?)",
+            (snapshot_id, wf.name, wf.query),
+        )
 
     conn.commit()
     return snapshot_id
@@ -445,7 +462,19 @@ def load_estate(conn: sqlite3.Connection, snapshot_id: int | None = None) -> Est
             )
         )
 
-    return Estate(domain=domain, gpos=list(gpos.values()), soms=list(soms.values()))
+    wmi_filters: list[WmiFilter] = []
+    for row in conn.execute(
+        "SELECT name, query FROM wmi_filter WHERE snapshot_id = ?",
+        (snapshot_id,),
+    ):
+        wmi_filters.append(WmiFilter(name=row[0], query=row[1]))
+
+    return Estate(
+        domain=domain,
+        gpos=list(gpos.values()),
+        soms=list(soms.values()),
+        wmi_filters=wmi_filters,
+    )
 
 
 def list_snapshots(conn: sqlite3.Connection) -> list[tuple[int, str, datetime | None]]:

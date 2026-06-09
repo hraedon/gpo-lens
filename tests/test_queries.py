@@ -6,7 +6,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from gpo_lens import queries
-from gpo_lens.model import DelegationEntry, Estate, Gpo, Setting
+from gpo_lens.model import DelegationEntry, Estate, Gpo, OuRecord, Setting
 
 
 def _make_gpo(**kwargs) -> Gpo:
@@ -470,6 +470,126 @@ def test_broken_refs_empty_when_clean():
     assert queries.broken_refs(estate) == []
 
 
+def test_broken_refs_detects_unc_in_raw_dict():
+    from gpo_lens.model import Setting
+
+    gpo = _make_gpo(
+        id="gpo-1",
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="Computer", cse="Registry",
+                identity="InstallDir", display_name="Install Dir",
+                display_value="local",
+                raw={"children": [{"text": r"\\server\share\path"}]},
+                from_disabled_side=False,
+            ),
+        ],
+    )
+    estate = Estate(gpos=[gpo])
+    result = queries.broken_refs(estate)
+    unc_refs = [r for r in result if r.ref_type == "unc_path"]
+    assert len(unc_refs) >= 1
+    assert r"\\server\share\path" in unc_refs[0].ref_value
+
+
+def test_broken_refs_detects_missing_script(tmp_path):
+    from gpo_lens.model import Setting
+
+    gpo_dir = tmp_path / "gpo"
+    gpo_dir.mkdir()
+    gpo = _make_gpo(
+        id="gpo-1",
+        sysvol_path=str(gpo_dir),
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="Computer", cse="Scripts",
+                identity="StartupScript", display_name="StartupScript",
+                display_value="missing.bat",
+                raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    estate = Estate(gpos=[gpo])
+    result = queries.broken_refs(estate)
+    missing = [r for r in result if r.ref_type == "missing_script"]
+    assert len(missing) == 1
+    assert "missing.bat" in missing[0].ref_value
+
+
+def test_broken_refs_script_found_in_sysvol(tmp_path):
+    from gpo_lens.model import Setting
+
+    gpo_dir = tmp_path / "gpo"
+    scripts_dir = gpo_dir / "Machine" / "Scripts" / "Startup"
+    scripts_dir.mkdir(parents=True)
+    (scripts_dir / "exists.bat").write_text("@echo off", encoding="utf-8")
+
+    gpo = _make_gpo(
+        id="gpo-1",
+        sysvol_path=str(gpo_dir),
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="Computer", cse="Scripts",
+                identity="StartupScript", display_name="StartupScript",
+                display_value="exists.bat",
+                raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    estate = Estate(gpos=[gpo])
+    result = queries.broken_refs(estate)
+    missing = [r for r in result if r.ref_type == "missing_script"]
+    assert missing == []
+
+
+def test_broken_refs_deduplicates():
+    from gpo_lens.model import Setting
+
+    gpo = _make_gpo(
+        id="gpo-1",
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="Computer", cse="Registry",
+                identity="X", display_name="X",
+                display_value=r"\\server\share\path",
+                raw={"text": r"\\server\share\path"},
+                from_disabled_side=False,
+            ),
+        ],
+    )
+    estate = Estate(gpos=[gpo])
+    result = queries.broken_refs(estate)
+    unc_refs = [
+        r for r in result
+        if r.ref_type == "unc_path" and r.ref_value == r"\\server\share\path"
+    ]
+    assert len(unc_refs) == 1
+
+
+# ---- estate_summary ---------------------------------------------------------
+
+def test_estate_summary():
+    gpo = _make_gpo(
+        id="gpo-1",
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="Computer", cse="Security",
+                identity="X", display_name="X", display_value="1",
+                raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    estate = Estate(domain="test.local", gpos=[gpo])
+    s = queries.estate_summary(estate)
+    assert s.domain == "test.local"
+    assert s.gpo_count == 1
+    assert s.total_settings == 1
+    assert s.unlinked_count == 1  # no links
+    assert s.empty_count == 0
+    assert s.conflict_count == 0
+    assert s.ms16_072_vulnerable_count == 1  # no delegation entries
+
+
 # ---- existing queries still pass smoke --------------------------------------
 
 def test_empty_gpos():
@@ -749,3 +869,78 @@ def test_settings_at_som_multiple_identities():
     assert result[1].cse == "Security"
     assert result[1].side == "Computer"
     assert result[1].identity == "Account:Foo"
+
+
+# ---- topology_crosscheck ----------------------------------------------------
+
+def test_topology_crosscheck_no_tree():
+    estate = Estate(gpos=[], soms=[], ou_tree=[])
+    assert queries.topology_crosscheck(estate) == []
+
+
+def test_topology_crosscheck_block_mismatch():
+    from gpo_lens.model import Som
+
+    som = Som(
+        path="ou=ws,dc=test,dc=local",
+        name="WS",
+        container_type="ou",
+        inheritance_blocked=False,
+        links=[],
+    )
+    ou = OuRecord(
+        dn="OU=WS,DC=test,DC=local",
+        name="WS",
+        gp_link=None,
+        gp_options=1,
+    )
+    estate = Estate(soms=[som], ou_tree=[ou])
+    result = queries.topology_crosscheck(estate)
+    assert len(result) == 1
+    assert result[0].kind == "block_mismatch"
+
+
+def test_topology_crosscheck_block_match():
+    from gpo_lens.model import Som
+
+    som = Som(
+        path="ou=ws,dc=test,dc=local",
+        name="WS",
+        container_type="ou",
+        inheritance_blocked=True,
+        links=[],
+    )
+    ou = OuRecord(
+        dn="OU=WS,DC=test,DC=local",
+        name="WS",
+        gp_link=None,
+        gp_options=1,
+    )
+    estate = Estate(soms=[som], ou_tree=[ou])
+    result = queries.topology_crosscheck(estate)
+    assert result == []
+
+
+def test_topology_crosscheck_ou_missing_from_soms():
+    ou = OuRecord(
+        dn="OU=Missing,DC=test,DC=local",
+        name="Missing",
+        gp_link="[LDAP://cn={AAA};0]",
+        gp_options=0,
+    )
+    estate = Estate(soms=[], ou_tree=[ou])
+    result = queries.topology_crosscheck(estate)
+    assert len(result) == 1
+    assert result[0].kind == "ou_missing_from_soms"
+
+
+def test_topology_crosscheck_ou_no_gplink_not_flagged():
+    ou = OuRecord(
+        dn="OU=Empty,DC=test,DC=local",
+        name="Empty",
+        gp_link=None,
+        gp_options=0,
+    )
+    estate = Estate(soms=[], ou_tree=[ou])
+    result = queries.topology_crosscheck(estate)
+    assert result == []

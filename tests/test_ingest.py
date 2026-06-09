@@ -375,3 +375,89 @@ class TestMergeMetadataEdgeCases:
         )
         ingest.merge_metadata(metadata, [gpo])
         assert gpo.wmi_filter is None
+
+
+class TestParseWmiFilters:
+    def test_parse_wmi_filters_list(self, tmp_path: Path) -> None:
+        j = tmp_path / "wmi-filters.json"
+        j.write_text(
+            '[{"Name":"WorkstationFilter","Query":"Select * from Win32_OperatingSystem"}]',
+            encoding="utf-8",
+        )
+        filters = ingest.parse_wmi_filters(j)
+        assert len(filters) == 1
+        assert filters[0].name == "WorkstationFilter"
+        assert "Win32_OperatingSystem" in filters[0].query
+
+    def test_parse_wmi_filters_single_dict(self, tmp_path: Path) -> None:
+        j = tmp_path / "wmi-filters.json"
+        j.write_text(
+            '{"Name":"F1","Query":"SELECT * FROM Win32_ComputerSystem"}',
+            encoding="utf-8",
+        )
+        filters = ingest.parse_wmi_filters(j)
+        assert len(filters) == 1
+        assert filters[0].name == "F1"
+
+    def test_parse_wmi_filters_empty_name_skipped(self, tmp_path: Path) -> None:
+        j = tmp_path / "wmi-filters.json"
+        j.write_text(
+            '[{"Name":"","Query":"x"},{"Name":"Valid","Query":"y"}]',
+            encoding="utf-8",
+        )
+        filters = ingest.parse_wmi_filters(j)
+        assert len(filters) == 1
+        assert filters[0].name == "Valid"
+
+    def test_load_estate_with_wmi_filters(self, tmp_path: Path) -> None:
+        xml_path = tmp_path / "AllGPOs.xml"
+        xml_path.write_text(_min_gpo_xml(), encoding="utf-8")
+        wf = tmp_path / "wmi-filters.json"
+        wf.write_text(
+            '[{"Name":"TestFilter","Query":"SELECT * FROM Foo"}]',
+            encoding="utf-8",
+        )
+        estate = ingest.load_estate(tmp_path)
+        assert len(estate.wmi_filters) == 1
+        assert estate.wmi_filters[0].name == "TestFilter"
+
+
+class TestParseOuTree:
+    def test_parse_ou_tree_list(self, tmp_path: Path) -> None:
+        j = tmp_path / "ou-tree.json"
+        j.write_text(
+            '[{"DistinguishedName":"OU=WS,DC=test,DC=local","Name":"WS",'
+            '"gPLink":"[LDAP://cn={31B2F340-016D-11D2-945F-00C04FB984F9},...;0]",'
+            '"gPOptions":0}]',
+            encoding="utf-8",
+        )
+        records = ingest.parse_ou_tree(j)
+        assert len(records) == 1
+        assert records[0].dn == "OU=WS,DC=test,DC=local"
+        assert records[0].gp_options == 0
+        assert records[0].gp_link is not None
+
+    def test_parse_ou_tree_single_dict(self, tmp_path: Path) -> None:
+        j = tmp_path / "ou-tree.json"
+        j.write_text(
+            '{"DistinguishedName":"OU=WS,DC=test,DC=local","Name":"WS",'
+            '"gPLink":null,"gPOptions":1}',
+            encoding="utf-8",
+        )
+        records = ingest.parse_ou_tree(j)
+        assert len(records) == 1
+        assert records[0].gp_options == 1
+        assert records[0].gp_link is None
+
+    def test_load_estate_with_ou_tree(self, tmp_path: Path) -> None:
+        xml_path = tmp_path / "AllGPOs.xml"
+        xml_path.write_text(_min_gpo_xml(), encoding="utf-8")
+        ot = tmp_path / "ou-tree.json"
+        ot.write_text(
+            '[{"DistinguishedName":"OU=WS,DC=test,DC=local","Name":"WS",'
+            '"gPLink":null,"gPOptions":0}]',
+            encoding="utf-8",
+        )
+        estate = ingest.load_estate(tmp_path)
+        assert len(estate.ou_tree) == 1
+        assert estate.ou_tree[0].name == "WS"

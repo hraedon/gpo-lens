@@ -13,9 +13,11 @@ from gpo_lens.model import (
     Estate,
     Gpo,
     GpoLink,
+    OuRecord,
     Setting,
     Som,
     SomLink,
+    WmiFilter,
 )
 from gpo_lens.normalize import canonical_guid, load_json, parse_bool, parse_dt, parse_int
 
@@ -429,7 +431,6 @@ def attach_sysvol_paths(sysvol_dir: str | Path, gpos: list[Gpo]) -> None:
     if not base.exists():
         return
     for gpo in gpos:
-        # Try both braced and bare forms
         candidates = [
             base / f"{{{gpo.id.upper()}}}",
             base / gpo.id,
@@ -439,6 +440,41 @@ def attach_sysvol_paths(sysvol_dir: str | Path, gpos: list[Gpo]) -> None:
             if cand.exists():
                 gpo.sysvol_path = str(cand.resolve())
                 break
+
+
+def parse_wmi_filters(json_path: str | Path) -> list[WmiFilter]:
+    """Parse ``wmi-filters.json`` into a list of :class:`WmiFilter`."""
+    data = load_json(json_path)
+    if not isinstance(data, list):
+        data = [data]
+    filters: list[WmiFilter] = []
+    for record in data:
+        name = record.get("Name", "")
+        query = record.get("Query", "")
+        if name:
+            filters.append(WmiFilter(name=name, query=query))
+    return filters
+
+
+def parse_ou_tree(json_path: str | Path) -> list[OuRecord]:
+    """Parse ``ou-tree.json`` (raw gPLink / gPOptions) into :class:`OuRecord` list."""
+    data = load_json(json_path)
+    if not isinstance(data, list):
+        data = [data]
+    records: list[OuRecord] = []
+    for record in data:
+        dn = record.get("DistinguishedName", "")
+        name = record.get("Name", "")
+        gp_link = record.get("gPLink")
+        gp_options = record.get("gPOptions")
+        opt_val: int | None = None
+        if gp_options is not None:
+            try:
+                opt_val = int(gp_options)
+            except (ValueError, TypeError):
+                opt_val = None
+        records.append(OuRecord(dn=dn, name=name, gp_link=gp_link, gp_options=opt_val))
+    return records
 
 
 def load_estate(sample_dir: str | Path) -> Estate:
@@ -463,9 +499,21 @@ def load_estate(sample_dir: str | Path) -> Estate:
     if sysvol_dir.exists():
         attach_sysvol_paths(sysvol_dir, gpos)
     else:
-        # Also try the parent / SYSVOL-Policies pattern
         alt = src / "SYSVOL" / "Policies"
         if alt.exists():
             attach_sysvol_paths(alt, gpos)
 
-    return Estate(domain=domain, gpos=gpos, soms=soms)
+    wmi_filters: list[WmiFilter] = []
+    wmi_path = src / "wmi-filters.json"
+    if wmi_path.exists():
+        wmi_filters = parse_wmi_filters(wmi_path)
+
+    ou_tree: list[OuRecord] = []
+    ou_tree_path = src / "ou-tree.json"
+    if ou_tree_path.exists():
+        ou_tree = parse_ou_tree(ou_tree_path)
+
+    return Estate(
+        domain=domain, gpos=gpos, soms=soms,
+        wmi_filters=wmi_filters, ou_tree=ou_tree,
+    )

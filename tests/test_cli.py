@@ -129,7 +129,23 @@ class TestCLI:
             capture_output=True, text=True,
         )
         assert r.returncode == 0
-        assert "added" in r.stdout or "changed" in r.stdout
+        assert "added" in r.stdout or "changed" in r.stdout or "gpos_added" in r.stdout
+
+    def test_summary(self, db_path):
+        r = subprocess.run(
+            GPO_LENS + ["--db", str(db_path), "summary"],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+        assert "GPOs:" in r.stdout
+
+    def test_summary_json(self, db_path):
+        r = subprocess.run(
+            GPO_LENS + ["--json", "--db", str(db_path), "summary"],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+        assert "gpo_count" in r.stdout
 
     def test_repl_exit_immediately(self, db_path):
         # Feed "exit()" into REPL so it exits immediately
