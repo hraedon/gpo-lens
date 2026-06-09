@@ -10,7 +10,15 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from gpo_lens.model import DelegationEntry, Estate, Gpo, Setting, Side, Som, SomLink
+    from gpo_lens.model import (
+        DelegationEntry,
+        Estate,
+        Gpo,
+        Setting,
+        Side,
+        Som,
+        SomLink,
+    )
 
 Side = str  # type: ignore[misc]
 
@@ -300,18 +308,122 @@ def cpassword_scan(estate: Estate) -> list[CpasswordHit]:
 
 
 # ---------------------------------------------------------------------------
+# OU-tree / inheritance cross-check
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class TopologyDiscrepancy:
+    """One inconsistency between ``ou-tree.json`` and ``gp-inheritance.json``."""
+
+    kind: str       # "block_mismatch", "ou_missing_from_soms", "gp_link_parse_failure"
+    ou_dn: str
+    detail: str
+
+
+def _extract_gp_link_guids(gp_link: str | None) -> list[str]:
+    """Extract canonical GPO GUIDs from a raw gPLink attribute value.
+
+    Format: ``[DN1;flags][DN2;flags]...`` where DN contains ``CN={GUID,...}``.
+    """
+    if not gp_link:
+        return []
+    guids: list[str] = []
+    import re as _re
+    for m in _re.finditer(r"\{([0-9a-fA-F-]{36})\}", gp_link):
+        from gpo_lens.normalize import canonical_guid
+        try:
+            guids.append(canonical_guid(m.group(0)))
+        except ValueError:
+            pass
+    return guids
+
+
+def topology_crosscheck(estate: Estate) -> list[TopologyDiscrepancy]:
+    """Cross-check ``ou_tree`` against the platform-resolved ``soms``.
+
+    Detects:
+    - ``block_mismatch`` — OU has ``gPOptions=1`` (block inheritance) but the
+      matching SOM doesn't show ``GpoInheritanceBlocked``, or vice versa.
+    - ``ou_missing_from_soms`` — OU in ``ou_tree`` not found in ``soms``
+      (collector gap).
+    """
+    results: list[TopologyDiscrepancy] = []
+    som_by_dn: dict[str, Som] = {s.path.lower(): s for s in estate.soms}
+
+    for ou in estate.ou_tree:
+        dn_lower = ou.dn.lower()
+        som = som_by_dn.get(dn_lower)
+        if som is None:
+            if ou.gp_link:
+                results.append(TopologyDiscrepancy(
+                    kind="ou_missing_from_soms",
+                    ou_dn=ou.dn,
+                    detail="OU has gPLink but no matching SOM in gp-inheritance.json",
+                ))
+            continue
+
+        raw_blocked = ou.gp_options == 1
+        resolved_blocked = som.inheritance_blocked
+        if raw_blocked != resolved_blocked:
+            results.append(TopologyDiscrepancy(
+                kind="block_mismatch",
+                ou_dn=ou.dn,
+                detail=(
+                    f"ou-tree gPOptions={ou.gp_options} (blocked={raw_blocked}) "
+                    f"vs gp-inheritance blocked={resolved_blocked}"
+                ),
+            ))
+
+    return results
+
+
+# ---------------------------------------------------------------------------
 # Snapshot diff
 # ---------------------------------------------------------------------------
 
+@dataclass(frozen=True)
+class SnapshotDiff:
+    """Structured diff between two estate snapshots."""
+
+    gpos_added: list[str]
+    gpos_removed: list[str]
+    settings_changed: list[str]          # gpo_ids with setting diffs
+    links_changed: list[str]             # gpo_ids with link diffs
+    delegation_changed: list[str]        # gpo_ids with delegation diffs
+    version_skew_changed: list[str]      # gpo_ids where version skew appeared/disappeared
+
+
+@dataclass(frozen=True)
+class EstateSummary:
+    """One-command estate health overview."""
+
+    domain: str
+    gpo_count: int
+    som_count: int
+    wmi_filter_count: int
+    unlinked_count: int
+    empty_count: int
+    disabled_but_populated_count: int
+    conflict_count: int
+    blocked_extension_count: int
+    version_skew_count: int
+    ms16_072_vulnerable_count: int
+    cpassword_hit_count: int
+    loopback_gpo_count: int
+    wmi_filtered_gpo_count: int
+    enforced_link_count: int
+    dangling_link_count: int
+    broken_ref_count: int
+    total_settings: int
+    total_delegation_entries: int
+
+
 def snapshot_diff(
     conn: sqlite3.Connection, snap_a: int, snap_b: int
-) -> dict[str, list[str]]:
-    """Compute the diff between two snapshots.
+) -> SnapshotDiff:
+    """Compute the diff between two snapshots."""
 
-    Returns a dict with keys: gpos_added, gpos_removed, gpos_modified,
-    delegation_changed.
-    """
-    def _load_snapshot_gpos(snap_id: int) -> set[str]:
+    def _load_gpo_ids(snap_id: int) -> set[str]:
         return set(
             row[0] for row in
             conn.execute(
@@ -319,38 +431,123 @@ def snapshot_diff(
             ).fetchall()
         )
 
-    a_ids = _load_snapshot_gpos(snap_a)
-    b_ids = _load_snapshot_gpos(snap_b)
+    a_ids = _load_gpo_ids(snap_a)
+    b_ids = _load_gpo_ids(snap_b)
 
-    added = b_ids - a_ids
-    removed = a_ids - b_ids
+    added = sorted(b_ids - a_ids)
+    removed = sorted(a_ids - b_ids)
+    common = a_ids & b_ids
 
-    # Settings changes
-    changed: list[str] = []
-    for gpo_id in a_ids & b_ids:
-        old_settings = set(
+    settings_changed: list[str] = []
+    links_changed: list[str] = []
+    delegation_changed: list[str] = []
+    version_skew_changed: list[str] = []
+
+    for gpo_id in sorted(common):
+        # Settings diff
+        old_s = set(
             conn.execute(
                 "SELECT cse, identity, display_value FROM setting "
                 "WHERE snapshot_id = ? AND gpo_id = ?",
                 (snap_a, gpo_id),
             ).fetchall()
         )
-        # Reload for snap_b
-        new_settings = set(
+        new_s = set(
             conn.execute(
                 "SELECT cse, identity, display_value FROM setting "
                 "WHERE snapshot_id = ? AND gpo_id = ?",
                 (snap_b, gpo_id),
             ).fetchall()
         )
-        if old_settings != new_settings:
-            changed.append(gpo_id)
+        if old_s != new_s:
+            settings_changed.append(gpo_id)
 
-    return {
-        "added": list(added),
-        "removed": list(removed),
-        "changed": changed,
-    }
+        # Links diff
+        old_l = set(
+            conn.execute(
+                "SELECT som_path, link_enabled, enforced FROM gpo_link "
+                "WHERE snapshot_id = ? AND gpo_id = ?",
+                (snap_a, gpo_id),
+            ).fetchall()
+        )
+        new_l = set(
+            conn.execute(
+                "SELECT som_path, link_enabled, enforced FROM gpo_link "
+                "WHERE snapshot_id = ? AND gpo_id = ?",
+                (snap_b, gpo_id),
+            ).fetchall()
+        )
+        if old_l != new_l:
+            links_changed.append(gpo_id)
+
+        # Delegation diff
+        old_d = set(
+            conn.execute(
+                "SELECT trustee, permission, allowed FROM delegation "
+                "WHERE snapshot_id = ? AND gpo_id = ?",
+                (snap_a, gpo_id),
+            ).fetchall()
+        )
+        new_d = set(
+            conn.execute(
+                "SELECT trustee, permission, allowed FROM delegation "
+                "WHERE snapshot_id = ? AND gpo_id = ?",
+                (snap_b, gpo_id),
+            ).fetchall()
+        )
+        if old_d != new_d:
+            delegation_changed.append(gpo_id)
+
+        # Version skew diff (appeared or disappeared)
+        old_v = conn.execute(
+            "SELECT computer_ver_ds, computer_ver_sysvol, user_ver_ds, user_ver_sysvol "
+            "FROM gpo WHERE snapshot_id = ? AND id = ?",
+            (snap_a, gpo_id),
+        ).fetchone()
+        new_v = conn.execute(
+            "SELECT computer_ver_ds, computer_ver_sysvol, user_ver_ds, user_ver_sysvol "
+            "FROM gpo WHERE snapshot_id = ? AND id = ?",
+            (snap_b, gpo_id),
+        ).fetchone()
+        if old_v and new_v:
+            old_skew = (old_v[0] != old_v[1]) or (old_v[2] != old_v[3])
+            new_skew = (new_v[0] != new_v[1]) or (new_v[2] != new_v[3])
+            if old_skew != new_skew:
+                version_skew_changed.append(gpo_id)
+
+    return SnapshotDiff(
+        gpos_added=added,
+        gpos_removed=removed,
+        settings_changed=settings_changed,
+        links_changed=links_changed,
+        delegation_changed=delegation_changed,
+        version_skew_changed=version_skew_changed,
+    )
+
+
+def estate_summary(estate: Estate) -> EstateSummary:
+    """One-command estate health overview."""
+    return EstateSummary(
+        domain=estate.domain,
+        gpo_count=len(estate.gpos),
+        som_count=len(estate.soms),
+        wmi_filter_count=len(estate.wmi_filters),
+        unlinked_count=len(unlinked_gpos(estate)),
+        empty_count=len(empty_gpos(estate)),
+        disabled_but_populated_count=len(disabled_but_populated(estate)),
+        conflict_count=len(conflicts(estate)),
+        blocked_extension_count=len(blocked_extensions(estate)),
+        version_skew_count=len(version_skew(estate)),
+        ms16_072_vulnerable_count=len(ms16_072_vulnerable(estate)),
+        cpassword_hit_count=len(cpassword_scan(estate)),
+        loopback_gpo_count=len(loopback_gpos(estate)),
+        wmi_filtered_gpo_count=len(wmi_filtered_gpos(estate)),
+        enforced_link_count=len(enforced_links(estate)),
+        dangling_link_count=len(dangling_links(estate)),
+        broken_ref_count=len(broken_refs(estate)),
+        total_settings=sum(len(g.settings) for g in estate.gpos),
+        total_delegation_entries=sum(len(g.delegation) for g in estate.gpos),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -653,17 +850,6 @@ def settings_at_som(estate: Estate, som_path: str) -> list[EffectiveSetting]:
 # ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
-class BrokenRef:
-    """One detected broken or suspicious reference."""
-
-    gpo_id: str
-    gpo_name: str
-    ref_type: str          # "unc_path", "missing_script", "script_unc"
-    ref_value: str
-    detail: str
-
-
-@dataclass(frozen=True)
 class EffectiveSetting:
     """One setting that applies at a SOM after chain folding.
 
@@ -681,10 +867,38 @@ class EffectiveSetting:
     overridden_by: list[tuple[str, str]]  # (gpo_name, display_value)
     enforced: bool
 
+
+@dataclass(frozen=True)
+class BrokenRef:
+    """One detected broken or suspicious reference."""
+
+    gpo_id: str
+    gpo_name: str
+    ref_type: str          # "unc_path", "missing_script", "script_unc"
+    ref_value: str
+    detail: str
+
+
 def _scan_text_for_unc(text: str) -> list[str]:
     """Find UNC paths in a string."""
-    # Match \\server\share followed by an optional path component
     return re.findall(r"\\\\[^\s\"'<>|]+", text)
+
+
+def _raw_strings(raw: dict[str, object]) -> list[str]:
+    """Recursively extract all string values from a raw dict."""
+    out: list[str] = []
+    for v in raw.values():
+        if isinstance(v, str):
+            out.append(v)
+        elif isinstance(v, list):
+            for item in v:
+                if isinstance(item, str):
+                    out.append(item)
+                elif isinstance(item, dict):
+                    out.extend(_raw_strings(item))
+        elif isinstance(v, dict):
+            out.extend(_raw_strings(v))
+    return out
 
 
 def broken_refs(estate: Estate) -> list[BrokenRef]:
@@ -692,37 +906,61 @@ def broken_refs(estate: Estate) -> list[BrokenRef]:
 
     This is **detection only** — no reachability probe. Safe for air-gapped
     use. Flags:
-    - UNC paths in setting display values
-    - Script references that are UNC paths
-    - Reference to files that don't exist in the GPO's sysvol_path
+    - UNC paths in setting display values and raw dicts
+    - Script files referenced in settings that don't exist in the GPO's SYSVOL
     """
     from pathlib import Path
 
     results: list[BrokenRef] = []
+    seen: set[tuple[str, str, str]] = set()
+
+    def _add(ref: BrokenRef) -> None:
+        key = (ref.gpo_id, ref.ref_type, ref.ref_value)
+        if key not in seen:
+            seen.add(key)
+            results.append(ref)
 
     for g in estate.gpos:
-        # Scan settings for UNC paths in display values
         for s in g.settings:
-            uncs = _scan_text_for_unc(s.display_value)
-            for unc in uncs:
-                results.append(
-                    BrokenRef(
-                        gpo_id=g.id,
-                        gpo_name=g.name,
-                        ref_type="unc_path",
-                        ref_value=unc,
-                        detail=f"[{s.cse}] {s.identity}: UNC in display value",
-                    )
-                )
+            # 1. UNC paths in display_value
+            for unc in _scan_text_for_unc(s.display_value):
+                _add(BrokenRef(
+                    gpo_id=g.id, gpo_name=g.name,
+                    ref_type="unc_path", ref_value=unc,
+                    detail=f"[{s.cse}] {s.identity}: UNC in display value",
+                ))
 
-        # Scan SYSVOL for missing scripts/files if path exists
-        if g.sysvol_path:
-            base = Path(g.sysvol_path)
-            for side_dir in ("Machine", "User"):
-                scripts = base / side_dir / "Scripts" / "Logon"
-                if scripts.exists():
-                    # Not checking existence of individual scripts — just flag
-                    # script settings that reference UNC paths
-                    pass
+            # 2. UNC paths in raw dict values
+            for text in _raw_strings(s.raw):
+                for unc in _scan_text_for_unc(text):
+                    _add(BrokenRef(
+                        gpo_id=g.id, gpo_name=g.name,
+                        ref_type="unc_path", ref_value=unc,
+                        detail=f"[{s.cse}] {s.identity}: UNC in raw data",
+                    ))
+
+            # 3. Script references — check if a .bat/.cmd/.ps1/.vbs is mentioned
+            #    and verify the file exists in the GPO's SYSVOL Scripts tree
+            if g.sysvol_path and s.cse in ("Scripts", "Group Policy Scripts"):
+                script_name = s.display_value.strip()
+                if script_name and not script_name.startswith("\\\\"):
+                    base = Path(g.sysvol_path)
+                    candidates = []
+                    for side_dir in ("Machine", "User"):
+                        candidates.extend([
+                            base / side_dir / "Scripts" / script_name,
+                            base / side_dir / "Scripts" / "Logon" / script_name,
+                            base / side_dir / "Scripts" / "Shutdown" / script_name,
+                            base / side_dir / "Scripts" / "Startup" / script_name,
+                        ])
+                    if not any(c.exists() for c in candidates):
+                        _add(BrokenRef(
+                            gpo_id=g.id, gpo_name=g.name,
+                            ref_type="missing_script", ref_value=script_name,
+                            detail=(
+                                f"[{s.cse}] {s.side}: "
+                                f"script '{script_name}' not found in SYSVOL"
+                            ),
+                        ))
 
     return results

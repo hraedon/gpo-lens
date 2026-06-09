@@ -48,6 +48,71 @@ def _print_table(headers: list[str], rows: list[Sequence[str]]) -> None:
 # Commands
 # ---------------------------------------------------------------------------
 
+def cmd_summary(args: argparse.Namespace) -> None:
+    estate = _get_estate(args)
+    s = queries.estate_summary(estate)
+    if args.json:
+        _render_json({
+            "domain": s.domain,
+            "gpo_count": s.gpo_count,
+            "som_count": s.som_count,
+            "wmi_filter_count": s.wmi_filter_count,
+            "unlinked_count": s.unlinked_count,
+            "empty_count": s.empty_count,
+            "disabled_but_populated_count": s.disabled_but_populated_count,
+            "conflict_count": s.conflict_count,
+            "blocked_extension_count": s.blocked_extension_count,
+            "version_skew_count": s.version_skew_count,
+            "ms16_072_vulnerable_count": s.ms16_072_vulnerable_count,
+            "cpassword_hit_count": s.cpassword_hit_count,
+            "loopback_gpo_count": s.loopback_gpo_count,
+            "wmi_filtered_gpo_count": s.wmi_filtered_gpo_count,
+            "enforced_link_count": s.enforced_link_count,
+            "dangling_link_count": s.dangling_link_count,
+            "broken_ref_count": s.broken_ref_count,
+            "total_settings": s.total_settings,
+            "total_delegation_entries": s.total_delegation_entries,
+        })
+    else:
+        print(f"Domain: {s.domain}")
+        print(f"GPOs: {s.gpo_count}  |  SOMs: {s.som_count}  |  WMI filters: {s.wmi_filter_count}")
+        print(f"Settings: {s.total_settings}  |  Delegation entries: {s.total_delegation_entries}")
+        print()
+        issues = []
+        if s.unlinked_count:
+            issues.append(f"  Unlinked GPOs:           {s.unlinked_count}")
+        if s.empty_count:
+            issues.append(f"  Empty GPOs:              {s.empty_count}")
+        if s.disabled_but_populated_count:
+            issues.append(f"  Disabled-but-populated:  {s.disabled_but_populated_count}")
+        if s.conflict_count:
+            issues.append(f"  Setting conflicts:       {s.conflict_count}")
+        if s.blocked_extension_count:
+            issues.append(f"  Blocked extensions:      {s.blocked_extension_count}")
+        if s.version_skew_count:
+            issues.append(f"  Version skew:            {s.version_skew_count}")
+        if s.ms16_072_vulnerable_count:
+            issues.append(f"  MS16-072 vulnerable:     {s.ms16_072_vulnerable_count}")
+        if s.cpassword_hit_count:
+            issues.append(f"  cpassword hits (MS14-025): {s.cpassword_hit_count}")
+        if s.loopback_gpo_count:
+            issues.append(f"  Loopback GPOs:           {s.loopback_gpo_count}")
+        if s.wmi_filtered_gpo_count:
+            issues.append(f"  WMI-filtered GPOs:       {s.wmi_filtered_gpo_count}")
+        if s.enforced_link_count:
+            issues.append(f"  Enforced links:          {s.enforced_link_count}")
+        if s.dangling_link_count:
+            issues.append(f"  Dangling links:          {s.dangling_link_count}")
+        if s.broken_ref_count:
+            issues.append(f"  Broken references:       {s.broken_ref_count}")
+        if issues:
+            print("Hygiene & security:")
+            for line in issues:
+                print(line)
+        else:
+            print("No issues detected.")
+
+
 def cmd_ingest(args: argparse.Namespace) -> None:
     estate = ingest.load_estate(args.sample_dir)
     conn = sqlite3.connect(args.db)
@@ -291,8 +356,34 @@ def cmd_perms(args: argparse.Namespace) -> None:
 def cmd_diff(args: argparse.Namespace) -> None:
     conn = sqlite3.connect(args.db)
     diff = queries.snapshot_diff(conn, args.snapshot_a, args.snapshot_b)
-    _render_json(diff)
     conn.close()
+    if args.json:
+        _render_json({
+            "gpos_added": diff.gpos_added,
+            "gpos_removed": diff.gpos_removed,
+            "settings_changed": diff.settings_changed,
+            "links_changed": diff.links_changed,
+            "delegation_changed": diff.delegation_changed,
+            "version_skew_changed": diff.version_skew_changed,
+        })
+    else:
+        if diff.gpos_added:
+            print(f"GPOs added: {', '.join(diff.gpos_added)}")
+        if diff.gpos_removed:
+            print(f"GPOs removed: {', '.join(diff.gpos_removed)}")
+        if diff.settings_changed:
+            print(f"Settings changed: {', '.join(diff.settings_changed)}")
+        if diff.links_changed:
+            print(f"Links changed: {', '.join(diff.links_changed)}")
+        if diff.delegation_changed:
+            print(f"Delegation changed: {', '.join(diff.delegation_changed)}")
+        if diff.version_skew_changed:
+            print(f"Version skew changed: {', '.join(diff.version_skew_changed)}")
+        if not any([
+            diff.gpos_added, diff.gpos_removed, diff.settings_changed,
+            diff.links_changed, diff.delegation_changed, diff.version_skew_changed,
+        ]):
+            print("No differences found.")
 
 
 def cmd_snapshots(args: argparse.Namespace) -> None:
@@ -534,19 +625,48 @@ def cmd_broken_refs(args: argparse.Namespace) -> None:
 
 def cmd_wmi(args: argparse.Namespace) -> None:
     estate = _get_estate(args)
-    result = queries.wmi_filtered_gpos(estate)
     if args.json:
         _render_json(
             [
                 {"id": g.id, "name": g.name, "wmi_filter": g.wmi_filter}
-                for g in result
+                for g in queries.wmi_filtered_gpos(estate)
             ]
         )
     else:
         _print_table(
             ["id", "name", "wmi_filter"],
-            [[g.id, g.name, g.wmi_filter or ""] for g in result],
+            [[g.id, g.name, g.wmi_filter or ""] for g in queries.wmi_filtered_gpos(estate)],
         )
+
+
+def cmd_wmi_filters(args: argparse.Namespace) -> None:
+    estate = _get_estate(args)
+    if args.json:
+        _render_json(
+            [{"name": wf.name, "query": wf.query} for wf in estate.wmi_filters]
+        )
+    else:
+        _print_table(
+            ["name", "query"],
+            [[wf.name, wf.query] for wf in estate.wmi_filters],
+        )
+
+
+def cmd_topology_check(args: argparse.Namespace) -> None:
+    estate = _get_estate(args)
+    result = queries.topology_crosscheck(estate)
+    if args.json:
+        _render_json(
+            [{"kind": d.kind, "ou_dn": d.ou_dn, "detail": d.detail} for d in result]
+        )
+    else:
+        if not result:
+            print("No discrepancies found.")
+        else:
+            _print_table(
+                ["kind", "ou_dn", "detail"],
+                [[d.kind, d.ou_dn, d.detail] for d in result],
+            )
 
 
 def cmd_settings_at(args: argparse.Namespace) -> None:
@@ -602,13 +722,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--json", action="store_true")
     sub = parser.add_subparsers(dest="command", required=True)
 
+    def _add_src(p: argparse.ArgumentParser) -> None:
+        p.add_argument("src", nargs="?", help="Sample directory (omit to use --db)")
+
+    # summary
+    p = sub.add_parser("summary", help="Estate health overview")
+    _add_src(p)
+    p.set_defaults(func=cmd_summary)
+
     # ingest
     p = sub.add_parser("ingest")
     p.add_argument("sample_dir")
     p.set_defaults(func=cmd_ingest)
-
-    def _add_src(p: argparse.ArgumentParser) -> None:
-        p.add_argument("src", nargs="?", help="Sample directory (omit to use --db)")
 
     # analysis commands
     p = sub.add_parser("unlinked")
@@ -700,6 +825,17 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("wmi", help="GPOs with WMI filters attached")
     _add_src(p)
     p.set_defaults(func=cmd_wmi)
+
+    p = sub.add_parser("wmi-filters", help="List WMI filters with query text")
+    _add_src(p)
+    p.set_defaults(func=cmd_wmi_filters)
+
+    p = sub.add_parser(
+        "topology-check",
+        help="Cross-check ou-tree.json against gp-inheritance.json",
+    )
+    _add_src(p)
+    p.set_defaults(func=cmd_topology_check)
 
     # new Plan 009 command
     p = sub.add_parser(

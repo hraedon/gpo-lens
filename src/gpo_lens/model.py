@@ -120,6 +120,24 @@ class Som:
     links: list[SomLink] = field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class WmiFilter:
+    """A WMI filter with its name and query text, from ``wmi-filters.json``."""
+
+    name: str
+    query: str
+
+
+@dataclass(frozen=True)
+class OuRecord:
+    """One OU from the raw ``ou-tree.json`` (gPLink / gPOptions)."""
+
+    dn: str
+    name: str
+    gp_link: str | None       # raw gPLink attribute (DN-list of GUIDs)
+    gp_options: int | None    # gPOptions: 0=not blocked, 1=block inheritance
+
+
 @dataclass
 class Estate:
     """The whole normalized estate for one domain snapshot."""
@@ -127,6 +145,8 @@ class Estate:
     domain: str = ""
     gpos: list[Gpo] = field(default_factory=list)
     soms: list[Som] = field(default_factory=list)
+    wmi_filters: list[WmiFilter] = field(default_factory=list)
+    ou_tree: list[OuRecord] = field(default_factory=list)
 
     def gpo_by_id(self, gpo_id: str) -> Gpo | None:
         return next((g for g in self.gpos if g.id == gpo_id), None)
