@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import xml.etree.ElementTree as ET
+import zipfile
 from pathlib import Path
 from typing import Any
 
@@ -289,6 +290,71 @@ def parse_report(xml_path: str | Path) -> list[Gpo]:
         if _localname(gpo_elem.tag) == "GPO":
             gpo = _parse_single_gpo(gpo_elem)
             gpos.append(gpo)
+    return gpos
+
+
+def parse_report_xml(xml_bytes: bytes) -> list[Gpo]:
+    """Parse one or more GPOs from raw XML bytes (handles UTF-8 and UTF-16)."""
+    if xml_bytes[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        text = xml_bytes.decode("utf-16")
+    elif xml_bytes[:3] == b"\xef\xbb\xbf":
+        text = xml_bytes.decode("utf-8-sig")
+    else:
+        text = xml_bytes.decode("utf-8")
+    root = ET.fromstring(text)
+    gpos: list[Gpo] = []
+    if _localname(root.tag) == "GPO":
+        gpos.append(_parse_single_gpo(root))
+    else:
+        for gpo_elem in root.iter():
+            if gpo_elem is root:
+                continue
+            if _localname(gpo_elem.tag) == "GPO":
+                gpos.append(_parse_single_gpo(gpo_elem))
+    return gpos
+
+
+def load_baseline_from_zip(zip_path: str | Path) -> list[Gpo]:
+    """Load baseline GPOs from a Microsoft Security Baseline zip.
+
+    Microsoft ships baselines as nested zips.  This function handles both:
+    - Direct zip with ``GPOs/{GUID}/gpreport.xml`` structure
+    - Outer zip containing inner baseline zips
+
+    Returns all GPOs found across all baseline GPOs in the archive.
+    """
+    import io
+    import zipfile
+
+    gpos: list[Gpo] = []
+    outer = zipfile.ZipFile(str(zip_path))
+
+    for name in outer.namelist():
+        if name.endswith(".zip"):
+            inner_data = outer.read(name)
+            inner = zipfile.ZipFile(io.BytesIO(inner_data))
+            gpos.extend(_extract_gpos_from_zip(inner))
+        elif name.endswith("gpreport.xml"):
+            raw = outer.read(name)
+            gpos.extend(parse_report_xml(raw))
+
+    if not gpos:
+        # Try the outer zip itself as a GPO backup zip
+        gpos.extend(_extract_gpos_from_zip(outer))
+
+    return gpos
+
+
+def _extract_gpos_from_zip(zf: zipfile.ZipFile) -> list[Gpo]:
+    """Extract GPOs from gpreport.xml files in a zip."""
+    gpos: list[Gpo] = []
+    for name in zf.namelist():
+        if name.endswith("gpreport.xml"):
+            try:
+                raw = zf.read(name)
+                gpos.extend(parse_report_xml(raw))
+            except Exception:
+                continue
     return gpos
 
 

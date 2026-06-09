@@ -38,6 +38,116 @@ def db_path(tmp_path):
     return db
 
 
+@pytest.fixture
+def rich_db(tmp_path):
+    """SQLite DB with GPOs, settings, delegation, SOMs, and links."""
+    from gpo_lens import model, store
+
+    db = tmp_path / "rich.db"
+    conn = sqlite3.connect(str(db))
+    store.init_db(conn)
+    estate = model.Estate(
+        domain="test.local",
+        gpos=[
+            model.Gpo(
+                id="aaa-bbb", name="GPO Alpha", domain="test.local",
+                created=None, modified=None, read=None,
+                computer_enabled=True, user_enabled=False,
+                computer_ver_ds=1, computer_ver_sysvol=2,
+                user_ver_ds=0, user_ver_sysvol=0,
+                sddl=None, owner="BUILTIN\\Admins",
+                filter_data_available=False,
+                wmi_filter="MyFilter", sysvol_path=None,
+                settings=[
+                    model.Setting(
+                        gpo_id="aaa-bbb", side="Computer", cse="Security",
+                        identity="Account:LockoutBadCount",
+                        display_name="LockoutBadCount", display_value="5",
+                        raw={}, from_disabled_side=False,
+                    ),
+                    model.Setting(
+                        gpo_id="aaa-bbb", side="Computer", cse="Registry",
+                        identity=r"Software\MyApp:Setting1",
+                        display_name=r"Software\MyApp", display_value="1",
+                        raw={}, from_disabled_side=False,
+                    ),
+                ],
+                delegation=[
+                    model.DelegationEntry(
+                        gpo_id="aaa-bbb", trustee="Authenticated Users",
+                        trustee_sid="S-1-5-11", permission="Read", allowed=True,
+                    ),
+                ],
+                links=[
+                    model.GpoLink(
+                        gpo_id="aaa-bbb",
+                        som_name="Workstations",
+                        som_path="ou=workstations,dc=test,dc=local",
+                        link_enabled=True, enforced=False,
+                    ),
+                ],
+            ),
+            model.Gpo(
+                id="ccc-ddd", name="GPO Beta", domain="test.local",
+                created=None, modified=None, read=None,
+                computer_enabled=False, user_enabled=True,
+                computer_ver_ds=0, computer_ver_sysvol=0,
+                user_ver_ds=0, user_ver_sysvol=0,
+                sddl=None, owner=None,
+                filter_data_available=False,
+                wmi_filter=None, sysvol_path=None,
+                settings=[
+                    model.Setting(
+                        gpo_id="ccc-ddd", side="User", cse="Registry",
+                        identity="SomePolicy", display_name="SomePolicy",
+                        display_value="Enabled", raw={},
+                        from_disabled_side=False,
+                    ),
+                    model.Setting(
+                        gpo_id="ccc-ddd", side="Computer", cse="Security",
+                        identity="Account:LockoutBadCount",
+                        display_name="LockoutBadCount", display_value="10",
+                        raw={}, from_disabled_side=True,
+                    ),
+                ],
+            ),
+        ],
+        soms=[
+            model.Som(
+                path="ou=workstations,dc=test,dc=local",
+                name="Workstations", container_type="ou",
+                inheritance_blocked=False,
+                links=[
+                    model.SomLink(
+                        gpo_id="aaa-bbb", order=1, enabled=True,
+                        enforced=False, target="ou=workstations,dc=test,dc=local",
+                    ),
+                    model.SomLink(
+                        gpo_id="ccc-ddd", order=2, enabled=True,
+                        enforced=True, target="ou=workstations,dc=test,dc=local",
+                    ),
+                    model.SomLink(
+                        gpo_id="missing-gpo", order=3, enabled=True,
+                        enforced=False, target="ou=workstations,dc=test,dc=local",
+                    ),
+                ],
+            ),
+        ],
+        wmi_filters=[
+            model.WmiFilter(name="MyFilter", query="SELECT * FROM Win32_OperatingSystem"),
+        ],
+        ou_tree=[
+            model.OuRecord(
+                dn="OU=Workstations,DC=test,DC=local",
+                name="Workstations", gp_link=None, gp_options=0,
+            ),
+        ],
+    )
+    store.save_estate(conn, estate)
+    conn.close()
+    return db
+
+
 class TestCLI:
     def test_help(self):
         r = subprocess.run(
@@ -155,3 +265,310 @@ class TestCLI:
             capture_output=True, text=True,
         )
         assert r.returncode == 0
+
+    # ---- smoke tests for all remaining subcommands ----
+
+    def test_empty(self, db_path):
+        r = subprocess.run(
+            GPO_LENS + ["--db", str(db_path), "empty"],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+
+    def test_disabled_populated(self, rich_db):
+        r = subprocess.run(
+            GPO_LENS + ["--db", str(rich_db), "disabled-populated"],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+
+    def test_disabled_populated_json(self, rich_db):
+        r = subprocess.run(
+            GPO_LENS + ["--json", "--db", str(rich_db), "disabled-populated"],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+
+    def test_who_sets(self, rich_db):
+        r = subprocess.run(
+            GPO_LENS + ["--db", str(rich_db), "who-sets", "Lockout"],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+
+    def test_who_sets_json(self, rich_db):
+        r = subprocess.run(
+            GPO_LENS + ["--json", "--db", str(rich_db), "who-sets", "Lockout"],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+
+    def test_conflicts(self, rich_db):
+        r = subprocess.run(
+            GPO_LENS + ["--db", str(rich_db), "conflicts"],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+
+    def test_conflicts_json(self, rich_db):
+        r = subprocess.run(
+            GPO_LENS + ["--json", "--db", str(rich_db), "conflicts"],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+
+    def test_blocked(self, db_path):
+        r = subprocess.run(
+            GPO_LENS + ["--db", str(db_path), "blocked"],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+
+    def test_version_skew(self, rich_db):
+        r = subprocess.run(
+            GPO_LENS + ["--db", str(rich_db), "version-skew"],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+
+    def test_version_skew_json(self, rich_db):
+        r = subprocess.run(
+            GPO_LENS + ["--json", "--db", str(rich_db), "version-skew"],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+
+    def test_ms16_072(self, rich_db):
+        r = subprocess.run(
+            GPO_LENS + ["--db", str(rich_db), "ms16-072"],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+
+    def test_cpassword(self, db_path):
+        r = subprocess.run(
+            GPO_LENS + ["--db", str(db_path), "cpassword"],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+
+    def test_cpassword_json(self, db_path):
+        r = subprocess.run(
+            GPO_LENS + ["--json", "--db", str(db_path), "cpassword"],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+
+    def test_show(self, db_path):
+        r = subprocess.run(
+            GPO_LENS + ["--db", str(db_path), "show", "aaa-bbb"],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+
+    def test_show_json(self, db_path):
+        r = subprocess.run(
+            GPO_LENS + ["--json", "--db", str(db_path), "show", "aaa-bbb"],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+
+    def test_som(self, rich_db):
+        r = subprocess.run(
+            GPO_LENS + ["--db", str(rich_db), "som",
+                        "ou=workstations,dc=test,dc=local"],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+
+    def test_som_json(self, rich_db):
+        r = subprocess.run(
+            GPO_LENS + ["--json", "--db", str(rich_db), "som",
+                        "ou=workstations,dc=test,dc=local"],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+
+    def test_dangling(self, rich_db):
+        r = subprocess.run(
+            GPO_LENS + ["--db", str(rich_db), "dangling"],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+
+    def test_enforced(self, rich_db):
+        r = subprocess.run(
+            GPO_LENS + ["--db", str(rich_db), "enforced"],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+
+    def test_loopback(self, db_path):
+        r = subprocess.run(
+            GPO_LENS + ["--db", str(db_path), "loopback"],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+
+    def test_wmi(self, rich_db):
+        r = subprocess.run(
+            GPO_LENS + ["--db", str(rich_db), "wmi"],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+
+    def test_wmi_filters(self, rich_db):
+        r = subprocess.run(
+            GPO_LENS + ["--db", str(rich_db), "wmi-filters"],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+
+    def test_topology_check(self, rich_db):
+        r = subprocess.run(
+            GPO_LENS + ["--db", str(rich_db), "topology-check"],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+
+    def test_broken_refs(self, db_path):
+        r = subprocess.run(
+            GPO_LENS + ["--db", str(db_path), "broken-refs"],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+
+    def test_broken_refs_json(self, db_path):
+        r = subprocess.run(
+            GPO_LENS + ["--json", "--db", str(db_path), "broken-refs"],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+
+    def test_admx_gaps(self, db_path):
+        r = subprocess.run(
+            GPO_LENS + ["--db", str(db_path), "admx-gaps"],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+
+    def test_admx_gaps_json(self, rich_db):
+        r = subprocess.run(
+            GPO_LENS + ["--json", "--db", str(rich_db), "admx-gaps"],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+
+    def test_settings_at(self, rich_db):
+        r = subprocess.run(
+            GPO_LENS + ["--db", str(rich_db), "settings-at",
+                        "ou=workstations,dc=test,dc=local"],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+
+    def test_settings_at_json(self, rich_db):
+        r = subprocess.run(
+            GPO_LENS + ["--json", "--db", str(rich_db), "settings-at",
+                        "ou=workstations,dc=test,dc=local"],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+
+    def test_som_conflicts(self, rich_db):
+        r = subprocess.run(
+            GPO_LENS + ["--db", str(rich_db), "som-conflicts",
+                        "ou=workstations,dc=test,dc=local"],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+
+    def test_precedence_conflicts(self, rich_db):
+        r = subprocess.run(
+            GPO_LENS + ["--db", str(rich_db), "precedence-conflicts"],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+
+    def test_precedence_conflicts_json(self, rich_db):
+        r = subprocess.run(
+            GPO_LENS + ["--json", "--db", str(rich_db), "precedence-conflicts"],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+
+    def test_doctor(self, rich_db):
+        r = subprocess.run(
+            GPO_LENS + ["--db", str(rich_db), "doctor"],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+        assert "Estate Doctor" in r.stdout
+
+    def test_doctor_json(self, rich_db):
+        r = subprocess.run(
+            GPO_LENS + ["--json", "--db", str(rich_db), "doctor"],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+        assert "severity" in r.stdout
+
+    def test_doctor_clean(self, db_path):
+        r = subprocess.run(
+            GPO_LENS + ["--db", str(db_path), "doctor"],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+        # db_path has one unlinked, no-delegation GPO => info findings
+        assert "INFO" in r.stdout
+
+    def test_settings_dump(self, rich_db):
+        r = subprocess.run(
+            GPO_LENS + ["--db", str(rich_db), "settings-dump"],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+        assert "LockoutBadCount" in r.stdout
+
+    def test_settings_dump_json(self, rich_db):
+        r = subprocess.run(
+            GPO_LENS + ["--json", "--db", str(rich_db), "settings-dump"],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+        assert "gpo_id" in r.stdout
+
+    def test_settings_dump_filter_side(self, rich_db):
+        r = subprocess.run(
+            GPO_LENS + ["--db", str(rich_db), "settings-dump", "--side", "User"],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+        # Only User-side settings should appear
+        assert "SomePolicy" in r.stdout
+        assert "LockoutBadCount" not in r.stdout
+
+    def test_settings_dump_filter_cse(self, rich_db):
+        r = subprocess.run(
+            GPO_LENS + ["--db", str(rich_db), "settings-dump", "--cse", "Security"],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+        assert "LockoutBadCount" in r.stdout
+
+    def test_settings_dump_filter_gpo(self, rich_db):
+        r = subprocess.run(
+            GPO_LENS + ["--db", str(rich_db), "settings-dump", "--gpo", "Alpha"],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+        assert "GPO Alpha" in r.stdout
+        assert "GPO Beta" not in r.stdout
+
+    def test_settings_dump_empty(self, db_path):
+        r = subprocess.run(
+            GPO_LENS + ["--db", str(db_path), "settings-dump"],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+        assert "No results" in r.stdout

@@ -52,3 +52,33 @@ Slice 1 is **stdlib-only** (`xml.etree.ElementTree`, `json`, `sqlite3`,
 
 `scripts/Export-GpoEstate.ps1` produces the inputs (read-only PowerShell, run on
 a DC/RSAT box). The tool consumes its output dir.
+
+## Module map
+
+| Module | Purpose |
+|--------|---------|
+| `model.py` | Dataclasses — the normalized contract |
+| `normalize.py` | Pure helpers: `canonical_guid`, `load_json`, `parse_bool/int/dt` |
+| `ingest.py` | Parse collector outputs → `Estate`. Also `parse_report_xml` for raw bytes (UTF-8/16), `load_baseline_from_zip` for Microsoft baseline zips |
+| `store.py` | SQLite persistence for snapshot history |
+| `queries.py` | All deterministic queries (Tier 1, 2, 2.5). `estate_doctor` for one-shot health assessment, `baseline_diff` for Tier 2 baseline comparison |
+| `admx_parser.py` | ADMX/ADML template parser — builds registry-path → policy-name crosswalk for baseline diff |
+| `display.py` | Table renderer |
+| `cli.py` | Argparse CLI — one function per subcommand |
+
+## Baseline diff
+
+Microsoft ships Security Baselines as nested zips containing GPO backups.
+`load_baseline_from_zip` handles the nesting.  Each GPO's `gpreport.xml`
+is UTF-16 encoded — `parse_report_xml` detects the encoding.
+
+Baseline settings are compared by `(cse, identity)` — the ADMX crosswalk
+in `admx_parser.py` resolves registry paths back to policy names for display.
+
+## Active breadcrumbs
+
+Check `breadcrumbs/active/` for deferred work items:
+- `changelog-over-time.md` — per-setting deltas, version-aware diffing
+- `delegation-audit-deep-dive.md` — SDDL parsing, deny detection, privilege rollup
+- `estate-doc-export.md` — auto-generated markdown/HTML reports
+- `settings-diff-pipeline.md` — structured diff between settings exports

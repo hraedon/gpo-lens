@@ -724,6 +724,152 @@ def cmd_admx_gaps(args: argparse.Namespace) -> None:
             )
 
 
+def cmd_settings_dump(args: argparse.Namespace) -> None:
+    estate = _get_estate(args)
+    results = queries.settings_dump(
+        estate,
+        side=getattr(args, "side", None),
+        cse=getattr(args, "cse", None),
+        gpo_name=getattr(args, "gpo_name", None),
+    )
+    if args.json:
+        _render_json([
+            {
+                "gpo_id": r.gpo_id,
+                "gpo_name": r.gpo_name,
+                "side": r.side,
+                "cse": r.cse,
+                "identity": r.identity,
+                "display_name": r.display_name,
+                "display_value": r.display_value,
+                "from_disabled_side": r.from_disabled_side,
+            }
+            for r in results
+        ])
+    else:
+        _print_table(
+            ["gpo_id", "gpo_name", "side", "cse", "identity", "value"],
+            [
+                [r.gpo_id, r.gpo_name, r.side, r.cse, r.identity, r.display_value]
+                for r in results
+            ],
+        )
+
+
+def cmd_baseline_diff(args: argparse.Namespace) -> None:
+    from pathlib import Path as _Path
+
+    from gpo_lens.admx_parser import parse_admx_dir
+    from gpo_lens.ingest import load_baseline_from_zip
+
+    estate = _get_estate(args)
+    baseline_src = _Path(args.baseline_dir)
+    if baseline_src.suffix.lower() == ".zip":
+        baseline_gpos = load_baseline_from_zip(baseline_src)
+        from gpo_lens.model import Estate as _Estate
+        baseline_estate = _Estate(gpos=baseline_gpos)
+    else:
+        baseline_estate = ingest.load_estate(baseline_src)
+    baseline = queries.load_baseline_from_estate(baseline_estate)
+
+    admx = None
+    admx_dir = getattr(args, "admx_dir", None)
+    if admx_dir:
+        admx = parse_admx_dir(admx_dir)
+
+    results = queries.baseline_diff(estate, baseline, admx)
+    if args.json:
+        _render_json([
+            {
+                "status": r.status,
+                "side": r.side,
+                "cse": r.cse,
+                "identity": r.identity,
+                "display_name": r.display_name,
+                "expected": r.expected_value,
+                "actual": r.actual_value,
+                "gpo_id": r.gpo_id,
+                "admx_name": r.admx_name,
+            }
+            for r in results
+        ])
+    else:
+        if not results:
+            print("No baseline settings to compare.")
+            return
+        drift = [r for r in results if r.status == "drift"]
+        missing = [r for r in results if r.status == "missing"]
+        extra = [r for r in results if r.status == "extra"]
+        compliant = [r for r in results if r.status == "compliant"]
+
+        print("Baseline Diff")
+        print("=" * 60)
+        print(f"  Compliant: {len(compliant)}  |  Drift: {len(drift)}  |  "
+              f"Missing: {len(missing)}  |  Extra: {len(extra)}")
+        print()
+
+        for group_name, group in [("DRIFT", drift), ("MISSING", missing),
+                                   ("EXTRA", extra)]:
+            if group:
+                print(f"--- {group_name} ---")
+                for r in group:
+                    label = r.admx_name or r.display_name or r.identity
+                    if r.status == "drift":
+                        print(f"  [{r.cse}] {r.side}/{label}")
+                        print(f"    expected: {r.expected_value}")
+                        print(f"    actual:   {r.actual_value}  (GPO: {r.gpo_id})")
+                    elif r.status == "missing":
+                        print(f"  [{r.cse}] {r.side}/{label}")
+                        print(f"    expected: {r.expected_value}")
+                    else:
+                        print(f"  [{r.cse}] {r.side}/{label}")
+                        print(f"    actual: {r.actual_value}  (GPO: {r.gpo_id})")
+                print()
+
+
+def cmd_doctor(args: argparse.Namespace) -> None:
+    estate = _get_estate(args)
+    findings = queries.estate_doctor(estate)
+    if args.json:
+        _render_json([
+            {
+                "severity": f.severity,
+                "category": f.category,
+                "gpo_id": f.gpo_id,
+                "gpo_name": f.gpo_name,
+                "summary": f.summary,
+                "detail": f.detail,
+            }
+            for f in findings
+        ])
+    else:
+        if not findings:
+            print("No issues detected. Estate looks healthy.")
+            return
+        sev_counts: dict[str, int] = {}
+        for f in findings:
+            sev_counts[f.severity] = sev_counts.get(f.severity, 0) + 1
+
+        print("Estate Doctor — Findings")
+        print("=" * 60)
+        parts = []
+        for sev in ("critical", "high", "medium", "low", "info"):
+            if sev in sev_counts:
+                parts.append(f"{sev}: {sev_counts[sev]}")
+        print("  " + " | ".join(parts))
+        print()
+
+        current_sev = None
+        for f in findings:
+            if f.severity != current_sev:
+                current_sev = f.severity
+                print(f"--- {current_sev.upper()} ---")
+            gpo_part = f" [{f.gpo_name or f.gpo_id}]" if f.gpo_id else ""
+            print(f"  {f.category}{gpo_part}: {f.summary}")
+            if f.detail:
+                print(f"    {f.detail}")
+
+
 def cmd_settings_at(args: argparse.Namespace) -> None:
     estate = _get_estate(args)
     result = queries.settings_at_som(estate, args.som_path)
@@ -930,6 +1076,37 @@ def main(argv: list[str] | None = None) -> int:
     )
     _add_src(p)
     p.set_defaults(func=cmd_broken_refs)
+
+    # settings-dump
+    p = sub.add_parser(
+        "settings-dump",
+        help="Flat export of all settings (pipe-friendly)",
+    )
+    p.add_argument("--side", help="Filter by side (Computer/User)")
+    p.add_argument("--cse", help="Filter by CSE (substring match)")
+    p.add_argument("--gpo", dest="gpo_name", help="Filter by GPO name (substring match)")
+    _add_src(p)
+    p.set_defaults(func=cmd_settings_dump)
+
+    # baseline-diff
+    p = sub.add_parser(
+        "baseline-diff",
+        help="Diff estate settings against a baseline GPO backup",
+    )
+    _add_src(p)
+    p.add_argument("baseline_dir", help="Baseline GPO directory or .zip file")
+    p.add_argument(
+        "--admx-dir", help="PolicyDefinitions directory for registry-to-policy crosswalk",
+    )
+    p.set_defaults(func=cmd_baseline_diff)
+
+    # doctor
+    p = sub.add_parser(
+        "doctor",
+        help="Run all hygiene checks and produce a prioritized findings report",
+    )
+    _add_src(p)
+    p.set_defaults(func=cmd_doctor)
 
     # REPL
     p = sub.add_parser("repl", help="Interactive Python REPL with the estate loaded")
