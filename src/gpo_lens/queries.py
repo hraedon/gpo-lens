@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Iterable
 
 if TYPE_CHECKING:
+    from gpo_lens.admx_parser import PolicyDefinitions
     from gpo_lens.model import (
         DelegationEntry,
         Estate,
@@ -1125,6 +1126,369 @@ def _scan_gpp_xml_for_refs(gpo: Gpo) -> list[BrokenRef]:
     return results
 
 
+@dataclass(frozen=True)
+class DoctorFinding:
+    """One prioritized finding from the estate doctor."""
+
+    severity: str       # "critical", "high", "medium", "low", "info"
+    category: str       # "cpassword", "ms16_072", "version_skew", etc.
+    gpo_id: str
+    gpo_name: str
+    summary: str
+    detail: str
+
+
+_SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+
+
+@dataclass(frozen=True)
+class SettingsDumpRow:
+    """One row in the flat settings export."""
+
+    gpo_id: str
+    gpo_name: str
+    side: Side
+    cse: str
+    identity: str
+    display_name: str
+    display_value: str
+    from_disabled_side: bool
+
+
+def settings_dump(
+    estate: Estate,
+    *,
+    side: str | None = None,
+    cse: str | None = None,
+    gpo_name: str | None = None,
+) -> list[SettingsDumpRow]:
+    """Flat export of all settings, optionally filtered.
+
+    Filters are case-insensitive substring matches on the respective field.
+    """
+    side_lower = side.lower() if side else None
+    cse_lower = cse.lower() if cse else None
+    gpo_lower = gpo_name.lower() if gpo_name else None
+
+    results: list[SettingsDumpRow] = []
+    for g in estate.gpos:
+        if gpo_lower and gpo_lower not in g.name.lower():
+            continue
+        for s in g.settings:
+            if side_lower and side_lower not in s.side.lower():
+                continue
+            if cse_lower and cse_lower not in s.cse.lower():
+                continue
+            results.append(SettingsDumpRow(
+                gpo_id=g.id, gpo_name=g.name,
+                side=s.side, cse=s.cse, identity=s.identity,
+                display_name=s.display_name, display_value=s.display_value,
+                from_disabled_side=s.from_disabled_side,
+            ))
+    return results
+
+
+# ---------------------------------------------------------------------------
+# Baseline diff (Tier 2)
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class BaselineSetting:
+    """One expected setting from a baseline."""
+
+    side: Side
+    cse: str
+    identity: str
+    display_name: str
+    expected_value: str
+
+
+@dataclass(frozen=True)
+class BaselineDiffEntry:
+    """One finding from a baseline comparison."""
+
+    status: str         # "compliant", "drift", "missing", "extra"
+    side: Side
+    cse: str
+    identity: str
+    display_name: str
+    expected_value: str
+    actual_value: str
+    gpo_id: str         # GPO(s) that set this value (comma-separated if multiple)
+    admx_name: str      # resolved ADMX policy name (empty if no crosswalk)
+
+
+def load_baseline_from_estate(estate: Estate) -> list[BaselineSetting]:
+    """Extract baseline settings from an estate (typically a single baseline GPO)."""
+    results: list[BaselineSetting] = []
+    for g in estate.gpos:
+        for s in g.settings:
+            if s.source_state == "blocked":
+                continue
+            results.append(BaselineSetting(
+                side=s.side, cse=s.cse, identity=s.identity,
+                display_name=s.display_name, expected_value=s.display_value,
+            ))
+    return results
+
+
+def baseline_diff(
+    estate: Estate,
+    baseline: list[BaselineSetting],
+    admx: PolicyDefinitions | None = None,
+) -> list[BaselineDiffEntry]:
+    """Compare estate settings against a baseline.
+
+    For each baseline setting, finds matching estate settings by
+    ``(cse, identity)`` (case-insensitive).  Reports:
+    - ``compliant`` — estate has the expected value
+    - ``drift`` — estate has a different value
+    - ``missing`` — estate does not apply this setting at all
+
+    Also reports ``extra`` for estate settings not in the baseline
+    (informational — not necessarily wrong).
+
+    Uses the ADMX crosswalk to annotate Registry CSE settings with
+    their policy names when available.
+    """
+    from gpo_lens.admx_parser import PolicyDefinitions as _PD
+
+    if admx is None:
+        admx = _PD()
+
+    # Build baseline lookup: (cse_lower, identity_lower) -> BaselineSetting
+    baseline_keys: dict[tuple[str, str], BaselineSetting] = {}
+    for bs in baseline:
+        key = (bs.cse.lower(), bs.identity.lower())
+        if key not in baseline_keys:
+            baseline_keys[key] = bs
+
+    # Build estate lookup: (cse_lower, identity_lower) -> list of (gpo_id, value)
+    estate_settings: dict[tuple[str, str], list[tuple[str, str]]] = {}
+    for g in estate.gpos:
+        for s in g.settings:
+            if s.source_state == "blocked":
+                continue
+            key = (s.cse.lower(), s.identity.lower())
+            estate_settings.setdefault(key, []).append((g.id, s.display_value))
+
+    results: list[BaselineDiffEntry] = []
+
+    # Check each baseline setting
+    for bs in baseline:
+        bkey = (bs.cse.lower(), bs.identity.lower())
+        actuals = estate_settings.get(bkey, [])
+        admx_name = admx.resolve_display_name(bs.identity) or ""
+
+        if not actuals:
+            results.append(BaselineDiffEntry(
+                status="missing", side=bs.side, cse=bs.cse,
+                identity=bs.identity, display_name=bs.display_name,
+                expected_value=bs.expected_value, actual_value="",
+                gpo_id="", admx_name=admx_name,
+            ))
+        else:
+            # Check if any actual matches the expected value
+            values = {v for _, v in actuals}
+            gpo_ids = ",".join(sorted(set(gid for gid, _ in actuals)))
+            if bs.expected_value in values:
+                results.append(BaselineDiffEntry(
+                    status="compliant", side=bs.side, cse=bs.cse,
+                    identity=bs.identity, display_name=bs.display_name,
+                    expected_value=bs.expected_value,
+                    actual_value=bs.expected_value,
+                    gpo_id=gpo_ids, admx_name=admx_name,
+                ))
+            else:
+                # Use the first actual value for the report
+                results.append(BaselineDiffEntry(
+                    status="drift", side=bs.side, cse=bs.cse,
+                    identity=bs.identity, display_name=bs.display_name,
+                    expected_value=bs.expected_value,
+                    actual_value=actuals[0][1],
+                    gpo_id=gpo_ids, admx_name=admx_name,
+                ))
+
+    # Check for extra settings not in baseline
+    baseline_identity_set = {(bs.cse.lower(), bs.identity.lower()) for bs in baseline}
+    for (cse, ident), entries in estate_settings.items():
+        if (cse, ident) not in baseline_identity_set:
+            # Find display_name from the first estate setting
+            display_name = ""
+            side = ""
+            for g in estate.gpos:
+                for s in g.settings:
+                    if s.cse.lower() == cse and s.identity.lower() == ident:
+                        display_name = s.display_name
+                        side = s.side
+                        break
+                if display_name:
+                    break
+            gpo_ids = ",".join(sorted(set(gid for gid, _ in entries)))
+            admx_name = admx.resolve_display_name(ident) or ""
+            results.append(BaselineDiffEntry(
+                status="extra", side=side, cse=cse,
+                identity=ident, display_name=display_name,
+                expected_value="", actual_value=entries[0][1],
+                gpo_id=gpo_ids, admx_name=admx_name,
+            ))
+
+    results.sort(key=lambda e: (
+        {"drift": 0, "missing": 1, "extra": 2, "compliant": 3}[e.status],
+        e.cse, e.side, e.identity,
+    ))
+    return results
+
+
+def estate_doctor(estate: Estate) -> list[DoctorFinding]:
+    """Run all hygiene checks and return prioritized findings.
+
+    Categories and severities:
+    - critical: cpassword hits (MS14-025 — lingering GPP secrets)
+    - high:     MS16-072 vulnerable (missing AU/DC read — silent non-apply)
+    - medium:   version_skew, dangling_links, topology discrepancies
+    - low:      disabled_but_populated, broken_refs, admx_gaps
+    - info:     unlinked, empty, enforced_links
+    """
+    findings: list[DoctorFinding] = []
+
+    # Critical — cpassword
+    for hit in cpassword_scan(estate):
+        findings.append(DoctorFinding(
+            severity="critical",
+            category="cpassword",
+            gpo_id=hit.gpo_id,
+            gpo_name=hit.gpo_name,
+            summary=f"cpassword in {hit.file} <{hit.tag}> (MS14-025)",
+            detail=f"Encrypted password found: {_mask_cpassword(hit.cpassword)}",
+        ))
+
+    # High — MS16-072
+    for g in ms16_072_vulnerable(estate):
+        findings.append(DoctorFinding(
+            severity="high",
+            category="ms16_072",
+            gpo_id=g.id,
+            gpo_name=g.name,
+            summary="Missing Authenticated Users / Domain Computers Read (MS16-072)",
+            detail="GPO may silently stop applying after MS16-072 patch",
+        ))
+
+    # Medium — version skew
+    for g, side in version_skew(estate):
+        findings.append(DoctorFinding(
+            severity="medium",
+            category="version_skew",
+            gpo_id=g.id,
+            gpo_name=g.name,
+            summary=f"{side} version skew (GPC != GPT)",
+            detail=(
+                f"DS={getattr(g, f'{side.lower()}_ver_ds', '?')}, "
+                f"SYSVOL={getattr(g, f'{side.lower()}_ver_sysvol', '?')}"
+            ),
+        ))
+
+    # Medium — dangling links
+    for som, link in dangling_links(estate):
+        findings.append(DoctorFinding(
+            severity="medium",
+            category="dangling_link",
+            gpo_id=link.gpo_id,
+            gpo_name="<missing>",
+            summary=f"Dangling link at {som.name}",
+            detail=f"SOM {som.path} links to missing GPO {link.gpo_id}",
+        ))
+
+    # Medium — topology discrepancies
+    for d in topology_crosscheck(estate):
+        findings.append(DoctorFinding(
+            severity="medium",
+            category="topology_discrepancy",
+            gpo_id="",
+            gpo_name="",
+            summary=f"{d.kind}: {d.ou_dn}",
+            detail=d.detail,
+        ))
+
+    # Low — disabled but populated
+    for g, side in disabled_but_populated(estate):
+        findings.append(DoctorFinding(
+            severity="low",
+            category="disabled_but_populated",
+            gpo_id=g.id,
+            gpo_name=g.name,
+            summary=f"{side} side disabled but has settings",
+            detail=(
+                f"{sum(1 for s in g.settings if s.side == side)}"
+                f" settings on disabled {side} side"
+            ),
+        ))
+
+    # Low — broken refs
+    for ref in broken_refs(estate):
+        findings.append(DoctorFinding(
+            severity="low",
+            category=f"broken_ref:{ref.ref_type}",
+            gpo_id=ref.gpo_id,
+            gpo_name=ref.gpo_name,
+            summary=ref.detail,
+            detail=ref.ref_value,
+        ))
+
+    # Low — ADMX gaps
+    for gap in admx_gaps(estate):
+        findings.append(DoctorFinding(
+            severity="low",
+            category="admx_gap",
+            gpo_id=gap.gpo_id,
+            gpo_name=gap.gpo_name,
+            summary=f"Raw registry key (no ADMX): {gap.key_path}",
+            detail=f"{gap.side}/{gap.identity}",
+        ))
+
+    # Info — unlinked
+    for g in unlinked_gpos(estate):
+        findings.append(DoctorFinding(
+            severity="info",
+            category="unlinked",
+            gpo_id=g.id,
+            gpo_name=g.name,
+            summary="GPO has no links (applies nowhere)",
+            detail="",
+        ))
+
+    # Info — empty
+    for g in empty_gpos(estate):
+        findings.append(DoctorFinding(
+            severity="info",
+            category="empty",
+            gpo_id=g.id,
+            gpo_name=g.name,
+            summary="GPO has no settings on either side",
+            detail="",
+        ))
+
+    # Info — enforced links
+    for som, link in enforced_links(estate):
+        findings.append(DoctorFinding(
+            severity="info",
+            category="enforced_link",
+            gpo_id=link.gpo_id,
+            gpo_name="",
+            summary=f"Enforced link at {som.name} (order {link.order})",
+            detail=f"Target: {link.target}",
+        ))
+
+    findings.sort(key=lambda f: (_SEVERITY_ORDER.get(f.severity, 99), f.category, f.gpo_id))
+    return findings
+
+
+def _mask_cpassword(cpw: str) -> str:
+    if len(cpw) <= 4:
+        return "****"
+    return cpw[:4] + "****"
+
+
 def broken_refs(estate: Estate) -> list[BrokenRef]:
     """Scan settings and SYSVOL for broken-reference patterns.
 
@@ -1139,13 +1503,27 @@ def broken_refs(estate: Estate) -> list[BrokenRef]:
     from pathlib import Path
 
     results: list[BrokenRef] = []
-    seen: set[tuple[str, str]] = set()
+    seen: dict[tuple[str, str], int] = {}  # key -> index in results
+
+    # Detail richness: higher = more specific source info.
+    _REF_TYPE_RANK: dict[str, int] = {
+        "gpp_file_ref": 3,
+        "missing_script": 3,
+        "scheduled_task_path": 2,
+        "drive_mapping_unc": 1,
+        "unc_path": 0,
+    }
 
     def _add(ref: BrokenRef) -> None:
         key = (ref.gpo_id, ref.ref_value)
-        if key not in seen:
-            seen.add(key)
+        idx = seen.get(key)
+        if idx is None:
+            seen[key] = len(results)
             results.append(ref)
+        else:
+            existing = results[idx]
+            if _REF_TYPE_RANK.get(ref.ref_type, -1) > _REF_TYPE_RANK.get(existing.ref_type, -1):
+                results[idx] = ref
 
     for g in estate.gpos:
         # 0. GPP XML-level scanning

@@ -1404,3 +1404,482 @@ def test_admx_gaps_windows_registry_cse():
     estate = Estate(gpos=[gpo])
     result = queries.admx_gaps(estate)
     assert len(result) == 1
+
+
+# ---- estate_doctor ----------------------------------------------------------
+
+
+def test_estate_doctor_empty_estate():
+    estate = Estate(gpos=[], soms=[])
+    findings = queries.estate_doctor(estate)
+    assert findings == []
+
+
+def test_estate_doctor_cpassword_is_critical(tmp_path):
+    import xml.etree.ElementTree as ET
+
+    gpo_dir = tmp_path / "gpo"
+    prefs = gpo_dir / "Machine" / "Preferences"
+    prefs.mkdir(parents=True)
+    root = ET.Element("Groups")
+    user = ET.SubElement(root, "User")
+    user.set("cpassword", "ABCD1234")
+    tree = ET.ElementTree(root)
+    tree.write(prefs / "Groups.xml")
+    gpo = _make_gpo(id="abc", name="GPO", sysvol_path=str(gpo_dir))
+    estate = Estate(gpos=[gpo])
+    findings = queries.estate_doctor(estate)
+    critical = [f for f in findings if f.severity == "critical"]
+    assert len(critical) == 1
+    assert critical[0].category == "cpassword"
+
+
+def test_estate_doctor_ms16_072_is_high():
+    gpo = _make_gpo(id="gpo-1", delegation=[])
+    estate = Estate(gpos=[gpo])
+    findings = queries.estate_doctor(estate)
+    high = [f for f in findings if f.severity == "high"]
+    assert len(high) == 1
+    assert high[0].category == "ms16_072"
+
+
+def test_estate_doctor_version_skew_is_medium():
+    gpo = _make_gpo(computer_ver_ds=1, computer_ver_sysvol=2)
+    estate = Estate(gpos=[gpo])
+    findings = queries.estate_doctor(estate)
+    medium = [f for f in findings if f.severity == "medium"]
+    assert any(f.category == "version_skew" for f in medium)
+
+
+def test_estate_doctor_unlinked_is_info():
+    gpo = _make_gpo(links=[])
+    estate = Estate(gpos=[gpo])
+    findings = queries.estate_doctor(estate)
+    info = [f for f in findings if f.severity == "info"]
+    assert any(f.category == "unlinked" for f in info)
+
+
+def test_estate_doctor_sorted_by_severity():
+    """Critical findings should come before high, medium, low, info."""
+    from gpo_lens.model import Setting
+
+    gpo = _make_gpo(
+        id="gpo-1",
+        computer_ver_ds=1, computer_ver_sysvol=2,
+        delegation=[],
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="Computer", cse="Registry",
+                identity=r"Software\X:Y", display_name=r"Software\X",
+                display_value="1", raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    estate = Estate(gpos=[gpo])
+    findings = queries.estate_doctor(estate)
+    severities = [f.severity for f in findings]
+    order = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+    numeric = [order[s] for s in severities]
+    assert numeric == sorted(numeric)
+
+
+# ---- settings_dump ----------------------------------------------------------
+
+
+def test_settings_dump_all():
+    from gpo_lens.model import Setting
+
+    gpo = _make_gpo(
+        id="gpo-1", name="Test",
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="Computer", cse="Security",
+                identity="X", display_name="X", display_value="1",
+                raw={}, from_disabled_side=False,
+            ),
+            Setting(
+                gpo_id="gpo-1", side="User", cse="Registry",
+                identity="Y", display_name="Y", display_value="2",
+                raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    estate = Estate(gpos=[gpo])
+    result = queries.settings_dump(estate)
+    assert len(result) == 2
+
+
+def test_settings_dump_filter_side():
+    from gpo_lens.model import Setting
+
+    gpo = _make_gpo(
+        id="gpo-1", name="Test",
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="Computer", cse="Security",
+                identity="X", display_name="X", display_value="1",
+                raw={}, from_disabled_side=False,
+            ),
+            Setting(
+                gpo_id="gpo-1", side="User", cse="Registry",
+                identity="Y", display_name="Y", display_value="2",
+                raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    estate = Estate(gpos=[gpo])
+    result = queries.settings_dump(estate, side="User")
+    assert len(result) == 1
+    assert result[0].side == "User"
+
+
+def test_settings_dump_filter_cse():
+    from gpo_lens.model import Setting
+
+    gpo = _make_gpo(
+        id="gpo-1", name="Test",
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="Computer", cse="Security",
+                identity="X", display_name="X", display_value="1",
+                raw={}, from_disabled_side=False,
+            ),
+            Setting(
+                gpo_id="gpo-1", side="Computer", cse="Registry",
+                identity="Y", display_name="Y", display_value="2",
+                raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    estate = Estate(gpos=[gpo])
+    result = queries.settings_dump(estate, cse="Sec")
+    assert len(result) == 1
+    assert result[0].cse == "Security"
+
+
+def test_settings_dump_filter_gpo_name():
+    from gpo_lens.model import Setting
+
+    gpo_a = _make_gpo(
+        id="gpo-a", name="Alpha GPO",
+        settings=[
+            Setting(
+                gpo_id="gpo-a", side="Computer", cse="Security",
+                identity="X", display_name="X", display_value="1",
+                raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    gpo_b = _make_gpo(
+        id="gpo-b", name="Beta GPO",
+        settings=[
+            Setting(
+                gpo_id="gpo-b", side="Computer", cse="Security",
+                identity="Y", display_name="Y", display_value="2",
+                raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    estate = Estate(gpos=[gpo_a, gpo_b])
+    result = queries.settings_dump(estate, gpo_name="Alpha")
+    assert len(result) == 1
+    assert result[0].gpo_name == "Alpha GPO"
+
+
+def test_settings_dump_filter_combined():
+    from gpo_lens.model import Setting
+
+    gpo = _make_gpo(
+        id="gpo-1", name="Test",
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="Computer", cse="Security",
+                identity="X", display_name="X", display_value="1",
+                raw={}, from_disabled_side=False,
+            ),
+            Setting(
+                gpo_id="gpo-1", side="User", cse="Registry",
+                identity="Y", display_name="Y", display_value="2",
+                raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    estate = Estate(gpos=[gpo])
+    result = queries.settings_dump(estate, side="Computer", cse="Security")
+    assert len(result) == 1
+    assert result[0].identity == "X"
+
+
+def test_settings_dump_empty():
+    estate = Estate(gpos=[])
+    assert queries.settings_dump(estate) == []
+
+
+def test_broken_refs_prefers_gpp_detail_over_settings(tmp_path):
+    """When a UNC appears in both GPP XML and settings, GPP detail wins."""
+    gpo_dir = tmp_path / "gpo"
+    prefs = gpo_dir / "Machine" / "Preferences"
+    prefs.mkdir(parents=True)
+    root = ET.Element("Drives")
+    drive = ET.SubElement(root, "Drive")
+    drive.set("Path", r"\\fileserver\share\home")
+    tree = ET.ElementTree(root)
+    tree.write(prefs / "Drives.xml")
+
+    gpo = _make_gpo(
+        id="gpo-1", sysvol_path=str(gpo_dir),
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="User", cse="Drives",
+                identity="DriveMap:H:", display_name="H Drive",
+                display_value=r"\\fileserver\share\home",
+                raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    estate = Estate(gpos=[gpo])
+    result = queries.broken_refs(estate)
+    matching = [r for r in result if r.ref_value == r"\\fileserver\share\home"]
+    assert len(matching) == 1
+    # GPP ref_type should win over generic unc_path
+    assert matching[0].ref_type == "gpp_file_ref"
+
+
+def test_broken_refs_settings_detail_kept_when_no_gpp(tmp_path):
+    """When only settings-level scan catches a UNC, settings detail is used."""
+    gpo = _make_gpo(
+        id="gpo-1", sysvol_path=None,
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="User", cse="Drives",
+                identity="DriveMap:H:", display_name="H Drive",
+                display_value=r"\\server\share",
+                raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    estate = Estate(gpos=[gpo])
+    result = queries.broken_refs(estate)
+    matching = [r for r in result if r.ref_value == r"\\server\share"]
+    assert len(matching) == 1
+    assert matching[0].ref_type == "drive_mapping_unc"
+
+
+# ---- baseline_diff ----------------------------------------------------------
+
+
+def test_baseline_diff_compliant():
+    from gpo_lens.model import Setting
+
+    baseline = [
+        queries.BaselineSetting(
+            side="Computer", cse="Security",
+            identity="Account:LockoutBadCount",
+            display_name="LockoutBadCount", expected_value="5",
+        ),
+    ]
+    gpo = _make_gpo(
+        id="gpo-1",
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="Computer", cse="Security",
+                identity="Account:LockoutBadCount",
+                display_name="LockoutBadCount", display_value="5",
+                raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    estate = Estate(gpos=[gpo])
+    result = queries.baseline_diff(estate, baseline)
+    assert len(result) == 1
+    assert result[0].status == "compliant"
+
+
+def test_baseline_diff_drift():
+    from gpo_lens.model import Setting
+
+    baseline = [
+        queries.BaselineSetting(
+            side="Computer", cse="Security",
+            identity="Account:LockoutBadCount",
+            display_name="LockoutBadCount", expected_value="5",
+        ),
+    ]
+    gpo = _make_gpo(
+        id="gpo-1",
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="Computer", cse="Security",
+                identity="Account:LockoutBadCount",
+                display_name="LockoutBadCount", display_value="10",
+                raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    estate = Estate(gpos=[gpo])
+    result = queries.baseline_diff(estate, baseline)
+    assert len(result) == 1
+    assert result[0].status == "drift"
+    assert result[0].expected_value == "5"
+    assert result[0].actual_value == "10"
+
+
+def test_baseline_diff_missing():
+    baseline = [
+        queries.BaselineSetting(
+            side="Computer", cse="Security",
+            identity="Account:LockoutBadCount",
+            display_name="LockoutBadCount", expected_value="5",
+        ),
+    ]
+    estate = Estate(gpos=[_make_gpo(settings=[])])
+    result = queries.baseline_diff(estate, baseline)
+    assert len(result) == 1
+    assert result[0].status == "missing"
+
+
+def test_baseline_diff_extra():
+    from gpo_lens.model import Setting
+
+    baseline: list[queries.BaselineSetting] = []
+    gpo = _make_gpo(
+        id="gpo-1",
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="Computer", cse="Security",
+                identity="Account:LockoutBadCount",
+                display_name="LockoutBadCount", display_value="5",
+                raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    estate = Estate(gpos=[gpo])
+    result = queries.baseline_diff(estate, baseline)
+    assert len(result) == 1
+    assert result[0].status == "extra"
+
+
+def test_baseline_diff_sorted_by_status():
+    from gpo_lens.model import Setting
+
+    baseline = [
+        queries.BaselineSetting(
+            side="Computer", cse="Security",
+            identity="A", display_name="A", expected_value="1",
+        ),
+        queries.BaselineSetting(
+            side="Computer", cse="Security",
+            identity="B", display_name="B", expected_value="2",
+        ),
+    ]
+    gpo = _make_gpo(
+        id="gpo-1",
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="Computer", cse="Security",
+                identity="B", display_name="B", display_value="99",
+                raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    estate = Estate(gpos=[gpo])
+    result = queries.baseline_diff(estate, baseline)
+    statuses = [r.status for r in result]
+    assert statuses == ["drift", "missing"]  # drift before missing
+
+
+def test_baseline_diff_uses_admx_crosswalk():
+    from gpo_lens.admx_parser import AdmxPolicy, PolicyDefinitions
+    from gpo_lens.model import Setting
+
+    admx = PolicyDefinitions(policies=[
+        AdmxPolicy(
+            name="LockoutPolicy", class_scope="Machine",
+            key="Software\\Policies\\Microsoft\\System",
+            value_name="LockoutBadCount",
+            display_name_ref="$(string.LockoutPolicy)",
+            display_name="Account Lockout Threshold",
+            explain_text="",
+        ),
+    ])
+    baseline = [
+        queries.BaselineSetting(
+            side="Computer", cse="Security",
+            identity="Account:LockoutBadCount",
+            display_name="LockoutBadCount", expected_value="5",
+        ),
+    ]
+    gpo = _make_gpo(
+        id="gpo-1",
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="Computer", cse="Security",
+                identity="Account:LockoutBadCount",
+                display_name="LockoutBadCount", display_value="10",
+                raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    estate = Estate(gpos=[gpo])
+    result = queries.baseline_diff(estate, baseline, admx)
+    # The ADMX crosswalk won't match "Account:LockoutBadCount" because
+    # it's a Security CSE identity, not a registry path — admx_name stays empty
+    assert result[0].admx_name == ""
+
+
+def test_baseline_diff_admx_resolves_registry_identity():
+    from gpo_lens.admx_parser import AdmxPolicy, PolicyDefinitions
+    from gpo_lens.model import Setting
+
+    admx = PolicyDefinitions(policies=[
+        AdmxPolicy(
+            name="NoControlPanel", class_scope="User",
+            key="Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer",
+            value_name="NoControlPanel",
+            display_name_ref="$(string.NoControlPanel)",
+            display_name="Prohibit Control Panel",
+            explain_text="",
+        ),
+    ])
+    baseline = [
+        queries.BaselineSetting(
+            side="User", cse="Registry",
+            identity=r"Software\Microsoft\Windows\CurrentVersion\Policies\Explorer:NoControlPanel",
+            display_name="NoControlPanel", expected_value="1",
+        ),
+    ]
+    gpo = _make_gpo(
+        id="gpo-1",
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="User", cse="Registry",
+                identity=r"Software\Microsoft\Windows\CurrentVersion\Policies\Explorer:NoControlPanel",
+                display_name="NoControlPanel", display_value="1",
+                raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    estate = Estate(gpos=[gpo])
+    result = queries.baseline_diff(estate, baseline, admx)
+    assert len(result) == 1
+    assert result[0].status == "compliant"
+    assert result[0].admx_name == "Prohibit Control Panel"
+
+
+def test_load_baseline_from_estate():
+    from gpo_lens.model import Setting
+
+    gpo = _make_gpo(
+        id="gpo-1",
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="Computer", cse="Security",
+                identity="X", display_name="X", display_value="1",
+                raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    estate = Estate(gpos=[gpo])
+    baseline = queries.load_baseline_from_estate(estate)
+    assert len(baseline) == 1
+    assert baseline[0].expected_value == "1"
