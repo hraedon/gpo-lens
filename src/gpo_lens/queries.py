@@ -382,15 +382,29 @@ def topology_crosscheck(estate: Estate) -> list[TopologyDiscrepancy]:
 # ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
+class GpoMetadataChange:
+    """One metadata field that changed for a GPO between snapshots."""
+
+    gpo_id: str
+    field: str       # "name", "computer_enabled", "user_enabled", "wmi_filter",
+                      # "owner", "sddl", "domain"
+    old_value: str
+    new_value: str
+
+
+@dataclass(frozen=True)
 class SnapshotDiff:
     """Structured diff between two estate snapshots."""
 
     gpos_added: list[str]
     gpos_removed: list[str]
-    settings_changed: list[str]          # gpo_ids with setting diffs
-    links_changed: list[str]             # gpo_ids with link diffs
-    delegation_changed: list[str]        # gpo_ids with delegation diffs
-    version_skew_changed: list[str]      # gpo_ids where version skew appeared/disappeared
+    settings_changed: list[str]
+    links_changed: list[str]
+    delegation_changed: list[str]
+    version_skew_changed: list[str]
+    metadata_changes: list[GpoMetadataChange]
+    wmi_filter_changes: list[GpoMetadataChange]
+    enabled_flips: list[GpoMetadataChange]
 
 
 @dataclass(frozen=True)
@@ -414,6 +428,7 @@ class EstateSummary:
     enforced_link_count: int
     dangling_link_count: int
     broken_ref_count: int
+    admx_gap_count: int
     total_settings: int
     total_delegation_entries: int
 
@@ -442,8 +457,51 @@ def snapshot_diff(
     links_changed: list[str] = []
     delegation_changed: list[str] = []
     version_skew_changed: list[str] = []
+    metadata_changes: list[GpoMetadataChange] = []
+    wmi_filter_changes: list[GpoMetadataChange] = []
+    enabled_flips: list[GpoMetadataChange] = []
+
+    _meta_query = (
+        "SELECT name, domain, sddl, owner, computer_enabled, user_enabled, "
+        "wmi_filter FROM gpo WHERE snapshot_id = ? AND id = ?"
+    )
 
     for gpo_id in sorted(common):
+        old_row = conn.execute(_meta_query, (snap_a, gpo_id)).fetchone()
+        new_row = conn.execute(_meta_query, (snap_b, gpo_id)).fetchone()
+        if not old_row or not new_row:
+            continue
+
+        for col_idx, field_name in enumerate(
+            ("name", "domain", "sddl", "owner")
+        ):
+            old_v = str(old_row[col_idx] or "")
+            new_v = str(new_row[col_idx] or "")
+            if old_v != new_v:
+                metadata_changes.append(GpoMetadataChange(
+                    gpo_id=gpo_id, field=field_name,
+                    old_value=old_v, new_value=new_v,
+                ))
+
+        for col_idx, field_name in enumerate(
+            ("computer_enabled", "user_enabled"), start=4
+        ):
+            old_v = str(bool(old_row[col_idx]))
+            new_v = str(bool(new_row[col_idx]))
+            if old_v != new_v:
+                enabled_flips.append(GpoMetadataChange(
+                    gpo_id=gpo_id, field=field_name,
+                    old_value=old_v, new_value=new_v,
+                ))
+
+        old_wmi = str(old_row[6] or "")
+        new_wmi = str(new_row[6] or "")
+        if old_wmi != new_wmi:
+            wmi_filter_changes.append(GpoMetadataChange(
+                gpo_id=gpo_id, field="wmi_filter",
+                old_value=old_wmi, new_value=new_wmi,
+            ))
+
         # Settings diff
         old_s = set(
             conn.execute(
@@ -522,6 +580,9 @@ def snapshot_diff(
         links_changed=links_changed,
         delegation_changed=delegation_changed,
         version_skew_changed=version_skew_changed,
+        metadata_changes=metadata_changes,
+        wmi_filter_changes=wmi_filter_changes,
+        enabled_flips=enabled_flips,
     )
 
 
@@ -545,6 +606,7 @@ def estate_summary(estate: Estate) -> EstateSummary:
         enforced_link_count=len(enforced_links(estate)),
         dangling_link_count=len(dangling_links(estate)),
         broken_ref_count=len(broken_refs(estate)),
+        admx_gap_count=len(admx_gaps(estate)),
         total_settings=sum(len(g.settings) for g in estate.gpos),
         total_delegation_entries=sum(len(g.delegation) for g in estate.gpos),
     )
@@ -639,6 +701,92 @@ def loopback_gpos(estate: Estate) -> list[tuple[Gpo, Setting]]:
 def wmi_filtered_gpos(estate: Estate) -> list[Gpo]:
     """GPOs that have a WMI filter attached."""
     return [g for g in estate.gpos if g.wmi_filter is not None]
+
+
+# ---------------------------------------------------------------------------
+# ADMX gap detection
+# ---------------------------------------------------------------------------
+
+_ADMX_REGISTRY_PREFIXES = (
+    "software\\",
+    "hklm\\",
+    "hkcu\\",
+    "hkcr\\",
+    "hku\\",
+    "hkcc\\",
+    "hkey_",
+    "system\\",
+    "policies\\",
+    "microsoft\\",
+    "windows\\",
+    "control set",
+    "currentversion",
+)
+
+
+@dataclass(frozen=True)
+class AdmxGap:
+    """A Registry CSE setting where no ADMX policy name was resolved.
+
+    The identity is a raw registry key path instead of a policy name,
+    meaning the GPO is applying a preference-style registry setting
+    without a corresponding ADMX template.
+    """
+
+    gpo_id: str
+    gpo_name: str
+    side: Side
+    identity: str
+    display_name: str
+    key_path: str
+    value_name: str
+
+
+def _is_raw_registry_path(identity: str, display_name: str) -> bool:
+    """Heuristic: identity/display_name looks like a raw registry path.
+
+    Matches common hive abbreviations (HKLM, HKCU, HKCR, HKU, HKCC),
+    full hive names (HKEY_*), and well-known subkey stems when the
+    identity uses backslash-separated path segments (not colon-separated
+    ADMX-style identifiers).
+    """
+    id_lower = identity.lower()
+    if any(id_lower.startswith(p) for p in _ADMX_REGISTRY_PREFIXES):
+        return True
+    dn_lower = display_name.lower()
+    if any(dn_lower.startswith(p) for p in _ADMX_REGISTRY_PREFIXES):
+        return True
+    if "\\" in identity and any(p in id_lower for p in _ADMX_REGISTRY_PREFIXES):
+        return True
+    return False
+
+
+def admx_gaps(estate: Estate) -> list[AdmxGap]:
+    """Flag Registry CSE settings where no ADMX policy name was resolved.
+
+    These are settings applied via GPP Registry or raw registry preferences
+    rather than through an ADMX policy definition. The identity will be a
+    raw key path (e.g. ``HKLM\\Software\\...``) instead of a policy GUID/name.
+    """
+    results: list[AdmxGap] = []
+    for g in estate.gpos:
+        for s in g.settings:
+            if s.cse not in ("Registry", "Windows Registry"):
+                continue
+            if s.source_state == "blocked":
+                continue
+            if not _is_raw_registry_path(s.identity, s.display_name):
+                continue
+            parts = s.identity.split(":", 1)
+            key_path = parts[0] if parts else s.identity
+            value_name = parts[1] if len(parts) > 1 else s.display_name
+            results.append(AdmxGap(
+                gpo_id=g.id, gpo_name=g.name,
+                side=s.side, identity=s.identity,
+                display_name=s.display_name,
+                key_path=key_path, value_name=value_name,
+            ))
+    return results
 
 
 # ---------------------------------------------------------------------------
@@ -874,7 +1022,9 @@ class BrokenRef:
 
     gpo_id: str
     gpo_name: str
-    ref_type: str          # "unc_path", "missing_script", "script_unc"
+    ref_type: str          # "unc_path", "missing_script", "script_unc",
+                           # "scheduled_task_path", "drive_mapping_unc",
+                           # "gpp_file_ref", "service_path"
     ref_value: str
     detail: str
 
@@ -901,6 +1051,72 @@ def _raw_strings(raw: dict[str, object]) -> list[str]:
     return out
 
 
+def _extract_xml_attr(elem: ET.Element, *attrs: str) -> str | None:
+    for a in attrs:
+        v = elem.get(a)
+        if v and v.strip():
+            return v.strip()
+    return None
+
+
+_GPP_PATH_ATTRS: dict[str, tuple[str, ...]] = {
+    "ScheduledTask": ("appPath", "exePath", "Path", "Arguments"),
+    "Task": ("appPath", "exePath", "Path", "Arguments"),
+    "ImmediateTask": ("appPath", "exePath", "Path", "Arguments"),
+    "Drive": ("Path",),
+    "File": ("fromPath", "toPath", "targetPath", "SourcePath", "DestinationPath"),
+    "Service": ("serviceName",),
+    "DataSource": ("dsn", "dsnTarget"),
+}
+
+
+def _scan_gpp_xml_for_refs(gpo: Gpo) -> list[BrokenRef]:
+    """Walk GPP Preference XML for file/path/service references."""
+    from pathlib import Path
+
+    results: list[BrokenRef] = []
+    if not gpo.sysvol_path:
+        return results
+    base = Path(gpo.sysvol_path)
+    for side_dir in ("Machine", "User"):
+        prefs = base / side_dir / "Preferences"
+        if not prefs.exists():
+            continue
+        for gpp_file in prefs.iterdir():
+            if not gpp_file.is_file() or not gpp_file.suffix.lower() == ".xml":
+                continue
+            try:
+                tree = ET.parse(gpp_file)
+            except ET.ParseError:
+                continue
+            rel_file = gpp_file.relative_to(base)
+            for elem in tree.getroot().iter():
+                tag = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
+                path_attrs = _GPP_PATH_ATTRS.get(tag)
+                if path_attrs is None:
+                    continue
+                for attr in path_attrs:
+                    val = elem.get(attr)
+                    if not val or not val.strip():
+                        continue
+                    val = val.strip()
+                    for unc in _scan_text_for_unc(val):
+                        results.append(BrokenRef(
+                            gpo_id=gpo.id, gpo_name=gpo.name,
+                            ref_type="gpp_file_ref", ref_value=unc,
+                            detail=f"GPP {rel_file} <{tag} @{attr}>: UNC path",
+                        ))
+                exe_val = _extract_xml_attr(elem, "appPath", "exePath", "Path")
+                if exe_val and tag in ("ScheduledTask", "Task", "ImmediateTask"):
+                    if exe_val and not exe_val.startswith("\\\\") and not exe_val.startswith("%"):
+                        results.append(BrokenRef(
+                            gpo_id=gpo.id, gpo_name=gpo.name,
+                            ref_type="scheduled_task_path", ref_value=exe_val,
+                            detail=f"GPP {rel_file} <{tag}>: executable path '{exe_val}'",
+                        ))
+    return results
+
+
 def broken_refs(estate: Estate) -> list[BrokenRef]:
     """Scan settings and SYSVOL for broken-reference patterns.
 
@@ -908,34 +1124,47 @@ def broken_refs(estate: Estate) -> list[BrokenRef]:
     use. Flags:
     - UNC paths in setting display values and raw dicts
     - Script files referenced in settings that don't exist in the GPO's SYSVOL
+    - Drive mapping UNC patterns
+    - Scheduled task executable paths
+    - GPP XML file/path/service references
     """
     from pathlib import Path
 
     results: list[BrokenRef] = []
-    seen: set[tuple[str, str, str]] = set()
+    seen: set[tuple[str, str]] = set()
 
     def _add(ref: BrokenRef) -> None:
-        key = (ref.gpo_id, ref.ref_type, ref.ref_value)
+        key = (ref.gpo_id, ref.ref_value)
         if key not in seen:
             seen.add(key)
             results.append(ref)
 
     for g in estate.gpos:
+        # 0. GPP XML-level scanning
+        for ref in _scan_gpp_xml_for_refs(g):
+            _add(ref)
+
         for s in g.settings:
             # 1. UNC paths in display_value
             for unc in _scan_text_for_unc(s.display_value):
+                ref_type = "unc_path"
+                if s.cse in ("Printers", "Drives", "Drive Maps"):
+                    ref_type = "drive_mapping_unc"
                 _add(BrokenRef(
                     gpo_id=g.id, gpo_name=g.name,
-                    ref_type="unc_path", ref_value=unc,
+                    ref_type=ref_type, ref_value=unc,
                     detail=f"[{s.cse}] {s.identity}: UNC in display value",
                 ))
 
             # 2. UNC paths in raw dict values
             for text in _raw_strings(s.raw):
                 for unc in _scan_text_for_unc(text):
+                    ref_type = "unc_path"
+                    if s.cse in ("Printers", "Drives", "Drive Maps"):
+                        ref_type = "drive_mapping_unc"
                     _add(BrokenRef(
                         gpo_id=g.id, gpo_name=g.name,
-                        ref_type="unc_path", ref_value=unc,
+                        ref_type=ref_type, ref_value=unc,
                         detail=f"[{s.cse}] {s.identity}: UNC in raw data",
                     ))
 
@@ -962,5 +1191,15 @@ def broken_refs(estate: Estate) -> list[BrokenRef]:
                                 f"script '{script_name}' not found in SYSVOL"
                             ),
                         ))
+
+            # 4. Scheduled task executable paths from settings
+            if s.cse in ("Scheduled Tasks",):
+                exe = s.display_value.strip()
+                if exe and not exe.startswith("\\\\") and not exe.startswith("%"):
+                    _add(BrokenRef(
+                        gpo_id=g.id, gpo_name=g.name,
+                        ref_type="scheduled_task_path", ref_value=exe,
+                        detail=f"[{s.cse}] {s.identity}: task path '{exe}'",
+                    ))
 
     return results

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -944,3 +945,348 @@ def test_topology_crosscheck_ou_no_gplink_not_flagged():
     estate = Estate(soms=[], ou_tree=[ou])
     result = queries.topology_crosscheck(estate)
     assert result == []
+
+
+# ---- admx_gaps --------------------------------------------------------------
+
+
+def test_admx_gaps_no_registry_settings():
+    from gpo_lens.model import Setting
+
+    gpo = _make_gpo(
+        id="gpo-1",
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="Computer", cse="Security",
+                identity="Account:Foo", display_name="Foo",
+                display_value="1", raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    estate = Estate(gpos=[gpo])
+    assert queries.admx_gaps(estate) == []
+
+
+def test_admx_gaps_detects_raw_registry_path():
+    from gpo_lens.model import Setting
+
+    gpo = _make_gpo(
+        id="gpo-1",
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="Computer", cse="Registry",
+                identity=r"Software\MyApp:Setting1",
+                display_name=r"Software\MyApp",
+                display_value="1", raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    estate = Estate(gpos=[gpo])
+    result = queries.admx_gaps(estate)
+    assert len(result) == 1
+    assert result[0].key_path == r"Software\MyApp"
+    assert result[0].value_name == "Setting1"
+    assert result[0].side == "Computer"
+
+
+def test_admx_gaps_detects_hklm_prefix():
+    from gpo_lens.model import Setting
+
+    gpo = _make_gpo(
+        id="gpo-1",
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="User", cse="Registry",
+                identity=r"HKLM\Software\Foo:Bar",
+                display_name=r"HKLM\Software\Foo",
+                display_value="2", raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    estate = Estate(gpos=[gpo])
+    result = queries.admx_gaps(estate)
+    assert len(result) == 1
+    assert result[0].gpo_id == "gpo-1"
+
+
+def test_admx_gaps_skips_blocked_extensions():
+    from gpo_lens.model import Setting
+
+    gpo = _make_gpo(
+        id="gpo-1",
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="Computer", cse="Registry",
+                identity=r"Software\MyApp:Set",
+                display_name=r"Software\MyApp",
+                display_value="1", raw={}, from_disabled_side=False,
+                source_state="blocked",
+            ),
+        ],
+    )
+    estate = Estate(gpos=[gpo])
+    assert queries.admx_gaps(estate) == []
+
+
+def test_admx_gaps_included_in_summary():
+    from gpo_lens.model import Setting
+
+    gpo = _make_gpo(
+        id="gpo-1",
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="Computer", cse="Registry",
+                identity=r"Software\MyApp:Set",
+                display_name=r"Software\MyApp",
+                display_value="1", raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    estate = Estate(domain="test.local", gpos=[gpo])
+    s = queries.estate_summary(estate)
+    assert s.admx_gap_count == 1
+
+
+# ---- deeper broken_refs: drive mapping, scheduled tasks, GPP XML ----------
+
+
+def test_broken_refs_drive_mapping_unc():
+    from gpo_lens.model import Setting
+
+    gpo = _make_gpo(
+        id="gpo-1",
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="User", cse="Drives",
+                identity="DriveMap:H:",
+                display_name="H Drive",
+                display_value=r"\\server\share\home",
+                raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    estate = Estate(gpos=[gpo])
+    result = queries.broken_refs(estate)
+    drive_refs = [r for r in result if r.ref_type == "drive_mapping_unc"]
+    assert len(drive_refs) == 1
+    assert r"\\server\share\home" in drive_refs[0].ref_value
+
+
+def test_broken_refs_scheduled_task_path():
+    from gpo_lens.model import Setting
+
+    gpo = _make_gpo(
+        id="gpo-1",
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="Computer", cse="Scheduled Tasks",
+                identity="Task:Cleanup",
+                display_name="Cleanup Task",
+                display_value=r"C:\Scripts\cleanup.bat",
+                raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    estate = Estate(gpos=[gpo])
+    result = queries.broken_refs(estate)
+    task_refs = [r for r in result if r.ref_type == "scheduled_task_path"]
+    assert len(task_refs) == 1
+    assert r"C:\Scripts\cleanup.bat" in task_refs[0].ref_value
+
+
+def test_broken_refs_gpp_xml_unc(tmp_path):
+    gpo_dir = tmp_path / "gpo"
+    prefs = gpo_dir / "Machine" / "Preferences"
+    prefs.mkdir(parents=True)
+    root = ET.Element("ScheduledTasks")
+    task = ET.SubElement(root, "Task")
+    task.set("appPath", r"\\fileserver\tasks\cleanup.bat")
+    tree = ET.ElementTree(root)
+    tree.write(prefs / "ScheduledTasks.xml")
+
+    gpo = _make_gpo(id="gpo-1", sysvol_path=str(gpo_dir))
+    estate = Estate(gpos=[gpo])
+    result = queries.broken_refs(estate)
+    gpp_refs = [r for r in result if r.ref_type == "gpp_file_ref"]
+    assert len(gpp_refs) >= 1
+    assert r"\\fileserver\tasks\cleanup.bat" in gpp_refs[0].ref_value
+
+
+def test_broken_refs_gpp_xml_scheduled_task_exe(tmp_path):
+    gpo_dir = tmp_path / "gpo"
+    prefs = gpo_dir / "Machine" / "Preferences"
+    prefs.mkdir(parents=True)
+    root = ET.Element("ScheduledTasks")
+    task = ET.SubElement(root, "ImmediateTask")
+    task.set("appPath", r"C:\Tools\run.exe")
+    tree = ET.ElementTree(root)
+    tree.write(prefs / "ScheduledTasks.xml")
+
+    gpo = _make_gpo(id="gpo-1", sysvol_path=str(gpo_dir))
+    estate = Estate(gpos=[gpo])
+    result = queries.broken_refs(estate)
+    task_refs = [r for r in result if r.ref_type == "scheduled_task_path"]
+    assert len(task_refs) >= 1
+    assert r"C:\Tools\run.exe" in task_refs[0].ref_value
+
+
+# ---- richer snapshot_diff ---------------------------------------------------
+
+
+def test_snapshot_diff_metadata_changes(tmp_path):
+    from gpo_lens import store
+
+    db = tmp_path / "test.db"
+    conn = sqlite3.connect(str(db))
+    store.init_db(conn)
+
+    gpo_a = _make_gpo(id="gpo-1", name="Old Name", owner="OldOwner")
+    estate_a = Estate(domain="test.local", gpos=[gpo_a])
+    sid_a = store.save_estate(conn, estate_a)
+
+    gpo_b = _make_gpo(id="gpo-1", name="New Name", owner="NewOwner")
+    estate_b = Estate(domain="test.local", gpos=[gpo_b])
+    sid_b = store.save_estate(conn, estate_b)
+
+    diff = queries.snapshot_diff(conn, sid_a, sid_b)
+    conn.close()
+
+    meta = {(m.field, m.old_value, m.new_value) for m in diff.metadata_changes}
+    assert ("name", "Old Name", "New Name") in meta
+    assert ("owner", "OldOwner", "NewOwner") in meta
+
+
+def test_snapshot_diff_enabled_flips(tmp_path):
+    from gpo_lens import store
+
+    db = tmp_path / "test.db"
+    conn = sqlite3.connect(str(db))
+    store.init_db(conn)
+
+    gpo_a = _make_gpo(id="gpo-1", computer_enabled=True, user_enabled=True)
+    estate_a = Estate(domain="test.local", gpos=[gpo_a])
+    sid_a = store.save_estate(conn, estate_a)
+
+    gpo_b = _make_gpo(id="gpo-1", computer_enabled=False, user_enabled=True)
+    estate_b = Estate(domain="test.local", gpos=[gpo_b])
+    sid_b = store.save_estate(conn, estate_b)
+
+    diff = queries.snapshot_diff(conn, sid_a, sid_b)
+    conn.close()
+
+    flips = {(m.field, m.old_value, m.new_value) for m in diff.enabled_flips}
+    assert ("computer_enabled", "True", "False") in flips
+
+
+def test_snapshot_diff_wmi_filter_changes(tmp_path):
+    from gpo_lens import store
+
+    db = tmp_path / "test.db"
+    conn = sqlite3.connect(str(db))
+    store.init_db(conn)
+
+    gpo_a = _make_gpo(id="gpo-1", wmi_filter="OldFilter")
+    estate_a = Estate(domain="test.local", gpos=[gpo_a])
+    sid_a = store.save_estate(conn, estate_a)
+
+    gpo_b = _make_gpo(id="gpo-1", wmi_filter="NewFilter")
+    estate_b = Estate(domain="test.local", gpos=[gpo_b])
+    sid_b = store.save_estate(conn, estate_b)
+
+    diff = queries.snapshot_diff(conn, sid_a, sid_b)
+    conn.close()
+
+    wmi = {(m.field, m.old_value, m.new_value) for m in diff.wmi_filter_changes}
+    assert ("wmi_filter", "OldFilter", "NewFilter") in wmi
+
+
+# ---- ou_tree persistence ---------------------------------------------------
+
+
+def test_ou_tree_persisted_and_loaded(tmp_path):
+    from gpo_lens import store
+    from gpo_lens.model import OuRecord
+
+    db = tmp_path / "test.db"
+    conn = sqlite3.connect(str(db))
+    store.init_db(conn)
+
+    gpo = _make_gpo(id="gpo-1")
+    ou = OuRecord(dn="OU=WS,DC=test,DC=local", name="WS",
+                  gp_link="[LDAP://cn={AAA};0]", gp_options=1)
+    estate = Estate(
+        domain="test.local", gpos=[gpo],
+        ou_tree=[ou],
+    )
+    sid = store.save_estate(conn, estate)
+
+    loaded = store.load_estate(conn, sid)
+    conn.close()
+
+    assert len(loaded.ou_tree) == 1
+    assert loaded.ou_tree[0].dn == "OU=WS,DC=test,DC=local"
+    assert loaded.ou_tree[0].gp_options == 1
+    assert loaded.ou_tree[0].gp_link == "[LDAP://cn={AAA};0]"
+
+
+# ---- broader ADMX gap heuristic -------------------------------------------
+
+
+def test_admx_gaps_detects_hkcr_prefix():
+    from gpo_lens.model import Setting
+
+    gpo = _make_gpo(
+        id="gpo-1",
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="User", cse="Windows Registry",
+                identity=r"HKCR\.ext:Content Type",
+                display_name=r"HKCR\.ext",
+                display_value="application/x-foo", raw={},
+                from_disabled_side=False,
+            ),
+        ],
+    )
+    estate = Estate(gpos=[gpo])
+    result = queries.admx_gaps(estate)
+    assert len(result) == 1
+    assert result[0].key_path == r"HKCR\.ext"
+
+
+def test_admx_gaps_detects_mid_path_match():
+    from gpo_lens.model import Setting
+
+    gpo = _make_gpo(
+        id="gpo-1",
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="Computer", cse="Registry",
+                identity=r"System\CurrentControlSet\Services\MySvc:Start",
+                display_name="MySvc Start",
+                display_value="3", raw={},
+                from_disabled_side=False,
+            ),
+        ],
+    )
+    estate = Estate(gpos=[gpo])
+    result = queries.admx_gaps(estate)
+    assert len(result) == 1
+
+
+def test_admx_gaps_windows_registry_cse():
+    from gpo_lens.model import Setting
+
+    gpo = _make_gpo(
+        id="gpo-1",
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="User", cse="Windows Registry",
+                identity=r"Software\MyApp:Setting",
+                display_name=r"Software\MyApp",
+                display_value="1", raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    estate = Estate(gpos=[gpo])
+    result = queries.admx_gaps(estate)
+    assert len(result) == 1
