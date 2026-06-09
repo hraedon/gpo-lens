@@ -1130,6 +1130,120 @@ def test_broken_refs_gpp_xml_scheduled_task_exe(tmp_path):
     assert r"C:\Tools\run.exe" in task_refs[0].ref_value
 
 
+def test_broken_refs_gpp_xml_drive_unc(tmp_path):
+    gpo_dir = tmp_path / "gpo"
+    prefs = gpo_dir / "User" / "Preferences"
+    prefs.mkdir(parents=True)
+    root = ET.Element("Drives")
+    drive = ET.SubElement(root, "Drive")
+    drive.set("Path", r"\\fileserver\shares\home")
+    tree = ET.ElementTree(root)
+    tree.write(prefs / "Drives.xml")
+
+    gpo = _make_gpo(id="gpo-1", sysvol_path=str(gpo_dir))
+    estate = Estate(gpos=[gpo])
+    result = queries.broken_refs(estate)
+    gpp_refs = [r for r in result if r.ref_type == "gpp_file_ref"]
+    assert len(gpp_refs) >= 1
+    assert r"\\fileserver\shares\home" in gpp_refs[0].ref_value
+    assert "Drive" in gpp_refs[0].detail
+
+
+def test_broken_refs_gpp_xml_file_unc(tmp_path):
+    gpo_dir = tmp_path / "gpo"
+    prefs = gpo_dir / "Machine" / "Preferences"
+    prefs.mkdir(parents=True)
+    root = ET.Element("Files")
+    file_elem = ET.SubElement(root, "File")
+    file_elem.set("fromPath", r"\\source\dist\app.msi")
+    file_elem.set("toPath", r"C:\Program Files\app.msi")
+    tree = ET.ElementTree(root)
+    tree.write(prefs / "Files.xml")
+
+    gpo = _make_gpo(id="gpo-1", sysvol_path=str(gpo_dir))
+    estate = Estate(gpos=[gpo])
+    result = queries.broken_refs(estate)
+    gpp_refs = [r for r in result if r.ref_type == "gpp_file_ref"]
+    assert len(gpp_refs) >= 1
+    unc_values = {r.ref_value for r in gpp_refs}
+    assert r"\\source\dist\app.msi" in unc_values
+    detail_texts = " ".join(r.detail for r in gpp_refs)
+    assert "File" in detail_texts
+
+
+def test_broken_refs_gpp_xml_service_unc(tmp_path):
+    gpo_dir = tmp_path / "gpo"
+    prefs = gpo_dir / "Machine" / "Preferences"
+    prefs.mkdir(parents=True)
+    root = ET.Element("Services")
+    svc = ET.SubElement(root, "Service")
+    svc.set("serviceName", r"\\malicious\service_path")
+    tree = ET.ElementTree(root)
+    tree.write(prefs / "Services.xml")
+
+    gpo = _make_gpo(id="gpo-1", sysvol_path=str(gpo_dir))
+    estate = Estate(gpos=[gpo])
+    result = queries.broken_refs(estate)
+    gpp_refs = [r for r in result if r.ref_type == "gpp_file_ref"]
+    assert len(gpp_refs) >= 1
+    assert r"\\malicious\service_path" in gpp_refs[0].ref_value
+    assert "Service" in gpp_refs[0].detail
+
+
+def test_broken_refs_gpp_xml_datasource_unc(tmp_path):
+    gpo_dir = tmp_path / "gpo"
+    prefs = gpo_dir / "User" / "Preferences"
+    prefs.mkdir(parents=True)
+    root = ET.Element("DataSources")
+    ds = ET.SubElement(root, "DataSource")
+    ds.set("dsn", r"\\dbserver\data\inventory.mdb")
+    ds.set("dsnTarget", r"C:\local\copy.mdb")
+    tree = ET.ElementTree(root)
+    tree.write(prefs / "DataSources.xml")
+
+    gpo = _make_gpo(id="gpo-1", sysvol_path=str(gpo_dir))
+    estate = Estate(gpos=[gpo])
+    result = queries.broken_refs(estate)
+    gpp_refs = [r for r in result if r.ref_type == "gpp_file_ref"]
+    assert len(gpp_refs) >= 1
+    unc_values = {r.ref_value for r in gpp_refs}
+    assert r"\\dbserver\data\inventory.mdb" in unc_values
+    detail_texts = " ".join(r.detail for r in gpp_refs)
+    assert "DataSource" in detail_texts
+
+
+def test_broken_refs_gpp_xml_no_unc_skipped(tmp_path):
+    gpo_dir = tmp_path / "gpo"
+    prefs = gpo_dir / "Machine" / "Preferences"
+    prefs.mkdir(parents=True)
+    root = ET.Element("Drives")
+    drive = ET.SubElement(root, "Drive")
+    drive.set("Path", "C:\\local\\path")
+    tree = ET.ElementTree(root)
+    tree.write(prefs / "Drives.xml")
+
+    gpo = _make_gpo(id="gpo-1", sysvol_path=str(gpo_dir))
+    estate = Estate(gpos=[gpo])
+    result = queries.broken_refs(estate)
+    assert result == []
+
+
+def test_broken_refs_gpp_xml_unknown_tag_skipped(tmp_path):
+    gpo_dir = tmp_path / "gpo"
+    prefs = gpo_dir / "Machine" / "Preferences"
+    prefs.mkdir(parents=True)
+    root = ET.Element("Foo")
+    child = ET.SubElement(root, "Bar")
+    child.set("Path", r"\\server\share")
+    tree = ET.ElementTree(root)
+    tree.write(prefs / "Foo.xml")
+
+    gpo = _make_gpo(id="gpo-1", sysvol_path=str(gpo_dir))
+    estate = Estate(gpos=[gpo])
+    result = queries.broken_refs(estate)
+    assert result == []
+
+
 # ---- richer snapshot_diff ---------------------------------------------------
 
 
