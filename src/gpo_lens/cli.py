@@ -70,6 +70,7 @@ def cmd_summary(args: argparse.Namespace) -> None:
             "enforced_link_count": s.enforced_link_count,
             "dangling_link_count": s.dangling_link_count,
             "broken_ref_count": s.broken_ref_count,
+            "admx_gap_count": s.admx_gap_count,
             "total_settings": s.total_settings,
             "total_delegation_entries": s.total_delegation_entries,
         })
@@ -105,6 +106,8 @@ def cmd_summary(args: argparse.Namespace) -> None:
             issues.append(f"  Dangling links:          {s.dangling_link_count}")
         if s.broken_ref_count:
             issues.append(f"  Broken references:       {s.broken_ref_count}")
+        if s.admx_gap_count:
+            issues.append(f"  ADMX gaps (raw reg keys): {s.admx_gap_count}")
         if issues:
             print("Hygiene & security:")
             for line in issues:
@@ -365,6 +368,21 @@ def cmd_diff(args: argparse.Namespace) -> None:
             "links_changed": diff.links_changed,
             "delegation_changed": diff.delegation_changed,
             "version_skew_changed": diff.version_skew_changed,
+            "metadata_changes": [
+                {"gpo_id": m.gpo_id, "field": m.field,
+                 "old": m.old_value, "new": m.new_value}
+                for m in diff.metadata_changes
+            ],
+            "wmi_filter_changes": [
+                {"gpo_id": m.gpo_id, "field": m.field,
+                 "old": m.old_value, "new": m.new_value}
+                for m in diff.wmi_filter_changes
+            ],
+            "enabled_flips": [
+                {"gpo_id": m.gpo_id, "field": m.field,
+                 "old": m.old_value, "new": m.new_value}
+                for m in diff.enabled_flips
+            ],
         })
     else:
         if diff.gpos_added:
@@ -379,9 +397,16 @@ def cmd_diff(args: argparse.Namespace) -> None:
             print(f"Delegation changed: {', '.join(diff.delegation_changed)}")
         if diff.version_skew_changed:
             print(f"Version skew changed: {', '.join(diff.version_skew_changed)}")
+        for m in diff.metadata_changes:
+            print(f"Metadata: {m.gpo_id}.{m.field}: {m.old_value} -> {m.new_value}")
+        for m in diff.wmi_filter_changes:
+            print(f"WMI filter: {m.gpo_id}: {m.old_value} -> {m.new_value}")
+        for m in diff.enabled_flips:
+            print(f"Enabled flip: {m.gpo_id}.{m.field}: {m.old_value} -> {m.new_value}")
         if not any([
             diff.gpos_added, diff.gpos_removed, diff.settings_changed,
             diff.links_changed, diff.delegation_changed, diff.version_skew_changed,
+            diff.metadata_changes, diff.wmi_filter_changes, diff.enabled_flips,
         ]):
             print("No differences found.")
 
@@ -669,6 +694,36 @@ def cmd_topology_check(args: argparse.Namespace) -> None:
             )
 
 
+def cmd_admx_gaps(args: argparse.Namespace) -> None:
+    estate = _get_estate(args)
+    result = queries.admx_gaps(estate)
+    if args.json:
+        _render_json(
+            [
+                {
+                    "gpo_id": r.gpo_id,
+                    "gpo_name": r.gpo_name,
+                    "side": r.side,
+                    "identity": r.identity,
+                    "key_path": r.key_path,
+                    "value_name": r.value_name,
+                }
+                for r in result
+            ]
+        )
+    else:
+        if not result:
+            print("No ADMX gaps found.")
+        else:
+            _print_table(
+                ["gpo_id", "gpo_name", "side", "key_path", "value_name"],
+                [
+                    [r.gpo_id, r.gpo_name, r.side, r.key_path, r.value_name]
+                    for r in result
+                ],
+            )
+
+
 def cmd_settings_at(args: argparse.Namespace) -> None:
     estate = _get_estate(args)
     result = queries.settings_at_som(estate, args.som_path)
@@ -836,6 +891,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     _add_src(p)
     p.set_defaults(func=cmd_topology_check)
+
+    p = sub.add_parser(
+        "admx-gaps",
+        help="Flag Registry CSE settings with raw key paths (no ADMX policy name)",
+    )
+    _add_src(p)
+    p.set_defaults(func=cmd_admx_gaps)
 
     # new Plan 009 command
     p = sub.add_parser(

@@ -11,6 +11,7 @@ from gpo_lens.model import (
     Estate,
     Gpo,
     GpoLink,
+    OuRecord,
     Setting,
     Som,
     SomLink,
@@ -163,6 +164,18 @@ def init_db(conn: sqlite3.Connection) -> None:
         )
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ou_tree (
+            snapshot_id INTEGER NOT NULL REFERENCES snapshot(id) ON DELETE CASCADE,
+            dn TEXT NOT NULL,
+            name TEXT NOT NULL,
+            gp_link TEXT,
+            gp_options INTEGER,
+            PRIMARY KEY (snapshot_id, dn)
+        )
+        """
+    )
     conn.commit()
 
 
@@ -311,6 +324,13 @@ def save_estate(conn: sqlite3.Connection, estate: Estate, taken_at: datetime | N
         conn.execute(
             "INSERT INTO wmi_filter (snapshot_id, name, query) VALUES (?, ?, ?)",
             (snapshot_id, wf.name, wf.query),
+        )
+
+    for ou in estate.ou_tree:
+        conn.execute(
+            "INSERT INTO ou_tree (snapshot_id, dn, name, gp_link, gp_options) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (snapshot_id, ou.dn, ou.name, ou.gp_link, ou.gp_options),
         )
 
     conn.commit()
@@ -469,11 +489,19 @@ def load_estate(conn: sqlite3.Connection, snapshot_id: int | None = None) -> Est
     ):
         wmi_filters.append(WmiFilter(name=row[0], query=row[1]))
 
+    ou_tree: list[OuRecord] = []
+    for row in conn.execute(
+        "SELECT dn, name, gp_link, gp_options FROM ou_tree WHERE snapshot_id = ?",
+        (snapshot_id,),
+    ):
+        ou_tree.append(OuRecord(dn=row[0], name=row[1], gp_link=row[2], gp_options=row[3]))
+
     return Estate(
         domain=domain,
         gpos=list(gpos.values()),
         soms=list(soms.values()),
         wmi_filters=wmi_filters,
+        ou_tree=ou_tree,
     )
 
 
