@@ -7,7 +7,8 @@ import sqlite3
 import xml.etree.ElementTree as ET
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from pathlib import Path
+from typing import TYPE_CHECKING, Iterable
 
 if TYPE_CHECKING:
     from gpo_lens.model import (
@@ -268,34 +269,54 @@ _GPP_XML_FILES = (
 )
 
 
-def _scan_gpo_for_cpassword(gpo: Gpo) -> list[CpasswordHit]:
-    """Walk one GPO's SYSVOL Preference XML for lingering cpassword attributes."""
-    results: list[CpasswordHit] = []
+def _walk_gpp_xml(
+    gpo: Gpo, *, only_known: bool = False,
+) -> Iterable[tuple[ET.ElementTree, Path, Path]]:
+    """Yield ``(tree, abs_file, rel_file)`` for each parseable GPP XML file.
+
+    Walks ``Machine/Preferences/`` and ``User/Preferences/`` under the GPO's
+    ``sysvol_path``.  When *only_known* is True only files named in
+    ``_GPP_XML_FILES`` are visited (used by cpassword scan); otherwise every
+    ``*.xml`` file is visited (used by broken-ref scan).
+    """
     if not gpo.sysvol_path:
-        return results
-    from pathlib import Path
+        return
     base = Path(gpo.sysvol_path)
     for side_dir in ("Machine", "User"):
         prefs = base / side_dir / "Preferences"
         if not prefs.exists():
             continue
-        for filename in _GPP_XML_FILES:
-            file_path = prefs / filename
-            if not file_path.exists():
+        if only_known:
+            candidates = [prefs / f for f in _GPP_XML_FILES]
+        else:
+            candidates = sorted(prefs.iterdir())
+        for file_path in candidates:
+            if not file_path.is_file() or file_path.suffix.lower() != ".xml":
                 continue
             try:
                 tree = ET.parse(file_path)
             except ET.ParseError:
                 continue
-            for elem in tree.getroot().iter():
-                cpw = elem.get("cpassword")
-                if cpw is not None:
-                    tag = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
-                    rel = file_path.relative_to(base)
-                    results.append(CpasswordHit(
-                        gpo_id=gpo.id, gpo_name=gpo.name,
-                        file=str(rel), tag=tag, cpassword=cpw,
-                    ))
+            if tree.getroot() is None:
+                continue
+            yield tree, file_path, file_path.relative_to(base)  # type: ignore[misc]
+
+
+def _scan_gpo_for_cpassword(gpo: Gpo) -> list[CpasswordHit]:
+    """Walk one GPO's SYSVOL Preference XML for lingering cpassword attributes."""
+    results: list[CpasswordHit] = []
+    for tree, _abs, rel in _walk_gpp_xml(gpo, only_known=True):
+        root = tree.getroot()
+        if root is None:
+            continue
+        for elem in root.iter():
+            cpw = elem.get("cpassword")
+            if cpw is not None:
+                tag = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
+                results.append(CpasswordHit(
+                    gpo_id=gpo.id, gpo_name=gpo.name,
+                    file=str(rel), tag=tag, cpassword=cpw,
+                ))
     return results
 
 
@@ -1072,48 +1093,35 @@ _GPP_PATH_ATTRS: dict[str, tuple[str, ...]] = {
 
 def _scan_gpp_xml_for_refs(gpo: Gpo) -> list[BrokenRef]:
     """Walk GPP Preference XML for file/path/service references."""
-    from pathlib import Path
-
     results: list[BrokenRef] = []
-    if not gpo.sysvol_path:
-        return results
-    base = Path(gpo.sysvol_path)
-    for side_dir in ("Machine", "User"):
-        prefs = base / side_dir / "Preferences"
-        if not prefs.exists():
+    for tree, _abs, rel_file in _walk_gpp_xml(gpo, only_known=False):
+        root = tree.getroot()
+        if root is None:
             continue
-        for gpp_file in prefs.iterdir():
-            if not gpp_file.is_file() or not gpp_file.suffix.lower() == ".xml":
+        for elem in root.iter():
+            tag = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
+            path_attrs = _GPP_PATH_ATTRS.get(tag)
+            if path_attrs is None:
                 continue
-            try:
-                tree = ET.parse(gpp_file)
-            except ET.ParseError:
-                continue
-            rel_file = gpp_file.relative_to(base)
-            for elem in tree.getroot().iter():
-                tag = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
-                path_attrs = _GPP_PATH_ATTRS.get(tag)
-                if path_attrs is None:
+            for attr in path_attrs:
+                val = elem.get(attr)
+                if not val or not val.strip():
                     continue
-                for attr in path_attrs:
-                    val = elem.get(attr)
-                    if not val or not val.strip():
-                        continue
-                    val = val.strip()
-                    for unc in _scan_text_for_unc(val):
-                        results.append(BrokenRef(
-                            gpo_id=gpo.id, gpo_name=gpo.name,
-                            ref_type="gpp_file_ref", ref_value=unc,
-                            detail=f"GPP {rel_file} <{tag} @{attr}>: UNC path",
-                        ))
-                exe_val = _extract_xml_attr(elem, "appPath", "exePath", "Path")
-                if exe_val and tag in ("ScheduledTask", "Task", "ImmediateTask"):
-                    if exe_val and not exe_val.startswith("\\\\") and not exe_val.startswith("%"):
-                        results.append(BrokenRef(
-                            gpo_id=gpo.id, gpo_name=gpo.name,
-                            ref_type="scheduled_task_path", ref_value=exe_val,
-                            detail=f"GPP {rel_file} <{tag}>: executable path '{exe_val}'",
-                        ))
+                val = val.strip()
+                for unc in _scan_text_for_unc(val):
+                    results.append(BrokenRef(
+                        gpo_id=gpo.id, gpo_name=gpo.name,
+                        ref_type="gpp_file_ref", ref_value=unc,
+                        detail=f"GPP {rel_file} <{tag} @{attr}>: UNC path",
+                    ))
+            exe_val = _extract_xml_attr(elem, "appPath", "exePath", "Path")
+            if exe_val and tag in ("ScheduledTask", "Task", "ImmediateTask"):
+                if exe_val and not exe_val.startswith("\\\\") and not exe_val.startswith("%"):
+                    results.append(BrokenRef(
+                        gpo_id=gpo.id, gpo_name=gpo.name,
+                        ref_type="scheduled_task_path", ref_value=exe_val,
+                        detail=f"GPP {rel_file} <{tag}>: executable path '{exe_val}'",
+                    ))
     return results
 
 

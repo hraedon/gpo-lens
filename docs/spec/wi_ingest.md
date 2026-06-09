@@ -131,3 +131,12 @@ one extracted export directory: parse `AllGPOs.xml` → gpos; `gp-inheritance.js
 `Estate.domain` = the GPOs' common domain. Tolerates a missing optional input
 (metadata/sysvol) by skipping that enrichment; a missing `AllGPOs.xml` raises
 `FileNotFoundError`.
+
+## AC-12: Parse WMI filters
+`ingest.parse_wmi_filters(json_path) -> list[WmiFilter]` reads `wmi-filters.json`
+into a list of `WmiFilter(name, query)`. Missing file → empty list.
+
+## AC-13: Parse OU tree
+`ingest.parse_ou_tree(json_path) -> list[OuRecord]` reads `ou-tree.json` into a
+list of `OuRecord(dn, name, gp_link, gp_options)`. Each record captures the raw
+`gPLink` attribute and `gPOptions` from the OU. Missing file → empty list.
