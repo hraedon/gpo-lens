@@ -304,9 +304,6 @@ def main(argv: list[str] | None = None) -> int:
         help="Snapshot ID to diff against (requires --db)"
     )
     p.add_argument(
-        "--db", default=DEFAULT_DB, help="Snapshot database path"
-    )
-    p.add_argument(
         "--max-settings", type=int, default=50,
         help="Max settings per GPO to display (default: 50)",
     )

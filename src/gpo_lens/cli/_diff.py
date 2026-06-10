@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import sqlite3
+import sys
 
 from gpo_lens import ingest, queries, store
 from gpo_lens.cli._helpers import _get_estate, _print_table, _render_json
@@ -192,7 +193,13 @@ def cmd_baseline_diff(args: argparse.Namespace) -> None:
     admx = None
     admx_dir = getattr(args, "admx_dir", None)
     if admx_dir:
-        admx = parse_admx_dir(admx_dir)
+        if not _Path(admx_dir).is_dir():
+            print(
+                f"Warning: --admx-dir not found or not a directory: {admx_dir}",
+                file=sys.stderr,
+            )
+        else:
+            admx = parse_admx_dir(admx_dir)
 
     results = queries.baseline_diff(estate, baseline, admx)
     if args.json:

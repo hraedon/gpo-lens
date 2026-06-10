@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 from typing import Sequence
 
 from gpo_lens import queries
@@ -311,8 +312,14 @@ def cmd_admx_gaps(args: argparse.Namespace) -> None:
     admx = None
     admx_dir = getattr(args, "admx_dir", None)
     if admx_dir:
-        from gpo_lens.admx_parser import parse_admx_dir
-        admx = parse_admx_dir(admx_dir)
+        if not Path(admx_dir).is_dir():
+            print(
+                f"Warning: --admx-dir not found or not a directory: {admx_dir}",
+                file=sys.stderr,
+            )
+        else:
+            from gpo_lens.admx_parser import parse_admx_dir
+            admx = parse_admx_dir(admx_dir)
     result = queries.admx_gaps(estate, admx)
     if args.json:
         _render_json(

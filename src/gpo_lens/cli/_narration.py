@@ -44,8 +44,12 @@ _QUERY_DISPATCH: dict[str, Callable[..., object]] = {
         kw["estate"]
     ),
     "settings_at_som": lambda **kw: queries.settings_at_som(
-        kw["estate"], kw.get("ou_path", "")
+        kw["estate"], kw["ou_path"]
     ),
+}
+
+_QUERY_REQUIRED_PARAMS: dict[str, list[str]] = {
+    "settings_at_som": ["ou_path"],
 }
 
 
@@ -76,6 +80,12 @@ def cmd_ask(args: argparse.Namespace) -> int:
             f"extra in dispatch: {dispatch_keys - _VALID_QUERIES}, "
             f"missing from dispatch: {_VALID_QUERIES - dispatch_keys}"
         )
+    required_keys = set(_QUERY_REQUIRED_PARAMS.keys())
+    if required_keys - dispatch_keys:
+        raise RuntimeError(
+            f"_QUERY_REQUIRED_PARAMS references unknown queries: "
+            f"{required_keys - dispatch_keys}"
+        )
 
     question: str = args.question
     raw_json: bool = args.no_narrate or getattr(args, "json", False)
@@ -105,6 +115,24 @@ def cmd_ask(args: argparse.Namespace) -> int:
         return 1
 
     call_kw: dict[str, object] = {"estate": estate, **params}
+
+    required = _QUERY_REQUIRED_PARAMS.get(query_name, [])
+    for rp in required:
+        if rp not in call_kw:
+            print(
+                f"Error: query '{query_name}' requires parameter '{rp}'",
+                file=sys.stderr,
+            )
+            return 1
+
+    expected_keys = {"estate", *required}
+    unexpected = set(call_kw.keys()) - expected_keys
+    if unexpected:
+        print(
+            f"Warning: unexpected parameters for query '{query_name}': {unexpected}",
+            file=sys.stderr,
+        )
+
     query_result: object = _QUERY_DISPATCH[query_name](**call_kw)
 
     if query_name == "cpassword_scan":

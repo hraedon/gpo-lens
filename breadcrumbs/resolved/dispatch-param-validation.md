@@ -1,8 +1,9 @@
 ---
-status: open
+status: resolved
 priority: medium
 kind: defect
 created: 2026-06-10
+resolved: 2026-06-10
 ---
 
 # _QUERY_DISPATCH silently drops unknown params and defaults ou_path to empty string
