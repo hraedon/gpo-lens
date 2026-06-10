@@ -1142,6 +1142,12 @@ class SettingsDiffRow:
     new_value: str | None
 
 
+class _SettingsDiffResult(list[SettingsDiffRow]):
+    """list subclass carrying a skipped_count attribute."""
+
+    skipped_count: int = 0
+
+
 def settings_diff(
     file_a: str | Path,
     file_b: str | Path,
@@ -1149,30 +1155,35 @@ def settings_diff(
     side: str | None = None,
     cse: str | None = None,
     gpo_id: str | None = None,
-) -> list[SettingsDiffRow]:
+) -> _SettingsDiffResult:
     from gpo_lens.normalize import canonical_guid, load_json
 
     _REQUIRED_KEYS = {"gpo_id", "side", "cse", "identity"}
 
-    def _index(data: list[dict[str, object]]) -> dict[tuple[str, str, str, str], dict[str, object]]:
+    def _index(
+        data: list[dict[str, object]],
+    ) -> tuple[dict[tuple[str, str, str, str], dict[str, object]], int]:
         idx: dict[tuple[str, str, str, str], dict[str, object]] = {}
+        skipped = 0
         for row in data:
             missing = _REQUIRED_KEYS - row.keys()
             if missing:
+                skipped += 1
                 continue
             try:
                 gid = canonical_guid(str(row["gpo_id"]))
             except ValueError:
+                skipped += 1
                 continue
             key = (gid, str(row["side"]), str(row["cse"]), str(row["identity"]))
             idx[key] = row
-        return idx
+        return idx, skipped
 
     data_a = load_json(file_a)
     data_b = load_json(file_b)
 
-    index_a = _index(data_a)
-    index_b = _index(data_b)
+    index_a, skipped_a = _index(data_a)
+    index_b, skipped_b = _index(data_b)
 
     all_keys = set(index_a) | set(index_b)
 
@@ -1180,7 +1191,7 @@ def settings_diff(
     cse_lower = cse.lower() if cse else None
     gpo_lower = gpo_id.lower() if gpo_id else None
 
-    results: list[SettingsDiffRow] = []
+    results = _SettingsDiffResult()
     for key in sorted(all_keys):
         gid, side_val, cse_val, identity = key
 
@@ -1225,6 +1236,7 @@ def settings_diff(
                     change_type="modified", old_value=old_v, new_value=new_v,
                 ))
 
+    results.skipped_count = skipped_a + skipped_b
     return results
 
 

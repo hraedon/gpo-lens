@@ -719,8 +719,9 @@ class TestCLI:
         )
         assert r.returncode == 0
         data = json.loads(r.stdout)
-        assert len(data) == 1
-        assert data[0]["change_type"] == "added"
+        assert "changes" in data
+        assert len(data["changes"]) == 1
+        assert data["changes"][0]["change_type"] == "added"
 
     def test_settings_diff_no_changes(self, tmp_path):
         import json
@@ -808,8 +809,8 @@ class TestCLI:
         )
         assert r.returncode == 0
         data = json.loads(r.stdout)
-        assert len(data) == 1
-        assert data[0]["side"] == "User"
+        assert len(data["changes"]) == 1
+        assert data["changes"][0]["side"] == "User"
 
     def test_ingest_diff_latest_no_prior(self, tmp_path):
         """--diff-latest with no prior snapshot should say so."""

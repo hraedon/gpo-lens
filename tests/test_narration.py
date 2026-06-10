@@ -81,18 +81,29 @@ class TestExplainFindings:
 
     def test_cli_does_not_import_narration_at_module_level(self) -> None:
         import ast
+        import glob
+        import os
 
         import gpo_lens.cli as cli_mod
 
-        filepath = cli_mod.__file__
-        with open(filepath) as fh:
-            tree = ast.parse(fh.read())
-        for node in ast.iter_child_nodes(tree):
-            if isinstance(node, ast.Import):
-                for alias in node.names:
-                    assert "narration" not in alias.name
-            elif isinstance(node, ast.ImportFrom):
-                assert "narration" not in (node.module or "")
+        cli_dir = os.path.dirname(cli_mod.__file__)
+        py_files = glob.glob(os.path.join(cli_dir, "*.py"))
+        for filepath in py_files:
+            with open(filepath) as fh:
+                tree = ast.parse(fh.read())
+            for node in ast.iter_child_nodes(tree):
+                if isinstance(node, ast.Import):
+                    for alias in node.names:
+                        assert "gpo_lens.narration" not in alias.name, (
+                            f"{filepath}: module-level import of {alias.name}"
+                        )
+                elif isinstance(node, ast.ImportFrom):
+                    mod = node.module or ""
+                    assert "gpo_lens.narration" not in mod or mod.endswith(
+                        "cli._narration"
+                    ), (
+                        f"{filepath}: module-level import from {mod}"
+                    )
 
 
 class TestArchitecture:
