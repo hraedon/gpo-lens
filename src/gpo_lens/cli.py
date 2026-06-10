@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import argparse
 import code
+import dataclasses
 import json
 import sqlite3
 import sys
 from pathlib import Path
-from typing import Sequence
+from typing import Callable, Sequence
 
 from gpo_lens import ingest, queries, store
+from gpo_lens.detection import _mask_cpassword
 from gpo_lens.display import render_table
 from gpo_lens.model import Estate
 
@@ -38,6 +40,18 @@ def _get_estate(args: argparse.Namespace) -> Estate:
 
 def _render_json(obj: object) -> None:
     print(json.dumps(obj, indent=2, default=str))
+
+
+def _serialize_result(result: object) -> object:
+    if dataclasses.is_dataclass(result) and not isinstance(result, type):
+        return dataclasses.asdict(result)
+    if isinstance(result, list):
+        return [_serialize_result(item) for item in result]
+    if isinstance(result, dict):
+        return {k: _serialize_result(v) for k, v in result.items()}
+    if isinstance(result, tuple):
+        return [_serialize_result(item) for item in result]
+    return result
 
 
 def _print_table(headers: list[str], rows: list[Sequence[str]]) -> None:
@@ -293,12 +307,6 @@ def cmd_ms16_072(args: argparse.Namespace) -> None:
         _render_json([{"id": g.id, "name": g.name} for g in result])
     else:
         _print_table(["id", "name"], [[g.id, g.name] for g in result])
-
-
-def _mask_cpassword(cpw: str) -> str:
-    if len(cpw) <= 4:
-        return "****"
-    return cpw[:4] + "****"
 
 
 def cmd_cpassword(args: argparse.Namespace) -> None:
@@ -997,47 +1005,192 @@ def cmd_baseline_diff(args: argparse.Namespace) -> None:
                 print()
 
 
+def _doctor_findings_as_dicts(
+    findings: list[queries.DoctorFinding],
+) -> list[dict[str, str]]:
+    return [
+        {
+            "severity": f.severity,
+            "category": f.category,
+            "gpo_id": f.gpo_id,
+            "gpo_name": f.gpo_name,
+            "summary": f.summary,
+            "detail": f.detail,
+        }
+        for f in findings
+    ]
+
+
+def _print_doctor_text(findings: list[queries.DoctorFinding]) -> None:
+    if not findings:
+        print("No issues detected. Estate looks healthy.")
+        return
+    sev_counts: dict[str, int] = {}
+    for f in findings:
+        sev_counts[f.severity] = sev_counts.get(f.severity, 0) + 1
+
+    print("Estate Doctor — Findings")
+    print("=" * 60)
+    parts = []
+    for sev in ("critical", "high", "medium", "low", "info"):
+        if sev in sev_counts:
+            parts.append(f"{sev}: {sev_counts[sev]}")
+    print("  " + " | ".join(parts))
+    print()
+
+    current_sev = None
+    for f in findings:
+        if f.severity != current_sev:
+            current_sev = f.severity
+            print(f"--- {current_sev.upper()} ---")
+        gpo_part = f" [{f.gpo_name or f.gpo_id}]" if f.gpo_id else ""
+        print(f"  {f.category}{gpo_part}: {f.summary}")
+        if f.detail:
+            print(f"    {f.detail}")
+
+
 def cmd_doctor(args: argparse.Namespace) -> None:
+    from gpo_lens.narration import NarrationUnavailable, explain_findings
+
     estate = _get_estate(args)
     findings = queries.estate_doctor(estate)
+    findings_dicts = _doctor_findings_as_dicts(findings)
+    explain = getattr(args, "explain", False)
+
+    narration_text: str | None = None
+    if explain:
+        try:
+            narration_text = explain_findings(findings_dicts)
+        except NarrationUnavailable:
+            narration_text = None
+        except Exception as exc:
+            print(f"Warning: narration failed: {exc}", file=sys.stderr)
+            narration_text = None
+
     if args.json:
-        _render_json([
-            {
-                "severity": f.severity,
-                "category": f.category,
-                "gpo_id": f.gpo_id,
-                "gpo_name": f.gpo_name,
-                "summary": f.summary,
-                "detail": f.detail,
-            }
-            for f in findings
-        ])
+        output: dict[str, object] = {"findings": findings_dicts}
+        if explain:
+            output["narration"] = narration_text
+        _render_json(output)
     else:
-        if not findings:
-            print("No issues detected. Estate looks healthy.")
-            return
-        sev_counts: dict[str, int] = {}
-        for f in findings:
-            sev_counts[f.severity] = sev_counts.get(f.severity, 0) + 1
+        if explain and narration_text is not None:
+            print(narration_text)
+            print()
+        _print_doctor_text(findings)
+        if explain and narration_text is None:
+            print()
+            print("Set GPO_LENS_API_KEY to enable AI-powered explanations.")
 
-        print("Estate Doctor — Findings")
-        print("=" * 60)
-        parts = []
-        for sev in ("critical", "high", "medium", "low", "info"):
-            if sev in sev_counts:
-                parts.append(f"{sev}: {sev_counts[sev]}")
-        print("  " + " | ".join(parts))
-        print()
 
-        current_sev = None
-        for f in findings:
-            if f.severity != current_sev:
-                current_sev = f.severity
-                print(f"--- {current_sev.upper()} ---")
-            gpo_part = f" [{f.gpo_name or f.gpo_id}]" if f.gpo_id else ""
-            print(f"  {f.category}{gpo_part}: {f.summary}")
-            if f.detail:
-                print(f"    {f.detail}")
+def cmd_ask(args: argparse.Namespace) -> int:
+    from gpo_lens.narration import NarrationUnavailable, call_llm, route_question
+
+    question: str = args.question
+    raw_json: bool = args.no_narrate or getattr(args, "json", False)
+
+    estate = _get_estate(args)
+
+    try:
+        routing = route_question(question)
+    except NarrationUnavailable as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        print("Set GPO_LENS_API_KEY to use the ask command.", file=sys.stderr)
+        return 1
+
+    if "error" in routing:
+        reason = routing.get("reason", "unknown")
+        print(f"Cannot answer: {reason}", file=sys.stderr)
+        return 1
+
+    query_name = str(routing["query"])
+    params = dict(routing.get("params", {}))  # type: ignore[call-overload]
+
+    _QUERY_DISPATCH: dict[
+        str, Callable[..., object]
+    ] = {
+        "estate_summary": lambda **kw: queries.estate_summary(
+            kw["estate"]
+        ),
+        "estate_doctor": lambda **kw: queries.estate_doctor(
+            kw["estate"]
+        ),
+        "cpassword_scan": lambda **kw: queries.cpassword_scan(
+            kw["estate"]
+        ),
+        "unlinked_gpos": lambda **kw: queries.unlinked_gpos(
+            kw["estate"]
+        ),
+        "empty_gpos": lambda **kw: queries.empty_gpos(kw["estate"]),
+        "version_skew": lambda **kw: queries.version_skew(
+            kw["estate"]
+        ),
+        "broken_refs": lambda **kw: queries.broken_refs(kw["estate"]),
+        "enforced_links": lambda **kw: queries.enforced_links(
+            kw["estate"]
+        ),
+        "dangling_links": lambda **kw: queries.dangling_links(
+            kw["estate"]
+        ),
+        "ms16_072_vulnerable": lambda **kw: queries.ms16_072_vulnerable(
+            kw["estate"]
+        ),
+        "topology_crosscheck": lambda **kw: queries.topology_crosscheck(
+            kw["estate"]
+        ),
+        "disabled_but_populated": lambda **kw: queries.disabled_but_populated(
+            kw["estate"]
+        ),
+        "settings_at_som": lambda **kw: queries.settings_at_som(
+            kw["estate"], kw.get("ou_path", "")
+        ),
+    }
+
+    if query_name not in _QUERY_DISPATCH:
+        print(
+            f"Error: query '{query_name}' not implemented yet",
+            file=sys.stderr,
+        )
+        return 1
+
+    call_kw: dict[str, object] = {"estate": estate, **params}
+    query_result: object = _QUERY_DISPATCH[query_name](**call_kw)
+
+    if query_name == "cpassword_scan":
+        hits: list[queries.CpasswordHit] = query_result  # type: ignore[assignment]
+        query_result = [
+            dataclasses.replace(hit, cpassword=_mask_cpassword(hit.cpassword))
+            for hit in hits
+        ]
+
+    serialized_result = _serialize_result(query_result)
+
+    if raw_json:
+        _render_json(serialized_result)
+        return 0
+
+    narration_text: str | None = None
+    try:
+        narration_text = call_llm(
+            "You are a Group Policy analyst. The user asked a question about their "
+            "GPO estate. Below are the raw query results as JSON. Answer the user's "
+            "question clearly, referencing specific GPO names and values from the data.",
+            f"Question: {question}\n\nQuery results:\n"
+            + json.dumps(serialized_result, indent=2),
+        )
+    except NarrationUnavailable:
+        narration_text = None
+    except Exception as exc:
+        print(f"Warning: narration failed: {exc}", file=sys.stderr)
+        narration_text = None
+
+    if narration_text is not None:
+        print(narration_text)
+        print("\n--- Raw results ---\n")
+        _render_json(serialized_result)
+    else:
+        print("Narration unavailable. Raw results:")
+        _render_json(serialized_result)
+    return 0
 
 
 def cmd_report(args: argparse.Namespace) -> None:
@@ -1366,6 +1519,10 @@ def main(argv: list[str] | None = None) -> int:
         help="Run all hygiene checks and produce a prioritized findings report",
     )
     _add_src(p)
+    p.add_argument(
+        "--explain", action="store_true",
+        help="Add an LLM-powered plain-English explanation of findings",
+    )
     p.set_defaults(func=cmd_doctor)
 
     # report
@@ -1384,6 +1541,16 @@ def main(argv: list[str] | None = None) -> int:
     )
     _add_src(p)
     p.set_defaults(func=cmd_report)
+
+    # ask
+    p = sub.add_parser("ask", help="Ask a natural-language question about the estate")
+    p.add_argument("question", help="Free-text question about the GPO estate")
+    p.add_argument(
+        "--no-narrate", action="store_true",
+        help="Print raw query results as JSON without narration",
+    )
+    _add_src(p)
+    p.set_defaults(func=cmd_ask)
 
     # REPL
     p = sub.add_parser("repl", help="Interactive Python REPL with the estate loaded")

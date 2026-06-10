@@ -61,7 +61,8 @@ a DC/RSAT box). The tool consumes its output dir.
 | `normalize.py` | Pure helpers: `canonical_guid`, `load_json`, `parse_bool/int/dt` |
 | `ingest.py` | Parse collector outputs → `Estate`. Also `parse_report_xml` for raw bytes (UTF-8/16), `load_baseline_from_zip` for Microsoft baseline zips |
 | `store.py` | SQLite persistence for snapshot history |
-| `queries.py` | All deterministic queries (Tier 1, 2, 2.5). `estate_doctor` for one-shot health assessment, `baseline_diff` for Tier 2 baseline comparison |
+| `queries.py` | Query composition, Tier 2/2.5 queries, estate_doctor, baseline_diff, snapshot diffing, topology, conflicts |
+| `detection.py` | Pure scanner functions — cpassword, MS16-072, version skew, broken refs, etc. Result types: `CpasswordHit`, `BrokenRef`, `AdmxGap` |
 | `admx_parser.py` | ADMX/ADML template parser — builds registry-path → policy-name crosswalk for baseline diff |
 | `display.py` | Table renderer |
 | `cli.py` | Argparse CLI — one function per subcommand |

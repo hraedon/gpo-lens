@@ -1,14 +1,16 @@
-"""Tier-1 deterministic queries over an Estate."""
+"""Deterministic queries over an Estate — composition, Tier 2, and Tier 2.5.
+
+Pure detection/scanner functions live in detection.py; this module
+composes them (estate_doctor), adds baseline comparison, snapshot
+diffing, topology queries, and conflict detection.
+"""
 
 from __future__ import annotations
 
-import re
 import sqlite3
-import xml.etree.ElementTree as ET
 from collections import defaultdict
 from dataclasses import dataclass
-from pathlib import Path
-from typing import TYPE_CHECKING, Iterable
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from gpo_lens.admx_parser import PolicyDefinitions
@@ -22,7 +24,78 @@ if TYPE_CHECKING:
         SomLink,
     )
 
-Side = str  # type: ignore[misc]
+from gpo_lens.detection import (  # noqa: F401, I001
+    AdmxGap,
+    BrokenRef,
+    CpasswordHit,
+    admx_gaps,
+    broken_refs,
+    cpassword_scan,
+    dangling_links,
+    disabled_but_populated,
+    empty_gpos,
+    enforced_links,
+    ms16_072_vulnerable,
+    unlinked_gpos,
+    version_skew,
+)
+
+from gpo_lens.detection import _has_ms16_072_read, _mask_cpassword
+
+__all__ = [
+    "AdmxGap",
+    "BaselineDiffEntry",
+    "BaselineSetting",
+    "BrokenRef",
+    "CpasswordHit",
+    "ChangelogEntry",
+    "Conflict",
+    "DelegationAudit",
+    "DoctorFinding",
+    "EffectiveGpo",
+    "EffectiveSetting",
+    "EstateSummary",
+    "GpoMetadataChange",
+    "SearchResult",
+    "SettingsDumpRow",
+    "SnapshotDiff",
+    "SnapshotSettingChange",
+    "SomConflict",
+    "TopologyDiscrepancy",
+    "VersionChangeLog",
+    "admx_gaps",
+    "baseline_diff",
+    "blocked_extensions",
+    "broken_refs",
+    "conflicts",
+    "cpassword_scan",
+    "dangling_links",
+    "delegation_deep_dive",
+    "disabled_but_populated",
+    "empty_gpos",
+    "enforced_links",
+    "estate_doctor",
+    "estate_summary",
+    "load_baseline_from_estate",
+    "loopback_awareness",
+    "loopback_gpos",
+    "ms16_072_vulnerable",
+    "permissions_audit",
+    "precedence_conflicts",
+    "search",
+    "settings_at_som",
+    "settings_dump",
+    "snapshot_changelog",
+    "snapshot_diff",
+    "snapshot_settings_diff",
+    "som_conflicts",
+    "som_effective_gpos",
+    "topology_crosscheck",
+    "unlinked_gpos",
+    "version_skew",
+    "who_sets",
+    "wmi_filtered_gpos",
+]
 
 
 @dataclass(frozen=True)
@@ -34,17 +107,6 @@ class Conflict:
     identity: str
     display_name: str
     entries: list[tuple[str, str]]  # (gpo_id, display_value)
-
-
-@dataclass(frozen=True)
-class CpasswordHit:
-    """One ``cpassword`` attribute found in a GPP XML file."""
-
-    gpo_id: str
-    gpo_name: str
-    file: str
-    tag: str
-    cpassword: str
 
 
 @dataclass(frozen=True)
@@ -60,33 +122,106 @@ class SearchResult:
 
 
 # ---------------------------------------------------------------------------
-# Tier-1 queries
+# Security / hygiene helpers (used by permissions_audit, delegation_deep_dive)
 # ---------------------------------------------------------------------------
 
-def unlinked_gpos(estate: Estate) -> list[Gpo]:
-    """GPOs with no links.  These apply nowhere."""
-    return [g for g in estate.gpos if not g.links]
+_DEFAULT_WRITERS = {"domain admins", "enterprise admins", "system"}
 
 
-def empty_gpos(estate: Estate) -> list[Gpo]:
-    """GPOs with no settings on either side."""
-    return [g for g in estate.gpos if not g.settings]
+def _is_default_writer(trustee: str) -> bool:
+    return trustee.strip().lower() in _DEFAULT_WRITERS
 
 
-def disabled_but_populated(estate: Estate) -> list[tuple[Gpo, Side]]:
-    """(Gpo, Side) pairs where the side is disabled but has settings."""
-    results: list[tuple[Gpo, Side]] = []
+@dataclass(frozen=True)
+class DelegationAudit:
+    """Deep-dive delegation analysis."""
+
+    privilege_rollup: dict[str, list[str]]  # trustee -> GPO names with edit rights
+    orphaned_sids: list[tuple[Gpo, str]]    # (Gpo, orphaned_sid)
+    broad_writers: list[tuple[Gpo, DelegationEntry]]  # non-default editor with write
+
+
+def delegation_deep_dive(estate: Estate) -> DelegationAudit:
+    """Estate-wide delegation audit."""
+    rollup: dict[str, list[str]] = {}
+    orphaned: list[tuple[Gpo, str]] = []
+    broad: list[tuple[Gpo, DelegationEntry]] = []
+
     for g in estate.gpos:
-        comp_disabled = not g.computer_enabled and any(
-            s.side == "Computer" and s.from_disabled_side for s in g.settings
-        )
-        user_disabled = not g.user_enabled and any(
-            s.side == "User" and s.from_disabled_side for s in g.settings
-        )
-        if comp_disabled:
-            results.append((g, "Computer"))
-        if user_disabled:
-            results.append((g, "User"))
+        for d in g.delegation:
+            if not d.allowed:
+                continue
+            if (not d.trustee or d.trustee.strip() == "") and d.trustee_sid:
+                orphaned.append((g, d.trustee_sid))
+
+            if "write" in d.permission.lower() or "edit" in d.permission.lower():
+                trustee_name = d.trustee.strip()
+                rollup.setdefault(trustee_name, []).append(g.name)
+                if not _is_default_writer(trustee_name):
+                    broad.append((g, d))
+
+    return DelegationAudit(
+        privilege_rollup=rollup,
+        orphaned_sids=orphaned,
+        broad_writers=broad,
+    )
+
+
+def permissions_audit(estate: Estate) -> list[tuple[Gpo, str]]:
+    """Audit delegation for common security issues."""
+    issues: list[tuple[Gpo, str]] = []
+    for g in estate.gpos:
+        if not _has_ms16_072_read(g.delegation):
+            issues.append((g, "No Authenticated Users / Domain Computers Read (MS16-072)"))
+
+        writers = [d for d in g.delegation if d.allowed and "write" in d.permission.lower()]
+        if len(writers) > 3:
+            issues.append((g, f"{len(writers)} principals have write/modify permissions"))
+
+        if not g.delegation:
+            issues.append((g, "No delegation entries"))
+
+    return issues
+
+
+# ---------------------------------------------------------------------------
+# Search
+# ---------------------------------------------------------------------------
+
+def search(
+    estate: Estate, term: str, scope: str = "all"
+) -> list[SearchResult]:
+    """Full-text search across GPOs, settings, and delegations."""
+    term_lower = term.lower()
+    results: list[SearchResult] = []
+
+    for g in estate.gpos:
+        if scope in ("all", "names") and term_lower in g.name.lower():
+            results.append(SearchResult(
+                gpo_id=g.id, gpo_name=g.name,
+                match_field="gpo_name", detail=g.name,
+            ))
+
+        if scope in ("all", "settings"):
+            for s in g.settings:
+                if (term_lower in s.display_name.lower()
+                        or term_lower in s.identity.lower()
+                        or term_lower in s.display_value.lower()):
+                    results.append(SearchResult(
+                        gpo_id=g.id, gpo_name=g.name,
+                        match_field="setting",
+                        detail=f"[{s.cse}] {s.side}/{s.identity}: {s.display_value}",
+                        side=s.side, cse=s.cse,
+                    ))
+
+        if scope in ("all", "delegation"):
+            for d in g.delegation:
+                if term_lower in d.trustee.lower() or term_lower in d.permission.lower():
+                    results.append(SearchResult(
+                        gpo_id=g.id, gpo_name=g.name,
+                        match_field="delegation",
+                        detail=f"{d.trustee}: {d.permission} (allowed={d.allowed})",
+                    ))
     return results
 
 
@@ -145,242 +280,6 @@ def blocked_extensions(estate: Estate) -> list[tuple[Gpo, Side, str]]:
     return results
 
 
-def version_skew(estate: Estate) -> list[tuple[Gpo, Side]]:
-    """GPOs where GPC (AD) and GPT (SYSVOL) version numbers differ."""
-    results: list[tuple[Gpo, Side]] = []
-    for g in estate.gpos:
-        if g.computer_version_skew:
-            results.append((g, "Computer"))
-        if g.user_version_skew:
-            results.append((g, "User"))
-    return results
-
-
-# ---------------------------------------------------------------------------
-# Security / hygiene
-# ---------------------------------------------------------------------------
-
-_MS16_072_TRUSTEES = {"authenticated users", "domain computers"}
-_DEFAULT_WRITERS = {"domain admins", "enterprise admins", "system"}
-
-
-def _is_default_writer(trustee: str) -> bool:
-    return trustee.strip().lower() in _DEFAULT_WRITERS
-
-
-@dataclass(frozen=True)
-class DelegationAudit:
-    """Deep-dive delegation analysis."""
-
-    privilege_rollup: dict[str, list[str]]  # trustee -> GPO names with edit rights
-    orphaned_sids: list[tuple[Gpo, str]]    # (Gpo, orphaned_sid)
-    broad_writers: list[tuple[Gpo, DelegationEntry]]  # non-default editor with write
-
-
-def delegation_deep_dive(estate: Estate) -> DelegationAudit:
-    """Estate-wide delegation audit.
-
-    Returns:
-    - **privilege_rollup** — which trustees can edit which GPOs
-    - **orphaned_sids** — delegation entries where the trustee name is
-      empty but a SID is present
-    - **broad_writers** — trustees beyond Domain Admins / Enterprise Admins /
-      SYSTEM that have edit rights
-    """
-    rollup: dict[str, list[str]] = {}
-    orphaned: list[tuple[Gpo, str]] = []
-    broad: list[tuple[Gpo, DelegationEntry]] = []
-
-    for g in estate.gpos:
-        for d in g.delegation:
-            if not d.allowed:
-                continue
-            # Orphaned SID: no trustee name but has a SID
-            if (not d.trustee or d.trustee.strip() == "") and d.trustee_sid:
-                orphaned.append((g, d.trustee_sid))
-
-            # Broad writer check
-            if "write" in d.permission.lower() or "edit" in d.permission.lower():
-                trustee_name = d.trustee.strip()
-                # Rollup
-                rollup.setdefault(trustee_name, []).append(g.name)
-                # Flag if not a default admin writer
-                if not _is_default_writer(trustee_name):
-                    broad.append((g, d))
-
-    return DelegationAudit(
-        privilege_rollup=rollup,
-        orphaned_sids=orphaned,
-        broad_writers=broad,
-    )
-
-def _trustee_matches_ms16_072(trustee: str, sid: str | None) -> bool:
-    t = trustee.strip().lower()
-    if t in _MS16_072_TRUSTEES:
-        return True
-    if sid:
-        s = sid.strip().lower()
-        if s == "s-1-5-11":  # Authenticated Users SID
-            return True
-        if s.endswith("-515"):  # Domain Computers SID suffix
-            return True
-    return False
-
-
-def _has_ms16_072_read(delegation: list[DelegationEntry]) -> bool:
-    """Check whether a delegation list grants Read to AU/DC."""
-    return any(
-        e.allowed
-        and _trustee_matches_ms16_072(e.trustee, e.trustee_sid)
-        and e.permission.lower() == "read"
-        for e in delegation
-    )
-
-
-def ms16_072_vulnerable(estate: Estate) -> list[Gpo]:
-    """GPOs missing Read for Authenticated Users or Domain Computers (MS16-072)."""
-    return [g for g in estate.gpos if not _has_ms16_072_read(g.delegation)]
-
-
-def permissions_audit(estate: Estate) -> list[tuple[Gpo, str]]:
-    """Audit delegation for common security issues.
-
-    Returns a list of (Gpo, description) tuples.
-    """
-    issues: list[tuple[Gpo, str]] = []
-    for g in estate.gpos:
-        # 1. MS16-072: no Authenticated Users / Domain Computers read
-        if not _has_ms16_072_read(g.delegation):
-            issues.append((g, "No Authenticated Users / Domain Computers Read (MS16-072)"))
-
-        # 2. Too many principals with Edit rights
-        writers = [d for d in g.delegation if d.allowed and "write" in d.permission.lower()]
-        if len(writers) > 3:
-            issues.append((g, f"{len(writers)} principals have write/modify permissions"))
-
-        # 3. Orphan: no delegation at all
-        if not g.delegation:
-            issues.append((g, "No delegation entries"))
-
-    return issues
-
-
-# ---------------------------------------------------------------------------
-# Search
-# ---------------------------------------------------------------------------
-
-def search(
-    estate: Estate, term: str, scope: str = "all"
-) -> list[SearchResult]:
-    """Full-text search across GPOs, settings, and delegations."""
-    term_lower = term.lower()
-    results: list[SearchResult] = []
-
-    for g in estate.gpos:
-        # GPO name
-        if scope in ("all", "names") and term_lower in g.name.lower():
-            results.append(SearchResult(
-                gpo_id=g.id, gpo_name=g.name,
-                match_field="gpo_name", detail=g.name,
-            ))
-
-        # Settings
-        if scope in ("all", "settings"):
-            for s in g.settings:
-                if (term_lower in s.display_name.lower()
-                        or term_lower in s.identity.lower()
-                        or term_lower in s.display_value.lower()):
-                    results.append(SearchResult(
-                        gpo_id=g.id, gpo_name=g.name,
-                        match_field="setting",
-                        detail=f"[{s.cse}] {s.side}/{s.identity}: {s.display_value}",
-                        side=s.side, cse=s.cse,
-                    ))
-
-        # Delegation
-        if scope in ("all", "delegation"):
-            for d in g.delegation:
-                if term_lower in d.trustee.lower() or term_lower in d.permission.lower():
-                    results.append(SearchResult(
-                        gpo_id=g.id, gpo_name=g.name,
-                        match_field="delegation",
-                        detail=f"{d.trustee}: {d.permission} (allowed={d.allowed})",
-                    ))
-    return results
-
-
-# ---------------------------------------------------------------------------
-# GPP cpassword scan
-# ---------------------------------------------------------------------------
-
-_GPP_XML_FILES = (
-    "Groups.xml", "Services.xml", "Drives.xml", "ScheduledTasks.xml",
-    "DataSources.xml", "Printers.xml", "Folders.xml", "Files.xml",
-    "Registry.xml", "Environment.xml", "Shortcuts.xml", "InternetSettings.xml",
-    "Regional.xml", "PowerOptions.xml", "NetworkShares.xml",
-    "LocalUsersAndGroups.xml", "EventLogs.xml",
-)
-
-
-def _walk_gpp_xml(
-    gpo: Gpo, *, only_known: bool = False,
-) -> Iterable[tuple[ET.ElementTree, Path, Path]]:
-    """Yield ``(tree, abs_file, rel_file)`` for each parseable GPP XML file.
-
-    Walks ``Machine/Preferences/`` and ``User/Preferences/`` under the GPO's
-    ``sysvol_path``.  When *only_known* is True only files named in
-    ``_GPP_XML_FILES`` are visited (used by cpassword scan); otherwise every
-    ``*.xml`` file is visited (used by broken-ref scan).
-    """
-    if not gpo.sysvol_path:
-        return
-    base = Path(gpo.sysvol_path)
-    for side_dir in ("Machine", "User"):
-        prefs = base / side_dir / "Preferences"
-        if not prefs.exists():
-            continue
-        if only_known:
-            candidates = [prefs / f for f in _GPP_XML_FILES]
-        else:
-            candidates = sorted(prefs.iterdir())
-        for file_path in candidates:
-            if not file_path.is_file() or file_path.suffix.lower() != ".xml":
-                continue
-            try:
-                tree = ET.parse(file_path)
-            except ET.ParseError:
-                continue
-            if tree.getroot() is None:
-                continue
-            yield tree, file_path, file_path.relative_to(base)  # type: ignore[misc]
-
-
-def _scan_gpo_for_cpassword(gpo: Gpo) -> list[CpasswordHit]:
-    """Walk one GPO's SYSVOL Preference XML for lingering cpassword attributes."""
-    results: list[CpasswordHit] = []
-    for tree, _abs, rel in _walk_gpp_xml(gpo, only_known=True):
-        root = tree.getroot()
-        if root is None:
-            continue
-        for elem in root.iter():
-            cpw = elem.get("cpassword")
-            if cpw is not None:
-                tag = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
-                results.append(CpasswordHit(
-                    gpo_id=gpo.id, gpo_name=gpo.name,
-                    file=str(rel), tag=tag, cpassword=cpw,
-                ))
-    return results
-
-
-def cpassword_scan(estate: Estate) -> list[CpasswordHit]:
-    """Scan SYSVOL GPP XML for lingering ``cpassword`` attributes (MS14-025)."""
-    results: list[CpasswordHit] = []
-    for g in estate.gpos:
-        results.extend(_scan_gpo_for_cpassword(g))
-    return results
-
-
 # ---------------------------------------------------------------------------
 # OU-tree / inheritance cross-check
 # ---------------------------------------------------------------------------
@@ -394,33 +293,8 @@ class TopologyDiscrepancy:
     detail: str
 
 
-def _extract_gp_link_guids(gp_link: str | None) -> list[str]:
-    """Extract canonical GPO GUIDs from a raw gPLink attribute value.
-
-    Format: ``[DN1;flags][DN2;flags]...`` where DN contains ``CN={GUID,...}``.
-    """
-    if not gp_link:
-        return []
-    guids: list[str] = []
-    import re as _re
-    for m in _re.finditer(r"\{([0-9a-fA-F-]{36})\}", gp_link):
-        from gpo_lens.normalize import canonical_guid
-        try:
-            guids.append(canonical_guid(m.group(0)))
-        except ValueError:
-            pass
-    return guids
-
-
 def topology_crosscheck(estate: Estate) -> list[TopologyDiscrepancy]:
-    """Cross-check ``ou_tree`` against the platform-resolved ``soms``.
-
-    Detects:
-    - ``block_mismatch`` — OU has ``gPOptions=1`` (block inheritance) but the
-      matching SOM doesn't show ``GpoInheritanceBlocked``, or vice versa.
-    - ``ou_missing_from_soms`` — OU in ``ou_tree`` not found in ``soms``
-      (collector gap).
-    """
+    """Cross-check ``ou_tree`` against the platform-resolved ``soms``."""
     results: list[TopologyDiscrepancy] = []
     som_by_dn: dict[str, Som] = {s.path.lower(): s for s in estate.soms}
 
@@ -527,19 +401,7 @@ def snapshot_changelog(
     snap_a: int,
     snap_b: int,
 ) -> list[ChangelogEntry]:
-    """Version-aware change log between two snapshots.
-
-    For each GPO present in both snapshots:
-    - If version counters changed but no settings changed, emit a
-      ``metadata_only`` entry reporting the number of edits.
-    - If settings also changed, emit a ``settings_detail`` entry that
-      pairs the version delta with the per-setting ``snapshot_settings_diff``
-      output.
-
-    The *edit_count* is ``new_sysvol - old_sysvol`` when both are present;
-    it approximates the number of edits applied to the GPT side.
-    """
-    # Load GPO names from both snapshots
+    """Version-aware change log between two snapshots."""
     name_map: dict[str, str] = {}
     for row in conn.execute(
         "SELECT id, name FROM gpo WHERE snapshot_id = ?", (snap_b,)
@@ -550,7 +412,6 @@ def snapshot_changelog(
     ):
         name_map.setdefault(row[0], row[1])
 
-    # Find common GPOs
     a_ids = {
         row[0] for row in conn.execute(
             "SELECT id FROM gpo WHERE snapshot_id = ?", (snap_a,)
@@ -563,7 +424,6 @@ def snapshot_changelog(
     }
     common = sorted(a_ids & b_ids)
 
-    # Pre-compute setting changes per GPO
     all_setting_changes = snapshot_settings_diff(conn, snap_a, snap_b)
     settings_by_gpo: dict[str, list[SnapshotSettingChange]] = defaultdict(list)
     for sc in all_setting_changes:
@@ -586,7 +446,6 @@ def snapshot_changelog(
         has_setting_changes = bool(gpo_changes)
 
         sides: list[tuple[str, int, int, int, int]] = []
-        # (side_name, old_ds_idx, old_sysvol_idx, new_ds_idx, new_sysvol_idx)
         for side, ds_idx, sv_idx in (
             ("Computer", 0, 1),
             ("User", 2, 3),
@@ -654,11 +513,7 @@ def snapshot_settings_diff(
     side: str | None = None,
     cse: str | None = None,
 ) -> list[SnapshotSettingChange]:
-    """Per-setting delta between two snapshots.
-
-    Joins ``setting`` rows on ``(gpo_id, side, cse, identity)`` and reports
-    settings that were added, removed, or had their ``display_value`` change.
-    """
+    """Per-setting delta between two snapshots."""
     gpo_name_map: dict[str, str] = {}
     for row in conn.execute(
         "SELECT id, name FROM gpo WHERE snapshot_id = ?", (snap_b,)
@@ -686,6 +541,7 @@ def snapshot_settings_diff(
     if cse:
         constraints_a.append("cse = ?")
         params_a.append(cse)
+        constraints_b.append("cse = ?")
         params_b.append(cse)
 
     where_a = " AND ".join(constraints_a)
@@ -831,7 +687,6 @@ def snapshot_diff(
                 old_value=old_wmi, new_value=new_wmi,
             ))
 
-        # Settings diff
         old_s = set(
             conn.execute(
                 "SELECT cse, identity, display_value FROM setting "
@@ -849,7 +704,6 @@ def snapshot_diff(
         if old_s != new_s:
             settings_changed.append(gpo_id)
 
-        # Links diff
         old_l = set(
             conn.execute(
                 "SELECT som_path, link_enabled, enforced FROM gpo_link "
@@ -867,7 +721,6 @@ def snapshot_diff(
         if old_l != new_l:
             links_changed.append(gpo_id)
 
-        # Delegation diff
         old_d = set(
             conn.execute(
                 "SELECT trustee, permission, allowed FROM delegation "
@@ -885,7 +738,6 @@ def snapshot_diff(
         if old_d != new_d:
             delegation_changed.append(gpo_id)
 
-        # Version skew diff (appeared or disappeared)
         old_v = conn.execute(
             "SELECT computer_ver_ds, computer_ver_sysvol, user_ver_ds, user_ver_sysvol "
             "FROM gpo WHERE snapshot_id = ? AND id = ?",
@@ -958,13 +810,7 @@ class EffectiveGpo:
 
 
 def som_effective_gpos(estate: Estate, som_path: str) -> list[EffectiveGpo]:
-    """Return the resolved, ordered GPO chain at a given SOM path.
-
-    This reads the platform-computed chain from the GPInheritance dump.
-    It does *not* object-level simulate (no WMl/loopback/security);
-    it is the OU-level "what applies here" view.
-    """
-    # Build a GPO id → name lookup
+    """Return the resolved, ordered GPO chain at a given SOM path."""
     names = {g.id: g.name for g in estate.gpos}
     for som in estate.soms:
         if som.path.lower() == som_path.lower():
@@ -980,27 +826,6 @@ def som_effective_gpos(estate: Estate, som_path: str) -> list[EffectiveGpo]:
                 for link in som.links
             ]
     return []
-
-
-def dangling_links(estate: Estate) -> list[tuple[Som, SomLink]]:
-    """SOM links that point to GPO ids not present in the estate."""
-    gpo_ids = {g.id for g in estate.gpos}
-    results: list[tuple[Som, SomLink]] = []
-    for som in estate.soms:
-        for link in som.links:
-            if link.gpo_id not in gpo_ids:
-                results.append((som, link))
-    return results
-
-
-def enforced_links(estate: Estate) -> list[tuple[Som, SomLink]]:
-    """All enforced (NoOverride) links across the estate."""
-    results: list[tuple[Som, SomLink]] = []
-    for som in estate.soms:
-        for link in som.links:
-            if link.enforced:
-                results.append((som, link))
-    return results
 
 
 # ---------------------------------------------------------------------------
@@ -1038,11 +863,7 @@ def _extract_loopback_mode(setting: Setting) -> str | None:
 
 
 def loopback_awareness(estate: Estate) -> dict[str, str]:
-    """Map GPO id -> loopback mode for GPOs that configure loopback.
-
-    This lets ``settings_at_som`` and ``som_conflicts`` consumers
-    print a caveat banner when any GPO in scope has loopback enabled.
-    """
+    """Map GPO id -> loopback mode for GPOs that configure loopback."""
     results: dict[str, str] = {}
     for g, s in loopback_gpos(estate):
         mode = _extract_loopback_mode(s)
@@ -1054,102 +875,6 @@ def loopback_awareness(estate: Estate) -> dict[str, str]:
 def wmi_filtered_gpos(estate: Estate) -> list[Gpo]:
     """GPOs that have a WMI filter attached."""
     return [g for g in estate.gpos if g.wmi_filter is not None]
-
-
-# ---------------------------------------------------------------------------
-# ADMX gap detection
-# ---------------------------------------------------------------------------
-
-_ADMX_REGISTRY_PREFIXES = (
-    "software\\",
-    "hklm\\",
-    "hkcu\\",
-    "hkcr\\",
-    "hku\\",
-    "hkcc\\",
-    "hkey_",
-    "system\\",
-    "policies\\",
-    "microsoft\\",
-    "windows\\",
-    "control set",
-    "currentversion",
-)
-
-
-@dataclass(frozen=True)
-class AdmxGap:
-    """A Registry CSE setting where no ADMX policy name was resolved.
-
-    The identity is a raw registry key path instead of a policy name,
-    meaning the GPO is applying a preference-style registry setting
-    without a corresponding ADMX template.
-    """
-
-    gpo_id: str
-    gpo_name: str
-    side: Side
-    identity: str
-    display_name: str
-    key_path: str
-    value_name: str
-
-
-def _is_raw_registry_path(identity: str, display_name: str) -> bool:
-    """Heuristic: identity/display_name looks like a raw registry path.
-
-    Matches common hive abbreviations (HKLM, HKCU, HKCR, HKU, HKCC),
-    full hive names (HKEY_*), and well-known subkey stems when the
-    identity uses backslash-separated path segments (not colon-separated
-    ADMX-style identifiers).
-    """
-    id_lower = identity.lower()
-    if any(id_lower.startswith(p) for p in _ADMX_REGISTRY_PREFIXES):
-        return True
-    dn_lower = display_name.lower()
-    if any(dn_lower.startswith(p) for p in _ADMX_REGISTRY_PREFIXES):
-        return True
-    if "\\" in identity and any(p in id_lower for p in _ADMX_REGISTRY_PREFIXES):
-        return True
-    return False
-
-
-def admx_gaps(
-    estate: Estate,
-    admx: PolicyDefinitions | None = None,
-) -> list[AdmxGap]:
-    """Flag Registry CSE settings where no ADMX policy name was resolved.
-
-    These are settings applied via GPP Registry or raw registry preferences
-    rather than through an ADMX policy definition. The identity will be a
-    raw key path (e.g. ``HKLM\\Software\\...``) instead of a policy GUID/name.
-
-    If *admx* is provided, settings whose registry path resolves to a known
-    ADMX policy are **excluded** from the gap list — they are covered by a
-    template even if the identity looks like a raw path.
-    """
-    results: list[AdmxGap] = []
-    for g in estate.gpos:
-        for s in g.settings:
-            if s.cse not in ("Registry", "Windows Registry"):
-                continue
-            if s.source_state == "blocked":
-                continue
-            if not _is_raw_registry_path(s.identity, s.display_name):
-                continue
-            # If ADMX crosswalk resolves this, it's not a gap
-            if admx is not None and admx.resolve_display_name(s.identity):
-                continue
-            parts = s.identity.split(":", 1)
-            key_path = parts[0] if parts else s.identity
-            value_name = parts[1] if len(parts) > 1 else s.display_name
-            results.append(AdmxGap(
-                gpo_id=g.id, gpo_name=g.name,
-                side=s.side, identity=s.identity,
-                display_name=s.display_name,
-                key_path=key_path, value_name=value_name,
-            ))
-    return results
 
 
 # ---------------------------------------------------------------------------
@@ -1192,10 +917,7 @@ def _chain_buckets(
     chain: list[SomLink],
     gpo_by_id: dict[str, Gpo],
 ) -> dict[tuple[str, str, str], list[tuple[str, str, int]]]:
-    """Fold a SOM chain into buckets keyed by (cse, side, identity).
-
-    Each bucket entry is (gpo_name, display_value, order).
-    """
+    """Fold a SOM chain into buckets keyed by (cse, side, identity)."""
     names = {g.id: g.name for g in gpo_by_id.values()}
     buckets: dict[tuple[str, str, str], list[tuple[str, str, int]]] = (
         defaultdict(list)
@@ -1212,13 +934,7 @@ def _chain_buckets(
 
 
 def som_conflicts(estate: Estate, som_path: str) -> list[SomConflict]:
-    """Settings that appear in the SOM chain with differing values.
-
-    Walks the resolved chain in ``order``. For each ``(cse, side, identity)``
-    that appears in **two or more enabled GPOs** with **two or more distinct
-    ``display_value`` s**, emits a conflict. The later (higher ``order``) GPO
-    wins platform precedence — annotated as ``winner``.
-    """
+    """Settings that appear in the SOM chain with differing values."""
     resolved = _resolve_som_chain(estate, som_path)
     if resolved is None:
         return []
@@ -1227,20 +943,16 @@ def som_conflicts(estate: Estate, som_path: str) -> list[SomConflict]:
 
     results: list[SomConflict] = []
     for (cse, side, identity), entries in buckets.items():
-        # Need >=2 distinct GPOs with >=2 distinct values
         gpo_names = {e[0] for e in entries}
         values = {e[1] for e in entries}
         if len(gpo_names) < 2 or len(values) < 2:
             continue
-        # Winner = highest order entry
         winner_entry = max(entries, key=lambda e: e[2])
         winner = winner_entry[0]
-        # Build conflict entries with status annotation
         conflict_entries: list[tuple[str, str, str]] = []
         for gpo_name, value, order in entries:
             status = "winner" if gpo_name == winner else "overridden"
             conflict_entries.append((gpo_name, value, status))
-        # Get display_name from first entry's setting — any will do
         display_name = ""
         for link in chain:
             gpo = gpo_by_id.get(link.gpo_id)
@@ -1269,17 +981,13 @@ def som_conflicts(estate: Estate, som_path: str) -> list[SomConflict]:
 
 
 def precedence_conflicts(estate: Estate) -> list[tuple[Som, list[SomConflict]]]:
-    """Estate-wide precedence conflict summary.
-
-    Runs ``som_conflicts`` for every SOM that has links, returning those
-    with hits.
-    """
+    """Estate-wide precedence conflict summary."""
     results: list[tuple[Som, list[SomConflict]]] = []
     for som in estate.soms:
         if som.links:
-            conflicts = som_conflicts(estate, som.path)
-            if conflicts:
-                results.append((som, conflicts))
+            conflicts_ = som_conflicts(estate, som.path)
+            if conflicts_:
+                results.append((som, conflicts_))
     return results
 
 
@@ -1287,20 +995,28 @@ def precedence_conflicts(estate: Estate) -> list[tuple[Som, list[SomConflict]]]:
 # SOM Resolution Deep View
 # ---------------------------------------------------------------------------
 
-def settings_at_som(estate: Estate, som_path: str) -> list[EffectiveSetting]:
-    """Return the effective settings that apply at a given SOM path.
+@dataclass(frozen=True)
+class EffectiveSetting:
+    """One setting that applies at a SOM after chain folding."""
 
-    Walks the resolved chain in precedence order. For each
-    ``(cse, side, identity)``, the last (highest-precedence) GPO in the
-    chain wins. Returns the folded state: one ``EffectiveSetting`` per
-    unique identity, annotated with the winner and any overridden values.
-    """
+    cse: str
+    side: Side
+    identity: str
+    display_name: str
+    display_value: str
+    winner_gpo_id: str
+    winner_gpo_name: str
+    overridden_by: list[tuple[str, str]]  # (gpo_name, display_value)
+    enforced: bool
+
+
+def settings_at_som(estate: Estate, som_path: str) -> list[EffectiveSetting]:
+    """Return the effective settings that apply at a given SOM path."""
     resolved = _resolve_som_chain(estate, som_path)
     if resolved is None:
         return []
     chain, gpo_by_id, names = resolved
 
-    # Accumulate: (cse, side, identity) -> list of (gpo_id, gpo_name, value, order, enforced)
     buckets: dict[tuple[str, str, str], list[tuple[str, str, str, int, bool]]] = (
         defaultdict(list)
     )
@@ -1318,17 +1034,14 @@ def settings_at_som(estate: Estate, som_path: str) -> list[EffectiveSetting]:
 
     results: list[EffectiveSetting] = []
     for (cse, side, identity), entries in buckets.items():
-        # Winner = highest order entry
         winner_entry = max(entries, key=lambda e: e[3])
         winner_gpo_id, winner_gpo_name, winner_value, _, winner_enforced = winner_entry
 
-        # Build overridden_by list (all *earlier* entries in the chain)
         overridden: list[tuple[str, str]] = []
         for gpo_id, gpo_name, value, order, _ in entries:
             if order < winner_entry[3]:
                 overridden.append((gpo_name, value))
 
-        # Recover display_name from the winner's GPO settings
         winner_gpo = gpo_by_id.get(winner_gpo_id)
         display_name = ""
         if winner_gpo is not None:
@@ -1351,121 +1064,13 @@ def settings_at_som(estate: Estate, som_path: str) -> list[EffectiveSetting]:
             )
         )
 
-    # Sort for stable output: by CSE, then side, then identity
     results.sort(key=lambda es: (es.cse, es.side, es.identity.lower()))
     return results
 
 
 # ---------------------------------------------------------------------------
-# Broken-reference inventory
+# Estate doctor
 # ---------------------------------------------------------------------------
-
-@dataclass(frozen=True)
-class EffectiveSetting:
-    """One setting that applies at a SOM after chain folding.
-
-    Represents the winning value for a given (cse, side, identity)
-    after all GPOs in the SOM chain have been evaluated in precedence order.
-    """
-
-    cse: str
-    side: Side
-    identity: str
-    display_name: str
-    display_value: str
-    winner_gpo_id: str
-    winner_gpo_name: str
-    overridden_by: list[tuple[str, str]]  # (gpo_name, display_value)
-    enforced: bool
-
-
-@dataclass(frozen=True)
-class BrokenRef:
-    """One detected broken or suspicious reference."""
-
-    gpo_id: str
-    gpo_name: str
-    ref_type: str          # "unc_path", "missing_script", "script_unc",
-                           # "scheduled_task_path", "drive_mapping_unc",
-                           # "gpp_file_ref", "service_path"
-    ref_value: str
-    detail: str
-
-
-def _scan_text_for_unc(text: str) -> list[str]:
-    """Find UNC paths in a string."""
-    return re.findall(r"\\\\[^\s\"'<>|]+", text)
-
-
-def _raw_strings(raw: dict[str, object]) -> list[str]:
-    """Recursively extract all string values from a raw dict."""
-    out: list[str] = []
-    for v in raw.values():
-        if isinstance(v, str):
-            out.append(v)
-        elif isinstance(v, list):
-            for item in v:
-                if isinstance(item, str):
-                    out.append(item)
-                elif isinstance(item, dict):
-                    out.extend(_raw_strings(item))
-        elif isinstance(v, dict):
-            out.extend(_raw_strings(v))
-    return out
-
-
-def _extract_xml_attr(elem: ET.Element, *attrs: str) -> str | None:
-    for a in attrs:
-        v = elem.get(a)
-        if v and v.strip():
-            return v.strip()
-    return None
-
-
-_GPP_PATH_ATTRS: dict[str, tuple[str, ...]] = {
-    "ScheduledTask": ("appPath", "exePath", "Path", "Arguments"),
-    "Task": ("appPath", "exePath", "Path", "Arguments"),
-    "ImmediateTask": ("appPath", "exePath", "Path", "Arguments"),
-    "Drive": ("Path",),
-    "File": ("fromPath", "toPath", "targetPath", "SourcePath", "DestinationPath"),
-    "Service": ("serviceName",),
-    "DataSource": ("dsn", "dsnTarget"),
-}
-
-
-def _scan_gpp_xml_for_refs(gpo: Gpo) -> list[BrokenRef]:
-    """Walk GPP Preference XML for file/path/service references."""
-    results: list[BrokenRef] = []
-    for tree, _abs, rel_file in _walk_gpp_xml(gpo, only_known=False):
-        root = tree.getroot()
-        if root is None:
-            continue
-        for elem in root.iter():
-            tag = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
-            path_attrs = _GPP_PATH_ATTRS.get(tag)
-            if path_attrs is None:
-                continue
-            for attr in path_attrs:
-                val = elem.get(attr)
-                if not val or not val.strip():
-                    continue
-                val = val.strip()
-                for unc in _scan_text_for_unc(val):
-                    results.append(BrokenRef(
-                        gpo_id=gpo.id, gpo_name=gpo.name,
-                        ref_type="gpp_file_ref", ref_value=unc,
-                        detail=f"GPP {rel_file} <{tag} @{attr}>: UNC path",
-                    ))
-            exe_val = _extract_xml_attr(elem, "appPath", "exePath", "Path")
-            if exe_val and tag in ("ScheduledTask", "Task", "ImmediateTask"):
-                if exe_val and not exe_val.startswith("\\\\") and not exe_val.startswith("%"):
-                    results.append(BrokenRef(
-                        gpo_id=gpo.id, gpo_name=gpo.name,
-                        ref_type="scheduled_task_path", ref_value=exe_val,
-                        detail=f"GPP {rel_file} <{tag}>: executable path '{exe_val}'",
-                    ))
-    return results
-
 
 @dataclass(frozen=True)
 class DoctorFinding:
@@ -1503,10 +1108,7 @@ def settings_dump(
     cse: str | None = None,
     gpo_name: str | None = None,
 ) -> list[SettingsDumpRow]:
-    """Flat export of all settings, optionally filtered.
-
-    Filters are case-insensitive substring matches on the respective field.
-    """
+    """Flat export of all settings, optionally filtered."""
     side_lower = side.lower() if side else None
     cse_lower = cse.lower() if cse else None
     gpo_lower = gpo_name.lower() if gpo_name else None
@@ -1578,33 +1180,18 @@ def baseline_diff(
     baseline: list[BaselineSetting],
     admx: PolicyDefinitions | None = None,
 ) -> list[BaselineDiffEntry]:
-    """Compare estate settings against a baseline.
-
-    For each baseline setting, finds matching estate settings by
-    ``(cse, identity)`` (case-insensitive).  Reports:
-    - ``compliant`` — estate has the expected value
-    - ``drift`` — estate has a different value
-    - ``missing`` — estate does not apply this setting at all
-
-    Also reports ``extra`` for estate settings not in the baseline
-    (informational — not necessarily wrong).
-
-    Uses the ADMX crosswalk to annotate Registry CSE settings with
-    their policy names when available.
-    """
+    """Compare estate settings against a baseline."""
     from gpo_lens.admx_parser import PolicyDefinitions as _PD
 
     if admx is None:
         admx = _PD()
 
-    # Build baseline lookup: (cse_lower, identity_lower) -> BaselineSetting
     baseline_keys: dict[tuple[str, str], BaselineSetting] = {}
     for bs in baseline:
         key = (bs.cse.lower(), bs.identity.lower())
         if key not in baseline_keys:
             baseline_keys[key] = bs
 
-    # Build estate lookup: (cse_lower, identity_lower) -> list of (gpo_id, value)
     estate_settings: dict[tuple[str, str], list[tuple[str, str]]] = {}
     for g in estate.gpos:
         for s in g.settings:
@@ -1615,7 +1202,6 @@ def baseline_diff(
 
     results: list[BaselineDiffEntry] = []
 
-    # Check each baseline setting
     for bs in baseline:
         bkey = (bs.cse.lower(), bs.identity.lower())
         actuals = estate_settings.get(bkey, [])
@@ -1629,7 +1215,6 @@ def baseline_diff(
                 gpo_id="", admx_name=admx_name,
             ))
         else:
-            # Check if any actual matches the expected value
             values = {v for _, v in actuals}
             gpo_ids = ",".join(sorted(set(gid for gid, _ in actuals)))
             if bs.expected_value in values:
@@ -1641,7 +1226,6 @@ def baseline_diff(
                     gpo_id=gpo_ids, admx_name=admx_name,
                 ))
             else:
-                # Use the first actual value for the report
                 results.append(BaselineDiffEntry(
                     status="drift", side=bs.side, cse=bs.cse,
                     identity=bs.identity, display_name=bs.display_name,
@@ -1650,11 +1234,9 @@ def baseline_diff(
                     gpo_id=gpo_ids, admx_name=admx_name,
                 ))
 
-    # Check for extra settings not in baseline
     baseline_identity_set = {(bs.cse.lower(), bs.identity.lower()) for bs in baseline}
     for (cse, ident), entries in estate_settings.items():
         if (cse, ident) not in baseline_identity_set:
-            # Find display_name from the first estate setting
             display_name = ""
             side = ""
             for g in estate.gpos:
@@ -1682,18 +1264,9 @@ def baseline_diff(
 
 
 def estate_doctor(estate: Estate) -> list[DoctorFinding]:
-    """Run all hygiene checks and return prioritized findings.
-
-    Categories and severities:
-    - critical: cpassword hits (MS14-025 — lingering GPP secrets)
-    - high:     MS16-072 vulnerable (missing AU/DC read — silent non-apply)
-    - medium:   version_skew, dangling_links, topology discrepancies
-    - low:      disabled_but_populated, broken_refs, admx_gaps
-    - info:     unlinked, empty, enforced_links
-    """
+    """Run all hygiene checks and return prioritized findings."""
     findings: list[DoctorFinding] = []
 
-    # Critical — cpassword
     for hit in cpassword_scan(estate):
         findings.append(DoctorFinding(
             severity="critical",
@@ -1704,7 +1277,6 @@ def estate_doctor(estate: Estate) -> list[DoctorFinding]:
             detail=f"Encrypted password found: {_mask_cpassword(hit.cpassword)}",
         ))
 
-    # High — MS16-072
     for g in ms16_072_vulnerable(estate):
         findings.append(DoctorFinding(
             severity="high",
@@ -1715,7 +1287,6 @@ def estate_doctor(estate: Estate) -> list[DoctorFinding]:
             detail="GPO may silently stop applying after MS16-072 patch",
         ))
 
-    # Medium — version skew
     for g, side in version_skew(estate):
         findings.append(DoctorFinding(
             severity="medium",
@@ -1729,7 +1300,6 @@ def estate_doctor(estate: Estate) -> list[DoctorFinding]:
             ),
         ))
 
-    # Medium — dangling links
     for som, link in dangling_links(estate):
         findings.append(DoctorFinding(
             severity="medium",
@@ -1740,7 +1310,6 @@ def estate_doctor(estate: Estate) -> list[DoctorFinding]:
             detail=f"SOM {som.path} links to missing GPO {link.gpo_id}",
         ))
 
-    # Medium — topology discrepancies
     for d in topology_crosscheck(estate):
         findings.append(DoctorFinding(
             severity="medium",
@@ -1751,7 +1320,6 @@ def estate_doctor(estate: Estate) -> list[DoctorFinding]:
             detail=d.detail,
         ))
 
-    # Low — disabled but populated
     for g, side in disabled_but_populated(estate):
         findings.append(DoctorFinding(
             severity="low",
@@ -1765,7 +1333,6 @@ def estate_doctor(estate: Estate) -> list[DoctorFinding]:
             ),
         ))
 
-    # Low — broken refs
     for ref in broken_refs(estate):
         findings.append(DoctorFinding(
             severity="low",
@@ -1776,7 +1343,6 @@ def estate_doctor(estate: Estate) -> list[DoctorFinding]:
             detail=ref.ref_value,
         ))
 
-    # Low — ADMX gaps
     for gap in admx_gaps(estate):
         findings.append(DoctorFinding(
             severity="low",
@@ -1787,7 +1353,6 @@ def estate_doctor(estate: Estate) -> list[DoctorFinding]:
             detail=f"{gap.side}/{gap.identity}",
         ))
 
-    # Info — unlinked
     for g in unlinked_gpos(estate):
         findings.append(DoctorFinding(
             severity="info",
@@ -1798,7 +1363,6 @@ def estate_doctor(estate: Estate) -> list[DoctorFinding]:
             detail="",
         ))
 
-    # Info — empty
     for g in empty_gpos(estate):
         findings.append(DoctorFinding(
             severity="info",
@@ -1809,7 +1373,6 @@ def estate_doctor(estate: Estate) -> list[DoctorFinding]:
             detail="",
         ))
 
-    # Info — enforced links
     for som, link in enforced_links(estate):
         findings.append(DoctorFinding(
             severity="info",
@@ -1822,111 +1385,3 @@ def estate_doctor(estate: Estate) -> list[DoctorFinding]:
 
     findings.sort(key=lambda f: (_SEVERITY_ORDER.get(f.severity, 99), f.category, f.gpo_id))
     return findings
-
-
-def _mask_cpassword(cpw: str) -> str:
-    if len(cpw) <= 4:
-        return "****"
-    return cpw[:4] + "****"
-
-
-def broken_refs(estate: Estate) -> list[BrokenRef]:
-    """Scan settings and SYSVOL for broken-reference patterns.
-
-    This is **detection only** — no reachability probe. Safe for air-gapped
-    use. Flags:
-    - UNC paths in setting display values and raw dicts
-    - Script files referenced in settings that don't exist in the GPO's SYSVOL
-    - Drive mapping UNC patterns
-    - Scheduled task executable paths
-    - GPP XML file/path/service references
-    """
-    from pathlib import Path
-
-    results: list[BrokenRef] = []
-    seen: dict[tuple[str, str], int] = {}  # key -> index in results
-
-    # Detail richness: higher = more specific source info.
-    _REF_TYPE_RANK: dict[str, int] = {
-        "gpp_file_ref": 3,
-        "missing_script": 3,
-        "scheduled_task_path": 2,
-        "drive_mapping_unc": 1,
-        "unc_path": 0,
-    }
-
-    def _add(ref: BrokenRef) -> None:
-        key = (ref.gpo_id, ref.ref_value)
-        idx = seen.get(key)
-        if idx is None:
-            seen[key] = len(results)
-            results.append(ref)
-        else:
-            existing = results[idx]
-            if _REF_TYPE_RANK.get(ref.ref_type, -1) > _REF_TYPE_RANK.get(existing.ref_type, -1):
-                results[idx] = ref
-
-    for g in estate.gpos:
-        # 0. GPP XML-level scanning
-        for ref in _scan_gpp_xml_for_refs(g):
-            _add(ref)
-
-        for s in g.settings:
-            # 1. UNC paths in display_value
-            for unc in _scan_text_for_unc(s.display_value):
-                ref_type = "unc_path"
-                if s.cse in ("Printers", "Drives", "Drive Maps"):
-                    ref_type = "drive_mapping_unc"
-                _add(BrokenRef(
-                    gpo_id=g.id, gpo_name=g.name,
-                    ref_type=ref_type, ref_value=unc,
-                    detail=f"[{s.cse}] {s.identity}: UNC in display value",
-                ))
-
-            # 2. UNC paths in raw dict values
-            for text in _raw_strings(s.raw):
-                for unc in _scan_text_for_unc(text):
-                    ref_type = "unc_path"
-                    if s.cse in ("Printers", "Drives", "Drive Maps"):
-                        ref_type = "drive_mapping_unc"
-                    _add(BrokenRef(
-                        gpo_id=g.id, gpo_name=g.name,
-                        ref_type=ref_type, ref_value=unc,
-                        detail=f"[{s.cse}] {s.identity}: UNC in raw data",
-                    ))
-
-            # 3. Script references — check if a .bat/.cmd/.ps1/.vbs is mentioned
-            #    and verify the file exists in the GPO's SYSVOL Scripts tree
-            if g.sysvol_path and s.cse in ("Scripts", "Group Policy Scripts"):
-                script_name = s.display_value.strip()
-                if script_name and not script_name.startswith("\\\\"):
-                    base = Path(g.sysvol_path)
-                    candidates = []
-                    for side_dir in ("Machine", "User"):
-                        candidates.extend([
-                            base / side_dir / "Scripts" / script_name,
-                            base / side_dir / "Scripts" / "Logon" / script_name,
-                            base / side_dir / "Scripts" / "Shutdown" / script_name,
-                            base / side_dir / "Scripts" / "Startup" / script_name,
-                        ])
-                    if not any(c.exists() for c in candidates):
-                        _add(BrokenRef(
-                            gpo_id=g.id, gpo_name=g.name,
-                            ref_type="missing_script", ref_value=script_name,
-                            detail=(
-                                f"[{s.cse}] {s.side}: "
-                                f"script '{script_name}' not found in SYSVOL"
-                            ),
-                        ))
-
-            # 4. Scheduled task executable paths from settings
-            if s.cse in ("Scheduled Tasks",):
-                exe = s.display_value.strip()
-                if exe and not exe.startswith("\\\\") and not exe.startswith("%"):
-                    _add(BrokenRef(
-                        gpo_id=g.id, gpo_name=g.name,
-                        ref_type="scheduled_task_path", ref_value=exe,
-                        detail=f"[{s.cse}] {s.identity}: task path '{exe}'",
-                    ))
-
-    return results
