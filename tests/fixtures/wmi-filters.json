@@ -1,6 +1,1 @@
-[
-  {
-    "Name": "Fake WMI Filter",
-    "Query": "SELECT * FROM Win32_OperatingSystem WHERE Version LIKE '10.%'"
-  }
-]
+[{"Name":"Fake WMI Filter","Query":"SELECT * FROM Win32_OperatingSystem WHERE Version LIKE '10.%'"}]
