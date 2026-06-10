@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import subprocess
 import sys
+import unittest.mock
 
 import pytest
 
@@ -693,3 +695,129 @@ class TestCLI:
         # So no version change. But there are new GPOs in the fixture.
         # The output should at least show the ingest succeeded and the diff ran.
         assert "snapshot=" in r.stdout
+
+
+class TestDoctorExplain:
+    """Tests for the doctor --explain flag."""
+
+    def test_doctor_explain_with_key(self, rich_db, capsys) -> None:
+        canned = "## CRITICAL\nExplanation of findings."
+        with unittest.mock.patch.dict(os.environ, {"GPO_LENS_API_KEY": "test-key"}):
+            with unittest.mock.patch("gpo_lens.narration.call_llm", return_value=canned):
+                from gpo_lens.cli import main
+                ret = main(["--db", str(rich_db), "doctor", "--explain"])
+        assert ret == 0
+        captured = capsys.readouterr()
+        assert "Explanation of findings" in captured.out
+
+    def test_doctor_explain_without_key(self, rich_db, capsys) -> None:
+        with unittest.mock.patch.dict(os.environ, {}, clear=True):
+            from gpo_lens.cli import main
+            ret = main(["--db", str(rich_db), "doctor", "--explain"])
+        assert ret == 0
+        captured = capsys.readouterr()
+        assert "Set GPO_LENS_API_KEY" in captured.out
+        assert "Estate Doctor" in captured.out
+
+    def test_doctor_explain_json_with_key(self, rich_db, capsys) -> None:
+        canned = "## CRITICAL\nExplanation of findings."
+        with unittest.mock.patch.dict(os.environ, {"GPO_LENS_API_KEY": "test-key"}):
+            with unittest.mock.patch("gpo_lens.narration.call_llm", return_value=canned):
+                from gpo_lens.cli import main
+                ret = main(["--json", "--db", str(rich_db), "doctor", "--explain"])
+        assert ret == 0
+        captured = capsys.readouterr()
+        data = json.loads(captured.out)
+        assert "findings" in data
+        assert "narration" in data
+
+    def test_doctor_explain_json_without_key(self, rich_db, capsys) -> None:
+        with unittest.mock.patch.dict(os.environ, {}, clear=True):
+            from gpo_lens.cli import main
+            ret = main(["--json", "--db", str(rich_db), "doctor", "--explain"])
+        assert ret == 0
+        captured = capsys.readouterr()
+        data = json.loads(captured.out)
+        assert "findings" in data
+        assert data["narration"] is None
+
+
+class TestAsk:
+    def test_ask_no_api_key_exits_nonzero(self, rich_db, capsys) -> None:
+        with unittest.mock.patch.dict(os.environ, {}, clear=True):
+            from gpo_lens.cli import main
+
+            ret = main(["--db", str(rich_db), "ask", "How many GPOs?"])
+        assert ret == 1
+        captured = capsys.readouterr()
+        assert "GPO_LENS_API_KEY" in captured.err or "Error" in captured.err
+
+    def test_ask_routes_and_executes(self, rich_db, capsys) -> None:
+        routing = json.dumps(
+            {"query": "estate_summary", "params": {}}
+        )
+        with unittest.mock.patch.dict(
+            os.environ, {"GPO_LENS_API_KEY": "test-key"}
+        ):
+            with unittest.mock.patch(
+                "gpo_lens.narration.call_llm",
+                side_effect=[routing, "Here is your summary."],
+            ):
+                from gpo_lens.cli import main
+
+                ret = main(["--db", str(rich_db), "ask", "How many GPOs?"])
+        assert ret == 0
+        captured = capsys.readouterr()
+        assert "summary" in captured.out.lower()
+
+    def test_ask_cannot_route(self, rich_db, capsys) -> None:
+        routing = json.dumps(
+            {"error": "cannot_route", "reason": "not a GPO question"}
+        )
+        with unittest.mock.patch.dict(
+            os.environ, {"GPO_LENS_API_KEY": "test-key"}
+        ):
+            with unittest.mock.patch(
+                "gpo_lens.narration.call_llm", return_value=routing
+            ):
+                from gpo_lens.cli import main
+
+                ret = main(
+                    ["--db", str(rich_db), "ask", "What's the weather?"]
+                )
+        assert ret == 1
+        captured = capsys.readouterr()
+        assert "Cannot answer" in captured.err
+
+    def test_ask_no_narrate(self, rich_db, capsys) -> None:
+        routing = json.dumps(
+            {"query": "unlinked_gpos", "params": {}}
+        )
+        with unittest.mock.patch.dict(
+            os.environ, {"GPO_LENS_API_KEY": "test-key"}
+        ):
+            with unittest.mock.patch(
+                "gpo_lens.narration.call_llm", return_value=routing
+            ):
+                from gpo_lens.cli import main
+
+                ret = main(
+                    [
+                        "--db",
+                        str(rich_db),
+                        "ask",
+                        "--no-narrate",
+                        "Which GPOs are unlinked?",
+                    ]
+                )
+        assert ret == 0
+        captured = capsys.readouterr()
+        data = json.loads(captured.out)
+        assert isinstance(data, list)
+        if data:
+            assert isinstance(data[0], dict), (
+                f"Expected dict, got {type(data[0])}: {data[0]!r}"
+            )
+            assert "id" in data[0] and "name" in data[0], (
+                f"Expected keys 'id' and 'name', got {list(data[0].keys())}"
+            )
