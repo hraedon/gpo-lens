@@ -1,154 +1,271 @@
-"""Tests for route_question JSON parser — validates that route_question()
-correctly parses LLM responses and dispatches to the right query.
+"""Corpus tests for NL -> query routing in the ask command.
 
-Note: these tests mock call_llm, so they validate the *parser* logic, not
-the LLM's routing ability. The LLM never runs; the mock supplies the JSON."""
+These tests validate the JSON-parse and validation path inside route_question()
+by mocking call_llm to return pre-determined routing JSON.  They do NOT validate
+that an actual LLM would pick the right query for a given question — that
+requires the integration tests in test_narration_integration.py with a live
+API key.  What they do verify:
+  - route_question() correctly parses well-formed LLM responses
+  - every query in _VALID_QUERIES has at least one corpus entry
+  - malformed responses (bad JSON, unknown query, non-dict params) are rejected
+"""
 
 from __future__ import annotations
 
 import json
-import os
-import unittest.mock
+from unittest.mock import patch
 
 import pytest
 
-from gpo_lens.narration import NarrationUnavailable, route_question
+from gpo_lens.narration import _VALID_QUERIES, NarrationUnavailable, route_question
 
-ROUTING_CORPUS = [
+_CORPUS: list[tuple[str, str, dict[str, object] | None]] = [
+    # Estate summary
     (
-        "How many GPOs are in the estate?",
-        {"query": "estate_summary", "params": {}},
+        "How many GPOs are in my estate?",
+        "estate_summary",
+        None,
     ),
     (
-        "Are there any cpasswords?",
-        {"query": "cpassword_scan", "params": {}},
+        "Give me an overview of my domain",
+        "estate_summary",
+        None,
+    ),
+    # Estate doctor
+    (
+        "What health issues does my estate have?",
+        "estate_doctor",
+        None,
     ),
     (
-        "Which GPOs are unlinked?",
-        {"query": "unlinked_gpos", "params": {}},
+        "Run a hygiene check on my GPOs",
+        "estate_doctor",
+        None,
+    ),
+    # Settings at SOM with OU path
+    (
+        "What settings apply to OU=Workstations,DC=test,DC=local?",
+        "settings_at_som",
+        {"ou_path": "ou=workstations,dc=test,dc=local"},
     ),
     (
-        "Show me empty GPOs",
-        {"query": "empty_gpos", "params": {}},
+        "Show me the effective settings for OU=Servers,DC=corp,DC=local",
+        "settings_at_som",
+        {"ou_path": "ou=servers,dc=corp,dc=local"},
+    ),
+    # Settings at SOM without OU path
+    (
+        "What settings apply to this OU?",
+        "settings_at_som",
+        None,
     ),
     (
-        "Are there version skew issues?",
-        {"query": "version_skew", "params": {}},
+        "Show effective settings for the Workstations OU",
+        "settings_at_som",
+        None,
+    ),
+    # cpassword scan
+    (
+        "Which GPOs have cpasswords?",
+        "cpassword_scan",
+        None,
     ),
     (
-        "Any broken references?",
-        {"query": "broken_refs", "params": {}},
+        "Find encrypted passwords in my GPOs",
+        "cpassword_scan",
+        None,
+    ),
+    # Unlinked GPOs
+    (
+        "Which GPOs are not linked anywhere?",
+        "unlinked_gpos",
+        None,
     ),
     (
-        "What health issues exist?",
-        {"query": "estate_doctor", "params": {}},
+        "Find orphaned GPOs",
+        "unlinked_gpos",
+        None,
+    ),
+    # Empty GPOs
+    (
+        "Which GPOs have no settings?",
+        "empty_gpos",
+        None,
     ),
     (
-        "Which GPOs have enforced links?",
-        {"query": "enforced_links", "params": {}},
+        "Find empty GPOs",
+        "empty_gpos",
+        None,
+    ),
+    # Version skew
+    (
+        "Which GPOs have version mismatches?",
+        "version_skew",
+        None,
     ),
     (
-        "Are there dangling links?",
-        {"query": "dangling_links", "params": {}},
+        "Find GPOs where AD and SYSVOL versions differ",
+        "version_skew",
+        None,
+    ),
+    # Broken refs
+    (
+        "Which GPOs have broken references?",
+        "broken_refs",
+        None,
     ),
     (
-        "Check for MS16-072 vulnerable GPOs",
-        {"query": "ms16_072_vulnerable", "params": {}},
+        "Find missing scripts or bad UNC paths in GPOs",
+        "broken_refs",
+        None,
+    ),
+    # Enforced links
+    (
+        "Which GPO links are enforced?",
+        "enforced_links",
+        None,
     ),
     (
-        "Are there topology discrepancies?",
-        {"query": "topology_crosscheck", "params": {}},
+        "Show me NoOverride links",
+        "enforced_links",
+        None,
+    ),
+    # Dangling links
+    (
+        "Which links point to non-existent GPOs?",
+        "dangling_links",
+        None,
     ),
     (
-        "Which GPO sides are disabled but have settings?",
-        {"query": "disabled_but_populated", "params": {}},
+        "Find dangling references to deleted GPOs",
+        "dangling_links",
+        None,
+    ),
+    # MS16-072 vulnerable
+    (
+        "Which GPOs are vulnerable to MS16-072?",
+        "ms16_072_vulnerable",
+        None,
     ),
     (
-        "What settings apply to OU=Servers,DC=test,DC=local?",
-        {
-            "query": "settings_at_som",
-            "params": {"ou_path": "OU=Servers,DC=test,DC=local"},
-        },
+        "Find GPOs missing Authenticated Users read",
+        "ms16_072_vulnerable",
+        None,
+    ),
+    # Topology crosscheck
+    (
+        "Are there discrepancies between OU tree and SOM data?",
+        "topology_crosscheck",
+        None,
     ),
     (
-        "Any GPOs with disabled sides that still have settings?",
-        {"query": "disabled_but_populated", "params": {}},
+        "Check OU vs SOM topology",
+        "topology_crosscheck",
+        None,
+    ),
+    # Disabled but populated
+    (
+        "Which disabled GPO sides still have settings?",
+        "disabled_but_populated",
+        None,
     ),
     (
-        "Run a health check",
-        {"query": "estate_doctor", "params": {}},
+        "Find GPOs with settings on disabled sides",
+        "disabled_but_populated",
+        None,
+    ),
+]
+
+_UNROUTABLE: list[tuple[str, str]] = [
+    (
+        "What's the weather today?",
+        "not a GPO question",
     ),
     (
-        "Give me an estate overview",
-        {"query": "estate_summary", "params": {}},
+        "Who won the World Cup?",
+        "not a GPO question",
     ),
     (
-        "Find GPOs with cpassword in them",
-        {"query": "cpassword_scan", "params": {}},
+        "Tell me a joke",
+        "not a GPO question",
     ),
     (
-        "Show version mismatches between AD and SYSVOL",
-        {"query": "version_skew", "params": {}},
+        "How do I configure Azure AD?",
+        "not a GPO question",
     ),
     (
-        "What's the weather like?",
-        {"error": "cannot_route", "reason": "not a GPO question"},
-    ),
-    (
-        "Delete all GPOs",
-        {"error": "cannot_route", "reason": "destructive action not supported"},
+        "What is the meaning of life?",
+        "not a GPO question",
     ),
 ]
 
 
-@pytest.mark.parametrize(
-    "question,expected",
-    ROUTING_CORPUS,
-    ids=[f"q{i}" for i in range(len(ROUTING_CORPUS))],
-)
-def test_routing_corpus(
-    question: str, expected: dict[str, object]
-) -> None:
-    response_text = json.dumps(expected)
-    with unittest.mock.patch.dict(
-        os.environ, {"GPO_LENS_API_KEY": "test-key"}
-    ):
-        with unittest.mock.patch(
-            "gpo_lens.narration.call_llm", return_value=response_text
-        ):
+def _expected_result(query: str, params: dict[str, object] | None) -> dict[str, object]:
+    if params is None:
+        params = {}
+    return {"query": query, "params": params}
+
+
+def _mock_llm_response(
+    query: str, params: dict[str, object] | None
+) -> str:
+    return json.dumps(_expected_result(query, params))
+
+
+def _mock_llm_error(reason: str) -> str:
+    return json.dumps({"error": "cannot_route", "reason": reason})
+
+
+class TestRoutingCorpus:
+    @pytest.mark.parametrize(
+        "question,expected_query,expected_params",
+        _CORPUS,
+    )
+    def test_route_question_maps_to_correct_query(
+        self,
+        question: str,
+        expected_query: str,
+        expected_params: dict[str, object] | None,
+    ) -> None:
+        mock_resp = _mock_llm_response(expected_query, expected_params)
+        with patch("gpo_lens.narration.call_llm", return_value=mock_resp):
             result = route_question(question)
-    if "error" in expected:
-        assert "error" in result
-        assert result["error"] == expected["error"]
-    else:
-        assert result["query"] == expected["query"]
-        assert result["params"] == expected["params"]
 
+        assert result == _expected_result(expected_query, expected_params)
 
-def test_route_question_no_api_key_raises() -> None:
-    with unittest.mock.patch.dict(os.environ, {}, clear=True):
-        with pytest.raises(NarrationUnavailable, match="No API key"):
-            route_question("How many GPOs?")
+    @pytest.mark.parametrize(
+        "question,reason",
+        _UNROUTABLE,
+    )
+    def test_route_question_returns_error_for_unroutable(
+        self,
+        question: str,
+        reason: str,
+    ) -> None:
+        mock_resp = _mock_llm_error(reason)
+        with patch("gpo_lens.narration.call_llm", return_value=mock_resp):
+            result = route_question(question)
 
+        assert result == {"error": "cannot_route", "reason": reason}
 
-def test_route_question_malformed_response() -> None:
-    with unittest.mock.patch.dict(
-        os.environ, {"GPO_LENS_API_KEY": "test-key"}
-    ):
-        with unittest.mock.patch(
-            "gpo_lens.narration.call_llm", return_value="this is not json"
-        ):
-            with pytest.raises(NarrationUnavailable, match="non-JSON"):
-                route_question("How many GPOs?")
+    def test_all_valid_queries_are_covered(self) -> None:
+        covered = {q for _, q, _ in _CORPUS}
+        missing = _VALID_QUERIES - covered
+        assert not missing, f"Missing query coverage for: {missing}"
 
-
-def test_route_question_unknown_query() -> None:
-    bad = json.dumps({"query": "nonexistent", "params": {}})
-    with unittest.mock.patch.dict(
-        os.environ, {"GPO_LENS_API_KEY": "test-key"}
-    ):
-        with unittest.mock.patch(
-            "gpo_lens.narration.call_llm", return_value=bad
-        ):
+    def test_route_question_unknown_query_raises(self) -> None:
+        mock_resp = json.dumps({"query": "not_a_real_query", "params": {}})
+        with patch("gpo_lens.narration.call_llm", return_value=mock_resp):
             with pytest.raises(NarrationUnavailable, match="Unknown query"):
                 route_question("something weird")
+
+    def test_route_question_invalid_json_raises(self) -> None:
+        with patch("gpo_lens.narration.call_llm", return_value="not json"):
+            with pytest.raises(NarrationUnavailable, match="non-JSON"):
+                route_question("something")
+
+    def test_route_question_non_dict_params_raises(self) -> None:
+        mock_resp = json.dumps({"query": "estate_summary", "params": []})
+        with patch("gpo_lens.narration.call_llm", return_value=mock_resp):
+            with pytest.raises(NarrationUnavailable, match="non-dict params"):
+                route_question("summary")

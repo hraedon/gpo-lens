@@ -15,6 +15,9 @@ def cmd_report(args: argparse.Namespace) -> int:
     baseline = None
     changelog_entries = None
     max_settings = getattr(args, "max_settings", 50)
+    admx_dir = getattr(args, "admx_dir", None)
+    if admx_dir and not args.baseline:
+        print("Warning: --admx-dir has no effect without --baseline", file=sys.stderr)
     if args.baseline:
         baseline_path = Path(args.baseline)
         if not baseline_path.exists():
@@ -37,7 +40,19 @@ def cmd_report(args: argparse.Namespace) -> int:
             )
             for entry in data
         ]
-        baseline = baseline_diff(estate, baseline_settings)
+
+        admx = None
+        if admx_dir:
+            if not Path(admx_dir).is_dir():
+                print(
+                    f"Warning: --admx-dir not found or not a directory: {admx_dir}",
+                    file=sys.stderr,
+                )
+            else:
+                from gpo_lens.admx_parser import parse_admx_dir
+                admx = parse_admx_dir(admx_dir)
+
+        baseline = baseline_diff(estate, baseline_settings, admx)
     if args.since is not None:
         db = Path(args.db)
         if not db.exists():

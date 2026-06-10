@@ -10,6 +10,44 @@ from gpo_lens import queries
 from gpo_lens.cli._helpers import _get_estate, _render_json
 from gpo_lens.detection import _mask_cpassword
 
+_QUERY_DISPATCH: dict[str, Callable[..., object]] = {
+    "estate_summary": lambda **kw: queries.estate_summary(
+        kw["estate"]
+    ),
+    "estate_doctor": lambda **kw: queries.estate_doctor(
+        kw["estate"]
+    ),
+    "cpassword_scan": lambda **kw: queries.cpassword_scan(
+        kw["estate"]
+    ),
+    "unlinked_gpos": lambda **kw: queries.unlinked_gpos(
+        kw["estate"]
+    ),
+    "empty_gpos": lambda **kw: queries.empty_gpos(kw["estate"]),
+    "version_skew": lambda **kw: queries.version_skew(
+        kw["estate"]
+    ),
+    "broken_refs": lambda **kw: queries.broken_refs(kw["estate"]),
+    "enforced_links": lambda **kw: queries.enforced_links(
+        kw["estate"]
+    ),
+    "dangling_links": lambda **kw: queries.dangling_links(
+        kw["estate"]
+    ),
+    "ms16_072_vulnerable": lambda **kw: queries.ms16_072_vulnerable(
+        kw["estate"]
+    ),
+    "topology_crosscheck": lambda **kw: queries.topology_crosscheck(
+        kw["estate"]
+    ),
+    "disabled_but_populated": lambda **kw: queries.disabled_but_populated(
+        kw["estate"]
+    ),
+    "settings_at_som": lambda **kw: queries.settings_at_som(
+        kw["estate"], kw.get("ou_path", "")
+    ),
+}
+
 
 def _serialize_result(result: object) -> object:
     if dataclasses.is_dataclass(result) and not isinstance(result, type):
@@ -24,7 +62,20 @@ def _serialize_result(result: object) -> object:
 
 
 def cmd_ask(args: argparse.Namespace) -> int:
-    from gpo_lens.narration import NarrationUnavailable, call_llm, route_question
+    from gpo_lens.narration import (
+        _VALID_QUERIES,
+        NarrationUnavailable,
+        call_llm,
+        route_question,
+    )
+
+    dispatch_keys = set(_QUERY_DISPATCH.keys())
+    if dispatch_keys != _VALID_QUERIES:
+        raise RuntimeError(
+            f"_QUERY_DISPATCH and _VALID_QUERIES out of sync: "
+            f"extra in dispatch: {dispatch_keys - _VALID_QUERIES}, "
+            f"missing from dispatch: {_VALID_QUERIES - dispatch_keys}"
+        )
 
     question: str = args.question
     raw_json: bool = args.no_narrate or getattr(args, "json", False)
@@ -45,46 +96,6 @@ def cmd_ask(args: argparse.Namespace) -> int:
 
     query_name = str(routing["query"])
     params = dict(routing.get("params", {}))  # type: ignore[call-overload]
-
-    _QUERY_DISPATCH: dict[
-        str, Callable[..., object]
-    ] = {
-        "estate_summary": lambda **kw: queries.estate_summary(
-            kw["estate"]
-        ),
-        "estate_doctor": lambda **kw: queries.estate_doctor(
-            kw["estate"]
-        ),
-        "cpassword_scan": lambda **kw: queries.cpassword_scan(
-            kw["estate"]
-        ),
-        "unlinked_gpos": lambda **kw: queries.unlinked_gpos(
-            kw["estate"]
-        ),
-        "empty_gpos": lambda **kw: queries.empty_gpos(kw["estate"]),
-        "version_skew": lambda **kw: queries.version_skew(
-            kw["estate"]
-        ),
-        "broken_refs": lambda **kw: queries.broken_refs(kw["estate"]),
-        "enforced_links": lambda **kw: queries.enforced_links(
-            kw["estate"]
-        ),
-        "dangling_links": lambda **kw: queries.dangling_links(
-            kw["estate"]
-        ),
-        "ms16_072_vulnerable": lambda **kw: queries.ms16_072_vulnerable(
-            kw["estate"]
-        ),
-        "topology_crosscheck": lambda **kw: queries.topology_crosscheck(
-            kw["estate"]
-        ),
-        "disabled_but_populated": lambda **kw: queries.disabled_but_populated(
-            kw["estate"]
-        ),
-        "settings_at_som": lambda **kw: queries.settings_at_som(
-            kw["estate"], kw.get("ou_path", "")
-        ),
-    }
 
     if query_name not in _QUERY_DISPATCH:
         print(

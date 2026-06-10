@@ -82,8 +82,6 @@ Available query functions:
 - empty_gpos: GPOs with no settings
 - version_skew: GPOs where AD and SYSVOL versions differ
 - broken_refs: GPOs with broken references (UNC paths, missing scripts)
-# baseline_diff, snapshot_settings_diff, snapshot_changelog require extra CLI
-# args not available via "ask" — could be added with additional CLI flags.
 - enforced_links: GPO links that are enforced (override block-inheritance)
 - dangling_links: Links to GPOs that no longer exist
 - ms16_072_vulnerable: GPOs vulnerable to MS16-072 (missing Authenticated Users Read)
@@ -106,8 +104,6 @@ _VALID_QUERIES = {
     "empty_gpos",
     "version_skew",
     "broken_refs",
-    # baseline_diff, snapshot_settings_diff, snapshot_changelog could be added
-    # with additional CLI flags in the ask command.
     "enforced_links",
     "dangling_links",
     "ms16_072_vulnerable",
