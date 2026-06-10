@@ -1,0 +1,14 @@
+[
+  {
+    "DistinguishedName": "dc=fakefixture,dc=local",
+    "Name": "fakefixture.local",
+    "gPLink": "[LDAP://CN={AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA},CN=Policies,CN=System,DC=fakefixture,DC=local;0][LDAP://CN={BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB},CN=Policies,CN=System,DC=fakefixture,DC=local;0][LDAP://CN={CCCCCCCC-CCCC-CCCC-CCCC-CCCCCCCCCCCC},CN=Policies,CN=System,DC=fakefixture,DC=local;2][LDAP://CN={EEEEEEEE-EEEE-EEEE-EEEE-EEEEEEEEEEEE},CN=Policies,CN=System,DC=fakefixture,DC=local;0]",
+    "gPOptions": 0
+  },
+  {
+    "DistinguishedName": "ou=child,dc=fakefixture,dc=local",
+    "Name": "child",
+    "gPLink": "[LDAP://CN={DDDDDDDD-DDDD-DDDD-DDDD-DDDDDDDDDDDD},CN=Policies,CN=System,DC=fakefixture,DC=local;0]",
+    "gPOptions": 1
+  }
+]

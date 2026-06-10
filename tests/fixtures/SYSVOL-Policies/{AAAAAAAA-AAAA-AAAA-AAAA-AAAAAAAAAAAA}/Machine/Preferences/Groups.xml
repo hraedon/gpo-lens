@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Groups clsid="{3125E937-EB16-4b4c-9934-544FC6D66F83}">
+  <User clsid="{DF5F1855-51E5-4d24-8B1A-D9BDE98BA1D1}" name="Administrator">
+    <Properties cpassword="AzV93mAPDnE3UNvYggAjKSIi6wN6h/TnRqUyF+5Z0wWmS6D0mN8Y5g==" fullName="Admin" description="" changeLogon="0" noChange="0" neverExpires="0" acctDisabled="0" userName="Administrator" />
+  </User>
+</Groups>

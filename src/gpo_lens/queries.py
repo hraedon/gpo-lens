@@ -161,6 +161,58 @@ def version_skew(estate: Estate) -> list[tuple[Gpo, Side]]:
 # ---------------------------------------------------------------------------
 
 _MS16_072_TRUSTEES = {"authenticated users", "domain computers"}
+_DEFAULT_WRITERS = {"domain admins", "enterprise admins", "system"}
+
+
+def _is_default_writer(trustee: str) -> bool:
+    return trustee.strip().lower() in _DEFAULT_WRITERS
+
+
+@dataclass(frozen=True)
+class DelegationAudit:
+    """Deep-dive delegation analysis."""
+
+    privilege_rollup: dict[str, list[str]]  # trustee -> GPO names with edit rights
+    orphaned_sids: list[tuple[Gpo, str]]    # (Gpo, orphaned_sid)
+    broad_writers: list[tuple[Gpo, DelegationEntry]]  # non-default editor with write
+
+
+def delegation_deep_dive(estate: Estate) -> DelegationAudit:
+    """Estate-wide delegation audit.
+
+    Returns:
+    - **privilege_rollup** — which trustees can edit which GPOs
+    - **orphaned_sids** — delegation entries where the trustee name is
+      empty but a SID is present
+    - **broad_writers** — trustees beyond Domain Admins / Enterprise Admins /
+      SYSTEM that have edit rights
+    """
+    rollup: dict[str, list[str]] = {}
+    orphaned: list[tuple[Gpo, str]] = []
+    broad: list[tuple[Gpo, DelegationEntry]] = []
+
+    for g in estate.gpos:
+        for d in g.delegation:
+            if not d.allowed:
+                continue
+            # Orphaned SID: no trustee name but has a SID
+            if (not d.trustee or d.trustee.strip() == "") and d.trustee_sid:
+                orphaned.append((g, d.trustee_sid))
+
+            # Broad writer check
+            if "write" in d.permission.lower() or "edit" in d.permission.lower():
+                trustee_name = d.trustee.strip()
+                # Rollup
+                rollup.setdefault(trustee_name, []).append(g.name)
+                # Flag if not a default admin writer
+                if not _is_default_writer(trustee_name):
+                    broad.append((g, d))
+
+    return DelegationAudit(
+        privilege_rollup=rollup,
+        orphaned_sids=orphaned,
+        broad_writers=broad,
+    )
 
 def _trustee_matches_ms16_072(trustee: str, sid: str | None) -> bool:
     t = trustee.strip().lower()
@@ -441,6 +493,156 @@ class SnapshotSettingChange:
     change_type: str  # "added", "removed", "modified"
     old_value: str | None
     new_value: str | None
+
+
+@dataclass(frozen=True)
+class VersionChangeLog:
+    """One GPO whose version counters changed between snapshots."""
+
+    gpo_id: str
+    gpo_name: str
+    side: str       # "Computer" | "User"
+    old_ds: int | None
+    old_sysvol: int | None
+    new_ds: int | None
+    new_sysvol: int | None
+    edit_count: int | None  # positive delta means edits occurred
+
+
+@dataclass(frozen=True)
+class ChangelogEntry:
+    """One line in the version-aware change log."""
+
+    gpo_id: str
+    gpo_name: str
+    kind: str       # "metadata_only" | "settings_detail"
+    side: str | None
+    version_change: VersionChangeLog | None
+    setting_changes: list[SnapshotSettingChange]
+    summary: str
+
+
+def snapshot_changelog(
+    conn: sqlite3.Connection,
+    snap_a: int,
+    snap_b: int,
+) -> list[ChangelogEntry]:
+    """Version-aware change log between two snapshots.
+
+    For each GPO present in both snapshots:
+    - If version counters changed but no settings changed, emit a
+      ``metadata_only`` entry reporting the number of edits.
+    - If settings also changed, emit a ``settings_detail`` entry that
+      pairs the version delta with the per-setting ``snapshot_settings_diff``
+      output.
+
+    The *edit_count* is ``new_sysvol - old_sysvol`` when both are present;
+    it approximates the number of edits applied to the GPT side.
+    """
+    # Load GPO names from both snapshots
+    name_map: dict[str, str] = {}
+    for row in conn.execute(
+        "SELECT id, name FROM gpo WHERE snapshot_id = ?", (snap_b,)
+    ):
+        name_map[row[0]] = row[1]
+    for row in conn.execute(
+        "SELECT id, name FROM gpo WHERE snapshot_id = ?", (snap_a,)
+    ):
+        name_map.setdefault(row[0], row[1])
+
+    # Find common GPOs
+    a_ids = {
+        row[0] for row in conn.execute(
+            "SELECT id FROM gpo WHERE snapshot_id = ?", (snap_a,)
+        )
+    }
+    b_ids = {
+        row[0] for row in conn.execute(
+            "SELECT id FROM gpo WHERE snapshot_id = ?", (snap_b,)
+        )
+    }
+    common = sorted(a_ids & b_ids)
+
+    # Pre-compute setting changes per GPO
+    all_setting_changes = snapshot_settings_diff(conn, snap_a, snap_b)
+    settings_by_gpo: dict[str, list[SnapshotSettingChange]] = defaultdict(list)
+    for sc in all_setting_changes:
+        settings_by_gpo[sc.gpo_id].append(sc)
+
+    results: list[ChangelogEntry] = []
+
+    _version_query = (
+        "SELECT computer_ver_ds, computer_ver_sysvol, user_ver_ds, user_ver_sysvol "
+        "FROM gpo WHERE snapshot_id = ? AND id = ?"
+    )
+
+    for gpo_id in common:
+        old_v = conn.execute(_version_query, (snap_a, gpo_id)).fetchone()
+        new_v = conn.execute(_version_query, (snap_b, gpo_id)).fetchone()
+        if not old_v or not new_v:
+            continue
+
+        gpo_changes = settings_by_gpo.get(gpo_id, [])
+        has_setting_changes = bool(gpo_changes)
+
+        sides: list[tuple[str, int, int, int, int]] = []
+        # (side_name, old_ds_idx, old_sysvol_idx, new_ds_idx, new_sysvol_idx)
+        for side, ds_idx, sv_idx in (
+            ("Computer", 0, 1),
+            ("User", 2, 3),
+        ):
+            old_ds, old_sv = old_v[ds_idx], old_v[sv_idx]
+            new_ds, new_sv = new_v[ds_idx], new_v[sv_idx]
+            if old_ds != new_ds or old_sv != new_sv:
+                edit_count = None
+                if isinstance(old_sv, int) and isinstance(new_sv, int):
+                    edit_count = new_sv - old_sv
+                sides.append((side, old_ds, old_sv, new_ds, new_sv))
+                vcl = VersionChangeLog(
+                    gpo_id=gpo_id,
+                    gpo_name=name_map.get(gpo_id, gpo_id),
+                    side=side,
+                    old_ds=old_ds,
+                    old_sysvol=old_sv,
+                    new_ds=new_ds,
+                    new_sysvol=new_sv,
+                    edit_count=edit_count,
+                )
+                if has_setting_changes:
+                    side_changes = [c for c in gpo_changes if c.side == side]
+                    summary = (
+                        f"{side} side edited ({edit_count or '?'} edits); "
+                        f"{len(side_changes)} setting(s) changed"
+                    )
+                    results.append(
+                        ChangelogEntry(
+                            gpo_id=gpo_id,
+                            gpo_name=name_map.get(gpo_id, gpo_id),
+                            kind="settings_detail",
+                            side=side,
+                            version_change=vcl,
+                            setting_changes=side_changes,
+                            summary=summary,
+                        )
+                    )
+                else:
+                    summary = (
+                        f"{side} side metadata changed ({edit_count or '?'} edits); "
+                        f"settings unchanged"
+                    )
+                    results.append(
+                        ChangelogEntry(
+                            gpo_id=gpo_id,
+                            gpo_name=name_map.get(gpo_id, gpo_id),
+                            kind="metadata_only",
+                            side=side,
+                            version_change=vcl,
+                            setting_changes=[],
+                            summary=summary,
+                        )
+                    )
+
+    return results
 
 
 def snapshot_settings_diff(
@@ -825,6 +1027,30 @@ def loopback_gpos(estate: Estate) -> list[tuple[Gpo, Setting]]:
     return results
 
 
+def _extract_loopback_mode(setting: Setting) -> str | None:
+    """Return 'merge' or 'replace' from a loopback setting's display_value."""
+    val = setting.display_value.strip().lower()
+    if "replace" in val:
+        return "replace"
+    if "merge" in val:
+        return "merge"
+    return None
+
+
+def loopback_awareness(estate: Estate) -> dict[str, str]:
+    """Map GPO id -> loopback mode for GPOs that configure loopback.
+
+    This lets ``settings_at_som`` and ``som_conflicts`` consumers
+    print a caveat banner when any GPO in scope has loopback enabled.
+    """
+    results: dict[str, str] = {}
+    for g, s in loopback_gpos(estate):
+        mode = _extract_loopback_mode(s)
+        if mode:
+            results[g.id] = mode
+    return results
+
+
 def wmi_filtered_gpos(estate: Estate) -> list[Gpo]:
     """GPOs that have a WMI filter attached."""
     return [g for g in estate.gpos if g.wmi_filter is not None]
@@ -888,12 +1114,19 @@ def _is_raw_registry_path(identity: str, display_name: str) -> bool:
     return False
 
 
-def admx_gaps(estate: Estate) -> list[AdmxGap]:
+def admx_gaps(
+    estate: Estate,
+    admx: PolicyDefinitions | None = None,
+) -> list[AdmxGap]:
     """Flag Registry CSE settings where no ADMX policy name was resolved.
 
     These are settings applied via GPP Registry or raw registry preferences
     rather than through an ADMX policy definition. The identity will be a
     raw key path (e.g. ``HKLM\\Software\\...``) instead of a policy GUID/name.
+
+    If *admx* is provided, settings whose registry path resolves to a known
+    ADMX policy are **excluded** from the gap list — they are covered by a
+    template even if the identity looks like a raw path.
     """
     results: list[AdmxGap] = []
     for g in estate.gpos:
@@ -903,6 +1136,9 @@ def admx_gaps(estate: Estate) -> list[AdmxGap]:
             if s.source_state == "blocked":
                 continue
             if not _is_raw_registry_path(s.identity, s.display_name):
+                continue
+            # If ADMX crosswalk resolves this, it's not a gap
+            if admx is not None and admx.resolve_display_name(s.identity):
                 continue
             parts = s.identity.split(":", 1)
             key_path = parts[0] if parts else s.identity
