@@ -652,6 +652,165 @@ class TestCLI:
         assert r.returncode == 0
         assert "No results" in r.stdout
 
+    def test_settings_diff(self, tmp_path):
+        import json
+
+        gid = "31b2f340-016d-11d2-945f-00c04fb984f9"
+        data_a = [
+            {
+                "gpo_id": gid,
+                "gpo_name": "Test",
+                "side": "Computer",
+                "cse": "Security",
+                "identity": "X",
+                "display_name": "X",
+                "display_value": "1",
+                "from_disabled_side": False,
+            },
+        ]
+        data_b = [
+            {
+                "gpo_id": gid,
+                "gpo_name": "Test",
+                "side": "Computer",
+                "cse": "Security",
+                "identity": "X",
+                "display_name": "X",
+                "display_value": "2",
+                "from_disabled_side": False,
+            },
+        ]
+        fa = tmp_path / "a.json"
+        fb = tmp_path / "b.json"
+        fa.write_text(json.dumps(data_a))
+        fb.write_text(json.dumps(data_b))
+
+        r = subprocess.run(
+            GPO_LENS + ["settings-diff", str(fa), str(fb)],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+        assert "modified" in r.stdout
+
+    def test_settings_diff_json(self, tmp_path):
+        import json
+
+        data_a: list[dict[str, object]] = []
+        data_b = [
+            {
+                "gpo_id": "31b2f340-016d-11d2-945f-00c04fb984f9",
+                "gpo_name": "Test",
+                "side": "Computer",
+                "cse": "Security",
+                "identity": "X",
+                "display_name": "X",
+                "display_value": "1",
+                "from_disabled_side": False,
+            },
+        ]
+        fa = tmp_path / "a.json"
+        fb = tmp_path / "b.json"
+        fa.write_text(json.dumps(data_a))
+        fb.write_text(json.dumps(data_b))
+
+        r = subprocess.run(
+            GPO_LENS + ["--json", "settings-diff", str(fa), str(fb)],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+        data = json.loads(r.stdout)
+        assert len(data) == 1
+        assert data[0]["change_type"] == "added"
+
+    def test_settings_diff_no_changes(self, tmp_path):
+        import json
+
+        data = [
+            {
+                "gpo_id": "31b2f340-016d-11d2-945f-00c04fb984f9",
+                "gpo_name": "Test",
+                "side": "Computer",
+                "cse": "Security",
+                "identity": "X",
+                "display_name": "X",
+                "display_value": "1",
+                "from_disabled_side": False,
+            },
+        ]
+        fa = tmp_path / "a.json"
+        fb = tmp_path / "b.json"
+        fa.write_text(json.dumps(data))
+        fb.write_text(json.dumps(data))
+
+        r = subprocess.run(
+            GPO_LENS + ["settings-diff", str(fa), str(fb)],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+        assert "No differences" in r.stdout
+
+    def test_settings_diff_filter_side(self, tmp_path):
+        import json
+
+        gid = "31b2f340-016d-11d2-945f-00c04fb984f9"
+        data_a = [
+            {
+                "gpo_id": gid,
+                "gpo_name": "Test",
+                "side": "Computer",
+                "cse": "Security",
+                "identity": "X",
+                "display_name": "X",
+                "display_value": "1",
+                "from_disabled_side": False,
+            },
+            {
+                "gpo_id": gid,
+                "gpo_name": "Test",
+                "side": "User",
+                "cse": "Registry",
+                "identity": "Y",
+                "display_name": "Y",
+                "display_value": "2",
+                "from_disabled_side": False,
+            },
+        ]
+        data_b = [
+            {
+                "gpo_id": gid,
+                "gpo_name": "Test",
+                "side": "Computer",
+                "cse": "Security",
+                "identity": "X",
+                "display_name": "X",
+                "display_value": "10",
+                "from_disabled_side": False,
+            },
+            {
+                "gpo_id": gid,
+                "gpo_name": "Test",
+                "side": "User",
+                "cse": "Registry",
+                "identity": "Y",
+                "display_name": "Y",
+                "display_value": "20",
+                "from_disabled_side": False,
+            },
+        ]
+        fa = tmp_path / "a.json"
+        fb = tmp_path / "b.json"
+        fa.write_text(json.dumps(data_a))
+        fb.write_text(json.dumps(data_b))
+
+        r = subprocess.run(
+            GPO_LENS + ["--json", "settings-diff", str(fa), str(fb), "--side", "User"],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+        data = json.loads(r.stdout)
+        assert len(data) == 1
+        assert data[0]["side"] == "User"
+
     def test_ingest_diff_latest_no_prior(self, tmp_path):
         """--diff-latest with no prior snapshot should say so."""
         db = tmp_path / "test.db"

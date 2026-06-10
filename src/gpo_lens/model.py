@@ -19,6 +19,50 @@ Side = str  # "Computer" | "User"
 
 
 @dataclass(frozen=True)
+class SddlAce:
+    """One ACE parsed from an SDDL string."""
+
+    ace_type: str       # "allow" | "deny"
+    flags: str          # e.g. "CI", "OI", "CI_OI", ""
+    rights: str         # e.g. "GA", "GR", "GW", "WD", "SD", "CC", "DC", "LC", "LO", "RP", "WP"
+    object_guid: str    # usually ""
+    inherit_object_guid: str  # usually ""
+    trustee_sid: str    # SID string, e.g. "S-1-5-32-544"
+
+
+@dataclass(frozen=True)
+class SddlAcl:
+    """Parsed SDDL descriptor."""
+
+    owner_sid: str | None
+    group_sid: str | None
+    dacl: tuple[SddlAce, ...]
+    sacl: tuple[SddlAce, ...]
+
+
+@dataclass(frozen=True)
+class DenyAce:
+    """A deny ACE found in a GPO's SDDL."""
+
+    gpo_id: str
+    gpo_name: str
+    trustee_sid: str
+    rights: str
+    flags: str
+    acl_section: str
+
+
+@dataclass(frozen=True)
+class ExcessiveWriter:
+    """A trustee with write access to many GPOs."""
+
+    trustee_sid: str
+    gpo_count: int
+    gpo_names: tuple[str, ...]
+    rights: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class GpoLink:
     """One ``GPO/LinksTo`` element — where a GPO is linked."""
 

@@ -1,5 +1,5 @@
 ---
-status: open
+status: closed
 priority: medium
 created: 2026-06-09
 ---
@@ -31,3 +31,14 @@ inline CSS (no external dependencies).  Suitable for emailing or archiving.
 
 ## Depends on
 Nothing — all data is already computed by existing queries.
+
+## Resolution (2026-06-10)
+Implemented in `src/gpo_lens/report.py`:
+- `generate_markdown(estate)` and `generate_html(estate)` as public API
+- `generate_report()` dispatcher and `write_report()` file writer
+- Per-GPO sections with settings (capped at 50), links, delegation, version/skew status
+- Precedence conflicts section via `queries.precedence_conflicts()`
+- Executive summary with top-10 findings
+- HTML uses `html.escape()` for XSS safety, inline CSS, print media queries
+- CLI: `gpo-lens report [src] [--format md|html] [--output FILE]` (stdout if no --output)
+- 27 tests in `tests/test_report.py` covering markdown, HTML, CLI integration, escaping
