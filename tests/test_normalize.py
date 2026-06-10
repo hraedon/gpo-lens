@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -33,6 +34,18 @@ def test_load_json_tolerates_utf8_bom(tmp_path):
     # would raise. utf-8-sig must succeed.
     p.write_bytes(b"\xef\xbb\xbf" + json.dumps({"ok": True}).encode("utf-8"))
     assert load_json(p) == {"ok": True}
+
+
+def test_load_json_tolerates_utf8_bom_in_fixture():
+    from gpo_lens.normalize import load_json
+
+    fixture_dir = Path(__file__).parent / "fixtures"
+    ou_tree = fixture_dir / "ou-tree.json"
+    # The fixture generator writes ou-tree.json with a UTF-8 BOM prefix
+    assert ou_tree.read_bytes()[:3] == b"\xef\xbb\xbf"
+    data = load_json(ou_tree)
+    assert isinstance(data, list)
+    assert data[0]["Name"] == "fakefixture.local"
 
 
 def test_parse_bool():

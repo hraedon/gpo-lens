@@ -34,12 +34,8 @@
             <Name>Authenticated Users</Name>
             <SID>S-1-5-11</SID>
           </Trustee>
-          <Standard>
-            <GPOGroupedAccessEnum>Read</GPOGroupedAccessEnum>
-          </Standard>
-          <Type>
-            <PermissionType>Allow</PermissionType>
-          </Type>
+          <Standard><GPOGroupedAccessEnum>Read</GPOGroupedAccessEnum></Standard>
+          <Type><PermissionType>Allow</PermissionType></Type>
         </TrusteePermissions>
       </Permissions>
     </SecurityDescriptor>
@@ -78,12 +74,8 @@
             <Name>Domain Admins</Name>
             <SID>S-1-5-21-1234567890-1234567890-1234567890-512</SID>
           </Trustee>
-          <Standard>
-            <GPOGroupedAccessEnum>Edit settings, delete, modify security</GPOGroupedAccessEnum>
-          </Standard>
-          <Type>
-            <PermissionType>Allow</PermissionType>
-          </Type>
+          <Standard><GPOGroupedAccessEnum>Edit settings, delete, modify security</GPOGroupedAccessEnum></Standard>
+          <Type><PermissionType>Allow</PermissionType></Type>
         </TrusteePermissions>
       </Permissions>
     </SecurityDescriptor>
@@ -128,12 +120,8 @@
             <Name>Authenticated Users</Name>
             <SID>S-1-5-11</SID>
           </Trustee>
-          <Standard>
-            <GPOGroupedAccessEnum>Read</GPOGroupedAccessEnum>
-          </Standard>
-          <Type>
-            <PermissionType>Allow</PermissionType>
-          </Type>
+          <Standard><GPOGroupedAccessEnum>Read</GPOGroupedAccessEnum></Standard>
+          <Type><PermissionType>Allow</PermissionType></Type>
         </TrusteePermissions>
       </Permissions>
     </SecurityDescriptor>
@@ -178,12 +166,8 @@
             <Name>Authenticated Users</Name>
             <SID>S-1-5-11</SID>
           </Trustee>
-          <Standard>
-            <GPOGroupedAccessEnum>Read</GPOGroupedAccessEnum>
-          </Standard>
-          <Type>
-            <PermissionType>Allow</PermissionType>
-          </Type>
+          <Standard><GPOGroupedAccessEnum>Read</GPOGroupedAccessEnum></Standard>
+          <Type><PermissionType>Allow</PermissionType></Type>
         </TrusteePermissions>
       </Permissions>
     </SecurityDescriptor>
@@ -230,12 +214,8 @@
             <Name>Authenticated Users</Name>
             <SID>S-1-5-11</SID>
           </Trustee>
-          <Standard>
-            <GPOGroupedAccessEnum>Read</GPOGroupedAccessEnum>
-          </Standard>
-          <Type>
-            <PermissionType>Allow</PermissionType>
-          </Type>
+          <Standard><GPOGroupedAccessEnum>Read</GPOGroupedAccessEnum></Standard>
+          <Type><PermissionType>Allow</PermissionType></Type>
         </TrusteePermissions>
       </Permissions>
     </SecurityDescriptor>
