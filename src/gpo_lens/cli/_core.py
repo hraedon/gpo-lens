@@ -310,6 +310,10 @@ def main(argv: list[str] | None = None) -> int:
         "--max-settings", type=int, default=50,
         help="Max settings per GPO to display (default: 50)",
     )
+    p.add_argument(
+        "--admx-dir",
+        help="PolicyDefinitions directory for registry-to-policy crosswalk (used with --baseline)",
+    )
     _add_src(p)
     p.set_defaults(func=cmd_report)
 

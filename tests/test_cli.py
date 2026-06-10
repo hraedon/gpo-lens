@@ -857,6 +857,38 @@ class TestCLI:
         assert "snapshot=" in r.stdout
 
 
+class TestReportAdmx:
+    def test_report_admx_dir_without_baseline_warns(self, db_path):
+        r = subprocess.run(
+            GPO_LENS
+            + ["report", "--db", str(db_path), "--admx-dir", "/some/dir"],
+            capture_output=True,
+            text=True,
+        )
+        assert r.returncode == 0
+        assert "has no effect without --baseline" in r.stderr
+
+    def test_report_admx_dir_nonexistent_with_baseline_warns(self, db_path, tmp_path):
+        baseline = tmp_path / "baseline.json"
+        baseline.write_text("[]")
+        r = subprocess.run(
+            GPO_LENS
+            + [
+                "report",
+                "--db",
+                str(db_path),
+                "--baseline",
+                str(baseline),
+                "--admx-dir",
+                "/nonexistent",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        assert r.returncode == 0
+        assert "not found or not a directory" in r.stderr
+
+
 class TestDoctorExplain:
     """Tests for the doctor --explain flag."""
 

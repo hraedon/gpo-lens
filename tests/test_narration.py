@@ -105,8 +105,28 @@ class TestExplainFindings:
                         f"{filepath}: module-level import from {mod}"
                     )
 
+    def test_routing_prompt_covers_all_valid_queries(self) -> None:
+        from gpo_lens.narration import _ROUTING_SYSTEM_PROMPT, _VALID_QUERIES
+
+        prompt_lower = _ROUTING_SYSTEM_PROMPT.lower()
+        missing = {q for q in _VALID_QUERIES if q not in prompt_lower}
+        assert not missing, (
+            f"_ROUTING_SYSTEM_PROMPT is missing these _VALID_QUERIES entries: {missing}"
+        )
+
 
 class TestArchitecture:
+    def test_query_dispatch_matches_valid_queries(self) -> None:
+        from gpo_lens.cli._narration import _QUERY_DISPATCH
+        from gpo_lens.narration import _VALID_QUERIES
+
+        dispatch_keys = set(_QUERY_DISPATCH.keys())
+        assert dispatch_keys == _VALID_QUERIES, (
+            f"_QUERY_DISPATCH / _VALID_QUERIES drift: "
+            f"extra in dispatch: {dispatch_keys - _VALID_QUERIES}, "
+            f"missing from dispatch: {_VALID_QUERIES - dispatch_keys}"
+        )
+
     @pytest.mark.parametrize("module_name", [
         "model",
         "normalize",

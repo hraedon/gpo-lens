@@ -30,7 +30,7 @@ src/gpo_lens/
     store.py          # core
     queries.py        # core
     admx_parser.py    # core
-    cli.py            # thin shell — MAY import narration (guarded)
+    cli/              # thin shell — MAY import narration (guarded)
     display.py        # core
     report.py         # core
     narration.py      # Tier 3 — may import model, queries; must NOT be imported by core
