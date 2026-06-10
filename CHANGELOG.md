@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.2.0 — 2026-06-10
+
+### Workstream D — Distribution & Polish
+- **CLI decomposition**: Monolithic `cli.py` (1,749 lines) refactored into a 13-module `cli/` package. Entry points preserved; all 389 tests pass.
+- **Collector hardening** (`Export-GpoEstate.ps1`): `-DryRun` flag, per-section `Write-Progress`, module validation, writability check, export summary, `-LiteralPath` for wildcard safety, least-privilege documentation.
+- **Design debt fixes**: `_get_estate` raises `FileNotFoundError` instead of `sys.exit()`, DB connections wrapped in `try/finally`, architecture guard test scans all `cli/*.py` files, `settings-diff` reports `skipped_count`, dead `_PD()` import removed.
+- **GitHub Actions CI**: ruff + mypy --strict + pytest, pinned action SHAs, uv caching, `permissions: contents: read`.
+- **Public repo**: [github.com/hraedon/gpo-lens](https://github.com/hraedon/gpo-lens).
+
+### Test coverage
+- 389 tests. `ruff` and `mypy --strict` clean. CI green in 21s.
+
 ## v0.1.0 — 2026-06-10
 
 ### Infrastructure (Phase 0)
