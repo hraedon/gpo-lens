@@ -20,9 +20,14 @@ htmlcov/
 *.db
 
 # secrets
-.env*
+.env
+.env.local
+.env.*.local
 *.pem
 *.key
+
+# editor / tooling
+.claude/
 
 # agent-notes breadcrumb export-index (regenerated; a committed copy goes stale)
 OPEN_BREADCRUMBS.txt
