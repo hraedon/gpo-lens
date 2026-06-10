@@ -1,40 +1,18 @@
 ---
-status: open
+status: partially-resolved
 priority: medium
 created: 2026-06-09
+resolved: 2026-06-10
 ---
 
 # Delegation Audit Deep-Dive
 
-`ms16_072_vulnerable` and `permissions_audit` exist but are shallow.  The model
-stores full `DelegationEntry` records including `trustee_sid` and `permission`,
-and the raw SDDL is in `Gpo.sddl`.
+**Partially resolved.** What landed this session:
 
-## SDDL parsing
-Parse the stored SDDL string to extract:
-- Owner and primary group
-- All ACE entries with trustee SID, access mask, ACE type (allow/deny/audit)
-- Inheritance flags
+- `delegation_deep_dive()` and `gpo-lens delegation` CLI — privilege rollup (trustee → GPO names with edit rights), orphaned SID detection, non-default-editor flagging.
+- MS16-072 and permissions-audit were already implemented before this session.
 
-Python's `ctypes` can call `ConvertStringSecurityDescriptorToSecurityDescriptor`
-on Windows, or a pure-Python SDDL parser could be written (the format is
-well-documented).  For air-gapped portability, pure-Python is preferred.
-
-## Deny ACE detection
-Flag GPOs with explicit deny ACEs that override intended access — these are
-rare and usually indicate misconfiguration or security incident response.
-
-## Estate-wide privilege rollup
-Instead of per-GPO audit, produce a cross-estate view:
-- "Which principals have Edit/Modify on how many GPOs?"
-- "Which principals have Apply Group Policy across the estate?"
-- Flag service accounts or user accounts with excessive GPO write access
-
-## Implementation sketch
-- Add `parse_sddl(sddl: str) -> list[SddlAce]` to a new `sddl.py` module
-- Add `delegation_rollup(estate) -> list[DelegationRollupEntry]` to queries
-- Add `cmd_delegation_audit` CLI command
-- Wire SDDL parsing into `permissions_audit` for richer output
-
-## Depends on
-Nothing — SDDL is already stored in the model.
+**Still open:**
+- Pure-Python SDDL parsing from `Gpo.sddl` to extract owner, ACEs, deny flags.
+- Deny ACE detection.
+- Service-account / excessive-write-access rollup across the estate.
