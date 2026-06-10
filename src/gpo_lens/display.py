@@ -6,7 +6,10 @@ format strings every time.
 
 from __future__ import annotations
 
-from typing import Sequence
+from typing import TYPE_CHECKING, Sequence
+
+if TYPE_CHECKING:
+    from gpo_lens.queries import SettingsDiffRow
 
 
 def render_table(
@@ -35,18 +38,15 @@ def render_table(
             return text[: max_col_width - 1] + "\u2026"
         return text
 
-    # Convert everything to strings and optionally truncate
     str_rows = [[_clip(str(cell)) for cell in row] for row in rows]
     clipped_headers = [_clip(h) for h in headers]
     ncols = len(headers)
 
-    # Compute column widths (after clipping)
     widths = [len(h) for h in clipped_headers]
     for row in str_rows:
         for i, cell in enumerate(row):
             widths[i] = max(widths[i], len(cell))
 
-    # Build format strings
     parts = []
     for col in range(ncols):
         parts.append("{:<" + str(widths[col]) + "}")
@@ -58,3 +58,35 @@ def render_table(
     for row in str_rows:
         lines.append(fmt.format(*row))
     return "\n".join(lines) + "\n"
+
+
+def render_settings_diff(
+    added: list[SettingsDiffRow],
+    removed: list[SettingsDiffRow],
+    modified: list[SettingsDiffRow],
+) -> str:
+    parts: list[str] = []
+    if added:
+        parts.append(f"Added ({len(added)}):")
+        for row in added:
+            parts.append(
+                f"  [{row.cse}] {row.side}/{row.gpo_name}: "
+                f"{row.identity} = {row.new_value or ''}"
+            )
+    if removed:
+        parts.append(f"Removed ({len(removed)}):")
+        for row in removed:
+            parts.append(
+                f"  [{row.cse}] {row.side}/{row.gpo_name}: "
+                f"{row.identity} = {row.old_value or ''}"
+            )
+    if modified:
+        parts.append(f"Modified ({len(modified)}):")
+        for row in modified:
+            parts.append(
+                f"  [{row.cse}] {row.side}/{row.gpo_name}: "
+                f"{row.identity}: {row.old_value or ''} -> {row.new_value or ''}"
+            )
+    if not parts:
+        return "No differences found.\n"
+    return "\n".join(parts) + "\n"

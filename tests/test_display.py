@@ -39,3 +39,56 @@ def test_render_table_truncation() -> None:
     assert "descripti\u2026" in out
     # Cell "this is a very long description" clipped to 10 -> "this is a\u2026"
     assert "this is a\u2026" in out
+
+
+def test_render_settings_diff_empty() -> None:
+    from gpo_lens.display import render_settings_diff
+
+    out = render_settings_diff([], [], [])
+    assert "No differences" in out
+
+
+def test_render_settings_diff_added() -> None:
+    from gpo_lens.display import render_settings_diff
+    from gpo_lens.queries import SettingsDiffRow
+
+    row = SettingsDiffRow(
+        gpo_id="aaa", gpo_name="Test", side="Computer", cse="Security",
+        identity="X", display_name="X", change_type="added",
+        old_value=None, new_value="1",
+    )
+    out = render_settings_diff([row], [], [])
+    assert "Added (1):" in out
+    assert "X = 1" in out
+
+
+def test_render_settings_diff_modified() -> None:
+    from gpo_lens.display import render_settings_diff
+    from gpo_lens.queries import SettingsDiffRow
+
+    row = SettingsDiffRow(
+        gpo_id="aaa", gpo_name="Test", side="Computer", cse="Security",
+        identity="X", display_name="X", change_type="modified",
+        old_value="1", new_value="2",
+    )
+    out = render_settings_diff([], [], [row])
+    assert "Modified (1):" in out
+    assert "1 -> 2" in out
+
+
+def test_render_settings_diff_none_values() -> None:
+    from gpo_lens.display import render_settings_diff
+    from gpo_lens.queries import SettingsDiffRow
+
+    added_row = SettingsDiffRow(
+        gpo_id="aaa", gpo_name="Test", side="Computer", cse="Security",
+        identity="X", display_name="X", change_type="added",
+        old_value=None, new_value=None,
+    )
+    removed_row = SettingsDiffRow(
+        gpo_id="bbb", gpo_name="Test", side="User", cse="Registry",
+        identity="Y", display_name="Y", change_type="removed",
+        old_value=None, new_value=None,
+    )
+    out = render_settings_diff([added_row], [removed_row], [])
+    assert "None" not in out

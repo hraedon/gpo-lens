@@ -10,6 +10,7 @@ from __future__ import annotations
 import sqlite3
 from collections import defaultdict
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -28,10 +29,17 @@ from gpo_lens.detection import (  # noqa: F401, I001
     AdmxGap,
     BrokenRef,
     CpasswordHit,
+    DenyAce,
+    ExcessiveWriter,
+    SddlAce,
+    SddlAcl,
     admx_gaps,
     broken_refs,
     cpassword_scan,
     dangling_links,
+    deny_aces,
+    excessive_writers,
+    parse_sddl,
     disabled_but_populated,
     empty_gpos,
     enforced_links,
@@ -51,15 +59,20 @@ __all__ = [
     "ChangelogEntry",
     "Conflict",
     "DelegationAudit",
+    "DenyAce",
     "DoctorFinding",
     "EffectiveGpo",
     "EffectiveSetting",
     "EstateSummary",
+    "ExcessiveWriter",
     "GpoMetadataChange",
     "SearchResult",
+    "SettingsDiffRow",
     "SettingsDumpRow",
     "SnapshotDiff",
     "SnapshotSettingChange",
+    "SddlAce",
+    "SddlAcl",
     "SomConflict",
     "TopologyDiscrepancy",
     "VersionChangeLog",
@@ -71,19 +84,23 @@ __all__ = [
     "cpassword_scan",
     "dangling_links",
     "delegation_deep_dive",
+    "deny_aces",
     "disabled_but_populated",
     "empty_gpos",
     "enforced_links",
     "estate_doctor",
     "estate_summary",
+    "excessive_writers",
     "load_baseline_from_estate",
     "loopback_awareness",
     "loopback_gpos",
     "ms16_072_vulnerable",
+    "parse_sddl",
     "permissions_audit",
     "precedence_conflicts",
     "search",
     "settings_at_som",
+    "settings_diff",
     "settings_dump",
     "snapshot_changelog",
     "snapshot_diff",
@@ -139,6 +156,8 @@ class DelegationAudit:
     privilege_rollup: dict[str, list[str]]  # trustee -> GPO names with edit rights
     orphaned_sids: list[tuple[Gpo, str]]    # (Gpo, orphaned_sid)
     broad_writers: list[tuple[Gpo, DelegationEntry]]  # non-default editor with write
+    deny_aces: list[DenyAce]                # deny ACEs found in SDDL
+    excessive_writers: list[ExcessiveWriter]  # trustees with write across many GPOs
 
 
 def delegation_deep_dive(estate: Estate) -> DelegationAudit:
@@ -164,6 +183,8 @@ def delegation_deep_dive(estate: Estate) -> DelegationAudit:
         privilege_rollup=rollup,
         orphaned_sids=orphaned,
         broad_writers=broad,
+        deny_aces=deny_aces(estate),
+        excessive_writers=excessive_writers(estate),
     )
 
 
@@ -809,23 +830,30 @@ class EffectiveGpo:
     target: str            # DN the link originates from
 
 
-def som_effective_gpos(estate: Estate, som_path: str) -> list[EffectiveGpo]:
+def som_effective_gpos(
+    estate: Estate, som_path: str, *, _som: Som | None = None,
+) -> list[EffectiveGpo]:
     """Return the resolved, ordered GPO chain at a given SOM path."""
     names = {g.id: g.name for g in estate.gpos}
-    for som in estate.soms:
-        if som.path.lower() == som_path.lower():
-            return [
-                EffectiveGpo(
-                    gpo_id=link.gpo_id,
-                    gpo_name=names.get(link.gpo_id, "<unknown>"),
-                    order=link.order,
-                    enabled=link.enabled,
-                    enforced=link.enforced,
-                    target=link.target,
-                )
-                for link in som.links
-            ]
-    return []
+    target_som = _som
+    if target_som is None:
+        for som in estate.soms:
+            if som.path.lower() == som_path.lower():
+                target_som = som
+                break
+    if target_som is None:
+        return []
+    return [
+        EffectiveGpo(
+            gpo_id=link.gpo_id,
+            gpo_name=names.get(link.gpo_id, "<unknown>"),
+            order=link.order,
+            enabled=link.enabled,
+            enforced=link.enforced,
+            target=link.target,
+        )
+        for link in target_som.links
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -1099,6 +1127,105 @@ class SettingsDumpRow:
     display_name: str
     display_value: str
     from_disabled_side: bool
+
+
+@dataclass(frozen=True)
+class SettingsDiffRow:
+    gpo_id: str
+    gpo_name: str
+    side: Side
+    cse: str
+    identity: str
+    display_name: str
+    change_type: str
+    old_value: str | None
+    new_value: str | None
+
+
+def settings_diff(
+    file_a: str | Path,
+    file_b: str | Path,
+    *,
+    side: str | None = None,
+    cse: str | None = None,
+    gpo_id: str | None = None,
+) -> list[SettingsDiffRow]:
+    from gpo_lens.normalize import canonical_guid, load_json
+
+    _REQUIRED_KEYS = {"gpo_id", "side", "cse", "identity"}
+
+    def _index(data: list[dict[str, object]]) -> dict[tuple[str, str, str, str], dict[str, object]]:
+        idx: dict[tuple[str, str, str, str], dict[str, object]] = {}
+        for row in data:
+            missing = _REQUIRED_KEYS - row.keys()
+            if missing:
+                continue
+            try:
+                gid = canonical_guid(str(row["gpo_id"]))
+            except ValueError:
+                continue
+            key = (gid, str(row["side"]), str(row["cse"]), str(row["identity"]))
+            idx[key] = row
+        return idx
+
+    data_a = load_json(file_a)
+    data_b = load_json(file_b)
+
+    index_a = _index(data_a)
+    index_b = _index(data_b)
+
+    all_keys = set(index_a) | set(index_b)
+
+    side_exact = side if side else None
+    cse_lower = cse.lower() if cse else None
+    gpo_lower = gpo_id.lower() if gpo_id else None
+
+    results: list[SettingsDiffRow] = []
+    for key in sorted(all_keys):
+        gid, side_val, cse_val, identity = key
+
+        a_row = index_a.get(key)
+        b_row = index_b.get(key)
+
+        if side_exact or cse_lower or gpo_lower:
+            row = a_row or b_row
+            if row is None:
+                continue
+            if side_exact and side_val != side_exact:
+                continue
+            if cse_lower and cse_lower not in cse_val.lower():
+                continue
+            if gpo_lower and gpo_lower not in gid:
+                continue
+
+        if a_row is None and b_row is not None:
+            results.append(SettingsDiffRow(
+                gpo_id=gid, gpo_name=str(b_row.get("gpo_name", "")),
+                side=side_val, cse=cse_val, identity=identity,
+                display_name=str(b_row.get("display_name", "")),
+                change_type="added", old_value=None, new_value=str(b_row.get("display_value", "")),
+            ))
+        elif a_row is not None and b_row is None:
+            results.append(SettingsDiffRow(
+                gpo_id=gid, gpo_name=str(a_row.get("gpo_name", "")),
+                side=side_val, cse=cse_val, identity=identity,
+                display_name=str(a_row.get("display_name", "")),
+                change_type="removed",
+                old_value=str(a_row.get("display_value", "")),
+                new_value=None,
+            ))
+        elif a_row is not None and b_row is not None:
+            old_v = str(a_row.get("display_value", ""))
+            new_v = str(b_row.get("display_value", ""))
+            if old_v != new_v:
+                results.append(SettingsDiffRow(
+                    gpo_id=gid, gpo_name=str(b_row.get("gpo_name", "")),
+                    side=side_val, cse=cse_val, identity=identity,
+                    display_name=str(b_row.get("display_name", "")),
+                    change_type="modified", old_value=old_v, new_value=new_v,
+                ))
+
+    return results
 
 
 def settings_dump(
@@ -1381,6 +1508,26 @@ def estate_doctor(estate: Estate) -> list[DoctorFinding]:
             gpo_name="",
             summary=f"Enforced link at {som.name} (order {link.order})",
             detail=f"Target: {link.target}",
+        ))
+
+    for da in deny_aces(estate):
+        findings.append(DoctorFinding(
+            severity="medium",
+            category="deny_ace",
+            gpo_id=da.gpo_id,
+            gpo_name=da.gpo_name,
+            summary=f"Deny ACE: {da.trustee_sid} ({da.rights})",
+            detail=f"Flags: {da.flags}" if da.flags else "",
+        ))
+
+    for w in excessive_writers(estate):
+        findings.append(DoctorFinding(
+            severity="medium",
+            category="excessive_writer",
+            gpo_id="",
+            gpo_name="",
+            summary=f"{w.trustee_sid} has write access to {w.gpo_count} GPOs",
+            detail=f"Rights: {', '.join(w.rights)}; GPOs: {', '.join(w.gpo_names[:10])}",
         ))
 
     findings.sort(key=lambda f: (_SEVERITY_ORDER.get(f.severity, 99), f.category, f.gpo_id))

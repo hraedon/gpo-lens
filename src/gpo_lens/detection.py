@@ -8,6 +8,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Iterable
 
+from gpo_lens.model import (
+    DenyAce,
+    ExcessiveWriter,
+    SddlAce,
+    SddlAcl,
+)
+
 if TYPE_CHECKING:
     from gpo_lens.admx_parser import PolicyDefinitions
     from gpo_lens.model import (
@@ -23,10 +30,17 @@ __all__ = [
     "AdmxGap",
     "BrokenRef",
     "CpasswordHit",
+    "DenyAce",
+    "ExcessiveWriter",
+    "SddlAce",
+    "SddlAcl",
     "admx_gaps",
     "broken_refs",
     "cpassword_scan",
     "dangling_links",
+    "deny_aces",
+    "excessive_writers",
+    "parse_sddl",
     "disabled_but_populated",
     "empty_gpos",
     "enforced_links",
@@ -434,4 +448,257 @@ def broken_refs(estate: Estate) -> list[BrokenRef]:
                         detail=f"[{s.cse}] {s.identity}: task path '{exe}'",
                     ))
 
+    return results
+
+
+_SDDL_ACE_TYPE_MAP = {
+    "A": "allow",
+    "D": "deny",
+    "OA": "object_allow",
+    "OD": "object_deny",
+    "AU": "audit_success",
+    "OU": "audit_object",
+    "AL": "alarm",
+}
+
+_WRITE_RIGHTS = {"GA", "GW", "WD", "WO", "SD", "DT", "WP", "DC", "CC"}
+
+
+def _is_domain_admins_sid(sid: str) -> bool:
+    sid_lower = sid.lower()
+    if sid_lower == "s-1-5-32-544":
+        return True
+    if not sid_lower.startswith("s-1-5-21-"):
+        return False
+    parts = sid_lower.split("-")
+    if len(parts) >= 5 and parts[-1] == "512":
+        return True
+    if len(parts) >= 5 and parts[-1] == "519":
+        return True
+    return False
+
+
+def _is_default_writer_sid(sid: str) -> bool:
+    sid_lower = sid.lower()
+    if sid_lower == "s-1-5-18":
+        return True
+    return _is_domain_admins_sid(sid_lower)
+
+
+_VALID_SDDL_RIGHTS = {
+    "GA", "GR", "GW", "GX", "RC", "SD", "WD", "WO", "RP", "WP",
+    "CC", "DC", "LC", "LO", "DT", "CR", "FA", "FR", "FW", "FX",
+    "KA", "KR", "KW", "KX",
+}
+
+
+def _parse_sddl_rights(rights: str) -> list[str]:
+    """Extract individual 2-letter SDDL right codes from a rights string.
+
+    SDDL rights may be pipe-separated (``GR|GW``) or concatenated
+    (``RPWP``) or both.  We split on ``|`` first, then walk each part
+    extracting consecutive 2-letter codes from the known set.
+    """
+    result: list[str] = []
+    for part in rights.split("|"):
+        part = part.strip().upper()
+        i = 0
+        while i + 1 < len(part):
+            code = part[i:i + 2]
+            if code in _VALID_SDDL_RIGHTS:
+                result.append(code)
+                i += 2
+            else:
+                i += 1
+    return result
+
+
+def _has_write_right(rights: str) -> bool:
+    return any(r in _WRITE_RIGHTS for r in _parse_sddl_rights(rights))
+
+
+def _parse_ace_string(ace_str: str) -> SddlAce | None:
+    parts = ace_str.split(";")
+    if len(parts) != 6:
+        return None
+    ace_type_raw = parts[0].strip()
+    ace_type = _SDDL_ACE_TYPE_MAP.get(ace_type_raw.upper())
+    if ace_type is None:
+        return None
+    flags = parts[1].strip()
+    rights = parts[2].strip()
+    object_guid = parts[3].strip()
+    inherit_object_guid = parts[4].strip()
+    trustee_sid = parts[5].strip()
+    return SddlAce(
+        ace_type=ace_type,
+        flags=flags,
+        rights=rights,
+        object_guid=object_guid,
+        inherit_object_guid=inherit_object_guid,
+        trustee_sid=trustee_sid,
+    )
+
+
+def _find_section_starts(sddl: str) -> dict[str, int]:
+    """Find the start positions of O:, G:, D:, S: sections in SDDL.
+
+    Uses parenthesis-depth tracking so that SIDs containing D/S/G/O
+    characters (e.g. ``S-1-5-18`` inside the Owner value) are not
+    mistaken for section headers.  Only characters at depth 0 followed
+    by ':' are considered section markers.
+    """
+    sections: dict[str, int] = {}
+    depth = 0
+    i = 0
+    while i < len(sddl):
+        ch = sddl[i]
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth < 0:
+                depth = 0
+        elif depth == 0 and ch in "OGDS" and i + 1 < len(sddl) and sddl[i + 1] == ":":
+            sections.setdefault(ch, i)
+        i += 1
+    return sections
+
+
+def _extract_aces(text: str) -> list[SddlAce]:
+    """Extract ACEs from a parenthesized ACE list like (A;;GA;;;SID)(D;;GR;;;SID)."""
+    aces: list[SddlAce] = []
+    depth = 0
+    ace_start = -1
+    for i, ch in enumerate(text):
+        if ch == "(":
+            if depth == 0:
+                ace_start = i + 1
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0 and ace_start >= 0:
+                ace_str = text[ace_start:i]
+                ace = _parse_ace_string(ace_str)
+                if ace is not None:
+                    aces.append(ace)
+                ace_start = -1
+    return aces
+
+
+def parse_sddl(sddl: str) -> SddlAcl:
+    """Parse an SDDL string into owner, group, DACL, and SACL ACEs."""
+    if len(sddl) > 1_048_576:
+        return SddlAcl(owner_sid=None, group_sid=None, dacl=(), sacl=())
+
+    owner_sid: str | None = None
+    group_sid: str | None = None
+    dacl: list[SddlAce] = []
+    sacl: list[SddlAce] = []
+
+    sections = _find_section_starts(sddl)
+
+    section_order = sorted(sections.items(), key=lambda kv: kv[1])
+
+    for idx, (sec_type, sec_start) in enumerate(section_order):
+        value_start = sec_start + 2
+        value_end = len(sddl)
+        if idx + 1 < len(section_order):
+            value_end = section_order[idx + 1][1]
+
+        raw = sddl[value_start:value_end]
+
+        if sec_type == "O":
+            owner_sid = raw.strip() or None
+        elif sec_type == "G":
+            group_sid = raw.strip() or None
+        elif sec_type == "D":
+            dacl = _extract_aces(raw)
+        elif sec_type == "S":
+            sacl = _extract_aces(raw)
+
+    return SddlAcl(
+        owner_sid=owner_sid,
+        group_sid=group_sid,
+        dacl=tuple(dacl),
+        sacl=tuple(sacl),
+    )
+
+
+def deny_aces(estate: Estate) -> list[DenyAce]:
+    """Scan GPO SDDL strings for deny ACEs."""
+    results: list[DenyAce] = []
+    for g in estate.gpos:
+        if not g.sddl:
+            continue
+        acl = parse_sddl(g.sddl)
+        for ace in acl.dacl:
+            if ace.ace_type in ("deny", "object_deny"):
+                results.append(DenyAce(
+                    gpo_id=g.id,
+                    gpo_name=g.name,
+                    trustee_sid=ace.trustee_sid,
+                    rights=ace.rights,
+                    flags=ace.flags,
+                    acl_section="dacl",
+                ))
+        for ace in acl.sacl:
+            if ace.ace_type in ("deny", "object_deny"):
+                results.append(DenyAce(
+                    gpo_id=g.id,
+                    gpo_name=g.name,
+                    trustee_sid=ace.trustee_sid,
+                    rights=ace.rights,
+                    flags=ace.flags,
+                    acl_section="sacl",
+                ))
+    return results
+
+
+def excessive_writers(
+    estate: Estate,
+    threshold: int = 5,
+) -> list[ExcessiveWriter]:
+    """Find trustees with write access to >= *threshold* GPOs.
+
+    Default writers (Domain Admins S-1-5-21-*-512, Enterprise Admins
+    S-1-5-21-*-519, LocalSystem S-1-5-18, BUILTIN\\Administrators
+    S-1-5-32-544) are excluded from the report.
+    """
+    writer_map: dict[str, dict[str, set[str]]] = {}
+    for g in estate.gpos:
+        if not g.sddl:
+            continue
+        acl = parse_sddl(g.sddl)
+        for ace in acl.dacl:
+            if ace.ace_type != "allow":
+                continue
+            if not _has_write_right(ace.rights):
+                continue
+            sid = ace.trustee_sid
+            if not sid:
+                continue
+            entry = writer_map.setdefault(sid, {})
+            gpo_entry = entry.setdefault(g.name, set())
+            for r in _parse_sddl_rights(ace.rights):
+                if r in _WRITE_RIGHTS:
+                    gpo_entry.add(r)
+
+    results: list[ExcessiveWriter] = []
+    for sid, gpo_rights in sorted(writer_map.items()):
+        if _is_default_writer_sid(sid):
+            continue
+        if len(gpo_rights) < threshold:
+            continue
+        all_rights: set[str] = set()
+        for rights_set in gpo_rights.values():
+            all_rights |= rights_set
+        results.append(ExcessiveWriter(
+            trustee_sid=sid,
+            gpo_count=len(gpo_rights),
+            gpo_names=tuple(sorted(gpo_rights.keys())),
+            rights=tuple(sorted(all_rights)),
+        ))
+
+    results.sort(key=lambda w: w.gpo_count, reverse=True)
     return results

@@ -247,7 +247,9 @@ def test_delegation_deep_dive_no_issues():
     audit = queries.delegation_deep_dive(estate)
     assert audit.orphaned_sids == []
     assert audit.broad_writers == []
-    assert audit.privilege_rollup == {}  # Read-only, no edit rights
+    assert audit.privilege_rollup == {}
+    assert audit.deny_aces == []
+    assert audit.excessive_writers == []
 
 
 # ---- cpassword_scan --------------------------------------------------------
@@ -2505,3 +2507,747 @@ def test_snapshot_changelog_no_changes(tmp_path):
     entries = queries.snapshot_changelog(conn, sid_a, sid_b)
     conn.close()
     assert entries == []
+
+
+# ---- settings_diff -----------------------------------------------------------
+
+
+def test_settings_diff_no_diff(tmp_path):
+    import json
+
+    data = [
+        {
+            "gpo_id": "31b2f340-016d-11d2-945f-00c04fb984f9",
+            "gpo_name": "Test",
+            "side": "Computer",
+            "cse": "Security",
+            "identity": "Account:Foo",
+            "display_name": "Foo",
+            "display_value": "1",
+            "from_disabled_side": False,
+        },
+    ]
+    fa = tmp_path / "a.json"
+    fb = tmp_path / "b.json"
+    fa.write_text(json.dumps(data))
+    fb.write_text(json.dumps(data))
+    result = queries.settings_diff(str(fa), str(fb))
+    assert result == []
+
+
+def test_settings_diff_added(tmp_path):
+    import json
+
+    data_a = [
+        {
+            "gpo_id": "{31B2F340-016D-11D2-945F-00C04FB984F9}",
+            "gpo_name": "Test",
+            "side": "Computer",
+            "cse": "Security",
+            "identity": "X",
+            "display_name": "X",
+            "display_value": "1",
+            "from_disabled_side": False,
+        },
+    ]
+    data_b = [
+        {
+            "gpo_id": "{31B2F340-016D-11D2-945F-00C04FB984F9}",
+            "gpo_name": "Test",
+            "side": "Computer",
+            "cse": "Security",
+            "identity": "X",
+            "display_name": "X",
+            "display_value": "1",
+            "from_disabled_side": False,
+        },
+        {
+            "gpo_id": "{31B2F340-016D-11D2-945F-00C04FB984F9}",
+            "gpo_name": "Test",
+            "side": "Computer",
+            "cse": "Registry",
+            "identity": "Y",
+            "display_name": "Y",
+            "display_value": "2",
+            "from_disabled_side": False,
+        },
+    ]
+    fa = tmp_path / "a.json"
+    fb = tmp_path / "b.json"
+    fa.write_text(json.dumps(data_a))
+    fb.write_text(json.dumps(data_b))
+    result = queries.settings_diff(str(fa), str(fb))
+    assert len(result) == 1
+    assert result[0].change_type == "added"
+    assert result[0].identity == "Y"
+    assert result[0].old_value is None
+    assert result[0].new_value == "2"
+
+
+def test_settings_diff_removed(tmp_path):
+    import json
+
+    data_a = [
+        {
+            "gpo_id": "31b2f340-016d-11d2-945f-00c04fb984f9",
+            "gpo_name": "Test",
+            "side": "User",
+            "cse": "Registry",
+            "identity": "Z",
+            "display_name": "Z",
+            "display_value": "3",
+            "from_disabled_side": False,
+        },
+    ]
+    data_b: list[dict[str, object]] = []
+    fa = tmp_path / "a.json"
+    fb = tmp_path / "b.json"
+    fa.write_text(json.dumps(data_a))
+    fb.write_text(json.dumps(data_b))
+    result = queries.settings_diff(str(fa), str(fb))
+    assert len(result) == 1
+    assert result[0].change_type == "removed"
+    assert result[0].old_value == "3"
+    assert result[0].new_value is None
+
+
+def test_settings_diff_modified(tmp_path):
+    import json
+
+    data_a = [
+        {
+            "gpo_id": "31b2f340-016d-11d2-945f-00c04fb984f9",
+            "gpo_name": "Test",
+            "side": "Computer",
+            "cse": "Security",
+            "identity": "LockoutBadCount",
+            "display_name": "LockoutBadCount",
+            "display_value": "5",
+            "from_disabled_side": False,
+        },
+    ]
+    data_b = [
+        {
+            "gpo_id": "31b2f340-016d-11d2-945f-00c04fb984f9",
+            "gpo_name": "Test",
+            "side": "Computer",
+            "cse": "Security",
+            "identity": "LockoutBadCount",
+            "display_name": "LockoutBadCount",
+            "display_value": "10",
+            "from_disabled_side": False,
+        },
+    ]
+    fa = tmp_path / "a.json"
+    fb = tmp_path / "b.json"
+    fa.write_text(json.dumps(data_a))
+    fb.write_text(json.dumps(data_b))
+    result = queries.settings_diff(str(fa), str(fb))
+    assert len(result) == 1
+    assert result[0].change_type == "modified"
+    assert result[0].old_value == "5"
+    assert result[0].new_value == "10"
+
+
+def test_settings_diff_canonical_guid(tmp_path):
+    import json
+
+    data_a = [
+        {
+            "gpo_id": "{31B2F340-016D-11D2-945F-00C04FB984F9}",
+            "gpo_name": "Test",
+            "side": "Computer",
+            "cse": "Security",
+            "identity": "X",
+            "display_name": "X",
+            "display_value": "1",
+            "from_disabled_side": False,
+        },
+    ]
+    data_b = [
+        {
+            "gpo_id": "31b2f340-016d-11d2-945f-00c04fb984f9",
+            "gpo_name": "Test",
+            "side": "Computer",
+            "cse": "Security",
+            "identity": "X",
+            "display_name": "X",
+            "display_value": "2",
+            "from_disabled_side": False,
+        },
+    ]
+    fa = tmp_path / "a.json"
+    fb = tmp_path / "b.json"
+    fa.write_text(json.dumps(data_a))
+    fb.write_text(json.dumps(data_b))
+    result = queries.settings_diff(str(fa), str(fb))
+    assert len(result) == 1
+    assert result[0].change_type == "modified"
+
+
+def test_settings_diff_filter_side(tmp_path):
+    import json
+
+    data_a = [
+        {
+            "gpo_id": "31b2f340-016d-11d2-945f-00c04fb984f9",
+            "gpo_name": "Test",
+            "side": "Computer",
+            "cse": "Security",
+            "identity": "X",
+            "display_name": "X",
+            "display_value": "1",
+            "from_disabled_side": False,
+        },
+        {
+            "gpo_id": "31b2f340-016d-11d2-945f-00c04fb984f9",
+            "gpo_name": "Test",
+            "side": "User",
+            "cse": "Registry",
+            "identity": "Y",
+            "display_name": "Y",
+            "display_value": "2",
+            "from_disabled_side": False,
+        },
+    ]
+    data_b = [
+        {
+            "gpo_id": "31b2f340-016d-11d2-945f-00c04fb984f9",
+            "gpo_name": "Test",
+            "side": "Computer",
+            "cse": "Security",
+            "identity": "X",
+            "display_name": "X",
+            "display_value": "10",
+            "from_disabled_side": False,
+        },
+        {
+            "gpo_id": "31b2f340-016d-11d2-945f-00c04fb984f9",
+            "gpo_name": "Test",
+            "side": "User",
+            "cse": "Registry",
+            "identity": "Y",
+            "display_name": "Y",
+            "display_value": "20",
+            "from_disabled_side": False,
+        },
+    ]
+    fa = tmp_path / "a.json"
+    fb = tmp_path / "b.json"
+    fa.write_text(json.dumps(data_a))
+    fb.write_text(json.dumps(data_b))
+    result = queries.settings_diff(str(fa), str(fb), side="User")
+    assert len(result) == 1
+    assert result[0].side == "User"
+    assert result[0].new_value == "20"
+
+
+def test_settings_diff_filter_cse(tmp_path):
+    import json
+
+    data_a = [
+        {
+            "gpo_id": "31b2f340-016d-11d2-945f-00c04fb984f9",
+            "gpo_name": "Test",
+            "side": "Computer",
+            "cse": "Security",
+            "identity": "X",
+            "display_name": "X",
+            "display_value": "1",
+            "from_disabled_side": False,
+        },
+        {
+            "gpo_id": "31b2f340-016d-11d2-945f-00c04fb984f9",
+            "gpo_name": "Test",
+            "side": "Computer",
+            "cse": "Registry",
+            "identity": "Y",
+            "display_name": "Y",
+            "display_value": "2",
+            "from_disabled_side": False,
+        },
+    ]
+    data_b = [
+        {
+            "gpo_id": "31b2f340-016d-11d2-945f-00c04fb984f9",
+            "gpo_name": "Test",
+            "side": "Computer",
+            "cse": "Security",
+            "identity": "X",
+            "display_name": "X",
+            "display_value": "10",
+            "from_disabled_side": False,
+        },
+        {
+            "gpo_id": "31b2f340-016d-11d2-945f-00c04fb984f9",
+            "gpo_name": "Test",
+            "side": "Computer",
+            "cse": "Registry",
+            "identity": "Y",
+            "display_name": "Y",
+            "display_value": "20",
+            "from_disabled_side": False,
+        },
+    ]
+    fa = tmp_path / "a.json"
+    fb = tmp_path / "b.json"
+    fa.write_text(json.dumps(data_a))
+    fb.write_text(json.dumps(data_b))
+    result = queries.settings_diff(str(fa), str(fb), cse="Sec")
+    assert len(result) == 1
+    assert result[0].cse == "Security"
+
+
+def test_settings_diff_filter_gpo_id(tmp_path):
+    import json
+
+    data_a = [
+        {
+            "gpo_id": "31b2f340-016d-11d2-945f-00c04fb984f9",
+            "gpo_name": "Alpha",
+            "side": "Computer",
+            "cse": "Security",
+            "identity": "X",
+            "display_name": "X",
+            "display_value": "1",
+            "from_disabled_side": False,
+        },
+        {
+            "gpo_id": "a2a2a2a2-016d-11d2-945f-00c04fb984f9",
+            "gpo_name": "Beta",
+            "side": "Computer",
+            "cse": "Security",
+            "identity": "Y",
+            "display_name": "Y",
+            "display_value": "2",
+            "from_disabled_side": False,
+        },
+    ]
+    data_b = [
+        {
+            "gpo_id": "31b2f340-016d-11d2-945f-00c04fb984f9",
+            "gpo_name": "Alpha",
+            "side": "Computer",
+            "cse": "Security",
+            "identity": "X",
+            "display_name": "X",
+            "display_value": "10",
+            "from_disabled_side": False,
+        },
+        {
+            "gpo_id": "a2a2a2a2-016d-11d2-945f-00c04fb984f9",
+            "gpo_name": "Beta",
+            "side": "Computer",
+            "cse": "Security",
+            "identity": "Y",
+            "display_name": "Y",
+            "display_value": "20",
+            "from_disabled_side": False,
+        },
+    ]
+    fa = tmp_path / "a.json"
+    fb = tmp_path / "b.json"
+    fa.write_text(json.dumps(data_a))
+    fb.write_text(json.dumps(data_b))
+    result = queries.settings_diff(str(fa), str(fb), gpo_id="31b2f340")
+    assert len(result) == 1
+    assert result[0].gpo_id == "31b2f340-016d-11d2-945f-00c04fb984f9"
+
+
+def test_settings_diff_bom_json(tmp_path):
+    import json
+
+    data_a: list[dict[str, object]] = []
+    data_b = [
+        {
+            "gpo_id": "31b2f340-016d-11d2-945f-00c04fb984f9",
+            "gpo_name": "Test",
+            "side": "Computer",
+            "cse": "Security",
+            "identity": "X",
+            "display_name": "X",
+            "display_value": "1",
+            "from_disabled_side": False,
+        },
+    ]
+    fa = tmp_path / "a.json"
+    fb = tmp_path / "b.json"
+    fa.write_text(json.dumps(data_a))
+    fb.write_bytes(b"\xef\xbb\xbf" + json.dumps(data_b).encode("utf-8"))
+    result = queries.settings_diff(str(fa), str(fb))
+    assert len(result) == 1
+    assert result[0].change_type == "added"
+
+# ---- SDDL parsing ----------------------------------------------------------
+
+
+def test_parse_sddl_simple():
+    sddl = "O:S-1-5-21-123-512D:(A;;GA;;;S-1-5-21-123-512)(A;;GR;;;S-1-5-11)"
+    acl = queries.parse_sddl(sddl)
+    assert acl.owner_sid == "S-1-5-21-123-512"
+    assert acl.group_sid is None
+    assert len(acl.dacl) == 2
+    assert acl.dacl[0].ace_type == "allow"
+    assert acl.dacl[0].rights == "GA"
+    assert acl.dacl[0].trustee_sid == "S-1-5-21-123-512"
+    assert acl.dacl[1].ace_type == "allow"
+    assert acl.dacl[1].rights == "GR"
+    assert acl.dacl[1].trustee_sid == "S-1-5-11"
+    assert len(acl.sacl) == 0
+
+
+def test_parse_sddl_with_deny():
+    sddl = "O:S-1-5-21-123-512D:(D;;GA;;;S-1-5-32-545)(A;;GR;;;S-1-5-11)"
+    acl = queries.parse_sddl(sddl)
+    assert len(acl.dacl) == 2
+    assert acl.dacl[0].ace_type == "deny"
+    assert acl.dacl[0].trustee_sid == "S-1-5-32-545"
+    assert acl.dacl[0].rights == "GA"
+    assert acl.dacl[1].ace_type == "allow"
+
+
+def test_parse_sddl_with_group():
+    sddl = "O:S-1-5-21-123-512G:S-1-5-21-123-513D:(A;;GA;;;S-1-5-21-123-512)"
+    acl = queries.parse_sddl(sddl)
+    assert acl.owner_sid == "S-1-5-21-123-512"
+    assert acl.group_sid == "S-1-5-21-123-513"
+    assert len(acl.dacl) == 1
+
+
+def test_parse_sddl_with_flags():
+    sddl = "O:S-1-5-21-123-512D:(A;CI;GA;;;S-1-5-21-123-512)(A;OI;GR;;;S-1-5-11)"
+    acl = queries.parse_sddl(sddl)
+    assert len(acl.dacl) == 2
+    assert acl.dacl[0].flags == "CI"
+    assert acl.dacl[1].flags == "OI"
+
+
+def test_parse_sddl_empty():
+    acl = queries.parse_sddl("")
+    assert acl.owner_sid is None
+    assert acl.group_sid is None
+    assert acl.dacl == ()
+    assert acl.sacl == ()
+
+
+def test_parse_sddl_with_sacl():
+    sddl = "O:S-1-5-18D:(A;;GA;;;S-1-5-18)S:(AU;SA;FA;;;WD)"
+    acl = queries.parse_sddl(sddl)
+    assert len(acl.dacl) == 1
+    assert len(acl.sacl) == 1
+    assert acl.sacl[0].ace_type == "audit_success"
+    assert acl.sacl[0].trustee_sid == "WD"
+
+
+def test_parse_sddl_with_dacl_flags_prefix():
+    sddl = "O:S-1-5-18D:PAI(A;;GA;;;S-1-5-18)(A;;GR;;;S-1-5-11)"
+    acl = queries.parse_sddl(sddl)
+    assert len(acl.dacl) == 2
+    assert acl.dacl[0].trustee_sid == "S-1-5-18"
+
+
+def test_parse_sddl_malformed_ace():
+    sddl = "O:S-1-5-18D:(A;;GA;;;S-1-5-18)(bad_ace)(A;;GR;;;S-1-5-11)"
+    acl = queries.parse_sddl(sddl)
+    assert len(acl.dacl) == 2
+
+
+# ---- deny_aces -------------------------------------------------------------
+
+
+def test_deny_aces_none():
+    estate = Estate(gpos=[_make_gpo(sddl=None)])
+    assert queries.deny_aces(estate) == []
+
+
+def test_deny_aces_with_deny():
+    sddl = "O:S-1-5-18D:(D;;GA;;;S-1-5-32-545)(A;;GR;;;S-1-5-11)"
+    gpo = _make_gpo(id="gpo-1", name="Test", sddl=sddl)
+    estate = Estate(gpos=[gpo])
+    result = queries.deny_aces(estate)
+    assert len(result) == 1
+    assert result[0].gpo_id == "gpo-1"
+    assert result[0].trustee_sid == "S-1-5-32-545"
+    assert result[0].rights == "GA"
+    assert result[0].gpo_name == "Test"
+    assert result[0].acl_section == "dacl"
+
+
+def test_deny_aces_no_deny():
+    sddl = "O:S-1-5-18D:(A;;GA;;;S-1-5-18)(A;;GR;;;S-1-5-11)"
+    gpo = _make_gpo(id="gpo-1", sddl=sddl)
+    estate = Estate(gpos=[gpo])
+    assert queries.deny_aces(estate) == []
+
+
+def test_deny_aces_multiple_gpos():
+    sddl_a = "O:S-1-5-18D:(D;;GA;;;S-1-5-32-545)(A;;GR;;;S-1-5-11)"
+    sddl_b = "O:S-1-5-18D:(A;;GA;;;S-1-5-18)(D;;WD;;;S-1-5-32-545)"
+    gpo_a = _make_gpo(id="gpo-a", name="A", sddl=sddl_a)
+    gpo_b = _make_gpo(id="gpo-b", name="B", sddl=sddl_b)
+    estate = Estate(gpos=[gpo_a, gpo_b])
+    result = queries.deny_aces(estate)
+    assert len(result) == 2
+    sids = {d.trustee_sid for d in result}
+    assert "S-1-5-32-545" in sids
+
+
+# ---- excessive_writers -----------------------------------------------------
+
+
+def test_excessive_writers_none():
+    estate = Estate(gpos=[_make_gpo(sddl=None)])
+    assert queries.excessive_writers(estate) == []
+
+
+def test_excessive_writers_below_threshold():
+    sddl = "O:S-1-5-21-999-512D:(A;;GA;;;S-1-5-21-999-1111)"
+    gpos = [_make_gpo(id=f"gpo-{i}", name=f"GPO {i}", sddl=sddl) for i in range(3)]
+    estate = Estate(gpos=gpos)
+    result = queries.excessive_writers(estate, threshold=5)
+    assert result == []
+
+
+def test_excessive_writers_above_threshold():
+    sddl = "O:S-1-5-21-999-512D:(A;;GA;;;S-1-5-21-999-1111)"
+    gpos = [_make_gpo(id=f"gpo-{i}", name=f"GPO {i}", sddl=sddl) for i in range(6)]
+    estate = Estate(gpos=gpos)
+    result = queries.excessive_writers(estate, threshold=5)
+    assert len(result) == 1
+    assert result[0].trustee_sid == "S-1-5-21-999-1111"
+    assert result[0].gpo_count == 6
+    assert "GA" in result[0].rights
+
+
+def test_excessive_writers_excludes_domain_admins():
+    sddl = "O:S-1-5-21-999-512D:(A;;GA;;;S-1-5-21-999-512)"
+    gpos = [_make_gpo(id=f"gpo-{i}", name=f"GPO {i}", sddl=sddl) for i in range(10)]
+    estate = Estate(gpos=gpos)
+    result = queries.excessive_writers(estate, threshold=5)
+    assert result == []
+
+
+def test_excessive_writers_excludes_local_system():
+    sddl = "O:S-1-5-18D:(A;;GA;;;S-1-5-18)"
+    gpos = [_make_gpo(id=f"gpo-{i}", name=f"GPO {i}", sddl=sddl) for i in range(10)]
+    estate = Estate(gpos=gpos)
+    result = queries.excessive_writers(estate, threshold=5)
+    assert result == []
+
+
+def test_excessive_writers_excludes_builtin_admins():
+    sddl = "O:S-1-5-18D:(A;;GA;;;S-1-5-32-544)"
+    gpos = [_make_gpo(id=f"gpo-{i}", name=f"GPO {i}", sddl=sddl) for i in range(10)]
+    estate = Estate(gpos=gpos)
+    result = queries.excessive_writers(estate, threshold=5)
+    assert result == []
+
+
+def test_excessive_writers_mixed_rights():
+    sddl_a = "O:S-1-5-21-999-512D:(A;;GW;;;S-1-5-21-999-1111)"
+    sddl_b = "O:S-1-5-21-999-512D:(A;;WD;;;S-1-5-21-999-1111)"
+    gpos = [_make_gpo(id=f"gpo-{i}", name=f"GPO {i}",
+                       sddl=sddl_a if i % 2 == 0 else sddl_b) for i in range(6)]
+    estate = Estate(gpos=gpos)
+    result = queries.excessive_writers(estate, threshold=5)
+    assert len(result) == 1
+    assert result[0].gpo_count == 6
+    rights_set = set(result[0].rights)
+    assert "GW" in rights_set or "WD" in rights_set
+
+
+def test_excessive_writers_sorted_by_count():
+    sddl_svc = "O:S-1-5-18D:(A;;GA;;;S-1-5-21-999-1111)"
+    sddl_other = "O:S-1-5-18D:(A;;GA;;;S-1-5-21-999-2222)"
+    gpos = (
+        [_make_gpo(id=f"svc-{i}", name=f"SvcGPO {i}", sddl=sddl_svc) for i in range(8)]
+        + [_make_gpo(id=f"other-{i}", name=f"OtherGPO {i}", sddl=sddl_other) for i in range(6)]
+    )
+    estate = Estate(gpos=gpos)
+    result = queries.excessive_writers(estate, threshold=5)
+    assert len(result) == 2
+    assert result[0].gpo_count >= result[1].gpo_count
+
+
+# ---- delegation_deep_dive with SDDL ----------------------------------------
+
+
+def test_delegation_deep_dive_with_deny_aces():
+    sddl = "O:S-1-5-18D:(D;;GA;;;S-1-5-32-545)(A;;GR;;;S-1-5-11)"
+    gpo = _make_gpo(id="gpo-1", name="Test", sddl=sddl)
+    estate = Estate(gpos=[gpo])
+    audit = queries.delegation_deep_dive(estate)
+    assert len(audit.deny_aces) == 1
+    assert audit.deny_aces[0].trustee_sid == "S-1-5-32-545"
+
+
+def test_delegation_deep_dive_with_excessive_writers():
+    sddl = "O:S-1-5-21-999-512D:(A;;GA;;;S-1-5-21-999-1111)"
+    gpos = [_make_gpo(id=f"gpo-{i}", name=f"GPO {i}", sddl=sddl) for i in range(6)]
+    estate = Estate(gpos=gpos)
+    audit = queries.delegation_deep_dive(estate)
+    assert len(audit.excessive_writers) == 1
+    assert audit.excessive_writers[0].trustee_sid == "S-1-5-21-999-1111"
+
+
+def test_settings_diff_side_in_join_key(tmp_path):
+    import json
+
+    gid = "31b2f340-016d-11d2-945f-00c04fb984f9"
+    data_a = [
+        {
+            "gpo_id": gid,
+            "gpo_name": "Test",
+            "side": "Computer",
+            "cse": "Security",
+            "identity": "SharedId",
+            "display_name": "CompSetting",
+            "display_value": "1",
+            "from_disabled_side": False,
+        },
+        {
+            "gpo_id": gid,
+            "gpo_name": "Test",
+            "side": "User",
+            "cse": "Security",
+            "identity": "SharedId",
+            "display_name": "UserSetting",
+            "display_value": "2",
+            "from_disabled_side": False,
+        },
+    ]
+    data_b = [
+        {
+            "gpo_id": gid,
+            "gpo_name": "Test",
+            "side": "Computer",
+            "cse": "Security",
+            "identity": "SharedId",
+            "display_name": "CompSetting",
+            "display_value": "10",
+            "from_disabled_side": False,
+        },
+        {
+            "gpo_id": gid,
+            "gpo_name": "Test",
+            "side": "User",
+            "cse": "Security",
+            "identity": "SharedId",
+            "display_name": "UserSetting",
+            "display_value": "2",
+            "from_disabled_side": False,
+        },
+    ]
+    fa = tmp_path / "a.json"
+    fb = tmp_path / "b.json"
+    fa.write_text(json.dumps(data_a))
+    fb.write_text(json.dumps(data_b))
+    result = queries.settings_diff(str(fa), str(fb))
+    assert len(result) == 1
+    assert result[0].side == "Computer"
+    assert result[0].change_type == "modified"
+    assert result[0].old_value == "1"
+    assert result[0].new_value == "10"
+
+
+def test_settings_diff_invalid_guid_skipped(tmp_path):
+    import json
+
+    data_a = [
+        {
+            "gpo_id": "not-a-valid-guid",
+            "gpo_name": "Bad",
+            "side": "Computer",
+            "cse": "Security",
+            "identity": "X",
+            "display_name": "X",
+            "display_value": "1",
+            "from_disabled_side": False,
+        },
+    ]
+    data_b: list[dict[str, object]] = []
+    fa = tmp_path / "a.json"
+    fb = tmp_path / "b.json"
+    fa.write_text(json.dumps(data_a))
+    fb.write_text(json.dumps(data_b))
+    result = queries.settings_diff(str(fa), str(fb))
+    assert result == []
+
+
+def test_settings_diff_missing_required_key_skipped(tmp_path):
+    import json
+
+    data_a = [
+        {
+            "gpo_id": "31b2f340-016d-11d2-945f-00c04fb984f9",
+            "gpo_name": "Test",
+            "cse": "Security",
+            "identity": "X",
+            "display_name": "X",
+            "display_value": "1",
+        },
+    ]
+    data_b: list[dict[str, object]] = []
+    fa = tmp_path / "a.json"
+    fb = tmp_path / "b.json"
+    fa.write_text(json.dumps(data_a))
+    fb.write_text(json.dumps(data_b))
+    result = queries.settings_diff(str(fa), str(fb))
+    assert result == []
+
+
+def test_settings_diff_side_exact_match(tmp_path):
+    import json
+
+    gid = "31b2f340-016d-11d2-945f-00c04fb984f9"
+    data_a = [
+        {
+            "gpo_id": gid,
+            "gpo_name": "Test",
+            "side": "Computer",
+            "cse": "Security",
+            "identity": "X",
+            "display_name": "X",
+            "display_value": "1",
+            "from_disabled_side": False,
+        },
+        {
+            "gpo_id": gid,
+            "gpo_name": "Test",
+            "side": "ComputerExtension",
+            "cse": "Security",
+            "identity": "Y",
+            "display_name": "Y",
+            "display_value": "2",
+            "from_disabled_side": False,
+        },
+    ]
+    data_b = [
+        {
+            "gpo_id": gid,
+            "gpo_name": "Test",
+            "side": "Computer",
+            "cse": "Security",
+            "identity": "X",
+            "display_name": "X",
+            "display_value": "10",
+            "from_disabled_side": False,
+        },
+        {
+            "gpo_id": gid,
+            "gpo_name": "Test",
+            "side": "ComputerExtension",
+            "cse": "Security",
+            "identity": "Y",
+            "display_name": "Y",
+            "display_value": "20",
+            "from_disabled_side": False,
+        },
+    ]
+    fa = tmp_path / "a.json"
+    fb = tmp_path / "b.json"
+    fa.write_text(json.dumps(data_a))
+    fb.write_text(json.dumps(data_b))
+    result = queries.settings_diff(str(fa), str(fb), side="Computer")
+    assert len(result) == 1
+    assert result[0].side == "Computer"

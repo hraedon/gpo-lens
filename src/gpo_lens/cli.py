@@ -13,7 +13,7 @@ from typing import Callable, Sequence
 
 from gpo_lens import ingest, queries, store
 from gpo_lens.detection import _mask_cpassword
-from gpo_lens.display import render_table
+from gpo_lens.display import render_settings_diff, render_table
 from gpo_lens.model import Estate
 
 DEFAULT_DB = "./gpo-lens.sqlite3"
@@ -422,24 +422,115 @@ def cmd_delegation(args: argparse.Namespace) -> None:
                 }
                 for g, d in audit.broad_writers
             ],
+            "deny_aces": [
+                {
+                    "gpo_id": d.gpo_id,
+                    "gpo_name": d.gpo_name,
+                    "trustee_sid": d.trustee_sid,
+                    "rights": d.rights,
+                    "flags": d.flags,
+                }
+                for d in audit.deny_aces
+            ],
+            "excessive_writers": [
+                {
+                    "trustee_sid": w.trustee_sid,
+                    "gpo_count": w.gpo_count,
+                    "gpo_names": w.gpo_names,
+                    "rights": w.rights,
+                }
+                for w in audit.excessive_writers
+            ],
         })
     else:
         print("Delegation Deep-Dive")
         print("=" * 60)
+        if audit.deny_aces:
+            print("\n--- Deny ACEs ---")
+            for d in audit.deny_aces:
+                flags_part = f" [{d.flags}]" if d.flags else ""
+                print(f"  {d.gpo_name}: {d.trustee_sid} ({d.rights}){flags_part}")
+        if audit.excessive_writers:
+            print("\n--- Excessive Write Access ---")
+            for w in audit.excessive_writers:
+                print(f"  {w.trustee_sid}: {w.gpo_count} GPOs ({', '.join(w.rights)})")
+                for name in w.gpo_names[:5]:
+                    print(f"    - {name}")
+                if len(w.gpo_names) > 5:
+                    print(f"    ... and {len(w.gpo_names) - 5} more")
         if audit.orphaned_sids:
             print("\n--- Orphaned SIDs ---")
             for g, sid in audit.orphaned_sids:
                 print(f"  {g.name}: {sid}")
         if audit.broad_writers:
             print("\n--- Non-Default Editors with Write Rights ---")
-            for g, d in audit.broad_writers:
-                print(f"  {g.name}: {d.trustee} ({d.permission})")
+            for g, de in audit.broad_writers:
+                print(f"  {g.name}: {de.trustee} ({de.permission})")
         if audit.privilege_rollup:
             print("\n--- Privilege Rollup ---")
             for trustee, gpo_names in sorted(audit.privilege_rollup.items()):
                 print(f"  {trustee}: {', '.join(sorted(set(gpo_names)))}")
-        if not (audit.orphaned_sids or audit.broad_writers or audit.privilege_rollup):
+        if not (audit.orphaned_sids or audit.broad_writers or audit.privilege_rollup
+                or audit.deny_aces or audit.excessive_writers):
             print("No delegation issues found.")
+
+
+def cmd_sddl(args: argparse.Namespace) -> None:
+    estate = _get_estate(args)
+    if args.json:
+        json_results: list[dict[str, object]] = []
+        for g in estate.gpos:
+            if not g.sddl:
+                continue
+            acl = queries.parse_sddl(g.sddl)
+            json_results.append({
+                "gpo_id": g.id,
+                "gpo_name": g.name,
+                "owner_sid": acl.owner_sid or "",
+                "group_sid": acl.group_sid or "",
+                "dacl": [
+                    {
+                        "ace_type": a.ace_type,
+                        "flags": a.flags,
+                        "rights": a.rights,
+                        "object_guid": a.object_guid,
+                        "inherit_object_guid": a.inherit_object_guid,
+                        "trustee_sid": a.trustee_sid,
+                    }
+                    for a in acl.dacl
+                ],
+                "sacl": [
+                    {
+                        "ace_type": a.ace_type,
+                        "flags": a.flags,
+                        "rights": a.rights,
+                        "object_guid": a.object_guid,
+                        "inherit_object_guid": a.inherit_object_guid,
+                        "trustee_sid": a.trustee_sid,
+                    }
+                    for a in acl.sacl
+                ],
+            })
+        _render_json(json_results)
+    else:
+        found = False
+        for g in estate.gpos:
+            if not g.sddl:
+                continue
+            found = True
+            acl = queries.parse_sddl(g.sddl)
+            print(f"\n{g.name} ({g.id})")
+            print(f"  Owner: {acl.owner_sid or 'N/A'}")
+            for a in acl.dacl:
+                flags = f" [{a.flags}]" if a.flags else ""
+                print(f"  DACL {a.ace_type.upper()}: {a.trustee_sid} "
+                      f"({a.rights}){flags}")
+            for a in acl.sacl:
+                flags = f" [{a.flags}]" if a.flags else ""
+                print(f"  SACL {a.ace_type.upper()}: {a.trustee_sid} "
+                      f"({a.rights}){flags}")
+        if not found:
+            print("No GPOs with SDDL data found.")
 
 
 def cmd_diff(args: argparse.Namespace) -> None:
@@ -902,6 +993,43 @@ def cmd_admx_gaps(args: argparse.Namespace) -> None:
             )
 
 
+def cmd_settings_diff(args: argparse.Namespace) -> None:
+    result = queries.settings_diff(
+        args.file_a, args.file_b,
+        side=getattr(args, "side", None),
+        cse=getattr(args, "cse", None),
+        gpo_id=getattr(args, "gpo_id", None),
+    )
+    if args.json:
+        _render_json([
+            {
+                "gpo_id": r.gpo_id,
+                "gpo_name": r.gpo_name,
+                "side": r.side,
+                "cse": r.cse,
+                "identity": r.identity,
+                "display_name": r.display_name,
+                "change_type": r.change_type,
+                "old_value": r.old_value,
+                "new_value": r.new_value,
+            }
+            for r in result
+        ])
+    else:
+        if not result:
+            print("No differences found.")
+            return
+        added = [r for r in result if r.change_type == "added"]
+        removed = [r for r in result if r.change_type == "removed"]
+        modified = [r for r in result if r.change_type == "modified"]
+        print(
+            f"Settings Diff: {len(added)} added, "
+            f"{len(removed)} removed, {len(modified)} modified"
+        )
+        print()
+        print(render_settings_diff(added, removed, modified), end="")
+
+
 def cmd_settings_dump(args: argparse.Namespace) -> None:
     estate = _get_estate(args)
     results = queries.settings_dump(
@@ -1193,17 +1321,21 @@ def cmd_ask(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_report(args: argparse.Namespace) -> None:
+def cmd_report(args: argparse.Namespace) -> int:
     estate = _get_estate(args)
     baseline = None
     changelog_entries = None
+    max_settings = getattr(args, "max_settings", 50)
     if args.baseline:
         baseline_path = Path(args.baseline)
         if not baseline_path.exists():
             print(f"Baseline file not found: {baseline_path}", file=sys.stderr)
-            return
-        data = json.loads(baseline_path.read_text(encoding="utf-8-sig"))
-        # Expect baseline JSON as list of dicts matching BaselineSetting fields
+            return 1
+        try:
+            data = json.loads(baseline_path.read_text(encoding="utf-8-sig"))
+        except json.JSONDecodeError as exc:
+            print(f"Baseline file is not valid JSON: {exc}", file=sys.stderr)
+            return 1
         from gpo_lens.admx_parser import PolicyDefinitions as _PD
         from gpo_lens.queries import BaselineSetting, baseline_diff
 
@@ -1222,26 +1354,44 @@ def cmd_report(args: argparse.Namespace) -> None:
         db = Path(args.db)
         if not db.exists():
             print(f"Database not found: {db}", file=sys.stderr)
-            return
+            return 1
         conn = sqlite3.connect(str(db))
         try:
-            latest = store.list_snapshots(conn)[0][0]
+            snapshots = store.list_snapshots(conn)
+            if not snapshots:
+                print("No snapshots found in database.", file=sys.stderr)
+                return 1
+            latest = snapshots[0][0]
             changelog_entries = queries.snapshot_changelog(
                 conn, args.since, latest
             )
         finally:
             conn.close()
 
-    from gpo_lens.report import write_report
+    from gpo_lens.report import generate_report, write_report
 
-    write_report(
-        estate,
-        args.out,
-        baseline=baseline,
-        changelog_entries=changelog_entries,
-        format=args.format,
-    )
-    print(f"Report written to {args.out}")
+    fmt = args.format
+    output = getattr(args, "output", None)
+    if output:
+        write_report(
+            estate,
+            output,
+            baseline=baseline,
+            changelog_entries=changelog_entries,
+            format=fmt,
+            max_settings=max_settings,
+        )
+        print(f"Report written to {output}")
+    else:
+        text = generate_report(
+            estate,
+            baseline=baseline,
+            changelog_entries=changelog_entries,
+            format=fmt,
+            max_settings=max_settings,
+        )
+        print(text)
+    return 0
 
 
 def cmd_settings_at(args: argparse.Namespace) -> None:
@@ -1387,6 +1537,10 @@ def main(argv: list[str] | None = None) -> int:
     _add_src(p)
     p.set_defaults(func=cmd_delegation)
 
+    p = sub.add_parser("sddl", help="Parse and display SDDL for GPOs")
+    _add_src(p)
+    p.set_defaults(func=cmd_sddl)
+
     p = sub.add_parser("diff")
     p.add_argument("snapshot_a", type=int)
     p.add_argument("snapshot_b", type=int)
@@ -1501,6 +1655,18 @@ def main(argv: list[str] | None = None) -> int:
     _add_src(p)
     p.set_defaults(func=cmd_settings_dump)
 
+    # settings-diff
+    p = sub.add_parser(
+        "settings-diff",
+        help="Diff two settings-dump JSON exports",
+    )
+    p.add_argument("file_a", help="First settings-dump JSON file")
+    p.add_argument("file_b", help="Second settings-dump JSON file")
+    p.add_argument("--side", help="Filter by side (Computer/User)")
+    p.add_argument("--cse", help="Filter by CSE (substring match)")
+    p.add_argument("--gpo", dest="gpo_id", help="Filter by GPO id (substring match)")
+    p.set_defaults(func=cmd_settings_diff)
+
     # baseline-diff
     p = sub.add_parser(
         "baseline-diff",
@@ -1527,7 +1693,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # report
     p = sub.add_parser("report", help="Generate estate documentation report")
-    p.add_argument("--out", required=True, help="Output file path")
+    p.add_argument("--output", help="Output file path (default: stdout)")
     p.add_argument("--format", choices=["md", "html"], default="md")
     p.add_argument(
         "--baseline", help="Baseline JSON file for compliance comparison"
@@ -1538,6 +1704,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     p.add_argument(
         "--db", default=DEFAULT_DB, help="Snapshot database path"
+    )
+    p.add_argument(
+        "--max-settings", type=int, default=50,
+        help="Max settings per GPO to display (default: 50)",
     )
     _add_src(p)
     p.set_defaults(func=cmd_report)
