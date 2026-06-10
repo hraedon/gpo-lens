@@ -1,0 +1,280 @@
+"""Structural assertions against the synthetic fixture estate.
+
+These run without the real (gitignored) samples/ directory, so they can gate CI.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from gpo_lens.ingest import load_estate
+from gpo_lens.queries import (
+    admx_gaps,
+    blocked_extensions,
+    broken_refs,
+    conflicts,
+    cpassword_scan,
+    dangling_links,
+    disabled_but_populated,
+    empty_gpos,
+    enforced_links,
+    estate_doctor,
+    loopback_gpos,
+    ms16_072_vulnerable,
+    settings_at_som,
+    som_conflicts,
+    topology_crosscheck,
+    unlinked_gpos,
+    version_skew,
+    wmi_filtered_gpos,
+)
+
+FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures"
+
+GPO_IDS = {
+    "cpassword": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+    "ms16_072": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+    "version_skew": "cccccccc-cccc-cccc-cccc-cccccccccccc",
+    "broken_unc": "dddddddd-dddd-dddd-dddd-dddddddddddd",
+    "loopback": "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee",
+    "blocked_ext": "ffffffff-ffff-ffff-ffff-ffffffffffff",
+    "user_disabled": "11111111-1111-1111-1111-111111111111",
+    "conflict": "22222222-2222-2222-2222-222222222222",
+}
+GPO_NAMES = {
+    "cpassword": "gpo-cpassword",
+    "ms16_072": "gpo-ms16-072-vuln",
+    "version_skew": "gpo-version-skew",
+    "broken_unc": "gpo-broken-unc",
+    "loopback": "gpo-loopback",
+    "blocked_ext": "gpo-blocked-ext",
+    "user_disabled": "gpo-user-disabled",
+    "conflict": "gpo-conflict",
+}
+ROOT_DN = "dc=fakefixture,dc=local"
+CHILD_DN = "ou=child,dc=fakefixture,dc=local"
+
+
+@pytest.fixture(scope="session")
+def fixture_estate():
+    return load_estate(FIXTURE_DIR)
+
+
+# AC-1: fixture loads via load_estate
+
+def test_fixture_gpo_count(fixture_estate):
+    assert len(fixture_estate.gpos) == 8
+
+
+def test_fixture_som_counts(fixture_estate):
+    assert len(fixture_estate.soms) == 2
+    assert sum(1 for s in fixture_estate.soms if s.inheritance_blocked) == 1
+
+
+# AC-2: calibration assertions ported to fixture
+
+def test_fixture_disabled_but_populated(fixture_estate):
+    hits = disabled_but_populated(fixture_estate)
+    assert len(hits) == 2
+    # GPO C has Computer side disabled but with settings
+    assert any(
+        g.id == GPO_IDS["version_skew"] and side == "Computer" for g, side in hits
+    )
+    # GPO G has User side disabled but with settings
+    assert any(
+        g.id == GPO_IDS["user_disabled"] and side == "User" for g, side in hits
+    )
+
+
+def test_fixture_enforced_flag_is_boolean(fixture_estate):
+    links = [link for g in fixture_estate.gpos for link in g.links]
+    assert links
+    assert all(isinstance(link.enforced, bool) for link in links)
+    # Also assert at least one enforced link exists (GPO C)
+    assert any(link.enforced for link in links)
+
+
+def test_fixture_enforced_links(fixture_estate):
+    links = enforced_links(fixture_estate)
+    assert len(links) >= 1
+    # At least one enforced link at domain root
+    root_links = [lnk for s, lnk in links if s.path == ROOT_DN]
+    assert any(lnk.gpo_id == GPO_IDS["version_skew"] for lnk in root_links)
+
+
+def test_fixture_loopback_detected(fixture_estate):
+    hits = loopback_gpos(fixture_estate)
+    assert len(hits) == 1
+    gpo, setting = hits[0]
+    assert gpo.id == GPO_IDS["loopback"]
+    assert setting.side == "Computer"
+    assert "loopback" in setting.identity.lower()
+
+
+def test_fixture_version_skew(fixture_estate):
+    hits = version_skew(fixture_estate)
+    assert len(hits) == 1
+    gpo, side = hits[0]
+    assert gpo.name == "gpo-version-skew"
+    assert side == "Computer"
+
+
+def test_fixture_ms16_072(fixture_estate):
+    vuln = ms16_072_vulnerable(fixture_estate)
+    assert len(vuln) == 1
+    assert vuln[0].name == "gpo-ms16-072-vuln"
+
+
+def test_fixture_cpassword_hit(fixture_estate):
+    hits = cpassword_scan(fixture_estate)
+    assert len(hits) == 1
+    assert hits[0].gpo_name == "gpo-cpassword"
+
+
+def test_fixture_broken_unc(fixture_estate):
+    hits = broken_refs(fixture_estate)
+    unc_hits = [h for h in hits if h.ref_type == "unc_path"]
+    assert len(unc_hits) == 1
+    assert unc_hits[0].gpo_id == GPO_IDS["broken_unc"]
+    assert "\\oldserver\\share" in unc_hits[0].ref_value
+
+
+def test_fixture_no_dangling_links(fixture_estate):
+    assert len(dangling_links(fixture_estate)) == 0
+
+
+def test_fixture_settings_at_som(fixture_estate):
+    # Domain root should have effective settings from the chain
+    result = settings_at_som(fixture_estate, ROOT_DN)
+    assert len(result) > 0
+    for es in result:
+        assert es.winner_gpo_id
+        assert es.winner_gpo_name
+        assert es.identity
+    # At least one enforced setting (from GPO C)
+    assert any(es.enforced for es in result)
+    # At least one overridden_by populated
+    assert any(es.overridden_by for es in result)
+
+
+# AC-1 additional sanity checks
+
+def test_fixture_domain(fixture_estate):
+    assert fixture_estate.domain == "fakefixture.local"
+
+
+def test_fixture_wmi_filter_count(fixture_estate):
+    assert len(fixture_estate.wmi_filters) == 1
+
+
+def test_fixture_ou_tree(fixture_estate):
+    assert len(fixture_estate.ou_tree) == 2
+    child = next(ou for ou in fixture_estate.ou_tree if ou.dn == CHILD_DN)
+    assert child.gp_options == 1
+
+
+def test_fixture_estate_doctor(fixture_estate):
+    from gpo_lens.queries import estate_summary
+    summary = estate_summary(fixture_estate)
+    assert summary.gpo_count == 8
+    assert summary.som_count == 2
+    assert summary.ms16_072_vulnerable_count == 1
+    assert summary.cpassword_hit_count == 1
+    assert summary.version_skew_count == 1
+    assert summary.loopback_gpo_count == 1
+    assert summary.broken_ref_count == 1
+    # Enforced at domain root + enforced inherited at child = 2
+    assert summary.enforced_link_count == 2
+    assert summary.dangling_link_count == 0
+
+
+def test_fixture_estate_doctor_findings(fixture_estate):
+    findings = estate_doctor(fixture_estate)
+    # Find specific findings by category
+    cpassword_finds = [f for f in findings if f.category == "cpassword"]
+    assert len(cpassword_finds) == 1
+    assert cpassword_finds[0].severity == "critical"
+    assert cpassword_finds[0].gpo_id == GPO_IDS["cpassword"]
+
+    ms16_finds = [f for f in findings if f.category == "ms16_072"]
+    assert len(ms16_finds) == 1
+    assert ms16_finds[0].severity == "high"
+    assert ms16_finds[0].gpo_id == GPO_IDS["ms16_072"]
+
+    skew_finds = [f for f in findings if f.category == "version_skew"]
+    assert len(skew_finds) == 1
+    assert skew_finds[0].severity == "medium"
+    assert skew_finds[0].gpo_id == GPO_IDS["version_skew"]
+
+    disabled_finds = [f for f in findings if f.category == "disabled_but_populated"]
+    assert len(disabled_finds) == 2  # Computer (GPO C) + User (GPO G)
+    assert all(f.severity == "low" for f in disabled_finds)
+
+    # Verify sort order: critical before high before medium before low
+    severities = [f.severity for f in findings]
+    assert severities.index("critical") < severities.index("high")
+    assert severities.index("high") < severities.index("medium")
+    assert severities.index("medium") < severities.index("low")
+
+
+def test_fixture_topology_crosscheck(fixture_estate):
+    discrepancies = topology_crosscheck(fixture_estate)
+    assert discrepancies == [], f"Unexpected topology discrepancies: {discrepancies}"
+
+
+def test_fixture_wmi_filtered_gpos(fixture_estate):
+    hits = wmi_filtered_gpos(fixture_estate)
+    assert len(hits) == 1
+    assert hits[0].id == GPO_IDS["loopback"]
+
+
+def test_fixture_admx_gaps_detected(fixture_estate):
+    hits = admx_gaps(fixture_estate)
+    # GPO D and GPO H both have HKLM\Software\Fake:BadValue
+    gap_gpos = {h.gpo_id for h in hits}
+    assert GPO_IDS["broken_unc"] in gap_gpos
+    assert GPO_IDS["conflict"] in gap_gpos
+
+
+def test_fixture_blocked_extensions(fixture_estate):
+    hits = blocked_extensions(fixture_estate)
+    assert len(hits) == 1
+    gpo, side, cse = hits[0]
+    assert gpo.id == GPO_IDS["blocked_ext"]
+    assert side == "Computer"
+    assert cse == "Registry"
+
+
+def test_fixture_som_conflicts(fixture_estate):
+    hits = som_conflicts(fixture_estate, ROOT_DN)
+    # GPO D and GPO H both set HKLM\Software\Fake:BadValue with different values
+    assert len(hits) >= 1
+    conflict = next(h for h in hits if h.identity == r"HKLM\Software\Fake:BadValue")
+    assert conflict is not None
+    gpo_names_in_conflict = {e[0] for e in conflict.entries}
+    assert GPO_NAMES["broken_unc"] in gpo_names_in_conflict
+    assert GPO_NAMES["conflict"] in gpo_names_in_conflict
+
+
+def test_fixture_empty_gpos(fixture_estate):
+    hits = empty_gpos(fixture_estate)
+    # MS16-072 GPO should be empty (no settings)
+    assert any(g.id == GPO_IDS["ms16_072"] for g in hits)
+
+
+def test_fixture_unlinked_gpos(fixture_estate):
+    # All 8 GPOs have links in the fixture
+    hits = unlinked_gpos(fixture_estate)
+    assert len(hits) == 0
+
+
+def test_fixture_conflicts(fixture_estate):
+    hits = conflicts(fixture_estate)
+    # GPO D and GPO H both set the same registry key with different values
+    conflict = next((c for c in hits if c.identity == r"HKLM\Software\Fake:BadValue"), None)
+    assert conflict is not None
+    gpo_ids_in_conflict = {e[0] for e in conflict.entries}
+    assert GPO_IDS["broken_unc"] in gpo_ids_in_conflict
+    assert GPO_IDS["conflict"] in gpo_ids_in_conflict

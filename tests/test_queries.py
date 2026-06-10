@@ -7,6 +7,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from gpo_lens import queries
+from gpo_lens.admx_parser import AdmxPolicy, PolicyDefinitions
 from gpo_lens.model import DelegationEntry, Estate, Gpo, OuRecord, Setting
 
 
@@ -166,6 +167,89 @@ def test_ms16_072_dc_read_via_sid():
     assert queries.ms16_072_vulnerable(estate) == []
 
 
+# ---- delegation_deep_dive --------------------------------------------------
+
+
+def test_delegation_deep_dive_privilege_rollup():
+    gpo_a = _make_gpo(
+        id="gpo-a", name="Alpha",
+        delegation=[
+            DelegationEntry(
+                gpo_id="gpo-a", trustee="Rogue Admin", trustee_sid=None,
+                permission="Edit settings, delete, modify security", allowed=True,
+            ),
+        ],
+    )
+    gpo_b = _make_gpo(
+        id="gpo-b", name="Beta",
+        delegation=[
+            DelegationEntry(
+                gpo_id="gpo-b", trustee="Rogue Admin", trustee_sid=None,
+                permission="Edit settings, delete, modify security", allowed=True,
+            ),
+        ],
+    )
+    estate = Estate(gpos=[gpo_a, gpo_b])
+    audit = queries.delegation_deep_dive(estate)
+    assert "Rogue Admin" in audit.privilege_rollup
+    assert sorted(audit.privilege_rollup["Rogue Admin"]) == ["Alpha", "Beta"]
+
+
+def test_delegation_deep_dive_orphaned_sid():
+    gpo = _make_gpo(
+        id="gpo-1", name="Test",
+        delegation=[
+            DelegationEntry(
+                gpo_id="gpo-1", trustee="", trustee_sid="S-1-5-21-999999",
+                permission="Read", allowed=True,
+            ),
+        ],
+    )
+    estate = Estate(gpos=[gpo])
+    audit = queries.delegation_deep_dive(estate)
+    assert len(audit.orphaned_sids) == 1
+    assert audit.orphaned_sids[0][0].id == "gpo-1"
+    assert audit.orphaned_sids[0][1] == "S-1-5-21-999999"
+
+
+def test_delegation_deep_dive_broad_writers():
+    gpo = _make_gpo(
+        id="gpo-1", name="Test",
+        delegation=[
+            DelegationEntry(
+                gpo_id="gpo-1", trustee="Domain Admins", trustee_sid=None,
+                permission="Edit settings", allowed=True,
+            ),
+            DelegationEntry(
+                gpo_id="gpo-1", trustee="Rogue Editor", trustee_sid=None,
+                permission="Edit settings", allowed=True,
+            ),
+        ],
+    )
+    estate = Estate(gpos=[gpo])
+    audit = queries.delegation_deep_dive(estate)
+    broad_names = {d.trustee for _, d in audit.broad_writers}
+    assert "Rogue Editor" in broad_names
+    assert "Domain Admins" not in broad_names
+
+
+def test_delegation_deep_dive_no_issues():
+    gpo = _make_gpo(
+        id="gpo-1", name="Test",
+        delegation=[
+            DelegationEntry(
+                gpo_id="gpo-1", trustee="Domain Admins", trustee_sid=None,
+                permission="Read", allowed=True,
+            ),
+        ],
+    )
+    estate = Estate(gpos=[gpo])
+    audit = queries.delegation_deep_dive(estate)
+    assert audit.orphaned_sids == []
+    assert audit.broad_writers == []
+    assert audit.privilege_rollup == {}  # Read-only, no edit rights
+
+
 # ---- cpassword_scan --------------------------------------------------------
 
 def test_cpassword_scan_no_sysvol_path(tmp_path):
@@ -312,6 +396,68 @@ def test_loopback_gpos_detects_loopback_setting():
     result = queries.loopback_gpos(estate)
     assert len(result) == 1
     assert result[0][0].id == "gpo-1"
+
+
+def test_loopback_awareness_extracts_mode():
+    from gpo_lens.model import Setting
+
+    gpo = _make_gpo(
+        id="gpo-1",
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="Computer", cse="Security",
+                identity="Configure user Group Policy loopback processing mode",
+                display_name="Loopback", display_value="Replace",
+                raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    estate = Estate(gpos=[gpo])
+    awareness = queries.loopback_awareness(estate)
+    assert awareness == {"gpo-1": "replace"}
+
+
+def test_loopback_awareness_merge_mode():
+    from gpo_lens.model import Setting
+
+    gpo = _make_gpo(
+        id="gpo-1",
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="Computer", cse="Security",
+                identity="Configure Group Policy loopback processing mode",
+                display_name="Loopback", display_value="Merge",
+                raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    estate = Estate(gpos=[gpo])
+    awareness = queries.loopback_awareness(estate)
+    assert awareness == {"gpo-1": "merge"}
+
+
+def test_loopback_awareness_none_when_unknown():
+    from gpo_lens.model import Setting
+
+    gpo = _make_gpo(
+        id="gpo-1",
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="Computer", cse="Security",
+                identity="Configure Group Policy loopback processing mode",
+                display_name="Loopback", display_value="Enabled",
+                raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    estate = Estate(gpos=[gpo])
+    awareness = queries.loopback_awareness(estate)
+    assert awareness == {}  # "Enabled" doesn't map to merge/replace
+
+
+def test_loopback_awareness_empty():
+    estate = Estate(gpos=[_make_gpo()])
+    assert queries.loopback_awareness(estate) == {}
 
 
 def test_wmi_filtered_gpos():
@@ -987,6 +1133,40 @@ def test_admx_gaps_detects_raw_registry_path():
     assert result[0].key_path == r"Software\MyApp"
     assert result[0].value_name == "Setting1"
     assert result[0].side == "Computer"
+
+
+def test_admx_gaps_resolved_by_admx_crosswalk():
+    """When ADMX resolves the registry path, it's not a gap."""
+    gpo = _make_gpo(
+        id="gpo-1",
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="Computer", cse="Registry",
+                identity=r"Software\Policies\Foo:Bar",
+                display_name="Bar",
+                display_value="1", raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    estate = Estate(gpos=[gpo])
+    # No ADMX — should be a gap
+    assert len(queries.admx_gaps(estate)) == 1
+
+    # With ADMX that resolves the exact identity — gap disappears
+    admx = PolicyDefinitions(
+        policies=[
+            AdmxPolicy(
+                name="TestPolicy",
+                class_scope="Machine",
+                key=r"Software\Policies\Foo",
+                value_name="Bar",
+                display_name_ref="$(string.Test)",
+                display_name="Test Display",
+                explain_text="",
+            ),
+        ]
+    )
+    assert queries.admx_gaps(estate, admx) == []
 
 
 def test_admx_gaps_detects_hklm_prefix():
@@ -2176,3 +2356,152 @@ def test_load_baseline_from_estate():
     baseline = queries.load_baseline_from_estate(estate)
     assert len(baseline) == 1
     assert baseline[0].expected_value == "1"
+
+
+# ---- snapshot_changelog (version-aware change log) --------------------------
+
+
+def test_snapshot_changelog_metadata_only(tmp_path):
+    from gpo_lens import store
+
+    db = tmp_path / "test.db"
+    conn = sqlite3.connect(str(db))
+    store.init_db(conn)
+
+    # Snapshot A: GPO with Computer ver 1/1, User ver 1/1
+    gpo_a = _make_gpo(
+        id="gpo-1", name="Test",
+        computer_ver_ds=1, computer_ver_sysvol=1,
+        user_ver_ds=1, user_ver_sysvol=1,
+    )
+    estate_a = Estate(domain="test.local", gpos=[gpo_a])
+    sid_a = store.save_estate(conn, estate_a)
+
+    # Snapshot B: same GPO, only Computer sysvol bumped to 3 (2 edits)
+    gpo_b = _make_gpo(
+        id="gpo-1", name="Test",
+        computer_ver_ds=1, computer_ver_sysvol=3,
+        user_ver_ds=1, user_ver_sysvol=1,
+    )
+    estate_b = Estate(domain="test.local", gpos=[gpo_b])
+    sid_b = store.save_estate(conn, estate_b)
+
+    entries = queries.snapshot_changelog(conn, sid_a, sid_b)
+    conn.close()
+
+    assert len(entries) == 1
+    e = entries[0]
+    assert e.gpo_id == "gpo-1"
+    assert e.kind == "metadata_only"
+    assert e.side == "Computer"
+    assert e.version_change is not None
+    assert e.version_change.old_sysvol == 1
+    assert e.version_change.new_sysvol == 3
+    assert e.version_change.edit_count == 2
+    assert e.setting_changes == []
+    assert "metadata changed" in e.summary.lower()
+
+
+def test_snapshot_changelog_settings_detail(tmp_path):
+    from gpo_lens import store
+
+    db = tmp_path / "test.db"
+    conn = sqlite3.connect(str(db))
+    store.init_db(conn)
+
+    gpo_a = _make_gpo(
+        id="gpo-1", name="Test",
+        computer_ver_ds=1, computer_ver_sysvol=1,
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="Computer", cse="Registry",
+                identity="HKLM\\Software\\Foo", display_name="Foo",
+                display_value="old", raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    estate_a = Estate(domain="test.local", gpos=[gpo_a])
+    sid_a = store.save_estate(conn, estate_a)
+
+    gpo_b = _make_gpo(
+        id="gpo-1", name="Test",
+        computer_ver_ds=1, computer_ver_sysvol=3,
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="Computer", cse="Registry",
+                identity="HKLM\\Software\\Foo", display_name="Foo",
+                display_value="new", raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    estate_b = Estate(domain="test.local", gpos=[gpo_b])
+    sid_b = store.save_estate(conn, estate_b)
+
+    entries = queries.snapshot_changelog(conn, sid_a, sid_b)
+    conn.close()
+
+    assert len(entries) == 1
+    e = entries[0]
+    assert e.kind == "settings_detail"
+    assert e.side == "Computer"
+    assert e.version_change is not None
+    assert e.version_change.edit_count == 2
+    assert len(e.setting_changes) == 1
+    sc = e.setting_changes[0]
+    assert sc.change_type == "modified"
+    assert sc.old_value == "old"
+    assert sc.new_value == "new"
+    assert "edited" in e.summary.lower()
+    assert "1 setting" in e.summary.lower()
+
+
+def test_snapshot_changelog_user_and_computer(tmp_path):
+    from gpo_lens import store
+
+    db = tmp_path / "test.db"
+    conn = sqlite3.connect(str(db))
+    store.init_db(conn)
+
+    gpo_a = _make_gpo(
+        id="gpo-1", name="Test",
+        computer_ver_ds=1, computer_ver_sysvol=1,
+        user_ver_ds=2, user_ver_sysvol=2,
+    )
+    estate_a = Estate(domain="test.local", gpos=[gpo_a])
+    sid_a = store.save_estate(conn, estate_a)
+
+    gpo_b = _make_gpo(
+        id="gpo-1", name="Test",
+        computer_ver_ds=2, computer_ver_sysvol=2,
+        user_ver_ds=3, user_ver_sysvol=3,
+    )
+    estate_b = Estate(domain="test.local", gpos=[gpo_b])
+    sid_b = store.save_estate(conn, estate_b)
+
+    entries = queries.snapshot_changelog(conn, sid_a, sid_b)
+    conn.close()
+
+    assert len(entries) == 2
+    sides = {e.side for e in entries}
+    assert sides == {"Computer", "User"}
+    for e in entries:
+        assert e.kind == "metadata_only"
+        assert e.version_change.edit_count == 1
+
+
+def test_snapshot_changelog_no_changes(tmp_path):
+    from gpo_lens import store
+
+    db = tmp_path / "test.db"
+    conn = sqlite3.connect(str(db))
+    store.init_db(conn)
+
+    gpo = _make_gpo(id="gpo-1", name="Test")
+    estate_a = Estate(domain="test.local", gpos=[gpo])
+    sid_a = store.save_estate(conn, estate_a)
+    estate_b = Estate(domain="test.local", gpos=[gpo])
+    sid_b = store.save_estate(conn, estate_b)
+
+    entries = queries.snapshot_changelog(conn, sid_a, sid_b)
+    conn.close()
+    assert entries == []

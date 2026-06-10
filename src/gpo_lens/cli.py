@@ -125,18 +125,54 @@ def cmd_ingest(args: argparse.Namespace) -> None:
         domain = estate.domain or "unknown"
         msg = f"{domain}, {len(estate.gpos)} GPOs, {len(estate.soms)} SOMs, snapshot={sid}"
         if args.json:
-            _render_json(
-                {
-                    "domain": domain,
-                    "gpo_count": len(estate.gpos),
-                    "som_count": len(estate.soms),
-                    "snapshot_id": sid,
-                }
-            )
+            out = {
+                "domain": domain,
+                "gpo_count": len(estate.gpos),
+                "som_count": len(estate.soms),
+                "snapshot_id": sid,
+            }
+            if args.diff_latest:
+                prev = _latest_snapshot_before(conn, sid)
+                if prev:
+                    entries = queries.snapshot_changelog(conn, prev, sid)
+                    out["changelog"] = [
+                        {
+                            "gpo_id": e.gpo_id,
+                            "gpo_name": e.gpo_name,
+                            "kind": e.kind,
+                            "side": e.side,
+                            "summary": e.summary,
+                        }
+                        for e in entries
+                    ]
+            _render_json(out)
         else:
             print(msg)
+            if args.diff_latest:
+                prev = _latest_snapshot_before(conn, sid)
+                if prev:
+                    entries = queries.snapshot_changelog(conn, prev, sid)
+                    if entries:
+                        print("\nChanges since previous snapshot:")
+                        for e in entries:
+                            prefix = "[DETAIL]" if e.kind == "settings_detail" else "[META]"
+                            print(f"  {prefix} {e.gpo_name} — {e.summary}")
+                            for sc in e.setting_changes:
+                                print(f"    [{sc.side}/{sc.cse}] {sc.identity}: {sc.change_type}")
+                    else:
+                        print("\nNo changes since previous snapshot.")
+                else:
+                    print("\nNo previous snapshot to diff against.")
     finally:
         conn.close()
+
+
+def _latest_snapshot_before(conn: sqlite3.Connection, sid: int) -> int | None:
+    """Return the highest snapshot ID that is strictly less than *sid*."""
+    row = conn.execute(
+        "SELECT id FROM snapshot WHERE id < ? ORDER BY id DESC LIMIT 1", (sid,)
+    ).fetchone()
+    return row[0] if row else None
 
 
 def cmd_unlinked(args: argparse.Namespace) -> None:
@@ -356,6 +392,48 @@ def cmd_perms(args: argparse.Namespace) -> None:
         )
 
 
+def cmd_delegation(args: argparse.Namespace) -> None:
+    estate = _get_estate(args)
+    audit = queries.delegation_deep_dive(estate)
+    if args.json:
+        _render_json({
+            "privilege_rollup": {
+                trustee: sorted(set(gpo_names))
+                for trustee, gpo_names in audit.privilege_rollup.items()
+            },
+            "orphaned_sids": [
+                {"gpo_id": g.id, "gpo_name": g.name, "sid": sid}
+                for g, sid in audit.orphaned_sids
+            ],
+            "broad_writers": [
+                {
+                    "gpo_id": g.id,
+                    "gpo_name": g.name,
+                    "trustee": d.trustee,
+                    "permission": d.permission,
+                }
+                for g, d in audit.broad_writers
+            ],
+        })
+    else:
+        print("Delegation Deep-Dive")
+        print("=" * 60)
+        if audit.orphaned_sids:
+            print("\n--- Orphaned SIDs ---")
+            for g, sid in audit.orphaned_sids:
+                print(f"  {g.name}: {sid}")
+        if audit.broad_writers:
+            print("\n--- Non-Default Editors with Write Rights ---")
+            for g, d in audit.broad_writers:
+                print(f"  {g.name}: {d.trustee} ({d.permission})")
+        if audit.privilege_rollup:
+            print("\n--- Privilege Rollup ---")
+            for trustee, gpo_names in sorted(audit.privilege_rollup.items()):
+                print(f"  {trustee}: {', '.join(sorted(set(gpo_names)))}")
+        if not (audit.orphaned_sids or audit.broad_writers or audit.privilege_rollup):
+            print("No delegation issues found.")
+
+
 def cmd_diff(args: argparse.Namespace) -> None:
     conn = sqlite3.connect(args.db)
     diff = queries.snapshot_diff(conn, args.snapshot_a, args.snapshot_b)
@@ -444,6 +522,58 @@ def cmd_diff_settings(args: argparse.Namespace) -> None:
                 for c in changes
             ],
         )
+
+
+def cmd_changelog(args: argparse.Namespace) -> None:
+    conn = sqlite3.connect(args.db)
+    entries = queries.snapshot_changelog(conn, args.snapshot_a, args.snapshot_b)
+    conn.close()
+    if args.gpo_id:
+        entries = [e for e in entries if e.gpo_id == args.gpo_id]
+    if args.side:
+        side_lower = args.side.lower()
+        entries = [e for e in entries if e.side and e.side.lower() == side_lower]
+    if args.json:
+        _render_json([
+            {
+                "gpo_id": e.gpo_id,
+                "gpo_name": e.gpo_name,
+                "kind": e.kind,
+                "side": e.side,
+                "summary": e.summary,
+                "version_change": {
+                    "side": e.version_change.side,
+                    "old_ds": e.version_change.old_ds,
+                    "old_sysvol": e.version_change.old_sysvol,
+                    "new_ds": e.version_change.new_ds,
+                    "new_sysvol": e.version_change.new_sysvol,
+                    "edit_count": e.version_change.edit_count,
+                } if e.version_change else None,
+                "setting_changes": [
+                    {
+                        "side": sc.side,
+                        "cse": sc.cse,
+                        "identity": sc.identity,
+                        "change_type": sc.change_type,
+                        "old_value": sc.old_value,
+                        "new_value": sc.new_value,
+                    }
+                    for sc in e.setting_changes
+                ],
+            }
+            for e in entries
+        ])
+    else:
+        if not entries:
+            print("No changes found between snapshots.")
+            return
+        for e in entries:
+            prefix = "[DETAIL]" if e.kind == "settings_detail" else "[META]"
+            print(f"{prefix} {e.gpo_name} ({e.gpo_id}) — {e.summary}")
+            for sc in e.setting_changes:
+                print(f"  [{sc.side}/{sc.cse}] {sc.identity}: {sc.change_type}")
+                if sc.old_value or sc.new_value:
+                    print(f"    {sc.old_value or ''} -> {sc.new_value or ''}")
 
 
 def cmd_snapshots(args: argparse.Namespace) -> None:
@@ -731,7 +861,12 @@ def cmd_topology_check(args: argparse.Namespace) -> None:
 
 def cmd_admx_gaps(args: argparse.Namespace) -> None:
     estate = _get_estate(args)
-    result = queries.admx_gaps(estate)
+    admx = None
+    admx_dir = getattr(args, "admx_dir", None)
+    if admx_dir:
+        from gpo_lens.admx_parser import parse_admx_dir
+        admx = parse_admx_dir(admx_dir)
+    result = queries.admx_gaps(estate, admx)
     if args.json:
         _render_json(
             [
@@ -905,9 +1040,61 @@ def cmd_doctor(args: argparse.Namespace) -> None:
                 print(f"    {f.detail}")
 
 
+def cmd_report(args: argparse.Namespace) -> None:
+    estate = _get_estate(args)
+    baseline = None
+    changelog_entries = None
+    if args.baseline:
+        baseline_path = Path(args.baseline)
+        if not baseline_path.exists():
+            print(f"Baseline file not found: {baseline_path}", file=sys.stderr)
+            return
+        data = json.loads(baseline_path.read_text(encoding="utf-8-sig"))
+        # Expect baseline JSON as list of dicts matching BaselineSetting fields
+        from gpo_lens.admx_parser import PolicyDefinitions as _PD
+        from gpo_lens.queries import BaselineSetting, baseline_diff
+
+        baseline_settings = [
+            BaselineSetting(
+                side=entry.get("side", ""),
+                cse=entry.get("cse", ""),
+                identity=entry.get("identity", ""),
+                display_name=entry.get("display_name", ""),
+                expected_value=entry.get("expected_value", ""),
+            )
+            for entry in data
+        ]
+        baseline = baseline_diff(estate, baseline_settings, _PD())
+    if args.since is not None:
+        db = Path(args.db)
+        if not db.exists():
+            print(f"Database not found: {db}", file=sys.stderr)
+            return
+        conn = sqlite3.connect(str(db))
+        try:
+            latest = store.list_snapshots(conn)[0][0]
+            changelog_entries = queries.snapshot_changelog(
+                conn, args.since, latest
+            )
+        finally:
+            conn.close()
+
+    from gpo_lens.report import write_report
+
+    write_report(
+        estate,
+        args.out,
+        baseline=baseline,
+        changelog_entries=changelog_entries,
+        format=args.format,
+    )
+    print(f"Report written to {args.out}")
+
+
 def cmd_settings_at(args: argparse.Namespace) -> None:
     estate = _get_estate(args)
     result = queries.settings_at_som(estate, args.som_path)
+    loopback_map = queries.loopback_awareness(estate)
     if args.json:
         _render_json(
             [
@@ -931,6 +1118,13 @@ def cmd_settings_at(args: argparse.Namespace) -> None:
         if not result:
             print(f"No effective settings at {args.som_path}")
             return
+        if loopback_map:
+            print("\n  ⚠ LOOPBACK AWARENESS:")
+            for gpo_id, mode in loopback_map.items():
+                gpo = estate.gpo_by_id(gpo_id)
+                name = gpo.name if gpo else gpo_id
+                print(f"    [{name}] has loopback mode = {mode.upper()}")
+            print("    Effective settings may differ due to loopback processing.\n")
         # Group by winner GPO for easier reading
         by_gpo: dict[str, list[queries.EffectiveSetting]] = {}
         for r in result:
@@ -969,6 +1163,11 @@ def main(argv: list[str] | None = None) -> int:
     # ingest
     p = sub.add_parser("ingest")
     p.add_argument("sample_dir")
+    p.add_argument("--json", action="store_true")
+    p.add_argument(
+        "--diff-latest", action="store_true",
+        help="After ingesting, diff against the previous snapshot and print the changelog",
+    )
     p.set_defaults(func=cmd_ingest)
 
     # analysis commands
@@ -1031,6 +1230,10 @@ def main(argv: list[str] | None = None) -> int:
     _add_src(p)
     p.set_defaults(func=cmd_perms)
 
+    p = sub.add_parser("delegation", help="Delegation deep-dive audit")
+    _add_src(p)
+    p.set_defaults(func=cmd_delegation)
+
     p = sub.add_parser("diff")
     p.add_argument("snapshot_a", type=int)
     p.add_argument("snapshot_b", type=int)
@@ -1049,6 +1252,16 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--side", help="Filter by side (Computer/User)")
     p.add_argument("--cse", help="Filter by CSE name")
     p.set_defaults(func=cmd_diff_settings)
+
+    p = sub.add_parser(
+        "changelog",
+        help="Version-aware change log between two snapshots",
+    )
+    p.add_argument("snapshot_a", type=int)
+    p.add_argument("snapshot_b", type=int)
+    p.add_argument("--gpo-id", help="Filter to a specific GPO ID")
+    p.add_argument("--side", help="Filter by side (Computer/User)")
+    p.set_defaults(func=cmd_changelog)
 
     # topology commands
     p = sub.add_parser("som", help="Show effective GPOs at a SOM path")
@@ -1088,6 +1301,7 @@ def main(argv: list[str] | None = None) -> int:
         "admx-gaps",
         help="Flag Registry CSE settings with raw key paths (no ADMX policy name)",
     )
+    p.add_argument("--admx-dir", help="PolicyDefinitions directory for crosswalk")
     _add_src(p)
     p.set_defaults(func=cmd_admx_gaps)
 
@@ -1153,6 +1367,23 @@ def main(argv: list[str] | None = None) -> int:
     )
     _add_src(p)
     p.set_defaults(func=cmd_doctor)
+
+    # report
+    p = sub.add_parser("report", help="Generate estate documentation report")
+    p.add_argument("--out", required=True, help="Output file path")
+    p.add_argument("--format", choices=["md", "html"], default="md")
+    p.add_argument(
+        "--baseline", help="Baseline JSON file for compliance comparison"
+    )
+    p.add_argument(
+        "--since", type=int,
+        help="Snapshot ID to diff against (requires --db)"
+    )
+    p.add_argument(
+        "--db", default=DEFAULT_DB, help="Snapshot database path"
+    )
+    _add_src(p)
+    p.set_defaults(func=cmd_report)
 
     # REPL
     p = sub.add_parser("repl", help="Interactive Python REPL with the estate loaded")

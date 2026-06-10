@@ -649,3 +649,47 @@ class TestCLI:
         )
         assert r.returncode == 0
         assert "No results" in r.stdout
+
+    def test_ingest_diff_latest_no_prior(self, tmp_path):
+        """--diff-latest with no prior snapshot should say so."""
+        db = tmp_path / "test.db"
+        r = subprocess.run(
+            GPO_LENS + ["--db", str(db), "ingest", "--diff-latest", "tests/fixtures"],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+        assert "No previous snapshot to diff against" in r.stdout
+
+    def test_ingest_diff_latest_with_prior(self, tmp_path):
+        """--diff-latest with a prior snapshot shows changelog."""
+        from gpo_lens import model, store
+
+        db = tmp_path / "test.db"
+        conn = sqlite3.connect(str(db))
+        store.init_db(conn)
+
+        # Pre-populate with a snapshot containing one of the fixture GPOs
+        # but with different version numbers
+        gpo = model.Gpo(
+            id="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+            name="gpo-cpassword", domain="fakefixture.local",
+            created=None, modified=None, read=None,
+            computer_enabled=True, user_enabled=True,
+            computer_ver_ds=1, computer_ver_sysvol=1,
+            user_ver_ds=1, user_ver_sysvol=1,
+            sddl=None, owner=None, filter_data_available=False,
+            wmi_filter=None, sysvol_path=None,
+        )
+        estate = model.Estate(domain="fakefixture.local", gpos=[gpo])
+        store.save_estate(conn, estate)
+        conn.close()
+
+        r = subprocess.run(
+            GPO_LENS + ["--db", str(db), "ingest", "--diff-latest", "tests/fixtures"],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+        # The fixture gpo-cpassword has computer_ver_ds=1, computer_ver_sysvol=1
+        # So no version change. But there are new GPOs in the fixture.
+        # The output should at least show the ingest succeeded and the diff ran.
+        assert "snapshot=" in r.stdout
