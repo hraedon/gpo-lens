@@ -19,6 +19,11 @@ htmlcov/
 *.sqlite3
 *.db
 
+# secrets
+.env*
+*.pem
+*.key
+
 # agent-notes breadcrumb export-index (regenerated; a committed copy goes stale)
 OPEN_BREADCRUMBS.txt
 
