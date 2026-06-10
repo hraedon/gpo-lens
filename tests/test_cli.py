@@ -861,7 +861,7 @@ class TestReportAdmx:
     def test_report_admx_dir_without_baseline_warns(self, db_path):
         r = subprocess.run(
             GPO_LENS
-            + ["report", "--db", str(db_path), "--admx-dir", "/some/dir"],
+            + ["--db", str(db_path), "report", "--admx-dir", "/some/dir"],
             capture_output=True,
             text=True,
         )
@@ -874,9 +874,9 @@ class TestReportAdmx:
         r = subprocess.run(
             GPO_LENS
             + [
-                "report",
                 "--db",
                 str(db_path),
+                "report",
                 "--baseline",
                 str(baseline),
                 "--admx-dir",
@@ -887,6 +887,81 @@ class TestReportAdmx:
         )
         assert r.returncode == 0
         assert "not found or not a directory" in r.stderr
+
+
+class TestBaselineDiffAdmxWarning:
+    def test_baseline_diff_admx_dir_nonexistent_warns(self, rich_db, tmp_path):
+        baseline_dir = tmp_path / "baseline"
+        baseline_dir.mkdir()
+        (baseline_dir / "AllGPOs.xml").write_text(
+            '<?xml version="1.0" encoding="utf-8"?><GPOs/>'
+        )
+        r = subprocess.run(
+            GPO_LENS
+            + [
+                "--db",
+                str(rich_db),
+                "baseline-diff",
+                str(baseline_dir),
+                "--admx-dir",
+                "/nonexistent",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        assert r.returncode == 0
+        assert "not found or not a directory" in r.stderr
+
+
+class TestAdmxGapsAdmxWarning:
+    def test_admx_gaps_admx_dir_nonexistent_warns(self, rich_db):
+        r = subprocess.run(
+            GPO_LENS
+            + ["--db", str(rich_db), "admx-gaps", "--admx-dir", "/nonexistent"],
+            capture_output=True,
+            text=True,
+        )
+        assert r.returncode == 0
+        assert "not found or not a directory" in r.stderr
+
+
+class TestAskParamValidation:
+    def test_ask_settings_at_som_missing_param(self, rich_db, capsys) -> None:
+        routing = json.dumps(
+            {"query": "settings_at_som", "params": {}}
+        )
+        with unittest.mock.patch.dict(
+            os.environ, {"GPO_LENS_API_KEY": "test-key"}
+        ):
+            with unittest.mock.patch(
+                "gpo_lens.narration.call_llm", return_value=routing
+            ):
+                from gpo_lens.cli import main
+
+                ret = main(
+                    ["--db", str(rich_db), "ask", "Show settings for OU=Servers"]
+                )
+        assert ret == 1
+        captured = capsys.readouterr()
+        assert "requires parameter 'ou_path'" in captured.err
+
+    def test_ask_warns_on_unexpected_param(self, rich_db, capsys) -> None:
+        routing = json.dumps(
+            {"query": "estate_summary", "params": {"bogus": "value"}}
+        )
+        with unittest.mock.patch.dict(
+            os.environ, {"GPO_LENS_API_KEY": "test-key"}
+        ):
+            with unittest.mock.patch(
+                "gpo_lens.narration.call_llm",
+                side_effect=[routing, "Here is your summary."],
+            ):
+                from gpo_lens.cli import main
+
+                ret = main(["--db", str(rich_db), "ask", "Summary"])
+        assert ret == 0
+        captured = capsys.readouterr()
+        assert "unexpected parameters" in captured.err
 
 
 class TestDoctorExplain:

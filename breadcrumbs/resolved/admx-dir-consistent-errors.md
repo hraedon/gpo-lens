@@ -1,8 +1,9 @@
 ---
-status: open
+status: resolved
 priority: low
 kind: todo
 created: 2026-06-10
+resolved: 2026-06-10
 ---
 
 # Consistent --admx-dir error handling across all commands

@@ -1,8 +1,9 @@
 ---
-status: open
+status: resolved
 priority: high
 kind: bug
 created: 2026-06-10
+resolved: 2026-06-10
 ---
 
 # report subcommand --db argument shadows parent parser's --db
