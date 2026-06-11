@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+
+{% block title %}gpo-lens - Dashboard{% endblock %}
+
+{% block content %}
+<h1>Estate Dashboard</h1>
+
+<section class="summary-cards">
+  <div class="card">
+    <span class="card-value">{{ summary.gpo_count }}</span>
+    <span class="card-label">GPOs</span>
+  </div>
+  <div class="card">
+    <span class="card-value">{{ summary.som_count }}</span>
+    <span class="card-label">SOMs</span>
+  </div>
+  <div class="card">
+    <span class="card-value">{{ summary.total_settings }}</span>
+    <span class="card-label">Settings</span>
+  </div>
+  <div class="card">
+    <span class="card-value">{{ summary.domain }}</span>
+    <span class="card-label">Domain</span>
+  </div>
+</section>
+
+<section class="health-indicators">
+  <h2>Health Indicators</h2>
+  <table>
+    <thead>
+      <tr><th>Indicator</th><th>Count</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Version Skew</td><td>{{ summary.version_skew_count }}</td></tr>
+      <tr><td>MS16-072 Vulnerable</td><td>{{ summary.ms16_072_vulnerable_count }}</td></tr>
+      <tr><td>cPassword Hits</td><td>{{ summary.cpassword_hit_count }}</td></tr>
+      <tr><td>Disabled but Populated</td><td>{{ summary.disabled_but_populated_count }}</td></tr>
+      <tr><td>Unlinked GPOs</td><td>{{ summary.unlinked_count }}</td></tr>
+      <tr><td>Empty GPOs</td><td>{{ summary.empty_count }}</td></tr>
+      <tr><td>Enforced Links</td><td>{{ summary.enforced_link_count }}</td></tr>
+      <tr><td>Dangling Links</td><td>{{ summary.dangling_link_count }}</td></tr>
+      <tr><td>Broken References</td><td>{{ summary.broken_ref_count }}</td></tr>
+      <tr><td>WMI Filtered GPOs</td><td>{{ summary.wmi_filtered_gpo_count }}</td></tr>
+      <tr><td>Loopback GPOs</td><td>{{ summary.loopback_gpo_count }}</td></tr>
+      <tr><td>Conflicts</td><td>{{ summary.conflict_count }}</td></tr>
+    </tbody>
+  </table>
+</section>
+
+{% if findings %}
+<section class="doctor-findings">
+  <h2>Doctor Findings ({{ findings|length }})</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Severity</th>
+        <th>Category</th>
+        <th>GPO</th>
+        <th>Summary</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for finding in findings %}
+      <tr>
+        <td><span class="badge badge-{{ finding.severity }}">{{ finding.severity }}</span></td>
+        <td>{{ finding.category }}</td>
+        <td>
+          {% if finding.gpo_id %}
+          <a href="{{ url_for('gpo_detail', gpo_id=finding.gpo_id) }}">{{ finding.gpo_name }}</a>
+          {% else %}
+          {{ finding.gpo_name }}
+          {% endif %}
+        </td>
+        <td>{{ finding.summary }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% else %}
+<section class="doctor-findings">
+  <h2>Doctor Findings</h2>
+  <p>No findings.</p>
+</section>
+{% endif %}
+{% endblock %}

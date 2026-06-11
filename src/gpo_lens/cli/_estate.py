@@ -82,6 +82,66 @@ def _latest_snapshot_before(conn: sqlite3.Connection, sid: int) -> int | None:
     return row[0] if row else None
 
 
+def _emit_ingest_events(
+    conn: sqlite3.Connection,
+    prev: int,
+    sid: int,
+    gpo_count: int,
+) -> None:
+    from gpo_lens.events import append_events as _append_events
+
+    diff = queries.snapshot_diff(conn, prev, sid)
+    settings_changes = queries.snapshot_settings_diff(conn, prev, sid)
+    settings_by_gpo: dict[str, list[dict[str, str | None]]] = {}
+    for sc in settings_changes:
+        settings_by_gpo.setdefault(sc.gpo_id, []).append({
+            "cse": sc.cse,
+            "identity": sc.identity,
+            "gpo_name": sc.gpo_name,
+            "old": sc.old_value,
+            "new": sc.new_value,
+        })
+
+    evs: list[tuple[str, dict[str, object]]] = []
+
+    name_map: dict[str, str] = {}
+    for row in conn.execute("SELECT id, name FROM gpo WHERE snapshot_id = ?", (sid,)):
+        name_map[row[0]] = row[1]
+    for row in conn.execute("SELECT id, name FROM gpo WHERE snapshot_id = ?", (prev,)):
+        name_map.setdefault(row[0], row[1])
+
+    for gpo_id in diff.gpos_added:
+        evs.append(("gpo.created", {"gpo_id": gpo_id, "gpo_name": name_map.get(gpo_id, gpo_id)}))
+
+    for gpo_id in diff.gpos_removed:
+        evs.append(("gpo.deleted", {"gpo_id": gpo_id, "gpo_name": name_map.get(gpo_id, gpo_id)}))
+
+    for gpo_id in diff.settings_changed:
+        deltas = settings_by_gpo.get(gpo_id, [])
+        total = len(deltas)
+        capped = deltas[:100]
+        payload: dict[str, object] = {
+            "gpo_id": gpo_id,
+            "gpo_name": name_map.get(gpo_id, gpo_id),
+            "deltas": capped,
+        }
+        if total > 100:
+            payload["truncated"] = True
+            payload["total_count"] = total
+        evs.append(("gpo.modified", payload))
+
+    evs.append(("ingest.summary", {
+        "old_snapshot_id": prev,
+        "new_snapshot_id": sid,
+        "gpos_added": len(diff.gpos_added),
+        "gpos_removed": len(diff.gpos_removed),
+        "gpos_modified": len(diff.settings_changed),
+        "gpo_count": gpo_count,
+    }))
+
+    _append_events(conn, evs)
+
+
 def cmd_ingest(args: argparse.Namespace) -> None:
     estate = ingest.load_estate(args.sample_dir)
     conn = sqlite3.connect(args.db)
@@ -111,6 +171,7 @@ def cmd_ingest(args: argparse.Namespace) -> None:
                         }
                         for e in entries
                     ]
+                    _emit_ingest_events(conn, prev, sid, len(estate.gpos))
             _render_json(out)
         else:
             print(msg)
@@ -127,6 +188,7 @@ def cmd_ingest(args: argparse.Namespace) -> None:
                                 print(f"    [{sc.side}/{sc.cse}] {sc.identity}: {sc.change_type}")
                     else:
                         print("\nNo changes since previous snapshot.")
+                    _emit_ingest_events(conn, prev, sid, len(estate.gpos))
                 else:
                     print("\nNo previous snapshot to diff against.")
     finally:

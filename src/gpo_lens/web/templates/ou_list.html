@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+
+{% block title %}gpo-lens - OUs{% endblock %}
+
+{% block content %}
+<h1>Organizational Units</h1>
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Path</th>
+            <th>Links</th>
+            <th>Inheritance Blocked</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for som in soms %}
+        <tr>
+            <td><a href="{{ url_for('ou_detail', path=som.path) }}">{{ som.name }}</a></td>
+            <td>{{ som.path }}</td>
+            <td>{{ som.links | length }}</td>
+            <td>{% if som.inheritance_blocked %}Yes{% else %}No{% endif %}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

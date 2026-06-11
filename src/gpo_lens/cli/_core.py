@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import sys
 
+from gpo_lens import __version__
 from gpo_lens.cli._delegation import cmd_delegation, cmd_perms, cmd_sddl
 from gpo_lens.cli._diff import (
     cmd_baseline_diff,
@@ -12,6 +13,7 @@ from gpo_lens.cli._diff import (
     cmd_snapshots,
 )
 from gpo_lens.cli._estate import cmd_ingest, cmd_summary
+from gpo_lens.cli._events import cmd_events, cmd_events_export
 from gpo_lens.cli._helpers import DEFAULT_DB
 from gpo_lens.cli._hygiene import (
     cmd_blocked,
@@ -26,6 +28,7 @@ from gpo_lens.cli._hygiene import (
 )
 from gpo_lens.cli._narration import cmd_ask
 from gpo_lens.cli._report import cmd_report
+from gpo_lens.cli._serve import cmd_serve
 from gpo_lens.cli._settings import (
     cmd_admx_gaps,
     cmd_conflicts,
@@ -52,6 +55,7 @@ from gpo_lens.cli._util import cmd_repl
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="gpo-lens")
+    parser.add_argument("--version", action="version", version=f"gpo-lens {__version__}")
     parser.add_argument("--db", default=DEFAULT_DB, help="SQLite DB path")
     parser.add_argument("--json", action="store_true")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -149,6 +153,25 @@ def main(argv: list[str] | None = None) -> int:
 
     p = sub.add_parser("snapshots")
     p.set_defaults(func=cmd_snapshots)
+
+    p = sub.add_parser("events", help="Query the append-only event log")
+    p.add_argument("--since", help="Filter events by timestamp (ISO 8601 prefix)")
+    p.add_argument(
+        "--type", dest="event_type", help="Filter events by event_type (substring match)",
+    )
+    p.add_argument(
+        "--limit", type=int, default=1000, help="Max events to return (default: 1000)",
+    )
+    p.set_defaults(func=cmd_events)
+
+    # events-export
+    p = sub.add_parser("events-export", help="Export events to NDJSON and/or Splunk HEC")
+    p.add_argument("--ndjson", help="Path to write NDJSON output")
+    p.add_argument("--since", help="Filter events by timestamp (ISO 8601 prefix)")
+    p.add_argument(
+        "--sink", choices=["hec"], help="External sink to send events to",
+    )
+    p.set_defaults(func=cmd_events_export)
 
     p = sub.add_parser(
         "diff-settings",
@@ -328,6 +351,14 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("repl", help="Interactive Python REPL with the estate loaded")
     _add_src(p)
     p.set_defaults(func=cmd_repl)
+
+    # serve
+    p = sub.add_parser("serve", help="Launch the web UI")
+    p.add_argument("--host", default="127.0.0.1", help="Bind host (default: 127.0.0.1)")
+    p.add_argument("--port", type=int, default=8000, help="Bind port (default: 8000)")
+    p.add_argument("--open", action="store_true", help="Open browser on start")
+    p.add_argument("--root-path", default="", help="ASGI root_path for reverse-proxy mounting")
+    p.set_defaults(func=cmd_serve)
 
     args = parser.parse_args(argv)
     if not hasattr(args, "func"):

@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+
+{% block title %}gpo-lens - Baseline Comparison{% endblock %}
+
+{% block content %}
+<h1>Baseline Comparison</h1>
+
+{% if error %}
+<div class="banner error">{{ error }}</div>
+{% endif %}
+
+<form action="{{ url_for('baseline_post') }}" method="post" enctype="multipart/form-data">
+  <div style="margin-bottom:0.5rem;">
+    <label for="baseline-zip">Upload baseline zip:</label>
+    <input type="file" name="file" id="baseline-zip" accept=".zip">
+  </div>
+  <button type="submit">Compare</button>
+</form>
+
+{% if diff_entries %}
+<section>
+  <h2>Results ({{ diff_entries|length }} settings)</h2>
+  {% if total_count is defined %}
+  <p class="admx-rate">{{ unresolved_count }} of {{ total_count }} settings had no ADMX policy name</p>
+  {% endif %}
+  <table>
+    <thead>
+      <tr>
+        <th>Status</th>
+        <th>Side</th>
+        <th>CSE</th>
+        <th>Identity</th>
+        <th>Display Name</th>
+        <th>Expected</th>
+        <th>Actual</th>
+        <th>GPO(s)</th>
+        <th>ADMX Name</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for entry in diff_entries %}
+      <tr>
+        <td><span class="badge badge-{{ entry.status }}">{{ entry.status }}</span></td>
+        <td>{{ entry.side }}</td>
+        <td>{{ entry.cse }}</td>
+        <td>{{ entry.identity }}</td>
+        <td>{{ entry.display_name }}</td>
+        <td>{{ entry.expected_value }}</td>
+        <td>{{ entry.actual_value }}</td>
+        <td>{{ entry.gpo_id }}</td>
+        <td>{{ entry.admx_name }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+{% endblock %}

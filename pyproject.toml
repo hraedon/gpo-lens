@@ -1,6 +1,6 @@
 [project]
 name = "gpo-lens"
-version = "0.2.0"
+version = "0.2.2"
 description = "Local-first, read-only Group Policy analysis"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -13,6 +13,13 @@ dev = [
     "pytest>=8.3",
     "ruff>=0.7",
     "mypy>=1.13",
+    "httpx>=0.28",
+]
+web = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "jinja2>=3.1",
+    "python-multipart>=0.0.18",
 ]
 
 [project.scripts]

@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+
+{% block title %}gpo-lens - Ingest{% endblock %}
+
+{% block content %}
+<h1>Ingest Estate</h1>
+
+{% if error %}
+<div class="banner error">{{ error }}</div>
+{% endif %}
+
+<form id="ingest-form" action="{{ url_for('ingest_post') }}" method="post" enctype="multipart/form-data">
+    <div id="drop-zone" style="border:2px dashed #ccc;padding:2rem;text-align:center;">
+        <p>Drag and drop a zip file here, or click to browse</p>
+        <input type="file" name="file" accept=".zip" id="file-input" style="display:none;">
+        <button type="button" onclick="document.getElementById('file-input').click()">Browse</button>
+    </div>
+    <button type="submit" style="margin-top:1rem;">Upload</button>
+</form>
+
+<script>
+(function() {
+    var dropZone = document.getElementById('drop-zone');
+    var fileInput = document.getElementById('file-input');
+    var form = document.getElementById('ingest-form');
+
+    dropZone.addEventListener('dragover', function(e) {
+        e.preventDefault();
+        dropZone.style.borderColor = '#666';
+    });
+    dropZone.addEventListener('dragleave', function(e) {
+        e.preventDefault();
+        dropZone.style.borderColor = '#ccc';
+    });
+    dropZone.addEventListener('drop', function(e) {
+        e.preventDefault();
+        dropZone.style.borderColor = '#ccc';
+        if (e.dataTransfer.files.length) {
+            fileInput.files = e.dataTransfer.files;
+            form.submit();
+        }
+    });
+    fileInput.addEventListener('change', function() {
+        if (fileInput.files.length) {
+            form.submit();
+        }
+    });
+})();
+</script>
+
+<h2>Current Snapshots</h2>
+{% if snapshots %}
+<table>
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>Domain</th>
+            <th>Taken At</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for snap in snapshots %}
+        <tr>
+            <td>{{ snap[0] }}</td>
+            <td>{{ snap[1] }}</td>
+            <td>{{ snap[2] }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p>No snapshots yet.</p>
+{% endif %}
+{% endblock %}
