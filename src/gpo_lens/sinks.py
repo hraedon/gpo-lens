@@ -1,0 +1,152 @@
+"""Event sinks for NDJSON file and Splunk HEC (stdlib-only)."""
+
+from __future__ import annotations
+
+import json
+import os
+import ssl
+import sys
+import threading
+import urllib.error
+import urllib.request
+from typing import Any
+
+
+class NdjsonSink:
+    def __init__(self, path: str) -> None:
+        self.path = path
+        self._lock = threading.Lock()
+        self._closed = False
+        self._fh = open(path, "a", encoding="utf-8")
+
+    def write(self, event: dict[str, Any]) -> None:
+        if self._closed:
+            return
+        line = json.dumps(event, sort_keys=True)
+        with self._lock:
+            if self._closed:
+                return
+            self._fh.write(line + "\n")
+            self._fh.flush()
+
+    def write_batch(self, events: list[dict[str, Any]]) -> None:
+        if self._closed:
+            return
+        with self._lock:
+            if self._closed:
+                return
+            for event in events:
+                self._fh.write(json.dumps(event, sort_keys=True) + "\n")
+            self._fh.flush()
+
+    def close(self) -> None:
+        with self._lock:
+            if self._closed:
+                return
+            self._closed = True
+            self._fh.close()
+
+    def __enter__(self) -> NdjsonSink:
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        self.close()
+
+
+class HecSink:
+    def __init__(
+        self,
+        url: str,
+        token: str,
+        *,
+        verify_tls: bool = True,
+        timeout: int = 30,
+    ) -> None:
+        self.url = url.rstrip("/")
+        self.token = token
+        self.verify_tls = verify_tls
+        self.timeout = timeout
+
+    @classmethod
+    def from_env(cls) -> HecSink | None:
+        hec_url = os.environ.get("GPO_LENS_HEC_URL")
+        hec_token = os.environ.get("GPO_LENS_HEC_TOKEN")
+        if not hec_url or not hec_token:
+            return None
+        verify = os.environ.get("GPO_LENS_HEC_VERIFY_TLS", "true").lower() != "false"
+        return cls(url=hec_url, token=hec_token, verify_tls=verify)
+
+    def _post(self, payload: dict[str, Any]) -> bool:
+        endpoint = f"{self.url}/services/collector/event"
+        data = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(
+            endpoint,
+            data=data,
+            headers={
+                "Authorization": f"Splunk {self.token}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        if not self.verify_tls:
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+        else:
+            ctx = None
+        try:
+            kwargs: dict[str, Any] = {"timeout": self.timeout}
+            if ctx is not None:
+                kwargs["context"] = ctx
+            with urllib.request.urlopen(req, **kwargs) as resp:
+                code: int = resp.getcode()
+                return code == 200
+        except (ssl.SSLError, OSError) as exc:
+            print(f"Warning: HEC SSL/socket error: {exc}", file=sys.stderr)
+            return False
+        except urllib.error.HTTPError as exc:
+            print(f"Warning: HEC returned HTTP {exc.code}", file=sys.stderr)
+            return False
+        except urllib.error.URLError as exc:
+            print(f"Warning: HEC transport error: {exc.reason}", file=sys.stderr)
+            return False
+        except TimeoutError:
+            print("Warning: HEC request timed out", file=sys.stderr)
+            return False
+
+    def send(self, event: dict[str, Any]) -> bool:
+        payload = {"event": event, "sourcetype": "gpo_lens:change"}
+        return self._post(payload)
+
+    def send_batch(self, events: list[dict[str, Any]]) -> bool:
+        if not events:
+            return True
+        payload = {
+            "event": events,
+            "sourcetype": "gpo_lens:change",
+        }
+        return self._post(payload)
+
+
+def emit_events(
+    events: list[dict[str, Any]],
+    *,
+    ndjson_path: str | None = None,
+    hec_sink: HecSink | None = None,
+) -> dict[str, bool]:
+    results: dict[str, bool] = {"ndjson": False, "hec": False}
+    if ndjson_path:
+        try:
+            with NdjsonSink(ndjson_path) as sink:
+                sink.write_batch(events)
+            results["ndjson"] = True
+        except Exception as exc:
+            print(f"Warning: NDJSON sink failed: {exc}", file=sys.stderr)
+            results["ndjson"] = False
+    if hec_sink:
+        try:
+            results["hec"] = hec_sink.send_batch(events)
+        except Exception as exc:
+            print(f"Warning: HEC sink failed: {exc}", file=sys.stderr)
+            results["hec"] = False
+    return results

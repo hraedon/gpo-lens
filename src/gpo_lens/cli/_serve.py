@@ -1,0 +1,45 @@
+from __future__ import annotations
+
+import sys
+import webbrowser
+
+from gpo_lens.cli._helpers import DEFAULT_DB
+
+_LOOPBACK_ADDRESSES = {"127.0.0.1", "::1", "localhost"}
+
+
+def cmd_serve(args: object) -> int:
+    import argparse
+
+    a = args if isinstance(args, argparse.Namespace) else argparse.Namespace()
+    db = getattr(a, "db", DEFAULT_DB)
+    host = getattr(a, "host", "127.0.0.1")
+    port = getattr(a, "port", 8000)
+    open_browser = getattr(a, "open", False)
+    root_path = getattr(a, "root_path", "")
+
+    if host not in _LOOPBACK_ADDRESSES:
+        print(
+            "Error: Binding to non-loopback address requires an auth provider "
+            "(none configured). Use --host 127.0.0.1 for local access.",
+            file=sys.stderr,
+        )
+        return 1
+
+    try:
+        from gpo_lens.web.app import create_app
+    except ImportError:
+        print("Install the web extra: pip install 'gpo-lens[web]'", file=sys.stderr)
+        return 1
+
+    import uvicorn
+
+    app = create_app(db, root_path=root_path)
+
+    if open_browser:
+        bracketed = f"[{host}]" if ":" in host else host
+        url = f"http://{bracketed}:{port}"
+        webbrowser.open(url)
+
+    uvicorn.run(app, host=host, port=port)
+    return 0

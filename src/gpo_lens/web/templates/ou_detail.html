@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+
+{% block title %}gpo-lens - OU Detail{% endblock %}
+
+{% block content %}
+{% if som is none %}
+<h1>OU not found</h1>
+<p>The requested path was not found in this estate.</p>
+{% else %}
+<h1>{{ som.name }}</h1>
+<p><strong>Path:</strong> {{ som.path }}</p>
+<p><strong>Inheritance Blocked:</strong> {% if som.inheritance_blocked %}Yes{% else %}No{% endif %}</p>
+
+{% if loopback_warning %}
+<div class="banner warning">
+    Loopback processing is configured in this OU's GPO chain. User-side settings may be replaced or merged — this tool does not simulate per-user RSoP.
+</div>
+{% endif %}
+
+<h2>Effective GPO Chain</h2>
+<table>
+    <thead>
+        <tr>
+            <th>Order</th>
+            <th>GPO</th>
+            <th>Enabled</th>
+            <th>Enforced</th>
+            <th>Target</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for eg in effective_gpos %}
+        <tr>
+            <td>{{ eg.order }}</td>
+            <td>{{ eg.gpo_name }}</td>
+            <td>{% if eg.enabled %}Yes{% else %}No{% endif %}</td>
+            <td>{% if eg.enforced %}Yes{% else %}No{% endif %}</td>
+            <td>{{ eg.target }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<h2>Effective Settings</h2>
+<table>
+    <thead>
+        <tr>
+            <th>CSE</th>
+            <th>Side</th>
+            <th>Identity</th>
+            <th>Value</th>
+            <th>Winner GPO</th>
+            <th>Enforced</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for s in settings %}
+        <tr>
+            <td>{{ s.cse }}</td>
+            <td>{{ s.side }}</td>
+            <td>{{ s.identity }}</td>
+            <td>{{ s.display_value }}</td>
+            <td>{{ s.winner_gpo_name }}</td>
+            <td>{% if s.enforced %}Yes{% else %}No{% endif %}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<h2>Conflicts</h2>
+{% if conflicts %}
+<table>
+    <thead>
+        <tr>
+            <th>Identity</th>
+            <th>GPOs</th>
+            <th>Winner</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for c in conflicts %}
+        <tr>
+            <td>{{ c.identity }}</td>
+            <td>
+                {% for gpo_name, value, status in c.entries %}
+                {{ gpo_name }} ({{ status }}: {{ value }}){% if not loop.last %}, {% endif %}
+                {% endfor %}
+            </td>
+            <td>{{ c.winner }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p>No conflicts detected for this OU.</p>
+{% endif %}
+{% endif %}
+{% endblock %}

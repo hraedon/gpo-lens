@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}gpo-lens{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='style.css') }}">
+</head>
+<body>
+    <nav>
+        <a href="{{ url_for('home') }}">Home</a>
+        <a href="{{ url_for('ou_list') }}">OU Browser</a>
+        <a href="{{ url_for('ingest_get') }}">Ingest</a>
+        <a href="{{ url_for('changelog') }}">Changelog</a>
+        <a href="{{ url_for('baseline_get') }}">Baseline</a>
+        <a href="{{ url_for('ask_get') }}">Ask</a>
+    </nav>
+    <main>
+        {% block content %}{% endblock %}
+    </main>
+</body>
+</html>

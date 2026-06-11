@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+
+{% block title %}gpo-lens - Ask{% endblock %}
+
+{% block content %}
+<h1>Ask</h1>
+
+{% if not narration_available %}
+<div class="banner info">
+Narration is not configured. Set the GPO_LENS_LLM_URL and
+GPO_LENS_API_KEY environment variables to enable AI-powered analysis.
+</div>
+{% endif %}
+
+<form action="{{ url_for('ask_post') }}" method="post">
+  <label for="question">Question</label>
+  <input type="text" id="question" name="question" required {% if not narration_available %}disabled{% endif %}>
+  <button type="submit" {% if not narration_available %}disabled{% endif %}>Ask</button>
+</form>
+
+{% if error %}
+<div class="banner error">{{ error }}</div>
+{% endif %}
+
+{% if answer %}
+<section>
+  <h2>Answer</h2>
+  <pre>{{ answer }}</pre>
+</section>
+{% endif %}
+
+{% if facts %}
+<section>
+  <h2>Underlying Facts</h2>
+  <pre>{{ facts|tojson(indent=2) }}</pre>
+</section>
+{% endif %}
+{% endblock %}

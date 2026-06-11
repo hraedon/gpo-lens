@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+
+{% block title %}gpo-lens - Changelog{% endblock %}
+
+{% block content %}
+<h1>Snapshot Changelog</h1>
+
+<form action="{{ url_for('changelog') }}" method="get">
+  <div style="margin-bottom:0.5rem;">
+    <label for="snap_a">Snapshot A (older):</label>
+    <select name="snap_a" id="snap_a">
+      <option value="">-- Select --</option>
+      {% for snap in snapshots %}
+      <option value="{{ snap[0] }}" {% if snap_a == snap[0] %}selected{% endif %}>
+        #{{ snap[0] }} — {{ snap[1] }} ({{ snap[2] }})
+      </option>
+      {% endfor %}
+    </select>
+  </div>
+  <div style="margin-bottom:0.5rem;">
+    <label for="snap_b">Snapshot B (newer):</label>
+    <select name="snap_b" id="snap_b">
+      <option value="">-- Select --</option>
+      {% for snap in snapshots %}
+      <option value="{{ snap[0] }}" {% if snap_b == snap[0] %}selected{% endif %}>
+        #{{ snap[0] }} — {{ snap[1] }} ({{ snap[2] }})
+      </option>
+      {% endfor %}
+    </select>
+  </div>
+  <button type="submit">Compare</button>
+</form>
+
+{% if entries %}
+<section>
+  <h2>Changes ({{ entries|length }} entries)</h2>
+  {% for entry in entries %}
+  <div class="changelog-entry {% if entry.kind == 'metadata_only' %}metadata-only{% else %}settings-detail{% endif %}">
+    <h3>
+      <a href="{{ url_for('gpo_detail', gpo_id=entry.gpo_id) }}">{{ entry.gpo_name }}</a>
+      — {{ entry.side }}
+      {% if entry.kind == 'metadata_only' %}
+      <span class="badge badge-info">metadata only</span>
+      {% else %}
+      <span class="badge badge-medium">settings detail</span>
+      {% endif %}
+    </h3>
+    <p>{{ entry.summary }}</p>
+    {% if entry.version_change %}
+    <p class="version-change">
+      Version: DS {{ entry.version_change.old_ds }}&rarr;{{ entry.version_change.new_ds }},
+      SYSVOL {{ entry.version_change.old_sysvol }}&rarr;{{ entry.version_change.new_sysvol }}
+    </p>
+    {% endif %}
+    {% if entry.setting_changes %}
+    <details>
+      <summary>{{ entry.setting_changes|length }} setting change(s)</summary>
+      <table>
+        <thead>
+          <tr><th>Identity</th><th>Type</th><th>Old</th><th>New</th></tr>
+        </thead>
+        <tbody>
+          {% for sc in entry.setting_changes %}
+          <tr>
+            <td>{{ sc.identity }}</td>
+            <td>{{ sc.change_type }}</td>
+            <td>{{ sc.old_value or '' }}</td>
+            <td>{{ sc.new_value or '' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </details>
+    {% endif %}
+  </div>
+  {% endfor %}
+</section>
+{% elif snap_a is not none and snap_b is not none %}
+<section>
+  <h2>Changes</h2>
+  <p>No changes found between the selected snapshots.</p>
+</section>
+{% endif %}
+{% endblock %}

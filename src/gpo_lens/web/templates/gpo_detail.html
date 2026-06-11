@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+
+{% block title %}gpo-lens - {{ gpo.name }}{% endblock %}
+
+{% block content %}
+<h1>{{ gpo.name }}</h1>
+
+<section class="gpo-metadata">
+  <h2>Metadata</h2>
+  <table>
+    <tbody>
+      <tr><th>Domain</th><td>{{ gpo.domain }}</td></tr>
+      <tr><th>ID</th><td>{{ gpo.id }}</td></tr>
+      <tr><th>Created</th><td>{{ gpo.created or "—" }}</td></tr>
+      <tr><th>Modified</th><td>{{ gpo.modified or "—" }}</td></tr>
+      <tr><th>Owner</th><td>{{ gpo.owner or "—" }}</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section class="gpo-status">
+  <h2>Status</h2>
+  <table>
+    <thead>
+      <tr><th>Side</th><th>Enabled</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Computer</td>
+        <td>
+          {% if gpo.computer_enabled %}
+          <span class="badge badge-enabled">Enabled</span>
+          {% else %}
+          <span class="badge badge-disabled">Disabled</span>
+          {% endif %}
+        </td>
+      </tr>
+      <tr>
+        <td>User</td>
+        <td>
+          {% if gpo.user_enabled %}
+          <span class="badge badge-enabled">Enabled</span>
+          {% else %}
+          <span class="badge badge-disabled">Disabled</span>
+          {% endif %}
+        </td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<section class="gpo-versions">
+  <h2>Version Info</h2>
+  <table>
+    <thead>
+      <tr><th>Side</th><th>DS (GPC)</th><th>SYSVOL (GPT)</th><th>Skew</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Computer</td>
+        <td>{{ gpo.computer_ver_ds if gpo.computer_ver_ds is not none else "—" }}</td>
+        <td>{{ gpo.computer_ver_sysvol if gpo.computer_ver_sysvol is not none else "—" }}</td>
+        <td>
+          {% if gpo.computer_version_skew %}
+          <span class="badge badge-critical">SKEW</span>
+          {% else %}
+          —
+          {% endif %}
+        </td>
+      </tr>
+      <tr>
+        <td>User</td>
+        <td>{{ gpo.user_ver_ds if gpo.user_ver_ds is not none else "—" }}</td>
+        <td>{{ gpo.user_ver_sysvol if gpo.user_ver_sysvol is not none else "—" }}</td>
+        <td>
+          {% if gpo.user_version_skew %}
+          <span class="badge badge-critical">SKEW</span>
+          {% else %}
+          —
+          {% endif %}
+        </td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+{% if gpo.wmi_filter %}
+<section class="gpo-wmi">
+  <h2>WMI Filter</h2>
+  <p>{{ gpo.wmi_filter }}</p>
+</section>
+{% endif %}
+
+{% if gpo.links %}
+<section class="gpo-links">
+  <h2>Links</h2>
+  <table>
+    <thead>
+      <tr><th>SOM Name</th><th>SOM Path</th><th>Link Enabled</th><th>Enforced</th></tr>
+    </thead>
+    <tbody>
+      {% for link in gpo.links %}
+      <tr>
+        <td>{{ link.som_name }}</td>
+        <td>{{ link.som_path }}</td>
+        <td>
+          {% if link.link_enabled %}
+          <span class="badge badge-enabled">Yes</span>
+          {% else %}
+          <span class="badge badge-disabled">No</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if link.enforced %}
+          <span class="badge badge-high">Enforced</span>
+          {% else %}
+          —
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+{% for side_name, side_settings in settings_by_side.items() %}
+<section class="gpo-settings">
+  <h2>{{ side_name }} Side Settings</h2>
+  {% if side_name in disabled_sides %}
+  <p><span class="badge badge-high">Disabled but populated</span> This side is disabled but contains settings that will not apply.</p>
+  {% endif %}
+  {% for cse_name, cse_settings in side_settings.items() %}
+  <h3>{{ cse_name }}</h3>
+  <table>
+    <thead>
+      <tr><th>Identity</th><th>Name</th><th>Value</th></tr>
+    </thead>
+    <tbody>
+      {% for s in cse_settings %}
+      <tr{% if s.from_disabled_side %} class="disabled-setting"{% endif %}>
+        <td>{{ s.identity }}</td>
+        <td>{{ s.display_name }}</td>
+        <td>{{ s.display_value }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endfor %}
+</section>
+{% endfor %}
+
+{% if gpo.delegation %}
+<section class="gpo-delegation">
+  <h2>Delegation</h2>
+  <table>
+    <thead>
+      <tr><th>Trustee</th><th>Permission</th><th>Allowed</th></tr>
+    </thead>
+    <tbody>
+      {% for d in gpo.delegation %}
+      <tr>
+        <td>{{ d.trustee }}</td>
+        <td>{{ d.permission }}</td>
+        <td>
+          {% if d.allowed %}
+          <span class="badge badge-enabled">Allowed</span>
+          {% else %}
+          <span class="badge badge-disabled">Denied</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+{% endblock %}

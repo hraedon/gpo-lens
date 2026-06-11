@@ -133,9 +133,12 @@ class TestArchitecture:
         "ingest",
         "store",
         "queries",
+        "detection",
         "admx_parser",
         "display",
         "report",
+        "events",
+        "sinks",
     ])
     def test_core_modules_do_not_import_narration(self, module_name: str) -> None:
         import gpo_lens
@@ -148,4 +151,30 @@ class TestArchitecture:
             source = fh.read()
         assert not re.search(r"import.*narration", source), (
             f"{module_name}.py contains a narration import"
+        )
+
+    @pytest.mark.parametrize("module_name", [
+        "model",
+        "normalize",
+        "ingest",
+        "store",
+        "queries",
+        "detection",
+        "admx_parser",
+        "display",
+        "report",
+        "events",
+        "sinks",
+    ])
+    def test_core_modules_do_not_import_web(self, module_name: str) -> None:
+        import gpo_lens
+
+        pkg_dir = os.path.dirname(gpo_lens.__file__)
+        filepath = os.path.join(pkg_dir, f"{module_name}.py")
+        if not os.path.exists(filepath):
+            pytest.skip(f"{filepath} not found")
+        with open(filepath) as fh:
+            source = fh.read()
+        assert not re.search(r"import.*\bweb\b", source), (
+            f"{module_name}.py contains a web import"
         )
