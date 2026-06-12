@@ -24,7 +24,7 @@ makes this tool unlike anything else in the niche.
   code and no design doc.
 - Data hygiene verified: `samples/` (incl. the real WORK-DOMAIN.local work-domain
   SYSVOL) is gitignored and has **never been committed**. Committed calibration
-  tests carry only aggregate counts (129 GPOs, 1,551 SOMs), but a sanitization
+  tests carry only aggregate counts (100+ GPOs, 1,000+ SOMs), but a sanitization
   review is still required before any public publication.
 
 ---

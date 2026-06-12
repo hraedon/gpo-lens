@@ -438,7 +438,7 @@ def test_loopback_awareness_merge_mode():
     assert awareness == {"gpo-1": "merge"}
 
 
-def test_loopback_awareness_none_when_unknown():
+def test_loopback_awareness_unknown_mode():
     from gpo_lens.model import Setting
 
     gpo = _make_gpo(
@@ -454,12 +454,229 @@ def test_loopback_awareness_none_when_unknown():
     )
     estate = Estate(gpos=[gpo])
     awareness = queries.loopback_awareness(estate)
-    assert awareness == {}  # "Enabled" doesn't map to merge/replace
+    assert awareness == {"gpo-1": "unknown"}
 
 
 def test_loopback_awareness_empty():
     estate = Estate(gpos=[_make_gpo()])
     assert queries.loopback_awareness(estate) == {}
+
+
+def test_loopback_awareness_raw_replace():
+    from gpo_lens.model import Setting
+
+    gpo = _make_gpo(
+        id="gpo-1",
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="Computer", cse="Security",
+                identity="Configure user Group Policy loopback processing mode",
+                display_name="Loopback", display_value="Some display text",
+                raw={
+                    "tag": "Security",
+                    "@attr": {
+                        "Name": "Configure user Group Policy loopback processing mode",
+                        "Type": "Policy",
+                    },
+                    "children": [{"tag": "SettingString", "text": "Replace"}],
+                },
+                from_disabled_side=False,
+            ),
+        ],
+    )
+    estate = Estate(gpos=[gpo])
+    awareness = queries.loopback_awareness(estate)
+    assert awareness == {"gpo-1": "replace"}
+
+
+def test_loopback_awareness_raw_merge():
+    from gpo_lens.model import Setting
+
+    gpo = _make_gpo(
+        id="gpo-1",
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="Computer", cse="Security",
+                identity="Configure Group Policy loopback processing mode",
+                display_name="Loopback", display_value="Configured",
+                raw={
+                    "tag": "Security",
+                    "@attr": {
+                        "Name": "Configure Group Policy loopback processing mode",
+                        "Type": "Policy",
+                    },
+                    "children": [{"tag": "SettingString", "text": "Merge"}],
+                },
+                from_disabled_side=False,
+            ),
+        ],
+    )
+    estate = Estate(gpos=[gpo])
+    awareness = queries.loopback_awareness(estate)
+    assert awareness == {"gpo-1": "merge"}
+
+
+def test_loopback_awareness_raw_numeric_replace():
+    from gpo_lens.model import Setting
+
+    gpo = _make_gpo(
+        id="gpo-1",
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="Computer", cse="Security",
+                identity="Configure user Group Policy loopback processing mode",
+                display_name="Loopback", display_value="Enabled",
+                raw={
+                    "tag": "Security",
+                    "@attr": {
+                        "Name": "Configure user Group Policy loopback processing mode",
+                        "Type": "Policy",
+                    },
+                    "children": [{"tag": "SettingBoolean", "text": "1"}],
+                },
+                from_disabled_side=False,
+            ),
+        ],
+    )
+    estate = Estate(gpos=[gpo])
+    awareness = queries.loopback_awareness(estate)
+    assert awareness == {"gpo-1": "replace"}
+
+
+def test_loopback_awareness_raw_numeric_merge():
+    from gpo_lens.model import Setting
+
+    gpo = _make_gpo(
+        id="gpo-1",
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="Computer", cse="Security",
+                identity="Configure user Group Policy loopback processing mode",
+                display_name="Loopback", display_value="Enabled",
+                raw={
+                    "tag": "Security",
+                    "@attr": {
+                        "Name": "Configure user Group Policy loopback processing mode",
+                        "Type": "Policy",
+                    },
+                    "children": [{"tag": "SettingBoolean", "text": "2"}],
+                },
+                from_disabled_side=False,
+            ),
+        ],
+    )
+    estate = Estate(gpos=[gpo])
+    awareness = queries.loopback_awareness(estate)
+    assert awareness == {"gpo-1": "merge"}
+
+
+def test_loopback_awareness_colon_separated():
+    from gpo_lens.model import Setting
+
+    gpo = _make_gpo(
+        id="gpo-1",
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="Computer", cse="Security",
+                identity="Configure user Group Policy loopback processing mode",
+                display_name="Loopback", display_value="Loopback: Replace",
+                raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    estate = Estate(gpos=[gpo])
+    awareness = queries.loopback_awareness(estate)
+    assert awareness == {"gpo-1": "replace"}
+
+
+def test_loopback_awareness_unrecognized_text_is_unknown():
+    from gpo_lens.model import Setting
+
+    gpo = _make_gpo(
+        id="gpo-1",
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="Computer", cse="Security",
+                identity="Configure user Group Policy loopback processing mode",
+                display_name="Loopback", display_value="Custom Loopback Mode",
+                raw={
+                    "tag": "Security",
+                    "@attr": {
+                        "Name": "Configure user Group Policy loopback processing mode",
+                        "Type": "Policy",
+                    },
+                    "children": [{"tag": "SettingString", "text": "CustomValue"}],
+                },
+                from_disabled_side=False,
+            ),
+        ],
+    )
+    estate = Estate(gpos=[gpo])
+    awareness = queries.loopback_awareness(estate)
+    assert awareness == {"gpo-1": "unknown"}
+
+
+def test_loopback_awareness_none_display_value():
+    from gpo_lens.model import Setting
+
+    gpo = _make_gpo(
+        id="gpo-1",
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="Computer", cse="Security",
+                identity="Configure user Group Policy loopback processing mode",
+                display_name="Loopback", display_value="",
+                raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    estate = Estate(gpos=[gpo])
+    awareness = queries.loopback_awareness(estate)
+    assert awareness == {}
+
+
+def test_loopback_awareness_all_variants_bannered():
+    from gpo_lens.model import Setting
+
+    gpo_replace = _make_gpo(
+        id="gpo-replace",
+        settings=[
+            Setting(
+                gpo_id="gpo-replace", side="Computer", cse="Security",
+                identity="Configure user Group Policy loopback processing mode",
+                display_name="Loopback", display_value="Replace",
+                raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    gpo_merge = _make_gpo(
+        id="gpo-merge",
+        settings=[
+            Setting(
+                gpo_id="gpo-merge", side="Computer", cse="Security",
+                identity="Configure user Group Policy loopback processing mode",
+                display_name="Loopback", display_value="Merge",
+                raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    gpo_unknown = _make_gpo(
+        id="gpo-unknown",
+        settings=[
+            Setting(
+                gpo_id="gpo-unknown", side="Computer", cse="Security",
+                identity="Configure user Group Policy loopback processing mode",
+                display_name="Loopback", display_value="OddValue",
+                raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    estate = Estate(gpos=[gpo_replace, gpo_merge, gpo_unknown])
+    awareness = queries.loopback_awareness(estate)
+    assert len(awareness) == 3
+    assert awareness["gpo-replace"] == "replace"
+    assert awareness["gpo-merge"] == "merge"
+    assert awareness["gpo-unknown"] == "unknown"
 
 
 def test_wmi_filtered_gpos():

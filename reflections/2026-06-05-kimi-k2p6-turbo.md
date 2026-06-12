@@ -33,7 +33,7 @@ Next natural steps (in dependency order):
 
 ## Gaps to flag
 
-- `tests/test_calibration.py` line 105-108: MS16-072 work calibration asserts `== 112` flagged GPOs. This is a hardcoded number from the current export. If the work domain's permissions change, this test will break. Consider relaxing to a range or just asserting `> 0`.
+- `tests/test_calibration.py` line 105-108: MS16-072 work calibration asserts `== 100+` flagged GPOs. This is a hardcoded number from the current export. If the work domain's permissions change, this test will break. Consider relaxing to a range or just asserting `> 0`.
 - `src/gpo_lens/ingest.py` line 197-237: The delegation parser now handles both `TrusteePermissions` (new) and `Permission` (old) XML structures. The old structure is not tested — no sample data uses it. If someone has an older export, this path is untested.
 - `src/gpo_lens/queries.py` line 142-147: MS16-072 query only checks `Read` permission. This is correct per Microsoft guidance, but the user noted that computers *are* getting policies in the lab domain despite the flag. The query is about SYSVOL read access, not about whether the GPO is applied. This semantic gap might confuse users — the CLI output should probably explain this.
 - `src/gpo_lens/store.py` line 120: The `som_link` PK now includes `target`. This was a schema fix. Existing databases created before this change will need to be rebuilt (or the schema won't match). This is acceptable for a pre-1.0 tool, but worth noting.

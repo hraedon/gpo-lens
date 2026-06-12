@@ -2,7 +2,7 @@
 
 Local-first, read-only Group Policy analysis. Ingests copies of a GPO estate
 (never touches live AD) and answers questions about it. The deterministic core
-has no AI in the truth path — any LLM layer only narrates facts the core
+has no AI in the truth path — the LLM layer only narrates facts the core
 already computed.
 
 ## Quick start
@@ -16,6 +16,7 @@ scripts/Export-GpoEstate.ps1 -OutputDir C:\GpoExport
 # Copy the export to your analysis machine, then:
 gpo-lens ingest C:\GpoExport
 gpo-lens doctor
+# Optional: set GPO_LENS_API_KEY for AI narration (ask, doctor --explain). Without it, narration silently degrades to raw deterministic output.
 ```
 
 ## What it does
@@ -31,6 +32,7 @@ gpo-lens doctor
   but does not simulate per-user RSoP.
 - **Tier 3 — AI narration (optional).** `doctor --explain` and natural-language
   `ask` command. Narrates verified facts only; never the source of truth.
+  Requires `GPO_LENS_API_KEY`; degrades gracefully without it.
 
 ## Install
 
@@ -50,8 +52,19 @@ pip install -e .
 | `summary` | Estate overview |
 | `ingest <path>` | Parse collector output into DB |
 | `baseline-diff` | Compare against MS baseline |
+| `diff` | Full snapshot diff |
 | `diff-settings` | Per-setting snapshot diff |
-| `report --out report.html --format html` | Export audit-ready HTML report |
+| `changelog` | Version-aware change log |
+| `report --output report.html --format html` | Export audit-ready HTML report |
+| `repl` | Interactive Python REPL with the estate loaded |
+| `settings-at <som>` | Effective settings at a SOM path |
+| `loopback` | GPOs that configure loopback processing |
+| `wmi` | GPOs with WMI filters attached |
+| `wmi-filters` | List WMI filters with query text |
+| `broken-refs` | Detect broken references in settings |
+| `admx-gaps` | Settings with raw key paths (no ADMX policy name) |
+| `topology-check` | Cross-check OU tree against inheritance |
+| `delegation` | Delegation deep-dive audit |
 
 ## Design principles
 

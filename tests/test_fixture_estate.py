@@ -21,6 +21,7 @@ from gpo_lens.queries import (
     empty_gpos,
     enforced_links,
     estate_doctor,
+    loopback_awareness,
     loopback_gpos,
     ms16_072_vulnerable,
     settings_at_som,
@@ -42,6 +43,8 @@ GPO_IDS = {
     "blocked_ext": "ffffffff-ffff-ffff-ffff-ffffffffffff",
     "user_disabled": "11111111-1111-1111-1111-111111111111",
     "conflict": "22222222-2222-2222-2222-222222222222",
+    "loopback_merge": "33333333-3333-3333-3333-333333333333",
+    "loopback_unknown": "44444444-4444-4444-4444-444444444444",
 }
 GPO_NAMES = {
     "cpassword": "gpo-cpassword",
@@ -52,6 +55,8 @@ GPO_NAMES = {
     "blocked_ext": "gpo-blocked-ext",
     "user_disabled": "gpo-user-disabled",
     "conflict": "gpo-conflict",
+    "loopback_merge": "gpo-loopback-merge",
+    "loopback_unknown": "gpo-loopback-unknown",
 }
 ROOT_DN = "dc=fakefixture,dc=local"
 CHILD_DN = "ou=child,dc=fakefixture,dc=local"
@@ -65,7 +70,7 @@ def fixture_estate():
 # AC-1: fixture loads via load_estate
 
 def test_fixture_gpo_count(fixture_estate):
-    assert len(fixture_estate.gpos) == 8
+    assert len(fixture_estate.gpos) == 10
 
 
 def test_fixture_som_counts(fixture_estate):
@@ -106,11 +111,22 @@ def test_fixture_enforced_links(fixture_estate):
 
 def test_fixture_loopback_detected(fixture_estate):
     hits = loopback_gpos(fixture_estate)
-    assert len(hits) == 1
-    gpo, setting = hits[0]
-    assert gpo.id == GPO_IDS["loopback"]
-    assert setting.side == "Computer"
-    assert "loopback" in setting.identity.lower()
+    assert len(hits) == 3
+    gpo_ids = {g.id for g, _ in hits}
+    assert GPO_IDS["loopback"] in gpo_ids
+    assert GPO_IDS["loopback_merge"] in gpo_ids
+    assert GPO_IDS["loopback_unknown"] in gpo_ids
+    for g, setting in hits:
+        assert setting.side == "Computer"
+        assert "loopback" in setting.identity.lower()
+
+
+def test_fixture_loopback_awareness(fixture_estate):
+    awareness = loopback_awareness(fixture_estate)
+    assert len(awareness) == 3
+    assert awareness[GPO_IDS["loopback"]] == "replace"
+    assert awareness[GPO_IDS["loopback_merge"]] == "merge"
+    assert awareness[GPO_IDS["loopback_unknown"]] == "unknown"
 
 
 def test_fixture_version_skew(fixture_estate):
@@ -178,12 +194,12 @@ def test_fixture_ou_tree(fixture_estate):
 def test_fixture_estate_doctor(fixture_estate):
     from gpo_lens.queries import estate_summary
     summary = estate_summary(fixture_estate)
-    assert summary.gpo_count == 8
+    assert summary.gpo_count == 10
     assert summary.som_count == 2
     assert summary.ms16_072_vulnerable_count == 1
     assert summary.cpassword_hit_count == 1
     assert summary.version_skew_count == 1
-    assert summary.loopback_gpo_count == 1
+    assert summary.loopback_gpo_count == 3
     assert summary.broken_ref_count == 1
     # Enforced at domain root + enforced inherited at child = 2
     assert summary.enforced_link_count == 2
@@ -265,7 +281,7 @@ def test_fixture_empty_gpos(fixture_estate):
 
 
 def test_fixture_unlinked_gpos(fixture_estate):
-    # All 8 GPOs have links in the fixture
+    # All 10 GPOs have links in the fixture
     hits = unlinked_gpos(fixture_estate)
     assert len(hits) == 0
 

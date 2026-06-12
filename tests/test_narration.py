@@ -117,14 +117,13 @@ class TestExplainFindings:
 
 class TestArchitecture:
     def test_query_dispatch_matches_valid_queries(self) -> None:
-        from gpo_lens.cli._narration import _QUERY_DISPATCH
         from gpo_lens.narration import _VALID_QUERIES
+        from gpo_lens.query_dispatch import VALID_QUERIES
 
-        dispatch_keys = set(_QUERY_DISPATCH.keys())
-        assert dispatch_keys == _VALID_QUERIES, (
-            f"_QUERY_DISPATCH / _VALID_QUERIES drift: "
-            f"extra in dispatch: {dispatch_keys - _VALID_QUERIES}, "
-            f"missing from dispatch: {_VALID_QUERIES - dispatch_keys}"
+        assert VALID_QUERIES == _VALID_QUERIES, (
+            f"query_dispatch.VALID_QUERIES / narration._VALID_QUERIES drift: "
+            f"extra in query_dispatch: {VALID_QUERIES - _VALID_QUERIES}, "
+            f"missing from query_dispatch: {_VALID_QUERIES - VALID_QUERIES}"
         )
 
     @pytest.mark.parametrize("module_name", [
@@ -139,6 +138,7 @@ class TestArchitecture:
         "report",
         "events",
         "sinks",
+        "query_dispatch",
     ])
     def test_core_modules_do_not_import_narration(self, module_name: str) -> None:
         import gpo_lens
@@ -165,6 +165,7 @@ class TestArchitecture:
         "report",
         "events",
         "sinks",
+        "query_dispatch",
     ])
     def test_core_modules_do_not_import_web(self, module_name: str) -> None:
         import gpo_lens

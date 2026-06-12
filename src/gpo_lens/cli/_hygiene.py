@@ -1,3 +1,4 @@
+"""CLI subcommands for GPO hygiene checks (doctor, cpassword, version-skew, etc.)."""
 from __future__ import annotations
 
 import argparse
@@ -5,7 +6,7 @@ import sys
 
 from gpo_lens import queries
 from gpo_lens.cli._helpers import _get_estate, _print_table, _render_json
-from gpo_lens.detection import _mask_cpassword
+from gpo_lens.detection import mask_cpassword
 
 
 def cmd_unlinked(args: argparse.Namespace) -> None:
@@ -92,7 +93,7 @@ def cmd_cpassword(args: argparse.Namespace) -> None:
                     "gpo_name": h.gpo_name,
                     "file": h.file,
                     "tag": h.tag,
-                    "cpassword": h.cpassword if show else _mask_cpassword(h.cpassword),
+                    "cpassword": h.cpassword if show else mask_cpassword(h.cpassword),
                 }
                 for h in result
             ]
@@ -102,7 +103,7 @@ def cmd_cpassword(args: argparse.Namespace) -> None:
             ["gpo_id", "file", "tag", "cpassword"],
             [
                 [h.gpo_id, h.file, h.tag,
-                 h.cpassword if show else _mask_cpassword(h.cpassword)]
+                 h.cpassword if show else mask_cpassword(h.cpassword)]
                 for h in result
             ],
         )

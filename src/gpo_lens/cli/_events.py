@@ -1,3 +1,4 @@
+"""CLI subcommands for event store inspection and export."""
 from __future__ import annotations
 
 import argparse

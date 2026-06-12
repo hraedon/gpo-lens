@@ -1,7 +1,7 @@
 # Tier-1 normalized model
 
 The deterministic core's data model. Designed against two real exports —
-`WORK-DOMAIN.local` (work, 129 GPOs, 1,551 SOMs — the mess, and the reason we wanted a
+`WORK-DOMAIN.local` (work, 100+ GPOs, 1,000+ SOMs — the mess, and the reason we wanted a
 work extract) and `lab.example.com` (lab, 12 GPOs, 28 SOMs, clean) — so the field
 mappings below are observed, not guessed.
 
@@ -89,12 +89,12 @@ every CSE in Tier-1. Instead:
 - *GPP (Windows Registry, Local Users and Groups, Printers, Drives…)* → CSE-native
   key; conflict identity here is best-effort, scoped conservatively.
 
-`from_disabled_side` matters: the home lab has **8 disabled-but-populated sides** —
+`from_disabled_side` matters: the home lab has **several disabled-but-populated sides** —
 settings authored then the side switched off. They must be flagged, not silently
 counted as active.
 
 ### Som (topology — from `gp-inheritance.json`)
-One per SOM record (1,551 in the home lab — must scale).
+One per SOM record (1,000+ in the home lab — must scale).
 
 | Field | Source |
 |-------|--------|
@@ -129,12 +129,12 @@ inventory walk the GPP XML (`Groups.xml`, `Services.xml`, `Drives.xml`,
 
 | Signal | work (WORK-DOMAIN.local) | lab (lab.example.com) |
 |--------|-------------------:|---------------------:|
-| GPOs | 129 | 12 |
+| GPOs | 100+ | ~12 |
 | duplicate display names | 0 | 0 |
 | one-side-disabled GPOs | many (33 user / 12 computer off) | 0 |
 | disabled-but-populated sides | 6 | 0 |
 | top CSEs | Registry, Security, Windows Registry, Printers, Public Key | Registry, Security, Public Key |
-| SOMs | 1,551 | 28 |
+| SOMs | 1,000+ | ~30 |
 | inheritance-blocked SOMs | 12 | 3 |
 | loopback configured | yes (31 hits) | — |
 | version skew | 0 | 0 |

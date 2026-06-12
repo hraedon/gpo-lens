@@ -56,7 +56,7 @@ layer (Plan 010+), which sits *outside* the truth path.
 
 **Confidence:**
 - `settings_at_som` logic is straightforward and well-covered by unit tests.
-- The performance claim (<2s) is verified against the real 129-GPO work domain.
+- The performance claim (<2s) is verified against the real 100+-GPO work domain.
 
 ## On what remains
 

@@ -129,7 +129,7 @@ class TestViewerAccessDenied:
 
     def test_viewer_denied_ingest(self, tmp_db, viewer_principal):
         app = create_app(tmp_db)
-        app.dependency_overrides[get_principal] = lambda: viewer_principal
+        app.dependency_overrides[get_principal] = lambda authorization=None: viewer_principal
         try:
             client = TestClient(app)
             response = client.post("/ingest")
@@ -139,7 +139,7 @@ class TestViewerAccessDenied:
 
     def test_viewer_denied_narrate(self, tmp_db, viewer_principal):
         app = create_app(tmp_db)
-        app.dependency_overrides[get_principal] = lambda: viewer_principal
+        app.dependency_overrides[get_principal] = lambda authorization=None: viewer_principal
         try:
             client = TestClient(app)
             response = client.post("/api/narrate")

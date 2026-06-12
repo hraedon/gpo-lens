@@ -28,9 +28,7 @@ def _canonical_xmltext(path: Path) -> str:
 
 def _canonical_json(path: Path) -> str:
     """Re-serialise JSON so formatting differences are ignored."""
-    text = path.read_text(encoding="utf-8")
-    if text.startswith("\ufeff"):
-        text = text[1:]
+    text = path.read_text(encoding="utf-8-sig")
     data = json.loads(text)
     return json.dumps(data, sort_keys=True, separators=(",", ":"))
 
@@ -67,7 +65,9 @@ class TestBuildFixtureRoundTrip:
                 gen_enf = [link.enforced for link in g.links]
                 com_enf = [link.enforced for link in c.links]
                 assert gen_enf == com_enf
-                assert len(g.settings) == len(c.settings)
+                gen_settings = {(s.cse, s.side, s.identity, s.display_value) for s in g.settings}
+                com_settings = {(s.cse, s.side, s.identity, s.display_value) for s in c.settings}
+                assert gen_settings == com_settings, f"Settings differ for GPO {gid}"
                 assert len(g.delegation) == len(c.delegation)
 
             assert len(generated.soms) == len(committed.soms)
@@ -99,7 +99,7 @@ class TestBuildFixtureRoundTrip:
             gen = _canonical_xmltext(
                 tmp
                 / "SYSVOL-Policies"
-                / "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA"
+                / "{AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA}"
                 / "Machine"
                 / "Preferences"
                 / "Groups.xml"

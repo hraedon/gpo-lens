@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import hashlib
 import json
-import xml.etree.ElementTree as ET
+import warnings
 import zipfile
 from pathlib import Path
 from typing import Any
+from xml.etree.ElementTree import Element
+
+import defusedxml.ElementTree as ET
 
 from gpo_lens.model import (
     DelegationEntry,
@@ -28,7 +31,7 @@ def _localname(tag: str) -> str:
     return tag.split("}")[-1] if "}" in tag else tag
 
 
-def _child_by_localname(parent: ET.Element, name: str) -> ET.Element | None:
+def _child_by_localname(parent: Element, name: str) -> Element | None:
     """First child whose localname matches ``name``."""
     for child in parent:
         if _localname(child.tag) == name:
@@ -36,19 +39,19 @@ def _child_by_localname(parent: ET.Element, name: str) -> ET.Element | None:
     return None
 
 
-def _children_by_localname(parent: ET.Element, name: str) -> list[ET.Element]:
+def _children_by_localname(parent: Element, name: str) -> list[Element]:
     """All children whose localname matches ``name``."""
     return [child for child in parent if _localname(child.tag) == name]
 
 
-def _text(elem: ET.Element | None) -> str | None:
+def _text(elem: Element | None) -> str | None:
     """Text content of an element, or None."""
     if elem is None:
         return None
     return elem.text
 
 
-def element_to_dict(elem: ET.Element) -> dict[str, Any]:
+def element_to_dict(elem: Element) -> dict[str, Any]:
     """Recursively render an element as a lossless dict."""
     result: dict[str, Any] = {"tag": _localname(elem.tag)}
     if elem.text and elem.text.strip():
@@ -67,7 +70,7 @@ def _stable_hash(raw: dict[str, Any]) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
-def _first_non_empty_text_or_attr(elem: ET.Element) -> str:
+def _first_non_empty_text_or_attr(elem: Element) -> str:
     """First non-empty text content or attribute value."""
     if elem.text and elem.text.strip():
         return elem.text.strip()
@@ -81,7 +84,7 @@ def _first_non_empty_text_or_attr(elem: ET.Element) -> str:
     return ""
 
 
-def _parse_security_setting(block: ET.Element) -> tuple[str, str, str] | None:
+def _parse_security_setting(block: Element) -> tuple[str, str, str] | None:
     """Return (identity, display_name, display_value) for a Security CSE block."""
     name = block.get("Name")
     type_ = block.get("Type")
@@ -99,7 +102,7 @@ def _parse_security_setting(block: ET.Element) -> tuple[str, str, str] | None:
     return None
 
 
-def _parse_registry_setting(block: ET.Element) -> tuple[str, str, str] | None:
+def _parse_registry_setting(block: Element) -> tuple[str, str, str] | None:
     """Return (identity, display_name, display_value) for Registry / Windows Registry."""
     key = block.get("KeyName") or block.get("Key") or ""
     value_name = block.get("ValueName") or block.get("Name") or ""
@@ -111,7 +114,7 @@ def _parse_registry_setting(block: ET.Element) -> tuple[str, str, str] | None:
     return None
 
 
-def _parse_generic_setting(cse: str, block: ET.Element) -> tuple[str, str, str]:
+def _parse_generic_setting(cse: str, block: Element) -> tuple[str, str, str]:
     """Generic fallback identity/display for any CSE block."""
     raw = element_to_dict(block)
     identity = f"{cse}:{_localname(block.tag)}:{_stable_hash(raw)}"
@@ -120,7 +123,7 @@ def _parse_generic_setting(cse: str, block: ET.Element) -> tuple[str, str, str]:
     return identity, display_name, display_value
 
 
-def _parse_settings(gpo_elem: ET.Element, gpo_id: str) -> list[Setting]:
+def _parse_settings(gpo_elem: Element, gpo_id: str) -> list[Setting]:
     """Parse all settings from a GPO element."""
     settings: list[Setting] = []
     for side_name in ("Computer", "User"):
@@ -177,7 +180,7 @@ def _parse_settings(gpo_elem: ET.Element, gpo_id: str) -> list[Setting]:
     return settings
 
 
-def _parse_links(gpo_elem: ET.Element, gpo_id: str) -> list[GpoLink]:
+def _parse_links(gpo_elem: Element, gpo_id: str) -> list[GpoLink]:
     """Parse all LinksTo elements."""
     links: list[GpoLink] = []
     for link_elem in _children_by_localname(gpo_elem, "LinksTo"):
@@ -197,7 +200,7 @@ def _parse_links(gpo_elem: ET.Element, gpo_id: str) -> list[GpoLink]:
     return links
 
 
-def _parse_delegation(gpo_elem: ET.Element, gpo_id: str) -> list[DelegationEntry]:
+def _parse_delegation(gpo_elem: Element, gpo_id: str) -> list[DelegationEntry]:
     """Parse delegation entries from SecurityDescriptor/Permissions.
 
     Handles both the older flat ``Permission`` element (where Trustee/Standard
@@ -249,30 +252,31 @@ def _parse_delegation(gpo_elem: ET.Element, gpo_id: str) -> list[DelegationEntry
             )
         )
 
-    # Then fall back to the older flat Permission structure
-    for perm in _children_by_localname(perms, "Permission"):
-        trustee = _text(_child_by_localname(perm, "Trustee")) or ""
-        trustee_sid = _text(_child_by_localname(perm, "TrusteeSID"))
-        if trustee_sid is None:
-            trustee_sid = _text(_child_by_localname(perm, "SID"))
-        perm_type = (
-            _text(_child_by_localname(perm, "Standard"))
-            or _text(_child_by_localname(perm, "Type"))
-            or ""
-        )
-        allowed = True
-        deny = _child_by_localname(perm, "AccessDenied")
-        if deny is not None and deny.text and deny.text.strip().lower() == "true":
-            allowed = False
-        entries.append(
-            DelegationEntry(
-                gpo_id=gpo_id,
-                trustee=trustee,
-                trustee_sid=trustee_sid,
-                permission=perm_type,
-                allowed=allowed,
+    # Only fall back to flat Permission if no TrusteePermissions were found
+    if not entries:
+        for perm in _children_by_localname(perms, "Permission"):
+            trustee = _text(_child_by_localname(perm, "Trustee")) or ""
+            trustee_sid = _text(_child_by_localname(perm, "TrusteeSID"))
+            if trustee_sid is None:
+                trustee_sid = _text(_child_by_localname(perm, "SID"))
+            perm_type = (
+                _text(_child_by_localname(perm, "Standard"))
+                or _text(_child_by_localname(perm, "Type"))
+                or ""
             )
-        )
+            allowed = True
+            deny = _child_by_localname(perm, "AccessDenied")
+            if deny is not None and deny.text and deny.text.strip().lower() == "true":
+                allowed = False
+            entries.append(
+                DelegationEntry(
+                    gpo_id=gpo_id,
+                    trustee=trustee,
+                    trustee_sid=trustee_sid,
+                    permission=perm_type,
+                    allowed=allowed,
+                )
+            )
     return entries
 
 
@@ -280,6 +284,8 @@ def parse_report(xml_path: str | Path) -> list[Gpo]:
     """Parse one or more GPOs from a report XML file."""
     tree = ET.parse(xml_path)
     root = tree.getroot()
+    if root is None:
+        return []
     gpos: list[Gpo] = []
     # The report may contain many <GPO> elements as children of the root
     # wrapper (AllGPOs.xml) or one <GPO> as the root itself.  We only look
@@ -327,20 +333,19 @@ def load_baseline_from_zip(zip_path: str | Path) -> list[Gpo]:
     import zipfile
 
     gpos: list[Gpo] = []
-    outer = zipfile.ZipFile(str(zip_path))
+    with zipfile.ZipFile(str(zip_path)) as outer:
+        for name in outer.namelist():
+            if name.endswith(".zip"):
+                inner_data = outer.read(name)
+                with zipfile.ZipFile(io.BytesIO(inner_data)) as inner:
+                    gpos.extend(_extract_gpos_from_zip(inner))
+            elif name.endswith("gpreport.xml"):
+                raw = outer.read(name)
+                gpos.extend(parse_report_xml(raw))
 
-    for name in outer.namelist():
-        if name.endswith(".zip"):
-            inner_data = outer.read(name)
-            inner = zipfile.ZipFile(io.BytesIO(inner_data))
-            gpos.extend(_extract_gpos_from_zip(inner))
-        elif name.endswith("gpreport.xml"):
-            raw = outer.read(name)
-            gpos.extend(parse_report_xml(raw))
-
-    if not gpos:
-        # Try the outer zip itself as a GPO backup zip
-        gpos.extend(_extract_gpos_from_zip(outer))
+        if not gpos:
+            # Try the outer zip itself as a GPO backup zip
+            gpos.extend(_extract_gpos_from_zip(outer))
 
     return gpos
 
@@ -353,24 +358,25 @@ def _extract_gpos_from_zip(zf: zipfile.ZipFile) -> list[Gpo]:
             try:
                 raw = zf.read(name)
                 gpos.extend(parse_report_xml(raw))
-            except Exception:
+            except (ET.ParseError, KeyError, ValueError) as exc:
+                warnings.warn(f"Skipping entry in zip: {exc}", stacklevel=1)
                 continue
     return gpos
 
 
-def _side_bool(side_elem: ET.Element | None, child_name: str) -> bool:
+def _side_bool(side_elem: Element | None, child_name: str) -> bool:
     """Parse a boolean child under a side element."""
     text = _text(_child_by_localname(side_elem, child_name)) if side_elem is not None else None
     return parse_bool(text)
 
 
-def _side_int(side_elem: ET.Element | None, child_name: str) -> int | None:
+def _side_int(side_elem: Element | None, child_name: str) -> int | None:
     """Parse an int child under a side element."""
     text = _text(_child_by_localname(side_elem, child_name)) if side_elem is not None else None
     return parse_int(text)
 
 
-def _parse_single_gpo(gpo_elem: ET.Element) -> Gpo:
+def _parse_single_gpo(gpo_elem: Element) -> Gpo:
     """Parse a single GPO element."""
     id_elem = _child_by_localname(gpo_elem, "Identifier")
     raw_id = _text(_child_by_localname(id_elem, "Identifier")) if id_elem is not None else ""
@@ -447,12 +453,26 @@ def parse_inheritance(json_path: str | Path) -> list[Som]:
             gpo_id_raw = link.get("GpoId")
             if not gpo_id_raw:
                 continue
+            raw_order = link.get("Order", 0)
+            order_val = parse_int(str(raw_order)) if raw_order is not None else 0
+            raw_enabled = link.get("Enabled", True)
+            raw_enforced = link.get("Enforced", False)
+            enabled_val = (
+                parse_bool(str(raw_enabled))
+                if isinstance(raw_enabled, str)
+                else bool(raw_enabled)
+            )
+            enforced_val = (
+                parse_bool(str(raw_enforced))
+                if isinstance(raw_enforced, str)
+                else bool(raw_enforced)
+            )
             som.links.append(
                 SomLink(
                     gpo_id=canonical_guid(gpo_id_raw),
-                    order=int(link.get("Order", 0)),
-                    enabled=bool(link.get("Enabled", True)),
-                    enforced=bool(link.get("Enforced", False)),
+                    order=order_val or 0,
+                    enabled=enabled_val,
+                    enforced=enforced_val,
                     target=link.get("Target", ""),
                 )
             )
@@ -496,16 +516,29 @@ def attach_sysvol_paths(sysvol_dir: str | Path, gpos: list[Gpo]) -> None:
     base = Path(sysvol_dir)
     if not base.exists():
         return
+    base_resolved = base.resolve()
+    unmatched = 0
     for gpo in gpos:
         candidates = [
             base / f"{{{gpo.id.upper()}}}",
             base / gpo.id,
             base / gpo.id.upper(),
         ]
+        matched = False
         for cand in candidates:
             if cand.exists():
-                gpo.sysvol_path = str(cand.resolve())
-                break
+                resolved = cand.resolve()
+                if resolved.is_relative_to(base_resolved):
+                    gpo.sysvol_path = str(resolved)
+                    matched = True
+                    break
+        if not matched and any(cand.exists() for cand in candidates):
+            unmatched += 1
+    if unmatched > 0:
+        warnings.warn(
+            f"{unmatched} GPO(s) had SYSVOL paths outside the base directory; skipped",
+            stacklevel=1,
+        )
 
 
 def parse_wmi_filters(json_path: str | Path) -> list[WmiFilter]:

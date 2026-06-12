@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 license = {text = "MIT"}
 authors = [{ name = "hraedon" }]
-dependencies = []
+dependencies = ["defusedxml>=0.7"]
 
 [project.optional-dependencies]
 dev = [

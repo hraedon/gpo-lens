@@ -11,7 +11,9 @@ import sqlite3
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
+
+from gpo_lens.model import Side
 
 if TYPE_CHECKING:
     from gpo_lens.admx_parser import PolicyDefinitions
@@ -20,7 +22,6 @@ if TYPE_CHECKING:
         Estate,
         Gpo,
         Setting,
-        Side,
         Som,
         SomLink,
     )
@@ -48,7 +49,7 @@ from gpo_lens.detection import (  # noqa: F401, I001
     version_skew,
 )
 
-from gpo_lens.detection import _has_ms16_072_read, _mask_cpassword
+from gpo_lens.detection import has_ms16_072_read, mask_cpassword
 
 __all__ = [
     "AdmxGap",
@@ -91,9 +92,11 @@ __all__ = [
     "estate_doctor",
     "estate_summary",
     "excessive_writers",
+    "has_ms16_072_read",
     "load_baseline_from_estate",
     "loopback_awareness",
     "loopback_gpos",
+    "mask_cpassword",
     "ms16_072_vulnerable",
     "parse_sddl",
     "permissions_audit",
@@ -192,7 +195,7 @@ def permissions_audit(estate: Estate) -> list[tuple[Gpo, str]]:
     """Audit delegation for common security issues."""
     issues: list[tuple[Gpo, str]] = []
     for g in estate.gpos:
-        if not _has_ms16_072_read(g.delegation):
+        if not has_ms16_072_read(g.delegation):
             issues.append((g, "No Authenticated Users / Domain Computers Read (MS16-072)"))
 
         writers = [d for d in g.delegation if d.allowed and "write" in d.permission.lower()]
@@ -263,7 +266,7 @@ def who_sets(estate: Estate, term: str) -> list[Setting]:
 def conflicts(estate: Estate) -> list[Conflict]:
     """Cross-estate conflict surface: same setting identity across GPOs
     with differing values."""
-    buckets: dict[tuple[str, str, str], list[Setting]] = defaultdict(list)
+    buckets: dict[tuple[str, Side, str], list[Setting]] = defaultdict(list)
     for g in estate.gpos:
         for s in g.settings:
             key = (s.cse, s.side, s.identity)
@@ -669,7 +672,9 @@ def snapshot_diff(
 
     _meta_query = (
         "SELECT name, domain, sddl, owner, computer_enabled, user_enabled, "
-        "wmi_filter FROM gpo WHERE snapshot_id = ? AND id = ?"
+        "wmi_filter, computer_ver_ds, computer_ver_sysvol, "
+        "user_ver_ds, user_ver_sysvol "
+        "FROM gpo WHERE snapshot_id = ? AND id = ?"
     )
 
     for gpo_id in sorted(common):
@@ -708,16 +713,24 @@ def snapshot_diff(
                 old_value=old_wmi, new_value=new_wmi,
             ))
 
+        # Version skew — columns 7..10 (already in the meta row)
+        old_ds_c, old_sv_c, old_ds_u, old_sv_u = old_row[7], old_row[8], old_row[9], old_row[10]
+        new_ds_c, new_sv_c, new_ds_u, new_sv_u = new_row[7], new_row[8], new_row[9], new_row[10]
+        old_skew = (old_ds_c != old_sv_c) or (old_ds_u != old_sv_u)
+        new_skew = (new_ds_c != new_sv_c) or (new_ds_u != new_sv_u)
+        if old_skew != new_skew:
+            version_skew_changed.append(gpo_id)
+
         old_s = set(
             conn.execute(
-                "SELECT cse, identity, display_value FROM setting "
+                "SELECT side, cse, identity, display_value FROM setting "
                 "WHERE snapshot_id = ? AND gpo_id = ?",
                 (snap_a, gpo_id),
             ).fetchall()
         )
         new_s = set(
             conn.execute(
-                "SELECT cse, identity, display_value FROM setting "
+                "SELECT side, cse, identity, display_value FROM setting "
                 "WHERE snapshot_id = ? AND gpo_id = ?",
                 (snap_b, gpo_id),
             ).fetchall()
@@ -758,22 +771,6 @@ def snapshot_diff(
         )
         if old_d != new_d:
             delegation_changed.append(gpo_id)
-
-        old_v = conn.execute(
-            "SELECT computer_ver_ds, computer_ver_sysvol, user_ver_ds, user_ver_sysvol "
-            "FROM gpo WHERE snapshot_id = ? AND id = ?",
-            (snap_a, gpo_id),
-        ).fetchone()
-        new_v = conn.execute(
-            "SELECT computer_ver_ds, computer_ver_sysvol, user_ver_ds, user_ver_sysvol "
-            "FROM gpo WHERE snapshot_id = ? AND id = ?",
-            (snap_b, gpo_id),
-        ).fetchone()
-        if old_v and new_v:
-            old_skew = (old_v[0] != old_v[1]) or (old_v[2] != old_v[3])
-            new_skew = (new_v[0] != new_v[1]) or (new_v[2] != new_v[3])
-            if old_skew != new_skew:
-                version_skew_changed.append(gpo_id)
 
     return SnapshotDiff(
         gpos_added=added,
@@ -875,28 +872,63 @@ def loopback_gpos(estate: Estate) -> list[tuple[Gpo, Setting]]:
             val_lower = s.display_value.lower()
             if any(lb in ident_lower for lb in _LOOPBACK_IDENTITIES):
                 results.append((g, s))
-            elif "loopback" in val_lower:
+            elif any(lb in val_lower for lb in _LOOPBACK_IDENTITIES):
                 results.append((g, s))
     return results
 
 
 def _extract_loopback_mode(setting: Setting) -> str | None:
-    """Return 'merge' or 'replace' from a loopback setting's display_value."""
+    """Return 'merge', 'replace', 'unknown', or None from a loopback setting.
+
+    Returns None when the setting does not actually configure loopback
+    (Disabled/Not Configured/empty).  Returns 'unknown' when loopback IS
+    configured but the specific mode cannot be determined.
+    """
+    raw = setting.raw
+    if isinstance(raw, dict):
+        children_raw = raw.get("children", [])
+        if isinstance(children_raw, list):
+            for child in children_raw:
+                if not isinstance(child, dict):
+                    continue
+                tag = str(child.get("tag", "")).lower()
+                if tag in ("settingboolean", "settingstring", "settingnumber"):
+                    text = str(child.get("text") or "").strip().lower()
+                    if text in ("replace", "1"):
+                        return "replace"
+                    if text in ("merge", "2"):
+                        return "merge"
+                    # Numeric 0 = Not Configured
+                    if text == "0":
+                        return None
     val = setting.display_value.strip().lower()
     if "replace" in val:
         return "replace"
     if "merge" in val:
         return "merge"
-    return None
+    if not val or val in ("not configured", "disabled"):
+        return None
+    return "unknown"
 
 
 def loopback_awareness(estate: Estate) -> dict[str, str]:
-    """Map GPO id -> loopback mode for GPOs that configure loopback."""
+    """Map GPO id -> loopback mode for GPOs that configure loopback.
+
+    Every GPO that sets loopback will appear in the result.  Mode will be
+    'merge', 'replace', 'mixed', or 'unknown' (never None / never absent).
+    GPOs where loopback is not actually configured (Disabled/Not Configured)
+    are excluded.
+    """
     results: dict[str, str] = {}
     for g, s in loopback_gpos(estate):
         mode = _extract_loopback_mode(s)
-        if mode:
+        if mode is None:
+            continue
+        existing = results.get(g.id)
+        if existing is None:
             results[g.id] = mode
+        elif existing != mode:
+            results[g.id] = "mixed"
     return results
 
 
@@ -941,57 +973,70 @@ def _resolve_som_chain(
     return chain, gpo_by_id, names
 
 
-def _chain_buckets(
-    chain: list[SomLink],
-    gpo_by_id: dict[str, Gpo],
-) -> dict[tuple[str, str, str], list[tuple[str, str, int]]]:
-    """Fold a SOM chain into buckets keyed by (cse, side, identity)."""
-    names = {g.id: g.name for g in gpo_by_id.values()}
-    buckets: dict[tuple[str, str, str], list[tuple[str, str, int]]] = (
-        defaultdict(list)
-    )
+@dataclass(frozen=True)
+class _BucketEntry:
+    """One setting occurrence folded into a SOM-chain bucket."""
+
+    gpo_id: str
+    gpo_name: str
+    value: str
+    display_name: str
+    link_order: int
+    enforced: bool
+
+
+def _fold_chain_to_buckets(
+    estate: Estate, som_path: str,
+) -> dict[tuple[str, Side, str], list[_BucketEntry]] | None:
+    """Resolve the SOM chain and build per-setting-identity buckets.
+
+    Returns ``None`` when the SOM does not exist or has no enabled links.
+    """
+    resolved = _resolve_som_chain(estate, som_path)
+    if resolved is None:
+        return None
+    chain, gpo_by_id, names = resolved
+
+    buckets: dict[tuple[str, Side, str], list[_BucketEntry]] = defaultdict(list)
     for link in chain:
         gpo = gpo_by_id.get(link.gpo_id)
         if gpo is None:
             continue
+        gpo_name = names.get(link.gpo_id, "<unknown>")
         for s in gpo.settings:
             key = (s.cse, s.side, s.identity)
-            gpo_name = names.get(link.gpo_id, "<unknown>")
-            buckets[key].append((gpo_name, s.display_value, link.order))
+            buckets[key].append(_BucketEntry(
+                gpo_id=link.gpo_id,
+                gpo_name=gpo_name,
+                value=s.display_value,
+                display_name=s.display_name,
+                link_order=link.order,
+                enforced=link.enforced,
+            ))
     return dict(buckets)
 
 
 def som_conflicts(estate: Estate, som_path: str) -> list[SomConflict]:
     """Settings that appear in the SOM chain with differing values."""
-    resolved = _resolve_som_chain(estate, som_path)
-    if resolved is None:
+    buckets = _fold_chain_to_buckets(estate, som_path)
+    if buckets is None:
         return []
-    chain, gpo_by_id, _names = resolved
-    buckets = _chain_buckets(chain, gpo_by_id)
 
     results: list[SomConflict] = []
     for (cse, side, identity), entries in buckets.items():
-        gpo_names = {e[0] for e in entries}
-        values = {e[1] for e in entries}
+        gpo_names = {e.gpo_name for e in entries}
+        values = {e.value for e in entries}
         if len(gpo_names) < 2 or len(values) < 2:
             continue
-        winner_entry = max(entries, key=lambda e: e[2])
-        winner = winner_entry[0]
+        winner_entry = max(entries, key=lambda e: e.link_order)
+        winner = winner_entry.gpo_name
         conflict_entries: list[tuple[str, str, str]] = []
-        for gpo_name, value, order in entries:
-            status = "winner" if gpo_name == winner else "overridden"
-            conflict_entries.append((gpo_name, value, status))
-        display_name = ""
-        for link in chain:
-            gpo = gpo_by_id.get(link.gpo_id)
-            if gpo is None:
-                continue
-            for s in gpo.settings:
-                if (s.cse, s.side, s.identity) == (cse, side, identity):
-                    display_name = s.display_name
-                    break
-            if display_name:
-                break
+        for e in entries:
+            status = "winner" if e.gpo_name == winner else "overridden"
+            conflict_entries.append((e.gpo_name, e.value, status))
+        display_name = next(
+            (e.display_name for e in entries if e.display_name), ""
+        )
 
         results.append(
             SomConflict(
@@ -1040,55 +1085,30 @@ class EffectiveSetting:
 
 def settings_at_som(estate: Estate, som_path: str) -> list[EffectiveSetting]:
     """Return the effective settings that apply at a given SOM path."""
-    resolved = _resolve_som_chain(estate, som_path)
-    if resolved is None:
+    buckets = _fold_chain_to_buckets(estate, som_path)
+    if buckets is None:
         return []
-    chain, gpo_by_id, names = resolved
-
-    buckets: dict[tuple[str, str, str], list[tuple[str, str, str, int, bool]]] = (
-        defaultdict(list)
-    )
-
-    for link in chain:
-        gpo = gpo_by_id.get(link.gpo_id)
-        if gpo is None:
-            continue
-        for s in gpo.settings:
-            key = (s.cse, s.side, s.identity)
-            gpo_name = names.get(link.gpo_id, "<unknown>")
-            buckets[key].append(
-                (link.gpo_id, gpo_name, s.display_value, link.order, link.enforced)
-            )
 
     results: list[EffectiveSetting] = []
     for (cse, side, identity), entries in buckets.items():
-        winner_entry = max(entries, key=lambda e: e[3])
-        winner_gpo_id, winner_gpo_name, winner_value, _, winner_enforced = winner_entry
+        winner_entry = max(entries, key=lambda e: e.link_order)
 
         overridden: list[tuple[str, str]] = []
-        for gpo_id, gpo_name, value, order, _ in entries:
-            if order < winner_entry[3]:
-                overridden.append((gpo_name, value))
-
-        winner_gpo = gpo_by_id.get(winner_gpo_id)
-        display_name = ""
-        if winner_gpo is not None:
-            for s in winner_gpo.settings:
-                if (s.cse, s.side, s.identity) == (cse, side, identity):
-                    display_name = s.display_name
-                    break
+        for e in entries:
+            if e.link_order < winner_entry.link_order:
+                overridden.append((e.gpo_name, e.value))
 
         results.append(
             EffectiveSetting(
                 cse=cse,
                 side=side,
                 identity=identity,
-                display_name=display_name,
-                display_value=winner_value,
-                winner_gpo_id=winner_gpo_id,
-                winner_gpo_name=winner_gpo_name,
+                display_name=winner_entry.display_name,
+                display_value=winner_entry.value,
+                winner_gpo_id=winner_entry.gpo_id,
+                winner_gpo_name=winner_entry.gpo_name,
                 overridden_by=overridden,
-                enforced=winner_enforced,
+                enforced=winner_entry.enforced,
             )
         )
 
@@ -1212,14 +1232,14 @@ def settings_diff(
         if a_row is None and b_row is not None:
             results.append(SettingsDiffRow(
                 gpo_id=gid, gpo_name=str(b_row.get("gpo_name", "")),
-                side=side_val, cse=cse_val, identity=identity,
+                side=cast(Side, side_val), cse=cse_val, identity=identity,
                 display_name=str(b_row.get("display_name", "")),
                 change_type="added", old_value=None, new_value=str(b_row.get("display_value", "")),
             ))
         elif a_row is not None and b_row is None:
             results.append(SettingsDiffRow(
                 gpo_id=gid, gpo_name=str(a_row.get("gpo_name", "")),
-                side=side_val, cse=cse_val, identity=identity,
+                side=cast(Side, side_val), cse=cse_val, identity=identity,
                 display_name=str(a_row.get("display_name", "")),
                 change_type="removed",
                 old_value=str(a_row.get("display_value", "")),
@@ -1231,7 +1251,7 @@ def settings_diff(
             if old_v != new_v:
                 results.append(SettingsDiffRow(
                     gpo_id=gid, gpo_name=str(b_row.get("gpo_name", "")),
-                    side=side_val, cse=cse_val, identity=identity,
+                    side=cast(Side, side_val), cse=cse_val, identity=identity,
                     display_name=str(b_row.get("display_name", "")),
                     change_type="modified", old_value=old_v, new_value=new_v,
                 ))
@@ -1377,7 +1397,7 @@ def baseline_diff(
     for (cse, ident), entries in estate_settings.items():
         if (cse, ident) not in baseline_identity_set:
             display_name = ""
-            side = ""
+            side: Side = "Computer"
             for g in estate.gpos:
                 for s in g.settings:
                     if s.cse.lower() == cse and s.identity.lower() == ident:
@@ -1413,7 +1433,7 @@ def estate_doctor(estate: Estate) -> list[DoctorFinding]:
             gpo_id=hit.gpo_id,
             gpo_name=hit.gpo_name,
             summary=f"cpassword in {hit.file} <{hit.tag}> (MS14-025)",
-            detail=f"Encrypted password found: {_mask_cpassword(hit.cpassword)}",
+            detail=f"Encrypted password found: {mask_cpassword(hit.cpassword)}",
         ))
 
     for g in ms16_072_vulnerable(estate):
@@ -1427,16 +1447,19 @@ def estate_doctor(estate: Estate) -> list[DoctorFinding]:
         ))
 
     for g, side in version_skew(estate):
+        if side == "Computer":
+            ds_ver = g.computer_ver_ds
+            sysvol_ver = g.computer_ver_sysvol
+        else:
+            ds_ver = g.user_ver_ds
+            sysvol_ver = g.user_ver_sysvol
         findings.append(DoctorFinding(
             severity="medium",
             category="version_skew",
             gpo_id=g.id,
             gpo_name=g.name,
             summary=f"{side} version skew (GPC != GPT)",
-            detail=(
-                f"DS={getattr(g, f'{side.lower()}_ver_ds', '?')}, "
-                f"SYSVOL={getattr(g, f'{side.lower()}_ver_sysvol', '?')}"
-            ),
+            detail=f"DS={ds_ver}, SYSVOL={sysvol_ver}",
         ))
 
     for som, link in dangling_links(estate):

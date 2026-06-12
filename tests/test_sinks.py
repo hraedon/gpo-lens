@@ -19,10 +19,9 @@ from gpo_lens.sinks import HecSink, NdjsonSink, emit_events
 class TestNdjsonSink:
     def test_writes_valid_ndjson(self, tmp_path: Path) -> None:
         path = tmp_path / "events.ndjson"
-        sink = NdjsonSink(str(path))
-        sink.write({"type": "test", "id": 1})
-        sink.write({"type": "test", "id": 2})
-        sink.close()
+        with NdjsonSink(str(path)) as sink:
+            sink.write({"type": "test", "id": 1})
+            sink.write({"type": "test", "id": 2})
 
         lines = path.read_text(encoding="utf-8").strip().split("\n")
         assert len(lines) == 2
@@ -31,13 +30,11 @@ class TestNdjsonSink:
 
     def test_appends_on_subsequent_writes(self, tmp_path: Path) -> None:
         path = tmp_path / "events.ndjson"
-        sink = NdjsonSink(str(path))
-        sink.write({"batch": 1})
-        sink.close()
+        with NdjsonSink(str(path)) as sink:
+            sink.write({"batch": 1})
 
-        sink2 = NdjsonSink(str(path))
-        sink2.write({"batch": 2})
-        sink2.close()
+        with NdjsonSink(str(path)) as sink2:
+            sink2.write({"batch": 2})
 
         lines = path.read_text(encoding="utf-8").strip().split("\n")
         assert len(lines) == 2
@@ -54,9 +51,8 @@ class TestNdjsonSink:
 
     def test_write_batch(self, tmp_path: Path) -> None:
         path = tmp_path / "events.ndjson"
-        sink = NdjsonSink(str(path))
-        sink.write_batch([{"a": 1}, {"b": 2}])
-        sink.close()
+        with NdjsonSink(str(path)) as sink:
+            sink.write_batch([{"a": 1}, {"b": 2}])
         lines = path.read_text(encoding="utf-8").strip().split("\n")
         assert len(lines) == 2
         assert json.loads(lines[0]) == {"a": 1}
@@ -64,19 +60,18 @@ class TestNdjsonSink:
 
     def test_thread_safety(self, tmp_path: Path) -> None:
         path = tmp_path / "events.ndjson"
-        sink = NdjsonSink(str(path))
+        with NdjsonSink(str(path)) as sink:
 
-        def worker(n: int) -> None:
-            for i in range(10):
-                sink.write({"worker": n, "i": i})
+            def worker(n: int) -> None:
+                for i in range(10):
+                    sink.write({"worker": n, "i": i})
 
-        threads = [threading.Thread(target=worker, args=(i,)) for i in range(5)]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join()
+            threads = [threading.Thread(target=worker, args=(i,)) for i in range(5)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
 
-        sink.close()
         lines = path.read_text(encoding="utf-8").strip().split("\n")
         assert len(lines) == 50
         for line in lines:

@@ -95,7 +95,7 @@ Respond with ONLY a JSON object:
 Do NOT include any other text."""
 
 
-_VALID_QUERIES = {
+_VALID_QUERIES: frozenset[str] = frozenset({
     "estate_summary",
     "estate_doctor",
     "settings_at_som",
@@ -109,7 +109,7 @@ _VALID_QUERIES = {
     "ms16_072_vulnerable",
     "topology_crosscheck",
     "disabled_but_populated",
-}
+})
 
 
 def route_question(question: str) -> dict[str, object]:

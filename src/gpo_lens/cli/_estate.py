@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import sqlite3
 
 from gpo_lens import ingest, queries, store
@@ -11,28 +12,7 @@ def cmd_summary(args: argparse.Namespace) -> None:
     estate = _get_estate(args)
     s = queries.estate_summary(estate)
     if args.json:
-        _render_json({
-            "domain": s.domain,
-            "gpo_count": s.gpo_count,
-            "som_count": s.som_count,
-            "wmi_filter_count": s.wmi_filter_count,
-            "unlinked_count": s.unlinked_count,
-            "empty_count": s.empty_count,
-            "disabled_but_populated_count": s.disabled_but_populated_count,
-            "conflict_count": s.conflict_count,
-            "blocked_extension_count": s.blocked_extension_count,
-            "version_skew_count": s.version_skew_count,
-            "ms16_072_vulnerable_count": s.ms16_072_vulnerable_count,
-            "cpassword_hit_count": s.cpassword_hit_count,
-            "loopback_gpo_count": s.loopback_gpo_count,
-            "wmi_filtered_gpo_count": s.wmi_filtered_gpo_count,
-            "enforced_link_count": s.enforced_link_count,
-            "dangling_link_count": s.dangling_link_count,
-            "broken_ref_count": s.broken_ref_count,
-            "admx_gap_count": s.admx_gap_count,
-            "total_settings": s.total_settings,
-            "total_delegation_entries": s.total_delegation_entries,
-        })
+        _render_json(dataclasses.asdict(s))
     else:
         print(f"Domain: {s.domain}")
         print(f"GPOs: {s.gpo_count}  |  SOMs: {s.som_count}  |  WMI filters: {s.wmi_filter_count}")

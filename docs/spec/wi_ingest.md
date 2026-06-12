@@ -111,7 +111,7 @@ is false, emit none.
 `inheritance_blocked` from the like-named keys; for each `InheritedGpoLinks[]`
 entry append a `SomLink` with `gpo_id=canonical_guid(GpoId)`, `order=Order`,
 `enabled=Enabled`, `enforced=Enforced`, `target=Target`. Must handle the work
-export's 1,551 records without pathological slowdown.
+export's 1,000+ records without pathological slowdown.
 
 ## AC-09: Merge metadata
 `ingest.merge_metadata(json_path, gpos: list[Gpo]) -> None` reads

@@ -23,9 +23,10 @@ policy names.
 
 from __future__ import annotations
 
-import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
+
+import defusedxml.ElementTree as ET
 
 _ADMX_NS = "http://schemas.microsoft.com/GroupPolicy/2006/07/PolicyDefinitions"
 
@@ -103,6 +104,8 @@ def _parse_adml_strings(adml_path: Path) -> dict[str, str]:
     """Parse an ADML file and return {string_id: text}."""
     tree = ET.parse(adml_path)
     root = tree.getroot()
+    if root is None:
+        return {}
     strings: dict[str, str] = {}
     ns = _ADMX_NS
     for st in root.iter(f"{{{ns}}}stringTable"):
@@ -148,6 +151,8 @@ def parse_admx_dir(policy_defs_dir: str | Path) -> PolicyDefinitions:
         except ET.ParseError:
             continue
         root = tree.getroot()
+        if root is None:
+            continue
         ns = _ADMX_NS
         for pol in root.iter(f"{{{ns}}}policy"):
             name = pol.get("name", "")

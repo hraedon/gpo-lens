@@ -1,3 +1,4 @@
+"""CLI subcommands for GPO settings inspection (search, who-sets, settings-dump, etc.)."""
 from __future__ import annotations
 
 import argparse
