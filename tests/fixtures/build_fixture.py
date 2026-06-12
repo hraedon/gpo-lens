@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
+from xml.sax.saxutils import escape as _xe
 
 FIXTURE_DIR = Path(__file__).resolve().parent
 
@@ -28,6 +29,8 @@ GUID_E = "{EEEEEEEE-EEEE-EEEE-EEEE-EEEEEEEEEEEE}"
 GUID_F = "{FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF}"
 GUID_G = "{11111111-1111-1111-1111-111111111111}"
 GUID_H = "{22222222-2222-2222-2222-222222222222}"
+GUID_I = "{33333333-3333-3333-3333-333333333333}"
+GUID_J = "{44444444-4444-4444-4444-444444444444}"
 # fmt: on
 
 TS = "2024-01-01T00:00:00"
@@ -75,26 +78,32 @@ def _make_link(
 
 def _block_xml(cse: str, block: dict) -> str:
     if cse == "Security":
-        attrs = f'Name="{block["name"]}" Type="{block["type"]}"'
+        attrs = f'Name="{_xe(block["name"])}" Type="{_xe(block["type"])}"'
         tag = block.get("tag", "SettingBoolean")
         val = block["value"]
         return (
             f"          <Security {attrs}>\n"
-            f"            <{tag}>{val}</{tag}>\n"
+            f"            <{tag}>{_xe(val)}</{tag}>\n"
             "          </Security>"
         )
     if cse == "Registry":
         key = block.get("KeyName", "")
         val_name = block.get("ValueName", "")
         if "children" in block:
-            child_lines = "\n".join(f"            <{k}>{v}</{k}>" for k, v in block["children"])
+            child_lines = "\n".join(
+                f"            <{k}>{_xe(v)}</{k}>" for k, v in block["children"]
+            )
             return (
-                f'          <Registry KeyName="{key}" ValueName="{val_name}">\n'
+                f'          <Registry KeyName="{_xe(key)}"'
+                f' ValueName="{_xe(val_name)}">\n'
                 f"{child_lines}\n"
                 "          </Registry>"
             )
         val = block["value"]
-        return f'          <Registry KeyName="{key}" ValueName="{val_name}">{val}</Registry>'
+        return (
+            f'          <Registry KeyName="{_xe(key)}"'
+            f' ValueName="{_xe(val_name)}">{_xe(val)}</Registry>'
+        )
     raise ValueError(f"unknown cse {cse}")
 
 
@@ -129,20 +138,20 @@ def _make_delegation_xml(entries: list[dict], compact: bool = False) -> str:
         if compact:
             lines.append(
                 f"          <Trustee>"
-                f"<Name>{e['trustee']}</Name><SID>{e['sid']}</SID>"
+                f"<Name>{_xe(e['trustee'])}</Name><SID>{_xe(e['sid'])}</SID>"
                 f"</Trustee>"
             )
         else:
             lines.append("          <Trustee>")
-            lines.append(f"            <Name>{e['trustee']}</Name>")
-            lines.append(f"            <SID>{e['sid']}</SID>")
+            lines.append(f"            <Name>{_xe(e['trustee'])}</Name>")
+            lines.append(f"            <SID>{_xe(e['sid'])}</SID>")
             lines.append("          </Trustee>")
         lines.append(
             "          <Standard>"
-            f"<GPOGroupedAccessEnum>{e['standard']}</GPOGroupedAccessEnum>"
+            f"<GPOGroupedAccessEnum>{_xe(e['standard'])}</GPOGroupedAccessEnum>"
             "</Standard>"
         )
-        lines.append(f"          <Type><PermissionType>{e['type']}</PermissionType></Type>")
+        lines.append(f"          <Type><PermissionType>{_xe(e['type'])}</PermissionType></Type>")
         lines.append("        </TrusteePermissions>")
     lines.append("      </Permissions>")
     lines.append("    </SecurityDescriptor>")
@@ -156,7 +165,7 @@ def gpo_to_xml(g: GpoDef) -> str:
         f"      <Identifier>{g.guid}</Identifier>",
         f"      <Domain>{DOMAIN}</Domain>",
         "    </Identifier>",
-        f"    <Name>{g.name}</Name>",
+        f"    <Name>{_xe(g.name)}</Name>",
         f"    <CreatedTime>{TS}</CreatedTime>",
         f"    <ModifiedTime>{TS}</ModifiedTime>",
         f"    <ReadTime>{TS}</ReadTime>",
@@ -172,8 +181,8 @@ def gpo_to_xml(g: GpoDef) -> str:
         lines.append(_make_delegation_xml(g.delegation, compact=compact))
     for link in g.links:
         lines.append("    <LinksTo>")
-        lines.append(f"      <SOMName>{link.som_name}</SOMName>")
-        lines.append(f"      <SOMPath>{link.som_path}</SOMPath>")
+        lines.append(f"      <SOMName>{_xe(link.som_name)}</SOMName>")
+        lines.append(f"      <SOMPath>{_xe(link.som_path)}</SOMPath>")
         lines.append(f"      <Enabled>{str(link.enabled).lower()}</Enabled>")
         lines.append(f"      <NoOverride>{str(link.enforced).lower()}</NoOverride>")
         lines.append("    </LinksTo>")
@@ -273,6 +282,48 @@ GPO_DEFS = [
         delegation=[AUTH_USERS_READ],
     ),
     GpoDef(
+        guid=GUID_I,
+        name="gpo-loopback-merge",
+        computer=SideDef(
+            data=[
+                {
+                    "cse": "Security",
+                    "blocks": [
+                        {
+                            "name": "Configure user group policy loopback processing mode",
+                            "type": "Policy",
+                            "value": "Merge",
+                            "tag": "SettingString",
+                        },
+                    ],
+                }
+            ],
+        ),
+        links=[_make_link(DOMAIN, ROOT_DN)],
+        delegation=[AUTH_USERS_READ],
+    ),
+    GpoDef(
+        guid=GUID_J,
+        name="gpo-loopback-unknown",
+        computer=SideDef(
+            data=[
+                {
+                    "cse": "Security",
+                    "blocks": [
+                        {
+                            "name": "Configure user group policy loopback processing mode",
+                            "type": "Policy",
+                            "value": "Enabled: Custom Loopback Mode",
+                            "tag": "SettingString",
+                        },
+                    ],
+                }
+            ],
+        ),
+        links=[_make_link(DOMAIN, ROOT_DN)],
+        delegation=[AUTH_USERS_READ],
+    ),
+    GpoDef(
         guid=GUID_F,
         name="gpo-blocked-ext",
         computer=SideDef(blocked=True),
@@ -339,6 +390,8 @@ def build_ou_tree() -> list[dict]:
         f"[LDAP://CN={GUID_F},CN=Policies,CN=System,{ROOT_DN.upper()};0]"
         f"[LDAP://CN={GUID_G},CN=Policies,CN=System,{ROOT_DN.upper()};0]"
         f"[LDAP://CN={GUID_H},CN=Policies,CN=System,{ROOT_DN.upper()};0]"
+        f"[LDAP://CN={GUID_I},CN=Policies,CN=System,{ROOT_DN.upper()};0]"
+        f"[LDAP://CN={GUID_J},CN=Policies,CN=System,{ROOT_DN.upper()};0]"
     )
     gplink_child = f"[LDAP://CN={GUID_D},CN=Policies,CN=System,{ROOT_DN.upper()};0]"
     return [
@@ -360,7 +413,7 @@ def build_ou_tree() -> list[dict]:
 def build_gp_inheritance() -> list[dict]:
     root_links = []
     for order, guid in enumerate(
-        [GUID_A, GUID_B, GUID_C, GUID_E, GUID_F, GUID_G, GUID_H], start=1
+        [GUID_A, GUID_B, GUID_C, GUID_E, GUID_F, GUID_G, GUID_H, GUID_I, GUID_J], start=1
     ):
         root_links.append(
             {
@@ -374,7 +427,7 @@ def build_gp_inheritance() -> list[dict]:
     root_links.append(
         {
             "GpoId": GUID_D,
-            "Order": 8,
+            "Order": 10,
             "Enabled": True,
             "Enforced": False,
             "Target": CHILD_DN,
@@ -462,7 +515,13 @@ def write_all(target: Path = FIXTURE_DIR) -> None:
         json.dumps(wmi, separators=(",", ":")) + "\n", encoding="utf-8"
     )
 
-    sysvol = target / "SYSVOL-Policies" / GUID_A.strip("{}") / "Machine" / "Preferences"
+    sysvol = (
+        target
+        / "SYSVOL-Policies"
+        / f"{{{GUID_A.strip('{}').upper()}}}"
+        / "Machine"
+        / "Preferences"
+    )
     sysvol.mkdir(parents=True, exist_ok=True)
     groups_xml = (
         '<?xml version="1.0" encoding="utf-8"?>\n'

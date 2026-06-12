@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import logging
 import os
 import sqlite3
 import threading
@@ -9,7 +10,6 @@ import zipfile
 from collections import defaultdict
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Callable
 
 from fastapi import Depends, FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -20,7 +20,10 @@ from gpo_lens import events as _events
 from gpo_lens import ingest as _ingest
 from gpo_lens import queries
 from gpo_lens import store as _store
+from gpo_lens.query_dispatch import QUERY_REQUIRED_PARAMS, VALID_QUERIES, dispatch_query
 from gpo_lens.web.auth import Permission, Principal, requires
+
+_logger = logging.getLogger(__name__)
 
 _WEB_DIR = Path(__file__).resolve().parent
 _MAX_UPLOAD_BYTES = 500 * 1024 * 1024
@@ -39,47 +42,6 @@ def _safe_extract(zip_path: Path, dest: Path) -> None:
         zf.extractall(dest)
 
 
-_QUERY_DISPATCH: dict[str, Callable[..., object]] = {
-    "estate_summary": lambda **kw: queries.estate_summary(
-        kw["estate"]
-    ),
-    "estate_doctor": lambda **kw: queries.estate_doctor(
-        kw["estate"]
-    ),
-    "cpassword_scan": lambda **kw: queries.cpassword_scan(
-        kw["estate"]
-    ),
-    "unlinked_gpos": lambda **kw: queries.unlinked_gpos(
-        kw["estate"]
-    ),
-    "empty_gpos": lambda **kw: queries.empty_gpos(kw["estate"]),
-    "version_skew": lambda **kw: queries.version_skew(
-        kw["estate"]
-    ),
-    "broken_refs": lambda **kw: queries.broken_refs(kw["estate"]),
-    "enforced_links": lambda **kw: queries.enforced_links(
-        kw["estate"]
-    ),
-    "dangling_links": lambda **kw: queries.dangling_links(
-        kw["estate"]
-    ),
-    "ms16_072_vulnerable": lambda **kw: queries.ms16_072_vulnerable(
-        kw["estate"]
-    ),
-    "topology_crosscheck": lambda **kw: queries.topology_crosscheck(
-        kw["estate"]
-    ),
-    "disabled_but_populated": lambda **kw: queries.disabled_but_populated(
-        kw["estate"]
-    ),
-    "settings_at_som": lambda **kw: queries.settings_at_som(
-        kw["estate"], kw["ou_path"]
-    ),
-}
-
-_QUERY_REQUIRED_PARAMS: dict[str, list[str]] = {
-    "settings_at_som": ["ou_path"],
-}
 
 
 def _serialize_result(result: object) -> object:
@@ -109,6 +71,36 @@ def create_app(db_path: str, *, root_path: str = "") -> FastAPI:
     templates = Jinja2Templates(directory=str(_WEB_DIR / "templates"))
 
     app.mount("/static", StaticFiles(directory=str(_WEB_DIR / "static")), name="static")
+
+    def _is_localhost_origin(origin: str) -> bool:
+        from urllib.parse import urlparse
+        parsed = urlparse(origin)
+        return parsed.hostname in ("localhost", "127.0.0.1", "::1")
+
+    @app.middleware("http")
+    async def _security_headers(request: Request, call_next):  # type: ignore[no-untyped-def]
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        return response
+
+    @app.middleware("http")
+    async def _csrf_check(request: Request, call_next):  # type: ignore[no-untyped-def]
+        if request.method == "POST":
+            origin = request.headers.get("origin", "")
+            referer = request.headers.get("referer", "")
+            if origin and not _is_localhost_origin(origin):
+                return JSONResponse(
+                    {"detail": "CSRF validation failed"},
+                    status_code=403,
+                )
+            if not origin and referer and not _is_localhost_origin(referer):
+                return JSONResponse(
+                    {"detail": "CSRF validation failed"},
+                    status_code=403,
+                )
+        return await call_next(request)
 
     @app.get("/", response_class=HTMLResponse, name="home")
     async def home(
@@ -297,18 +289,20 @@ def create_app(db_path: str, *, root_path: str = "") -> FastAPI:
                     extract_dir.mkdir()
                     _safe_extract(zip_path, extract_dir)
                 except (ValueError, zipfile.BadZipFile) as exc:
+                    _logger.warning("Malformed zip upload: %s", exc)
                     return templates.TemplateResponse(
                         request, "ingest.html",
-                        {"error": f"Malformed zip: {exc}"},
+                        {"error": "Malformed zip file. Please check the upload and try again."},
                         status_code=400,
                     )
 
                 try:
                     estate = _ingest.load_estate(extract_dir)
                 except (FileNotFoundError, ValueError, KeyError) as exc:
+                    _logger.warning("Invalid estate data: %s", exc)
                     return templates.TemplateResponse(
                         request, "ingest.html",
-                        {"error": f"Invalid estate data: {exc}"},
+                        {"error": "Invalid estate data in upload."},
                         status_code=400,
                     )
 
@@ -350,7 +344,7 @@ def create_app(db_path: str, *, root_path: str = "") -> FastAPI:
         question: str = Form(...),
         principal: Principal = Depends(requires(Permission.NARRATE)),
     ) -> HTMLResponse:
-        from gpo_lens.detection import _mask_cpassword
+        from gpo_lens.detection import mask_cpassword
         from gpo_lens.narration import NarrationUnavailable, call_llm, route_question
         from gpo_lens.store import load_estate
 
@@ -361,7 +355,7 @@ def create_app(db_path: str, *, root_path: str = "") -> FastAPI:
 
         if not narration_available:
             error = (
-                "Narration is not configured. Set the GPO_LENS_LLM_URL "
+                "Narration is not configured. Set the GPO_LENS_LLM_ENDPOINT "
                 "and GPO_LENS_API_KEY environment variables to enable "
                 "AI-powered analysis."
             )
@@ -389,9 +383,9 @@ def create_app(db_path: str, *, root_path: str = "") -> FastAPI:
                     dict(raw_params) if isinstance(raw_params, dict) else {}
                 )
                 params = {k: v for k, v in params.items() if k != "estate"}
-                if query_name in _QUERY_DISPATCH:
+                if query_name in VALID_QUERIES:
                     call_kw: dict[str, object] = {"estate": estate, **params}
-                    required = _QUERY_REQUIRED_PARAMS.get(query_name, [])
+                    required = QUERY_REQUIRED_PARAMS.get(query_name, [])
                     for rp in required:
                         if rp not in call_kw:
                             error = f"Query '{query_name}' requires parameter '{rp}'"
@@ -402,12 +396,12 @@ def create_app(db_path: str, *, root_path: str = "") -> FastAPI:
                         params = {k: v for k, v in params.items() if k in expected_keys}
                         call_kw = {"estate": estate, **params}
                     if error is None:
-                        query_result: object = _QUERY_DISPATCH[query_name](**call_kw)
+                        query_result: object = dispatch_query(query_name, **call_kw)
                         if query_name == "cpassword_scan":
                             hits: list[queries.CpasswordHit] = query_result  # type: ignore[assignment]
                             query_result = [
                                 dataclasses.replace(
-                                    hit, cpassword=_mask_cpassword(hit.cpassword),
+                                    hit, cpassword=mask_cpassword(hit.cpassword),
                                 )
                                 for hit in hits
                             ]
@@ -429,7 +423,8 @@ def create_app(db_path: str, *, root_path: str = "") -> FastAPI:
                             answer = None
                         except Exception as exc:
                             answer = None
-                            error = f"Narration failed: {exc}"
+                            _logger.error("Narration failed: %s", exc)
+                            error = "Narration service error. Please try again."
                         facts = serialized
                 else:
                     error = f"Query '{query_name}' not implemented"
@@ -540,10 +535,11 @@ def create_app(db_path: str, *, root_path: str = "") -> FastAPI:
             total_count = len(diff_entries)
             unresolved_count = sum(1 for e in diff_entries if not e.admx_name)
         except (ValueError, zipfile.BadZipFile, FileNotFoundError) as exc:
+            _logger.warning("Invalid baseline zip: %s", exc)
             return templates.TemplateResponse(
                 request,
                 "baseline_diff.html",
-                {"request": request, "diff_entries": [], "error": f"Invalid baseline zip: {exc}"},
+                {"request": request, "diff_entries": [], "error": "Invalid baseline zip file."},
             )
 
         return templates.TemplateResponse(

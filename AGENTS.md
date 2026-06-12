@@ -6,7 +6,7 @@ Conventions and quick reference for agents (and humans) working on gpo-lens.
 
 Local-first, **read-only** Group Policy analysis. The tool ingests *copies* of a
 GPO estate (it never touches live AD) and answers questions about it. The
-deterministic core has **no AI in the truth path** — any future LLM layer only
+deterministic core has **no AI in the truth path** — the LLM layer only
 narrates facts the core computed. See `README.md` for the full charter.
 
 ## Orient
@@ -18,13 +18,19 @@ narrates facts the core computed. See `README.md` for the full charter.
    acceptance criteria (`AC-NN`) and exact function signatures. **The spec is the
    contract.** Implement to the ACs.
 3. **Validate against reality.** `tests/` encodes the *measured* numbers from the
-   real exports (e.g. work domain = 129 GPOs, 8 disabled-but-populated sides,
-   1,551 SOMs). Your implementation is correct when those pass. The sample exports
+    real exports (e.g. work domain = 100+ GPOs, several disabled-but-populated sides,
+    1,000+ SOMs). Your implementation is correct when those pass. The sample exports
    live in `samples/` (gitignored — never commit them; WORK-DOMAIN.local is a real work
    domain's SYSVOL). Sample-dependent tests skip if `samples/` is absent.
 
 ## Hard rules
 
+- **No work-domain identifiers in committed files.** Reflections and docs use
+  placeholders (`WORK-DOMAIN.local`, `LABDOMAIN`). Exact counts are allowed
+  only in test assertions against `samples/`; docs use ranges.
+- **Fixture data is synthetic.** No real GPO names, OU paths, or domain names
+  in committed test files.
+- **`samples/` is gitignored and must never be committed.**
 - **Read-only.** No code writes to or connects to Active Directory. Input is
   files only.
 - **No AI in the deterministic core.** Tiers 1–2.5 must run with zero model calls.
@@ -34,6 +40,7 @@ narrates facts the core computed. See `README.md` for the full charter.
   joins use it (see `normalize.canonical_guid`).
 - **BOM-tolerant JSON:** collector JSON may carry a UTF-8 BOM (PowerShell 5.1).
   Always load with `utf-8-sig`.
+- **Import boundary:** Core modules (`model`, `normalize`, `ingest`, `store`, `queries`, `detection`, `admx_parser`, `display`, `report`, `events`, `sinks`, `query_dispatch`) must never import `narration` or `web`. An architecture test enforces this.
 
 ## Build / test / lint
 
@@ -65,7 +72,13 @@ a DC/RSAT box). The tool consumes its output dir.
 | `detection.py` | Pure scanner functions — cpassword, MS16-072, version skew, broken refs, etc. Result types: `CpasswordHit`, `BrokenRef`, `AdmxGap` |
 | `admx_parser.py` | ADMX/ADML template parser — builds registry-path → policy-name crosswalk for baseline diff |
 | `display.py` | Table renderer |
-| `cli.py` | Argparse CLI — one function per subcommand |
+| `report.py` | Markdown/HTML estate report generation |
+| `events.py` | Append-only event store for tracking GPO estate changes |
+| `sinks.py` | Event sinks for NDJSON file export and Splunk HEC |
+| `query_dispatch.py` | Centralized query dispatch table (single source of truth for CLI and web) |
+| `narration.py` | Tier 3 — LLM narration (`call_llm`, `explain_findings`, `route_question`). Optional; core never imports this |
+| `web/` | FastAPI web UI — dashboard, GPO detail, ingest, ask, changelog, baseline diff |
+| `cli/` | CLI package — argparse subcommands. Entry point: `cli._core:main` |
 
 ## Baseline diff
 
@@ -78,8 +91,4 @@ in `admx_parser.py` resolves registry paths back to policy names for display.
 
 ## Active breadcrumbs
 
-Check `breadcrumbs/active/` for deferred work items:
-- `changelog-over-time.md` — per-setting deltas, version-aware diffing
-- `delegation-audit-deep-dive.md` — SDDL parsing, deny detection, privilege rollup
-- `estate-doc-export.md` — auto-generated markdown/HTML reports
-- `settings-diff-pipeline.md` — structured diff between settings exports
+Check `breadcrumbs/active/` for active work items. Resolved items move to `breadcrumbs/resolved/`.

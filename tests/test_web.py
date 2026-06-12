@@ -256,6 +256,7 @@ class TestArchitecture:
         "report",
         "events",
         "sinks",
+        "query_dispatch",
     ])
     def test_core_modules_do_not_import_web(self, module_name: str) -> None:
         import gpo_lens
@@ -485,7 +486,7 @@ class TestAsk:
             permissions=frozenset([Permission.VIEW]),
         )
         app = create_app(fixture_db)
-        app.dependency_overrides[get_principal] = lambda: viewer
+        app.dependency_overrides[get_principal] = lambda authorization=None: viewer
         try:
             client = TestClient(app)
             resp = client.post("/ask", data={"question": "test"})

@@ -1,56 +1,15 @@
+"""CLI subcommand for LLM-powered natural language queries (ask)."""
 from __future__ import annotations
 
 import argparse
 import dataclasses
 import json
 import sys
-from typing import Callable
 
 from gpo_lens import queries
 from gpo_lens.cli._helpers import _get_estate, _render_json
-from gpo_lens.detection import _mask_cpassword
-
-_QUERY_DISPATCH: dict[str, Callable[..., object]] = {
-    "estate_summary": lambda **kw: queries.estate_summary(
-        kw["estate"]
-    ),
-    "estate_doctor": lambda **kw: queries.estate_doctor(
-        kw["estate"]
-    ),
-    "cpassword_scan": lambda **kw: queries.cpassword_scan(
-        kw["estate"]
-    ),
-    "unlinked_gpos": lambda **kw: queries.unlinked_gpos(
-        kw["estate"]
-    ),
-    "empty_gpos": lambda **kw: queries.empty_gpos(kw["estate"]),
-    "version_skew": lambda **kw: queries.version_skew(
-        kw["estate"]
-    ),
-    "broken_refs": lambda **kw: queries.broken_refs(kw["estate"]),
-    "enforced_links": lambda **kw: queries.enforced_links(
-        kw["estate"]
-    ),
-    "dangling_links": lambda **kw: queries.dangling_links(
-        kw["estate"]
-    ),
-    "ms16_072_vulnerable": lambda **kw: queries.ms16_072_vulnerable(
-        kw["estate"]
-    ),
-    "topology_crosscheck": lambda **kw: queries.topology_crosscheck(
-        kw["estate"]
-    ),
-    "disabled_but_populated": lambda **kw: queries.disabled_but_populated(
-        kw["estate"]
-    ),
-    "settings_at_som": lambda **kw: queries.settings_at_som(
-        kw["estate"], kw["ou_path"]
-    ),
-}
-
-_QUERY_REQUIRED_PARAMS: dict[str, list[str]] = {
-    "settings_at_som": ["ou_path"],
-}
+from gpo_lens.detection import mask_cpassword
+from gpo_lens.query_dispatch import QUERY_REQUIRED_PARAMS, VALID_QUERIES, dispatch_query
 
 
 def _serialize_result(result: object) -> object:
@@ -67,23 +26,24 @@ def _serialize_result(result: object) -> object:
 
 def cmd_ask(args: argparse.Namespace) -> int:
     from gpo_lens.narration import (
-        _VALID_QUERIES,
         NarrationUnavailable,
         call_llm,
         route_question,
     )
 
-    dispatch_keys = set(_QUERY_DISPATCH.keys())
-    if dispatch_keys != _VALID_QUERIES:
+    dispatch_keys = set(VALID_QUERIES)
+    from gpo_lens.narration import _VALID_QUERIES as narration_valid
+
+    if dispatch_keys != narration_valid:
         raise RuntimeError(
-            f"_QUERY_DISPATCH and _VALID_QUERIES out of sync: "
-            f"extra in dispatch: {dispatch_keys - _VALID_QUERIES}, "
-            f"missing from dispatch: {_VALID_QUERIES - dispatch_keys}"
+            f"query_dispatch.VALID_QUERIES / narration._VALID_QUERIES out of sync: "
+            f"extra in dispatch: {dispatch_keys - narration_valid}, "
+            f"missing from dispatch: {narration_valid - dispatch_keys}"
         )
-    required_keys = set(_QUERY_REQUIRED_PARAMS.keys())
+    required_keys = set(QUERY_REQUIRED_PARAMS.keys())
     if required_keys - dispatch_keys:
         raise RuntimeError(
-            f"_QUERY_REQUIRED_PARAMS references unknown queries: "
+            f"QUERY_REQUIRED_PARAMS references unknown queries: "
             f"{required_keys - dispatch_keys}"
         )
 
@@ -107,7 +67,7 @@ def cmd_ask(args: argparse.Namespace) -> int:
     query_name = str(routing["query"])
     params = dict(routing.get("params", {}))  # type: ignore[call-overload]
 
-    if query_name not in _QUERY_DISPATCH:
+    if query_name not in VALID_QUERIES:
         print(
             f"Error: query '{query_name}' not implemented yet",
             file=sys.stderr,
@@ -116,7 +76,7 @@ def cmd_ask(args: argparse.Namespace) -> int:
 
     call_kw: dict[str, object] = {"estate": estate, **params}
 
-    required = _QUERY_REQUIRED_PARAMS.get(query_name, [])
+    required = QUERY_REQUIRED_PARAMS.get(query_name, [])
     for rp in required:
         if rp not in call_kw:
             print(
@@ -132,13 +92,14 @@ def cmd_ask(args: argparse.Namespace) -> int:
             f"Warning: unexpected parameters for query '{query_name}': {unexpected}",
             file=sys.stderr,
         )
+        call_kw = {k: v for k, v in call_kw.items() if k in expected_keys}
 
-    query_result: object = _QUERY_DISPATCH[query_name](**call_kw)
+    query_result: object = dispatch_query(query_name, **call_kw)
 
     if query_name == "cpassword_scan":
         hits: list[queries.CpasswordHit] = query_result  # type: ignore[assignment]
         query_result = [
-            dataclasses.replace(hit, cpassword=_mask_cpassword(hit.cpassword))
+            dataclasses.replace(hit, cpassword=mask_cpassword(hit.cpassword))
             for hit in hits
         ]
 
@@ -171,4 +132,3 @@ def cmd_ask(args: argparse.Namespace) -> int:
         print("Narration unavailable. Raw results:")
         _render_json(serialized_result)
     return 0
-

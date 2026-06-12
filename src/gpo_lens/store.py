@@ -398,6 +398,8 @@ def load_estate(conn: sqlite3.Connection, snapshot_id: int | None = None) -> Est
         """,
         (snapshot_id,),
     ):
+        if row[0] not in gpos:
+            continue
         gpo = gpos[row[0]]
         gpo.links.append(
             GpoLink(
@@ -418,6 +420,8 @@ def load_estate(conn: sqlite3.Connection, snapshot_id: int | None = None) -> Est
         """,
         (snapshot_id,),
     ):
+        if row[0] not in gpos:
+            continue
         gpo = gpos[row[0]]
         gpo.settings.append(
             Setting(
@@ -441,6 +445,8 @@ def load_estate(conn: sqlite3.Connection, snapshot_id: int | None = None) -> Est
         """,
         (snapshot_id,),
     ):
+        if row[0] not in gpos:
+            continue
         gpo = gpos[row[0]]
         gpo.delegation.append(
             DelegationEntry(
@@ -473,6 +479,8 @@ def load_estate(conn: sqlite3.Connection, snapshot_id: int | None = None) -> Est
         """,
         (snapshot_id,),
     ):
+        if row[0] not in soms:
+            continue
         som = soms[row[0]]
         som.links.append(
             SomLink(

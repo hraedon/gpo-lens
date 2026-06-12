@@ -44,7 +44,7 @@ Respects `--json`. Text output is a grouped view by GPO, ordered by precedence.
 
 - Lab domain `dc=lab,dc=example,dc=com` chain: 5 GPOs, all enabled, none enforced.
   Verify with `settings_at_som(...)` that settings fold correctly.
-- Work domain: 1,551 SOMs. Verify performance: must fold the largest
+- Work domain: 1,000+ SOMs. Verify performance: must fold the largest
   chain (domain root) without pathological slowdown.
 
 ## Why now
@@ -60,7 +60,7 @@ value-diffing but has no topology view.
   hundred GPOs, each with a few hundred settings).
 - For the lab domain root: 5 GPOs × ~200 settings each = ~1000 settings max.
   Folding is `O(chain_length × settings_per_gpo)` — trivial.
-- For the work domain root: 129 GPOs. Still well within sub-second folding.
+- For the work domain root: 100+ GPOs. Still well within sub-second folding.
 
 ## Out of scope
 

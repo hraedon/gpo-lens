@@ -230,6 +230,102 @@
 
   <GPO>
     <Identifier>
+      <Identifier>{33333333-3333-3333-3333-333333333333}</Identifier>
+      <Domain>fakefixture.local</Domain>
+    </Identifier>
+    <Name>gpo-loopback-merge</Name>
+    <CreatedTime>2024-01-01T00:00:00</CreatedTime>
+    <ModifiedTime>2024-01-01T00:00:00</ModifiedTime>
+    <ReadTime>2024-01-01T00:00:00</ReadTime>
+    <Computer>
+      <Enabled>true</Enabled>
+      <VersionDirectory>1</VersionDirectory>
+      <VersionSysvol>1</VersionSysvol>
+      <ExtensionData>
+        <Name>Security</Name>
+        <Extension>
+          <Security Name="Configure user group policy loopback processing mode" Type="Policy">
+            <SettingString>Merge</SettingString>
+          </Security>
+        </Extension>
+      </ExtensionData>
+    </Computer>
+    <User>
+      <Enabled>true</Enabled>
+      <VersionDirectory>1</VersionDirectory>
+      <VersionSysvol>1</VersionSysvol>
+    </User>
+    <SecurityDescriptor>
+      <Permissions>
+        <TrusteePermissions>
+          <Trustee>
+            <Name>Authenticated Users</Name>
+            <SID>S-1-5-11</SID>
+          </Trustee>
+          <Standard><GPOGroupedAccessEnum>Read</GPOGroupedAccessEnum></Standard>
+          <Type><PermissionType>Allow</PermissionType></Type>
+        </TrusteePermissions>
+      </Permissions>
+    </SecurityDescriptor>
+    <LinksTo>
+      <SOMName>fakefixture.local</SOMName>
+      <SOMPath>dc=fakefixture,dc=local</SOMPath>
+      <Enabled>true</Enabled>
+      <NoOverride>false</NoOverride>
+    </LinksTo>
+    <FilterDataAvailable>false</FilterDataAvailable>
+  </GPO>
+
+  <GPO>
+    <Identifier>
+      <Identifier>{44444444-4444-4444-4444-444444444444}</Identifier>
+      <Domain>fakefixture.local</Domain>
+    </Identifier>
+    <Name>gpo-loopback-unknown</Name>
+    <CreatedTime>2024-01-01T00:00:00</CreatedTime>
+    <ModifiedTime>2024-01-01T00:00:00</ModifiedTime>
+    <ReadTime>2024-01-01T00:00:00</ReadTime>
+    <Computer>
+      <Enabled>true</Enabled>
+      <VersionDirectory>1</VersionDirectory>
+      <VersionSysvol>1</VersionSysvol>
+      <ExtensionData>
+        <Name>Security</Name>
+        <Extension>
+          <Security Name="Configure user group policy loopback processing mode" Type="Policy">
+            <SettingString>Enabled: Custom Loopback Mode</SettingString>
+          </Security>
+        </Extension>
+      </ExtensionData>
+    </Computer>
+    <User>
+      <Enabled>true</Enabled>
+      <VersionDirectory>1</VersionDirectory>
+      <VersionSysvol>1</VersionSysvol>
+    </User>
+    <SecurityDescriptor>
+      <Permissions>
+        <TrusteePermissions>
+          <Trustee>
+            <Name>Authenticated Users</Name>
+            <SID>S-1-5-11</SID>
+          </Trustee>
+          <Standard><GPOGroupedAccessEnum>Read</GPOGroupedAccessEnum></Standard>
+          <Type><PermissionType>Allow</PermissionType></Type>
+        </TrusteePermissions>
+      </Permissions>
+    </SecurityDescriptor>
+    <LinksTo>
+      <SOMName>fakefixture.local</SOMName>
+      <SOMPath>dc=fakefixture,dc=local</SOMPath>
+      <Enabled>true</Enabled>
+      <NoOverride>false</NoOverride>
+    </LinksTo>
+    <FilterDataAvailable>false</FilterDataAvailable>
+  </GPO>
+
+  <GPO>
+    <Identifier>
       <Identifier>{FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF}</Identifier>
       <Domain>fakefixture.local</Domain>
     </Identifier>

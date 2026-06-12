@@ -1,11 +1,17 @@
 # Changelog
 
-## v0.2.1 — 2026-06-10
+## v0.2.2 — 2026-06-10
+
+- **Note:** v0.2.1 was folded into this release.
 
 ### Bug fixes
 - **`report --db` no longer shadows top-level `--db`**: Removed duplicate `--db` argument from the report subparser that silently overrode the parent parser's value (report-db-shadow).
 - **`ask` validates required params before dispatch**: `settings_at_som` now errors clearly if `ou_path` is missing instead of silently returning empty results. Unexpected params from LLM routing produce a warning (dispatch-param-validation).
 - **Consistent `--admx-dir` warnings**: `baseline-diff` and `admx-gaps` now warn on nonexistent/invalid `--admx-dir` paths, matching the existing `report` behavior (admx-dir-consistent-errors).
+
+### Added
+- `--version` flag to CLI (prints version and exits).
+- Version-sync test asserting `pyproject.toml` version matches `__init__.__version__`.
 
 ## v0.2.0 — 2026-06-10
 

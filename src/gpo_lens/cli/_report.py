@@ -1,3 +1,4 @@
+"""CLI subcommand for generating estate reports (Markdown/HTML)."""
 from __future__ import annotations
 
 import argparse

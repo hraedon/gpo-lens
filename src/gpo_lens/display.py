@@ -44,7 +44,8 @@ def render_table(
 
     widths = [len(h) for h in clipped_headers]
     for row in str_rows:
-        for i, cell in enumerate(row):
+        padded = row + [""] * (ncols - len(row))
+        for i, cell in enumerate(padded):
             widths[i] = max(widths[i], len(cell))
 
     parts = []
@@ -56,7 +57,8 @@ def render_table(
     lines.append(fmt.format(*clipped_headers))
     lines.append("  ".join("-" * w for w in widths))
     for row in str_rows:
-        lines.append(fmt.format(*row))
+        padded = row + [""] * (ncols - len(row))
+        lines.append(fmt.format(*padded))
     return "\n".join(lines) + "\n"
 
 

@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import html as html_lib
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from gpo_lens.model import Estate, Gpo
+    from gpo_lens.model import Estate, Gpo, Som
     from gpo_lens.queries import (
         BaselineDiffEntry,
         ChangelogEntry,
@@ -49,6 +50,593 @@ _SEVERITY_COLOR = {
     "info": "#6b7280",
 }
 
+
+# ---------------------------------------------------------------------------
+# Shared data structures for GPO sections
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class _GpoSectionItem:
+    label: str
+    value: str
+
+
+@dataclass(frozen=True)
+class _GpoLinkItem:
+    som_path: str
+    enabled: bool
+    enforced: bool
+
+
+@dataclass(frozen=True)
+class _GpoDelegationItem:
+    trustee: str
+    permission: str
+    allowed: bool
+
+
+@dataclass(frozen=True)
+class _GpoSettingItem:
+    cse: str
+    side: str
+    identity: str
+    display_value: str
+    flags: str
+
+
+def _gpo_sections(
+    gpo: Gpo,
+) -> tuple[
+    list[_GpoSectionItem],
+    list[_GpoLinkItem],
+    list[_GpoDelegationItem],
+    list[_GpoSettingItem],
+]:
+    """Extract structured sections from a Gpo for format-agnostic rendering."""
+    properties: list[_GpoSectionItem] = [
+        _GpoSectionItem("ID", gpo.id),
+        _GpoSectionItem("Domain", gpo.domain),
+        _GpoSectionItem("Computer side", "Enabled" if gpo.computer_enabled else "Disabled"),
+        _GpoSectionItem("User side", "Enabled" if gpo.user_enabled else "Disabled"),
+    ]
+
+    if gpo.computer_ver_ds is not None or gpo.computer_ver_sysvol is not None:
+        comp_skew = " **SKEW**" if gpo.computer_version_skew else ""
+        properties.append(
+            _GpoSectionItem(
+                "Computer version",
+                f"DS={gpo.computer_ver_ds}, SYSVOL={gpo.computer_ver_sysvol}{comp_skew}",
+            )
+        )
+    if gpo.user_ver_ds is not None or gpo.user_ver_sysvol is not None:
+        user_skew = " **SKEW**" if gpo.user_version_skew else ""
+        properties.append(
+            _GpoSectionItem(
+                "User version",
+                f"DS={gpo.user_ver_ds}, SYSVOL={gpo.user_ver_sysvol}{user_skew}",
+            )
+        )
+
+    if gpo.wmi_filter:
+        properties.append(_GpoSectionItem("WMI filter", gpo.wmi_filter))
+    if gpo.owner:
+        properties.append(_GpoSectionItem("Owner", gpo.owner))
+
+    links = [
+        _GpoLinkItem(link.som_path, link.link_enabled, link.enforced)
+        for link in gpo.links
+    ]
+
+    delegation = [
+        _GpoDelegationItem(d.trustee, d.permission, d.allowed)
+        for d in gpo.delegation
+    ]
+
+    settings: list[_GpoSettingItem] = []
+    for s in gpo.settings:
+        flags = ""
+        if s.from_disabled_side:
+            flags += " [DISABLED SIDE]"
+        if s.source_state == "blocked":
+            flags += " [BLOCKED]"
+        settings.append(
+            _GpoSettingItem(
+                s.cse, s.side, s.identity, s.display_value, flags
+            )
+        )
+
+    return properties, links, delegation, settings
+
+
+# ---------------------------------------------------------------------------
+# Format-specific renderers for GPO sections
+# ---------------------------------------------------------------------------
+
+def _gpo_md(gpo: Gpo, *, max_settings: int = 50) -> str:
+    parts: list[str] = []
+    parts.append(f"### {gpo.name}\n")
+
+    properties, links, delegation, settings = _gpo_sections(gpo)
+
+    for p in properties:
+        parts.append(f"- **{p.label}:** {p.value}")
+
+    if links:
+        parts.append("")
+        parts.append("**Links:**\n")
+        for link in links:
+            enabled = "enabled" if link.enabled else "disabled"
+            enforced = " [ENFORCED]" if link.enforced else ""
+            parts.append(f"- `{link.som_path}` ({enabled}{enforced})")
+
+    if delegation:
+        parts.append("")
+        parts.append("**Delegation:**\n")
+        for d in delegation:
+            allowed = "Allow" if d.allowed else "Deny"
+            parts.append(f"- {d.trustee}: {d.permission} ({allowed})")
+
+    if settings:
+        parts.append("")
+        parts.append(f"**Settings** ({len(gpo.settings)}):\n")
+        for s in settings[:max_settings]:
+            parts.append(
+                f"- `[{s.cse}] {s.side}/{s.identity}`: "
+                f"{s.display_value}{s.flags}"
+            )
+        remaining = len(gpo.settings) - max_settings
+        if remaining > 0:
+            parts.append(f"- ... ({remaining} more settings)")
+
+    parts.append("")
+    return "\n".join(parts)
+
+
+
+def _esc(text: str) -> str:
+    return html_lib.escape(str(text))
+
+
+def _gpo_html(gpo: Gpo, *, max_settings: int = 50) -> list[str]:
+    parts: list[str] = []
+    parts.append(f"<h3>{_esc(gpo.name)}</h3>")
+
+    properties, links, delegation, settings = _gpo_sections(gpo)
+
+    parts.append("<table>")
+    parts.append("<tr><th>Property</th><th>Value</th></tr>")
+    for p in properties:
+        parts.append(f"<tr><td>{_esc(p.label)}</td><td>{_esc(p.value)}</td></tr>")
+    parts.append("</table>")
+
+    if links:
+        parts.append("<p><strong>Links:</strong></p>")
+        parts.append("<table>")
+        parts.append("<tr><th>SOM Path</th><th>Enabled</th><th>Enforced</th></tr>")
+        for link in links:
+            enabled = "Yes" if link.enabled else "No"
+            enforced = "Yes" if link.enforced else "No"
+            parts.append(
+                f"<tr><td><code>{_esc(link.som_path)}</code></td>"
+                f"<td>{enabled}</td><td>{enforced}</td></tr>"
+            )
+        parts.append("</table>")
+
+    if delegation:
+        parts.append("<p><strong>Delegation:</strong></p>")
+        parts.append("<table>")
+        parts.append("<tr><th>Trustee</th><th>Permission</th><th>Allowed</th></tr>")
+        for d in delegation:
+            allowed = "Allow" if d.allowed else "Deny"
+            parts.append(
+                f"<tr><td>{_esc(d.trustee)}</td>"
+                f"<td>{_esc(d.permission)}</td>"
+                f"<td>{allowed}</td></tr>"
+            )
+        parts.append("</table>")
+
+    if settings:
+        parts.append(f"<p><strong>Settings</strong> ({len(gpo.settings)}):</p>")
+        parts.append("<table>")
+        parts.append("<tr><th>CSE</th><th>Side</th><th>Identity</th><th>Value</th></tr>")
+        for s in settings[:max_settings]:
+            parts.append(
+                f"<tr><td>{_esc(s.cse)}</td><td>{_esc(s.side)}</td>"
+                f"<td><code>{_esc(s.identity)}</code></td>"
+                f"<td>{_esc(s.display_value)}{_esc(s.flags)}</td></tr>"
+            )
+        remaining = len(gpo.settings) - max_settings
+        if remaining > 0:
+            parts.append(
+                f"<tr><td colspan='4'>... ({remaining} more settings)</td></tr>"
+            )
+        parts.append("</table>")
+
+    return parts
+
+
+# ---------------------------------------------------------------------------
+# Shared section generators
+# ---------------------------------------------------------------------------
+
+def _summary_lines(summary: EstateSummary) -> list[tuple[str, str]]:
+    """Return (label, value) pairs for the summary table."""
+    return [(label, str(getattr(summary, attr))) for label, attr in _SUMMARY_FIELDS]
+
+
+def _grouped_findings(findings: list[DoctorFinding]) -> dict[str, list[DoctorFinding]]:
+    """Group findings by severity."""
+    grouped: dict[str, list[DoctorFinding]] = {s: [] for s in _SEVERITY_ORDER}
+    for f in findings:
+        sev = f.severity if f.severity in grouped else "info"
+        grouped.setdefault(sev, []).append(f)
+    return grouped
+
+
+def _baseline_categories(
+    baseline: list[BaselineDiffEntry],
+) -> tuple[
+    list[BaselineDiffEntry],
+    list[BaselineDiffEntry],
+    list[BaselineDiffEntry],
+    list[BaselineDiffEntry],
+    int,
+    float,
+]:
+    """Split baseline entries by status and compute compliance percentage."""
+    compliant = [r for r in baseline if r.status == "compliant"]
+    drift = [r for r in baseline if r.status == "drift"]
+    missing = [r for r in baseline if r.status == "missing"]
+    extra = [r for r in baseline if r.status == "extra"]
+    total = len(compliant) + len(drift) + len(missing) + len(extra)
+    pct = round(len(compliant) / total * 100, 1) if total else 0
+    return compliant, drift, missing, extra, total, pct
+
+
+# ---------------------------------------------------------------------------
+# Markdown builders
+# ---------------------------------------------------------------------------
+
+def _summary_table_md(summary: EstateSummary) -> str:
+    lines = [
+        "| Metric | Value |",
+        "|--------|-------|",
+    ]
+    for label, value in _summary_lines(summary):
+        lines.append(f"| {label} | {value} |")
+    return "\n".join(lines)
+
+
+def _findings_md(findings: list[DoctorFinding]) -> list[str]:
+    parts: list[str] = []
+    if not findings:
+        parts.append("No issues detected. Estate looks healthy.\n")
+        return parts
+
+    grouped = _grouped_findings(findings)
+    for sev in _SEVERITY_ORDER:
+        group = grouped.get(sev, [])
+        if not group:
+            continue
+        parts.append(f"### {sev.upper()}\n")
+        for f in group:
+            parts.append(
+                f"- **{f.category}** — "
+                f"{f.gpo_name or f.gpo_id or 'N/A'}: {f.summary}"
+            )
+            if f.detail:
+                parts.append(f"  _{f.detail}_")
+        parts.append("")
+    return parts
+
+
+def _topology_md(estate: Estate, soms_with_links: list[Som]) -> list[str]:
+    from gpo_lens import queries
+
+    parts: list[str] = []
+    if not soms_with_links:
+        parts.append("No SOMs with links.\n")
+        return parts
+
+    for som in soms_with_links:
+        block = " [BLOCKED INHERITANCE]" if som.inheritance_blocked else ""
+        parts.append(f"### {som.name}{block}\n")
+        parts.append(f"_Path:_ `{som.path}`\n")
+        gpos = queries.som_effective_gpos(estate, som.path, _som=som)
+        if not gpos:
+            parts.append("- No linked GPOs\n")
+        else:
+            for g in gpos:
+                enforced = " **[ENFORCED]**" if g.enforced else ""
+                en = "enabled" if g.enabled else "disabled"
+                parts.append(
+                    f"- {g.order}. {g.gpo_name} ({g.gpo_id}) {en}{enforced} "
+                    f"— target: `{g.target}`"
+                )
+            parts.append("")
+        parts.append("")
+    return parts
+
+
+def _effective_settings_md(estate: Estate, soms_with_links: list[Som]) -> list[str]:
+    from gpo_lens import queries
+
+    parts: list[str] = []
+    if not soms_with_links:
+        parts.append("No SOMs with links.\n")
+        return parts
+
+    for som in soms_with_links:
+        eff = queries.settings_at_som(estate, som.path)
+        if not eff:
+            continue
+        block = " [BLOCKED INHERITANCE]" if som.inheritance_blocked else ""
+        parts.append(f"### {som.name}{block}\n")
+        parts.append(f"_Path:_ `{som.path}`\n")
+        for s in eff:
+            parts.append(
+                f"- `[{s.cse}] {s.side}/{s.identity}`: "
+                f"{s.display_value} (winner: {s.winner_gpo_name})"
+            )
+            if s.overridden_by:
+                for o_name, o_val in s.overridden_by:
+                    parts.append(f"  - overridden: {o_name} = {o_val}")
+        parts.append("")
+    return parts
+
+
+def _baseline_md(baseline: list[BaselineDiffEntry]) -> list[str]:
+    parts: list[str] = []
+    compliant, drift, missing, extra, total, pct = _baseline_categories(baseline)
+    parts.append(f"**Compliance: {pct}%** ({len(compliant)} / {total})\n")
+
+    for title, items in [("Drift", drift), ("Missing", missing), ("Extra", extra)]:
+        if items:
+            parts.append(f"### {title}\n")
+            for r in items:
+                name = r.admx_name or r.display_name or r.identity
+                parts.append(f"- `[{r.cse}] {r.side}/{name}`")
+                if r.status == "drift":
+                    parts.append(f"  - Expected: `{r.expected_value}`")
+                    parts.append(f"  - Actual: `{r.actual_value}` (GPO: {r.gpo_id})")
+                elif r.status == "missing":
+                    parts.append(f"  - Expected: `{r.expected_value}`")
+                else:
+                    parts.append(f"  - Actual: `{r.actual_value}` (GPO: {r.gpo_id})")
+            parts.append("")
+    return parts
+
+
+def _changelog_md(changelog_entries: list[ChangelogEntry]) -> list[str]:
+    parts: list[str] = []
+    if not changelog_entries:
+        parts.append("No changes found.\n")
+        return parts
+
+    for e in changelog_entries:
+        prefix = "[DETAIL]" if e.kind == "settings_detail" else "[META]"
+        parts.append(f"### {prefix} {e.gpo_name} ({e.gpo_id})\n")
+        parts.append(f"*{e.summary}*\n")
+        if e.version_change:
+            vc = e.version_change
+            parts.append(
+                f"Version change: DS {vc.old_ds} -> {vc.new_ds}, "
+                f"SYSVOL {vc.old_sysvol} -> {vc.new_sysvol} "
+                f"(edits: {vc.edit_count})\n"
+            )
+        for sc in e.setting_changes:
+            parts.append(f"- `[{sc.side}/{sc.cse}] {sc.identity}` — {sc.change_type}")
+            if sc.old_value or sc.new_value:
+                parts.append(f"  - `{sc.old_value or ''}` -> `{sc.new_value or ''}`")
+        parts.append("")
+    return parts
+
+
+# ---------------------------------------------------------------------------
+# HTML builders
+# ---------------------------------------------------------------------------
+
+def _badge(sev: str) -> str:
+    color = _SEVERITY_COLOR.get(sev, "#6b7280")
+    return (
+        f'<span class="badge" style="background:{color};">'
+        f"{_esc(sev.upper())}</span>"
+    )
+
+
+def _summary_table_html(summary: EstateSummary) -> list[str]:
+    parts = ["<table>", "<tr><th>Metric</th><th>Value</th></tr>"]
+    for label, value in _summary_lines(summary):
+        parts.append(f"<tr><td>{_esc(label)}</td><td>{_esc(value)}</td></tr>")
+    parts.append("</table>")
+    return parts
+
+
+def _findings_html(findings: list[DoctorFinding]) -> list[str]:
+    parts: list[str] = []
+    if not findings:
+        parts.append("<p>No issues detected. Estate looks healthy.</p>")
+        return parts
+
+    grouped = _grouped_findings(findings)
+    for sev in _SEVERITY_ORDER:
+        group = grouped.get(sev, [])
+        if not group:
+            continue
+        parts.append(f"<h3>{sev.upper()}</h3>")
+        parts.append("<ul>")
+        for f in group:
+            detail = f"<br><small>{_esc(f.detail)}</small>" if f.detail else ""
+            parts.append(
+                f"<li>{_badge(sev)} <strong>{_esc(f.category)}</strong> — "
+                f"{_esc(f.gpo_name or f.gpo_id or 'N/A')}: "
+                f"{_esc(f.summary)}"
+                f"{detail}</li>"
+            )
+        parts.append("</ul>")
+    return parts
+
+
+def _topology_html(estate: Estate, soms_with_links: list[Som]) -> list[str]:
+    from gpo_lens import queries
+
+    parts: list[str] = []
+    if not soms_with_links:
+        parts.append("<p>No SOMs with links.</p>")
+        return parts
+
+    for som in soms_with_links:
+        block = (
+            ' <span class="badge" style="background:#7c3aed;">'
+            "BLOCKED</span>"
+            if som.inheritance_blocked
+            else ""
+        )
+        parts.append(f"<h3>{_esc(som.name)}{block}</h3>")
+        parts.append(f"<p><em>Path:</em> <code>{_esc(som.path)}</code></p>")
+        gpos = queries.som_effective_gpos(estate, som.path, _som=som)
+        if not gpos:
+            parts.append("<p>No linked GPOs.</p>")
+        else:
+            parts.append("<table>")
+            parts.append(
+                "<tr><th>Order</th><th>GPO</th><th>Enabled</th>"
+                "<th>Enforced</th><th>Target</th></tr>"
+            )
+            for g in gpos:
+                enabled = "Yes" if g.enabled else "No"
+                enforced = "Yes" if g.enforced else "No"
+                parts.append(
+                    f"<tr><td>{g.order}</td>"
+                    f"<td>{_esc(g.gpo_name)} ({_esc(g.gpo_id)})</td>"
+                    f"<td>{enabled}</td><td>{enforced}</td>"
+                    f"<td><code>{_esc(g.target)}</code></td></tr>"
+                )
+            parts.append("</table>")
+    return parts
+
+
+def _effective_settings_html(estate: Estate, soms_with_links: list[Som]) -> list[str]:
+    from gpo_lens import queries
+
+    parts: list[str] = []
+    if not soms_with_links:
+        parts.append("<p>No SOMs with links.</p>")
+        return parts
+
+    any_eff = False
+    for som in soms_with_links:
+        eff = queries.settings_at_som(estate, som.path)
+        if not eff:
+            continue
+        any_eff = True
+        block = (
+            ' <span class="badge" style="background:#7c3aed;">'
+            "BLOCKED</span>"
+            if som.inheritance_blocked
+            else ""
+        )
+        parts.append(f"<h3>{_esc(som.name)}{block}</h3>")
+        parts.append(f"<p><em>Path:</em> <code>{_esc(som.path)}</code></p>")
+        parts.append("<table>")
+        parts.append(
+            "<tr><th>CSE</th><th>Side</th><th>Identity</th>"
+            "<th>Value</th><th>Winner GPO</th><th>Overridden</th></tr>"
+        )
+        for s in eff:
+            overridden_parts = [
+                f"{_esc(n)} = {_esc(v)}" for n, v in s.overridden_by
+            ]
+            overridden_text = "<br>".join(overridden_parts) if overridden_parts else ""
+            parts.append(
+                f"<tr><td>{_esc(s.cse)}</td><td>{_esc(s.side)}</td>"
+                f"<td><code>{_esc(s.identity)}</code></td>"
+                f"<td>{_esc(s.display_value)}</td>"
+                f"<td>{_esc(s.winner_gpo_name)}</td>"
+                f"<td>{overridden_text}</td></tr>"
+            )
+        parts.append("</table>")
+    if not any_eff:
+        parts.append("<p>No effective settings at any SOM.</p>")
+    return parts
+
+
+def _baseline_html(baseline: list[BaselineDiffEntry]) -> list[str]:
+    parts: list[str] = []
+    compliant, drift, missing, extra, total, pct = _baseline_categories(baseline)
+    parts.append(
+        f"<p><strong>Compliance: {pct}%</strong> "
+        f"({len(compliant)} / {total})</p>"
+    )
+
+    for title, items in [("Drift", drift), ("Missing", missing), ("Extra", extra)]:
+        if items:
+            parts.append(f"<h3>{title}</h3><ul>")
+            for r in items:
+                name = r.admx_name or r.display_name or r.identity
+                parts.append(
+                    f"<li><code>[{_esc(r.cse)}] {_esc(r.side)}/{_esc(name)}</code>"
+                )
+                if r.status == "drift":
+                    parts.append(
+                        f"<br>Expected: <code>{_esc(r.expected_value)}</code><br>"
+                        f"Actual: <code>{_esc(r.actual_value)}</code> "
+                        f"(GPO: {_esc(r.gpo_id)})"
+                    )
+                elif r.status == "missing":
+                    parts.append(
+                        f" — Expected: <code>{_esc(r.expected_value)}</code>"
+                    )
+                else:
+                    parts.append(
+                        f" — Actual: <code>{_esc(r.actual_value)}</code> "
+                        f"(GPO: {_esc(r.gpo_id)})"
+                    )
+                parts.append("</li>")
+            parts.append("</ul>")
+    return parts
+
+
+def _changelog_html(changelog_entries: list[ChangelogEntry]) -> list[str]:
+    parts: list[str] = []
+    if not changelog_entries:
+        parts.append("<p>No changes found.</p>")
+        return parts
+
+    for e in changelog_entries:
+        prefix = "DETAIL" if e.kind == "settings_detail" else "META"
+        parts.append(
+            f"<h3>[{prefix}] {_esc(e.gpo_name)} ({_esc(e.gpo_id)})</h3>"
+        )
+        parts.append(f"<p><em>{_esc(e.summary)}</em></p>")
+        if e.version_change:
+            vc = e.version_change
+            parts.append(
+                f"<p>Version change: DS {vc.old_ds} -> {vc.new_ds}, "
+                f"SYSVOL {vc.old_sysvol} -> {vc.new_sysvol} "
+                f"(edits: {vc.edit_count})</p>"
+            )
+        if e.setting_changes:
+            parts.append("<ul>")
+            for sc in e.setting_changes:
+                change = (
+                    f"<code>[{_esc(sc.side)}/{_esc(sc.cse)}] "
+                    f"{_esc(sc.identity)}</code>"
+                    f" — {_esc(sc.change_type)}"
+                )
+                if sc.old_value or sc.new_value:
+                    change += (
+                        f"<br><code>{_esc(sc.old_value or '')}</code> -> "
+                        f"<code>{_esc(sc.new_value or '')}</code>"
+                    )
+                parts.append(f"<li>{change}</li>")
+            parts.append("</ul>")
+    return parts
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
 
 def generate_markdown(
     estate: Estate,
@@ -118,79 +706,9 @@ def write_report(
     Path(out_path).write_text(text, encoding="utf-8")
 
 
-def _summary_table_md(summary: EstateSummary) -> str:
-    lines = [
-        "| Metric | Value |",
-        "|--------|-------|",
-    ]
-    for label, attr in _SUMMARY_FIELDS:
-        value = getattr(summary, attr)
-        lines.append(f"| {label} | {value} |")
-    return "\n".join(lines)
-
-
-def _gpo_md(gpo: Gpo, *, max_settings: int = 50) -> str:
-    parts: list[str] = []
-    parts.append(f"### {gpo.name}\n")
-    parts.append(f"- **ID:** `{gpo.id}`")
-    parts.append(f"- **Domain:** {gpo.domain}")
-    comp_status = "Enabled" if gpo.computer_enabled else "Disabled"
-    user_status = "Enabled" if gpo.user_enabled else "Disabled"
-    parts.append(f"- **Computer side:** {comp_status}")
-    parts.append(f"- **User side:** {user_status}")
-
-    if gpo.computer_ver_ds is not None or gpo.computer_ver_sysvol is not None:
-        comp_skew = " **SKEW**" if gpo.computer_version_skew else ""
-        parts.append(
-            f"- **Computer version:** DS={gpo.computer_ver_ds}, "
-            f"SYSVOL={gpo.computer_ver_sysvol}{comp_skew}"
-        )
-    if gpo.user_ver_ds is not None or gpo.user_ver_sysvol is not None:
-        user_skew = " **SKEW**" if gpo.user_version_skew else ""
-        parts.append(
-            f"- **User version:** DS={gpo.user_ver_ds}, "
-            f"SYSVOL={gpo.user_ver_sysvol}{user_skew}"
-        )
-
-    if gpo.wmi_filter:
-        parts.append(f"- **WMI filter:** {gpo.wmi_filter}")
-    if gpo.owner:
-        parts.append(f"- **Owner:** {gpo.owner}")
-
-    if gpo.links:
-        parts.append("")
-        parts.append("**Links:**\n")
-        for link in gpo.links:
-            enabled = "enabled" if link.link_enabled else "disabled"
-            enforced = " [ENFORCED]" if link.enforced else ""
-            parts.append(
-                f"- `{link.som_path}` ({enabled}{enforced})"
-            )
-
-    if gpo.delegation:
-        parts.append("")
-        parts.append("**Delegation:**\n")
-        for d in gpo.delegation:
-            allowed = "Allow" if d.allowed else "Deny"
-            parts.append(f"- {d.trustee}: {d.permission} ({allowed})")
-
-    if gpo.settings:
-        parts.append("")
-        parts.append(f"**Settings** ({len(gpo.settings)}):\n")
-        for s in gpo.settings[:max_settings]:
-            disabled_flag = " [DISABLED SIDE]" if s.from_disabled_side else ""
-            blocked_flag = " [BLOCKED]" if s.source_state == "blocked" else ""
-            parts.append(
-                f"- `[{s.cse}] {s.side}/{s.identity}`: "
-                f"{s.display_value}{disabled_flag}{blocked_flag}"
-            )
-        remaining = len(gpo.settings) - max_settings
-        if remaining > 0:
-            parts.append(f"- ... ({remaining} more settings)")
-
-    parts.append("")
-    return "\n".join(parts)
-
+# ---------------------------------------------------------------------------
+# Internal report generators
+# ---------------------------------------------------------------------------
 
 def _generate_md(
     estate: Estate,
@@ -203,6 +721,7 @@ def _generate_md(
 
     summary = queries.estate_summary(estate)
     findings = queries.estate_doctor(estate)
+    soms_with_links = [som for som in estate.soms if som.links]
 
     parts: list[str] = []
     parts.append(f"# Estate Report: {summary.domain}\n")
@@ -222,26 +741,7 @@ def _generate_md(
         parts.append("")
 
     parts.append("## Hygiene Findings\n")
-    if not findings:
-        parts.append("No issues detected. Estate looks healthy.\n")
-    else:
-        grouped: dict[str, list[DoctorFinding]] = {s: [] for s in _SEVERITY_ORDER}
-        for f in findings:
-            sev = f.severity if f.severity in grouped else "info"
-            grouped.setdefault(sev, []).append(f)
-        for sev in _SEVERITY_ORDER:
-            group = grouped.get(sev, [])
-            if not group:
-                continue
-            parts.append(f"### {sev.upper()}\n")
-            for f in group:
-                parts.append(
-                    f"- **{f.category}** — "
-                    f"{f.gpo_name or f.gpo_id or 'N/A'}: {f.summary}"
-                )
-                if f.detail:
-                    parts.append(f"  _{f.detail}_")
-            parts.append("")
+    parts.extend(_findings_md(findings))
 
     parts.append("## Per-GPO Detail\n")
     for gpo in estate.gpos:
@@ -262,199 +762,20 @@ def _generate_md(
             parts.append("")
 
     parts.append("## Topology\n")
-    soms_with_links = [som for som in estate.soms if som.links]
-    if not soms_with_links:
-        parts.append("No SOMs with links.\n")
-    else:
-        for som in soms_with_links:
-            block = " [BLOCKED INHERITANCE]" if som.inheritance_blocked else ""
-            parts.append(f"### {som.name}{block}\n")
-            parts.append(f"_Path:_ `{som.path}`\n")
-            gpos = queries.som_effective_gpos(estate, som.path, _som=som)
-            if not gpos:
-                parts.append("- No linked GPOs\n")
-            else:
-                for g in gpos:
-                    enforced = " **[ENFORCED]**" if g.enforced else ""
-                    en = "enabled" if g.enabled else "disabled"
-                    parts.append(
-                        f"- {g.order}. {g.gpo_name} ({g.gpo_id}) {en}{enforced} "
-                        f"— target: `{g.target}`"
-                    )
-                parts.append("")
-            parts.append("")
+    parts.extend(_topology_md(estate, soms_with_links))
 
     parts.append("## Per-OU Effective Settings\n")
-    if not soms_with_links:
-        parts.append("No SOMs with links.\n")
-    else:
-        for som in soms_with_links:
-            eff = queries.settings_at_som(estate, som.path)
-            if not eff:
-                continue
-            block = " [BLOCKED INHERITANCE]" if som.inheritance_blocked else ""
-            parts.append(f"### {som.name}{block}\n")
-            parts.append(f"_Path:_ `{som.path}`\n")
-            for s in eff:
-                parts.append(
-                    f"- `[{s.cse}] {s.side}/{s.identity}`: "
-                    f"{s.display_value} (winner: {s.winner_gpo_name})"
-                )
-                if s.overridden_by:
-                    for o_name, o_val in s.overridden_by:
-                        parts.append(f"  - overridden: {o_name} = {o_val}")
-            parts.append("")
+    parts.extend(_effective_settings_md(estate, soms_with_links))
 
     if baseline is not None:
         parts.append("## Baseline Compliance\n")
-        compliant = [r for r in baseline if r.status == "compliant"]
-        drift = [r for r in baseline if r.status == "drift"]
-        missing = [r for r in baseline if r.status == "missing"]
-        extra = [r for r in baseline if r.status == "extra"]
-        total = len(compliant) + len(drift) + len(missing) + len(extra)
-        pct = round(len(compliant) / total * 100, 1) if total else 0
-        parts.append(f"**Compliance: {pct}%** ({len(compliant)} / {total})\n")
-        if drift:
-            parts.append("### Drift\n")
-            for r in drift:
-                name = r.admx_name or r.display_name or r.identity
-                parts.append(f"- `[{r.cse}] {r.side}/{name}`")
-                parts.append(f"  - Expected: `{r.expected_value}`")
-                parts.append(f"  - Actual: `{r.actual_value}` (GPO: {r.gpo_id})")
-            parts.append("")
-        if missing:
-            parts.append("### Missing\n")
-            for r in missing:
-                name = r.admx_name or r.display_name or r.identity
-                parts.append(
-                    f"- `[{r.cse}] {r.side}/{name}` — "
-                    f"Expected: `{r.expected_value}`"
-                )
-            parts.append("")
-        if extra:
-            parts.append("### Extra\n")
-            for r in extra:
-                name = r.admx_name or r.display_name or r.identity
-                parts.append(
-                    f"- `[{r.cse}] {r.side}/{name}` — "
-                    f"Actual: `{r.actual_value}` (GPO: {r.gpo_id})"
-                )
-            parts.append("")
+        parts.extend(_baseline_md(baseline))
 
     if changelog_entries is not None:
         parts.append("## Change Log\n")
-        if not changelog_entries:
-            parts.append("No changes found.\n")
-        else:
-            for e in changelog_entries:
-                prefix = "[DETAIL]" if e.kind == "settings_detail" else "[META]"
-                parts.append(f"### {prefix} {e.gpo_name} ({e.gpo_id})\n")
-                parts.append(f"*{e.summary}*\n")
-                if e.version_change:
-                    vc = e.version_change
-                    parts.append(
-                        f"Version change: DS {vc.old_ds} -> {vc.new_ds}, "
-                        f"SYSVOL {vc.old_sysvol} -> {vc.new_sysvol} "
-                        f"(edits: {vc.edit_count})\n"
-                    )
-                for sc in e.setting_changes:
-                    parts.append(
-                        f"- `[{sc.side}/{sc.cse}] {sc.identity}` — {sc.change_type}"
-                    )
-                    if sc.old_value or sc.new_value:
-                        parts.append(
-                            f"  - `{sc.old_value or ''}` -> `{sc.new_value or ''}`"
-                        )
-                parts.append("")
+        parts.extend(_changelog_md(changelog_entries))
 
     return "\n".join(parts)
-
-
-def _esc(text: str) -> str:
-    return html_lib.escape(str(text))
-
-
-def _gpo_html(gpo: Gpo, *, max_settings: int = 50) -> list[str]:
-    g = gpo
-    parts: list[str] = []
-    parts.append(f"<h3>{_esc(g.name)}</h3>")
-    parts.append("<table>")
-    parts.append("<tr><th>Property</th><th>Value</th></tr>")
-    parts.append(f"<tr><td>ID</td><td><code>{_esc(g.id)}</code></td></tr>")
-    parts.append(f"<tr><td>Domain</td><td>{_esc(g.domain)}</td></tr>")
-    comp_status = "Enabled" if g.computer_enabled else "Disabled"
-    user_status = "Enabled" if g.user_enabled else "Disabled"
-    parts.append(f"<tr><td>Computer side</td><td>{_esc(comp_status)}</td></tr>")
-    parts.append(f"<tr><td>User side</td><td>{_esc(user_status)}</td></tr>")
-
-    if g.computer_ver_ds is not None or g.computer_ver_sysvol is not None:
-        skew = " <strong>SKEW</strong>" if g.computer_version_skew else ""
-        parts.append(
-            f"<tr><td>Computer version</td><td>DS={g.computer_ver_ds}, "
-            f"SYSVOL={g.computer_ver_sysvol}{skew}</td></tr>"
-        )
-    if g.user_ver_ds is not None or g.user_ver_sysvol is not None:
-        skew = " <strong>SKEW</strong>" if g.user_version_skew else ""
-        parts.append(
-            f"<tr><td>User version</td><td>DS={g.user_ver_ds}, "
-            f"SYSVOL={g.user_ver_sysvol}{skew}</td></tr>"
-        )
-
-    if g.wmi_filter:
-        parts.append(f"<tr><td>WMI filter</td><td>{_esc(g.wmi_filter)}</td></tr>")
-    if g.owner:
-        parts.append(f"<tr><td>Owner</td><td>{_esc(g.owner)}</td></tr>")
-    parts.append("</table>")
-
-    if g.links:
-        parts.append("<p><strong>Links:</strong></p>")
-        parts.append("<table>")
-        parts.append("<tr><th>SOM Path</th><th>Enabled</th><th>Enforced</th></tr>")
-        for link in g.links:
-            enabled = "Yes" if link.link_enabled else "No"
-            enforced = "Yes" if link.enforced else "No"
-            parts.append(
-                f"<tr><td><code>{_esc(link.som_path)}</code></td>"
-                f"<td>{enabled}</td><td>{enforced}</td></tr>"
-            )
-        parts.append("</table>")
-
-    if g.delegation:
-        parts.append("<p><strong>Delegation:</strong></p>")
-        parts.append("<table>")
-        parts.append("<tr><th>Trustee</th><th>Permission</th><th>Allowed</th></tr>")
-        for d in g.delegation:
-            allowed = "Allow" if d.allowed else "Deny"
-            parts.append(
-                f"<tr><td>{_esc(d.trustee)}</td>"
-                f"<td>{_esc(d.permission)}</td>"
-                f"<td>{allowed}</td></tr>"
-            )
-        parts.append("</table>")
-
-    if g.settings:
-        parts.append(f"<p><strong>Settings</strong> ({len(g.settings)}):</p>")
-        parts.append("<table>")
-        parts.append("<tr><th>CSE</th><th>Side</th><th>Identity</th><th>Value</th></tr>")
-        for s in g.settings[:max_settings]:
-            flags = ""
-            if s.from_disabled_side:
-                flags += " [DISABLED SIDE]"
-            if s.source_state == "blocked":
-                flags += " [BLOCKED]"
-            parts.append(
-                f"<tr><td>{_esc(s.cse)}</td><td>{_esc(s.side)}</td>"
-                f"<td><code>{_esc(s.identity)}</code></td>"
-                f"<td>{_esc(s.display_value)}{_esc(flags)}</td></tr>"
-            )
-        remaining = len(g.settings) - max_settings
-        if remaining > 0:
-            parts.append(
-                f"<tr><td colspan='4'>... ({remaining} more settings)</td></tr>"
-            )
-        parts.append("</table>")
-
-    return parts
 
 
 def _generate_html(
@@ -468,13 +789,7 @@ def _generate_html(
 
     summary = queries.estate_summary(estate)
     findings = queries.estate_doctor(estate)
-
-    def _badge(sev: str) -> str:
-        color = _SEVERITY_COLOR.get(sev, "#6b7280")
-        return (
-            f'<span class="badge" style="background:{color};">'
-            f"{_esc(sev.upper())}</span>"
-        )
+    soms_with_links = [som for som in estate.soms if som.links]
 
     body_parts: list[str] = []
 
@@ -483,12 +798,7 @@ def _generate_html(
     body_parts.append(f"<p><small>Generated: {_esc(ts)}</small></p>")
 
     body_parts.append("<h2>Executive Summary</h2>")
-    body_parts.append("<table>")
-    body_parts.append("<tr><th>Metric</th><th>Value</th></tr>")
-    for label, attr in _SUMMARY_FIELDS:
-        value = getattr(summary, attr)
-        body_parts.append(f"<tr><td>{_esc(label)}</td><td>{_esc(value)}</td></tr>")
-    body_parts.append("</table>")
+    body_parts.extend(_summary_table_html(summary))
 
     if findings:
         body_parts.append("<p><strong>Top 10 findings:</strong></p>")
@@ -502,32 +812,7 @@ def _generate_html(
         body_parts.append("</ul>")
 
     body_parts.append("<h2>Hygiene Findings</h2>")
-    if not findings:
-        body_parts.append("<p>No issues detected. Estate looks healthy.</p>")
-    else:
-        grouped: dict[str, list[DoctorFinding]] = {
-            s: [] for s in _SEVERITY_ORDER
-        }
-        for f in findings:
-            sev = f.severity if f.severity in grouped else "info"
-            grouped.setdefault(sev, []).append(f)
-        for sev in _SEVERITY_ORDER:
-            group = grouped.get(sev, [])
-            if not group:
-                continue
-            body_parts.append(f"<h3>{sev.upper()}</h3>")
-            body_parts.append("<ul>")
-            for f in group:
-                detail = (
-                    f"<br><small>{_esc(f.detail)}</small>" if f.detail else ""
-                )
-                body_parts.append(
-                    f"<li>{_badge(sev)} <strong>{_esc(f.category)}</strong> — "
-                    f"{_esc(f.gpo_name or f.gpo_id or 'N/A')}: "
-                    f"{_esc(f.summary)}"
-                    f"{detail}</li>"
-                )
-            body_parts.append("</ul>")
+    body_parts.extend(_findings_html(findings))
 
     body_parts.append("<h2>Per-GPO Detail</h2>")
     for gpo in estate.gpos:
@@ -555,158 +840,18 @@ def _generate_html(
             body_parts.append("</table>")
 
     body_parts.append("<h2>Topology</h2>")
-    soms_with_links = [som for som in estate.soms if som.links]
-    if not soms_with_links:
-        body_parts.append("<p>No SOMs with links.</p>")
-    else:
-        for som in soms_with_links:
-            block = (
-                ' <span class="badge" style="background:#7c3aed;">'
-                "BLOCKED</span>"
-                if som.inheritance_blocked
-                else ""
-            )
-            body_parts.append(f"<h3>{_esc(som.name)}{block}</h3>")
-            body_parts.append(
-                f"<p><em>Path:</em> <code>{_esc(som.path)}</code></p>"
-            )
-            gpos = queries.som_effective_gpos(estate, som.path, _som=som)
-            if not gpos:
-                body_parts.append("<p>No linked GPOs.</p>")
-            else:
-                body_parts.append("<table>")
-                body_parts.append(
-                    "<tr><th>Order</th><th>GPO</th><th>Enabled</th>"
-                    "<th>Enforced</th><th>Target</th></tr>"
-                )
-                for g in gpos:
-                    enabled = "Yes" if g.enabled else "No"
-                    enforced = "Yes" if g.enforced else "No"
-                    body_parts.append(
-                        f"<tr><td>{g.order}</td>"
-                        f"<td>{_esc(g.gpo_name)} ({_esc(g.gpo_id)})</td>"
-                        f"<td>{enabled}</td><td>{enforced}</td>"
-                        f"<td><code>{_esc(g.target)}</code></td></tr>"
-                    )
-                body_parts.append("</table>")
+    body_parts.extend(_topology_html(estate, soms_with_links))
 
     body_parts.append("<h2>Per-OU Effective Settings</h2>")
-    if not soms_with_links:
-        body_parts.append("<p>No SOMs with links.</p>")
-    else:
-        any_eff = False
-        for som in soms_with_links:
-            eff = queries.settings_at_som(estate, som.path)
-            if not eff:
-                continue
-            any_eff = True
-            block = (
-                ' <span class="badge" style="background:#7c3aed;">'
-                "BLOCKED</span>"
-                if som.inheritance_blocked
-                else ""
-            )
-            body_parts.append(f"<h3>{_esc(som.name)}{block}</h3>")
-            body_parts.append(
-                f"<p><em>Path:</em> <code>{_esc(som.path)}</code></p>"
-            )
-            body_parts.append("<table>")
-            body_parts.append(
-                "<tr><th>CSE</th><th>Side</th><th>Identity</th>"
-                "<th>Value</th><th>Winner GPO</th><th>Overridden</th></tr>"
-            )
-            for s in eff:
-                overridden_parts = [
-                    f"{_esc(n)} = {_esc(v)}" for n, v in s.overridden_by
-                ]
-                overridden_text = "<br>".join(overridden_parts) if overridden_parts else ""
-                body_parts.append(
-                    f"<tr><td>{_esc(s.cse)}</td><td>{_esc(s.side)}</td>"
-                    f"<td><code>{_esc(s.identity)}</code></td>"
-                    f"<td>{_esc(s.display_value)}</td>"
-                    f"<td>{_esc(s.winner_gpo_name)}</td>"
-                    f"<td>{overridden_text}</td></tr>"
-                )
-            body_parts.append("</table>")
-        if not any_eff:
-            body_parts.append("<p>No effective settings at any SOM.</p>")
+    body_parts.extend(_effective_settings_html(estate, soms_with_links))
 
     if baseline is not None:
         body_parts.append("<h2>Baseline Compliance</h2>")
-        compliant = [r for r in baseline if r.status == "compliant"]
-        drift = [r for r in baseline if r.status == "drift"]
-        missing = [r for r in baseline if r.status == "missing"]
-        extra = [r for r in baseline if r.status == "extra"]
-        total = len(compliant) + len(drift) + len(missing) + len(extra)
-        pct = round(len(compliant) / total * 100, 1) if total else 0
-        body_parts.append(
-            f"<p><strong>Compliance: {pct}%</strong> "
-            f"({len(compliant)} / {total})</p>"
-        )
-        if drift:
-            body_parts.append("<h3>Drift</h3><ul>")
-            for r in drift:
-                name = r.admx_name or r.display_name or r.identity
-                body_parts.append(
-                    f"<li><code>[{_esc(r.cse)}] {_esc(r.side)}/{_esc(name)}</code><br>"
-                    f"Expected: <code>{_esc(r.expected_value)}</code><br>"
-                    f"Actual: <code>{_esc(r.actual_value)}</code> "
-                    f"(GPO: {_esc(r.gpo_id)})</li>"
-                )
-            body_parts.append("</ul>")
-        if missing:
-            body_parts.append("<h3>Missing</h3><ul>")
-            for r in missing:
-                name = r.admx_name or r.display_name or r.identity
-                body_parts.append(
-                    f"<li><code>[{_esc(r.cse)}] {_esc(r.side)}/{_esc(name)}</code> — "
-                    f"Expected: <code>{_esc(r.expected_value)}</code></li>"
-                )
-            body_parts.append("</ul>")
-        if extra:
-            body_parts.append("<h3>Extra</h3><ul>")
-            for r in extra:
-                name = r.admx_name or r.display_name or r.identity
-                body_parts.append(
-                    f"<li><code>[{_esc(r.cse)}] {_esc(r.side)}/{_esc(name)}</code> — "
-                    f"Actual: <code>{_esc(r.actual_value)}</code> "
-                    f"(GPO: {_esc(r.gpo_id)})</li>"
-                )
-            body_parts.append("</ul>")
+        body_parts.extend(_baseline_html(baseline))
 
     if changelog_entries is not None:
         body_parts.append("<h2>Change Log</h2>")
-        if not changelog_entries:
-            body_parts.append("<p>No changes found.</p>")
-        else:
-            for e in changelog_entries:
-                prefix = "DETAIL" if e.kind == "settings_detail" else "META"
-                body_parts.append(
-                    f"<h3>[{prefix}] {_esc(e.gpo_name)} ({_esc(e.gpo_id)})</h3>"
-                )
-                body_parts.append(f"<p><em>{_esc(e.summary)}</em></p>")
-                if e.version_change:
-                    vc = e.version_change
-                    body_parts.append(
-                        f"<p>Version change: DS {vc.old_ds} -> {vc.new_ds}, "
-                        f"SYSVOL {vc.old_sysvol} -> {vc.new_sysvol} "
-                        f"(edits: {vc.edit_count})</p>"
-                    )
-                if e.setting_changes:
-                    body_parts.append("<ul>")
-                    for sc in e.setting_changes:
-                        change = (
-                            f"<code>[{_esc(sc.side)}/{_esc(sc.cse)}] "
-                            f"{_esc(sc.identity)}</code>"
-                            f" — {_esc(sc.change_type)}"
-                        )
-                        if sc.old_value or sc.new_value:
-                            change += (
-                                f"<br><code>{_esc(sc.old_value or '')}</code> -> "
-                                f"<code>{_esc(sc.new_value or '')}</code>"
-                            )
-                        body_parts.append(f"<li>{change}</li>")
-                    body_parts.append("</ul>")
+        body_parts.extend(_changelog_html(changelog_entries))
 
     body = "\n".join(body_parts)
 

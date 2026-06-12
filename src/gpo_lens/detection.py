@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import re
-import xml.etree.ElementTree as ET
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Iterable
+from xml.etree.ElementTree import Element, ElementTree
+
+import defusedxml.ElementTree as ET
 
 from gpo_lens.model import (
     DenyAce,
@@ -40,6 +43,8 @@ __all__ = [
     "dangling_links",
     "deny_aces",
     "excessive_writers",
+    "has_ms16_072_read",
+    "mask_cpassword",
     "parse_sddl",
     "disabled_but_populated",
     "empty_gpos",
@@ -124,7 +129,7 @@ _GPP_PATH_ATTRS: dict[str, tuple[str, ...]] = {
 
 def _walk_gpp_xml(
     gpo: Gpo, *, only_known: bool = False,
-) -> Iterable[tuple[ET.ElementTree, Path, Path]]:
+) -> Iterable[tuple[ElementTree, Path, Path]]:
     """Yield ``(tree, abs_file, rel_file)`` for each parseable GPP XML file."""
     if not gpo.sysvol_path:
         return
@@ -146,7 +151,7 @@ def _walk_gpp_xml(
                 continue
             if tree.getroot() is None:
                 continue
-            yield tree, file_path, file_path.relative_to(base)  # type: ignore[misc]
+            yield tree, file_path, file_path.relative_to(base)
 
 
 def _scan_gpo_for_cpassword(gpo: Gpo) -> list[CpasswordHit]:
@@ -179,13 +184,25 @@ def _trustee_matches_ms16_072(trustee: str, sid: str | None) -> bool:
     return False
 
 
+_READ_IMPLYING_PERMISSIONS = frozenset({
+    "read",
+    "edit settings",
+    "edit settings, delete, modify security",
+    "full control",
+})
+
+
 def _has_ms16_072_read(delegation: list[DelegationEntry]) -> bool:
     return any(
         e.allowed
         and _trustee_matches_ms16_072(e.trustee, e.trustee_sid)
-        and e.permission.lower() == "read"
+        and e.permission.strip().lower() in _READ_IMPLYING_PERMISSIONS
         for e in delegation
     )
+
+
+# Public API aliases
+has_ms16_072_read = _has_ms16_072_read
 
 
 def _is_raw_registry_path(identity: str, display_name: str) -> bool:
@@ -220,7 +237,7 @@ def _raw_strings(raw: dict[str, object]) -> list[str]:
     return out
 
 
-def _extract_xml_attr(elem: ET.Element, *attrs: str) -> str | None:
+def _extract_xml_attr(elem: Element, *attrs: str) -> str | None:
     for a in attrs:
         v = elem.get(a)
         if v and v.strip():
@@ -365,6 +382,10 @@ def _mask_cpassword(cpw: str) -> str:
     if len(cpw) <= 4:
         return "****"
     return cpw[:4] + "****"
+
+
+# Public API alias
+mask_cpassword = _mask_cpassword
 
 
 def broken_refs(estate: Estate) -> list[BrokenRef]:
@@ -589,6 +610,10 @@ def _extract_aces(text: str) -> list[SddlAce]:
 def parse_sddl(sddl: str) -> SddlAcl:
     """Parse an SDDL string into owner, group, DACL, and SACL ACEs."""
     if len(sddl) > 1_048_576:
+        warnings.warn(
+            f"SDDL exceeds 1MB cap ({len(sddl)} bytes); returning empty ACL",
+            stacklevel=1,
+        )
         return SddlAcl(owner_sid=None, group_sid=None, dacl=(), sacl=())
 
     owner_sid: str | None = None
@@ -679,7 +704,7 @@ def excessive_writers(
             if not sid:
                 continue
             entry = writer_map.setdefault(sid, {})
-            gpo_entry = entry.setdefault(g.name, set())
+            gpo_entry = entry.setdefault(g.id, set())
             for r in _parse_sddl_rights(ace.rights):
                 if r in _WRITE_RIGHTS:
                     gpo_entry.add(r)
@@ -696,7 +721,14 @@ def excessive_writers(
         results.append(ExcessiveWriter(
             trustee_sid=sid,
             gpo_count=len(gpo_rights),
-            gpo_names=tuple(sorted(gpo_rights.keys())),
+            gpo_names=tuple(
+                sorted(
+                    g.name
+                    for gid_ in gpo_rights
+                    for g in estate.gpos
+                    if g.id == gid_
+                )
+            ),
             rights=tuple(sorted(all_rights)),
         ))
 

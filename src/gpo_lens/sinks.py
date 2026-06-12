@@ -17,14 +17,18 @@ class NdjsonSink:
         self.path = path
         self._lock = threading.Lock()
         self._closed = False
-        self._fh = open(path, "a", encoding="utf-8")
+        self._fh: Any = None
 
     def write(self, event: dict[str, Any]) -> None:
         if self._closed:
             return
+        if self._fh is None:
+            raise RuntimeError(
+                "NdjsonSink.write() called outside context manager; use 'with' block"
+            )
         line = json.dumps(event, sort_keys=True)
         with self._lock:
-            if self._closed:
+            if self._closed or self._fh is None:
                 return
             self._fh.write(line + "\n")
             self._fh.flush()
@@ -32,8 +36,12 @@ class NdjsonSink:
     def write_batch(self, events: list[dict[str, Any]]) -> None:
         if self._closed:
             return
+        if self._fh is None:
+            raise RuntimeError(
+                "NdjsonSink.write_batch() called outside context manager; use 'with' block"
+            )
         with self._lock:
-            if self._closed:
+            if self._closed or self._fh is None:
                 return
             for event in events:
                 self._fh.write(json.dumps(event, sort_keys=True) + "\n")
@@ -44,9 +52,14 @@ class NdjsonSink:
             if self._closed:
                 return
             self._closed = True
-            self._fh.close()
+            if self._fh is not None:
+                self._fh.close()
 
     def __enter__(self) -> NdjsonSink:
+        if self._fh is not None and not self._closed:
+            self._fh.close()
+        self._closed = False
+        self._fh = open(self.path, "a", encoding="utf-8", newline="\n")
         return self
 
     def __exit__(self, *args: object) -> None:
@@ -76,9 +89,9 @@ class HecSink:
         verify = os.environ.get("GPO_LENS_HEC_VERIFY_TLS", "true").lower() != "false"
         return cls(url=hec_url, token=hec_token, verify_tls=verify)
 
-    def _post(self, payload: dict[str, Any]) -> bool:
+    def _post(self, payload: str) -> bool:
         endpoint = f"{self.url}/services/collector/event"
-        data = json.dumps(payload).encode("utf-8")
+        data = payload.encode("utf-8")
         req = urllib.request.Request(
             endpoint,
             data=data,
@@ -115,16 +128,15 @@ class HecSink:
             return False
 
     def send(self, event: dict[str, Any]) -> bool:
-        payload = {"event": event, "sourcetype": "gpo_lens:change"}
+        payload = json.dumps({"event": event, "sourcetype": "gpo_lens:change"})
         return self._post(payload)
 
     def send_batch(self, events: list[dict[str, Any]]) -> bool:
         if not events:
             return True
-        payload = {
-            "event": events,
-            "sourcetype": "gpo_lens:change",
-        }
+        payload = "\n".join(
+            json.dumps({"event": e, "sourcetype": "gpo_lens:change"}) for e in events
+        )
         return self._post(payload)
 
 

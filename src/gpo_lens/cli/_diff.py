@@ -1,6 +1,8 @@
+"""CLI subcommands for snapshot diffing, changelog, and baseline comparison."""
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import sqlite3
 import sys
 
@@ -15,6 +17,10 @@ def cmd_diff(args: argparse.Namespace) -> None:
     finally:
         conn.close()
     if args.json:
+        def _asdict(obj: object) -> object:
+            if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
+                return dataclasses.asdict(obj)
+            return obj
         _render_json({
             "gpos_added": diff.gpos_added,
             "gpos_removed": diff.gpos_removed,
@@ -22,21 +28,9 @@ def cmd_diff(args: argparse.Namespace) -> None:
             "links_changed": diff.links_changed,
             "delegation_changed": diff.delegation_changed,
             "version_skew_changed": diff.version_skew_changed,
-            "metadata_changes": [
-                {"gpo_id": m.gpo_id, "field": m.field,
-                 "old": m.old_value, "new": m.new_value}
-                for m in diff.metadata_changes
-            ],
-            "wmi_filter_changes": [
-                {"gpo_id": m.gpo_id, "field": m.field,
-                 "old": m.old_value, "new": m.new_value}
-                for m in diff.wmi_filter_changes
-            ],
-            "enabled_flips": [
-                {"gpo_id": m.gpo_id, "field": m.field,
-                 "old": m.old_value, "new": m.new_value}
-                for m in diff.enabled_flips
-            ],
+            "metadata_changes": [_asdict(m) for m in diff.metadata_changes],
+            "wmi_filter_changes": [_asdict(m) for m in diff.wmi_filter_changes],
+            "enabled_flips": [_asdict(m) for m in diff.enabled_flips],
         })
     else:
         if diff.gpos_added:
@@ -76,16 +70,7 @@ def cmd_diff_settings(args: argparse.Namespace) -> None:
         conn.close()
     if args.json:
         _render_json([
-            {
-                "gpo_id": c.gpo_id,
-                "gpo_name": c.gpo_name,
-                "side": c.side,
-                "cse": c.cse,
-                "identity": c.identity,
-                "change_type": c.change_type,
-                "old_value": c.old_value,
-                "new_value": c.new_value,
-            }
+            dataclasses.asdict(c)
             for c in changes
         ])
     else:
@@ -112,6 +97,14 @@ def cmd_changelog(args: argparse.Namespace) -> None:
         side_lower = args.side.lower()
         entries = [e for e in entries if e.side and e.side.lower() == side_lower]
     if args.json:
+        def _sc_asdict(sc: queries.SnapshotSettingChange) -> dict[str, object]:
+            return dataclasses.asdict(sc)
+
+        def _vc_asdict(vc: queries.VersionChangeLog | None) -> dict[str, object] | None:
+            if vc is None:
+                return None
+            return dataclasses.asdict(vc)
+
         _render_json([
             {
                 "gpo_id": e.gpo_id,
@@ -119,25 +112,8 @@ def cmd_changelog(args: argparse.Namespace) -> None:
                 "kind": e.kind,
                 "side": e.side,
                 "summary": e.summary,
-                "version_change": {
-                    "side": e.version_change.side,
-                    "old_ds": e.version_change.old_ds,
-                    "old_sysvol": e.version_change.old_sysvol,
-                    "new_ds": e.version_change.new_ds,
-                    "new_sysvol": e.version_change.new_sysvol,
-                    "edit_count": e.version_change.edit_count,
-                } if e.version_change else None,
-                "setting_changes": [
-                    {
-                        "side": sc.side,
-                        "cse": sc.cse,
-                        "identity": sc.identity,
-                        "change_type": sc.change_type,
-                        "old_value": sc.old_value,
-                        "new_value": sc.new_value,
-                    }
-                    for sc in e.setting_changes
-                ],
+                "version_change": _vc_asdict(e.version_change),
+                "setting_changes": [_sc_asdict(sc) for sc in e.setting_changes],
             }
             for e in entries
         ])
@@ -204,17 +180,7 @@ def cmd_baseline_diff(args: argparse.Namespace) -> None:
     results = queries.baseline_diff(estate, baseline, admx)
     if args.json:
         _render_json([
-            {
-                "status": r.status,
-                "side": r.side,
-                "cse": r.cse,
-                "identity": r.identity,
-                "display_name": r.display_name,
-                "expected": r.expected_value,
-                "actual": r.actual_value,
-                "gpo_id": r.gpo_id,
-                "admx_name": r.admx_name,
-            }
+            dataclasses.asdict(r)
             for r in results
         ])
     else:

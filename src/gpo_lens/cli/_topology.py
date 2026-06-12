@@ -1,3 +1,4 @@
+"""CLI subcommands for OU topology analysis (effective-gpos, conflicts, settings-at)."""
 from __future__ import annotations
 
 import argparse

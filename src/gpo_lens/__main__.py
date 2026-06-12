@@ -1,4 +1,4 @@
-"""Allow ``python -m gpo_lens.cli``."""
+"""Allow ``python -m gpo_lens``."""
 
 from __future__ import annotations
 

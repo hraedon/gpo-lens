@@ -35,11 +35,18 @@ def init_events_table(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def _escape_like(value: str) -> str:
+    """Escape LIKE metacharacters in user input."""
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 def append_event(
     conn: sqlite3.Connection,
     event_type: str,
     payload: dict[str, Any],
     schema_version: int = 1,
+    *,
+    commit: bool = True,
 ) -> int:
     ts = datetime.now(timezone.utc).isoformat()
     cursor = conn.execute(
@@ -47,13 +54,16 @@ def append_event(
         "VALUES (?, ?, ?, ?)",
         (ts, event_type, schema_version, json.dumps(payload, sort_keys=True)),
     )
-    conn.commit()
+    if commit:
+        conn.commit()
     return cursor.lastrowid  # type: ignore[return-value]
 
 
 def append_events(
     conn: sqlite3.Connection,
     events: list[tuple[str, dict[str, Any]]],
+    *,
+    commit: bool = True,
 ) -> list[int]:
     ts = datetime.now(timezone.utc).isoformat()
     ids: list[int] = []
@@ -64,7 +74,8 @@ def append_events(
             (ts, event_type, json.dumps(payload, sort_keys=True)),
         )
         ids.append(cursor.lastrowid)  # type: ignore[arg-type]
-    conn.commit()
+    if commit:
+        conn.commit()
     return ids
 
 
@@ -81,8 +92,8 @@ def query_events(
         clauses.append("timestamp >= ?")
         params.append(since)
     if event_type:
-        clauses.append("event_type LIKE ?")
-        params.append(f"%{event_type}%")
+        clauses.append("event_type LIKE ? ESCAPE '\\'")
+        params.append(f"%{_escape_like(event_type)}%")
     where = " AND ".join(clauses) if clauses else "1=1"
     sql = (
         "SELECT id, timestamp, event_type, schema_version, payload "

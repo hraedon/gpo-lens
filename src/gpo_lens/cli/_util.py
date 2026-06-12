@@ -1,3 +1,4 @@
+"""CLI utility subcommands (repl)."""
 from __future__ import annotations
 
 import argparse

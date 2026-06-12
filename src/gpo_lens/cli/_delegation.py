@@ -1,3 +1,4 @@
+"""CLI subcommands for delegation and permissions audit."""
 from __future__ import annotations
 
 import argparse

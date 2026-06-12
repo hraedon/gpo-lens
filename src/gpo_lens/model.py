@@ -14,8 +14,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Literal
 
-Side = str  # "Computer" | "User"
+Side = Literal["Computer", "User"]
 
 
 @dataclass(frozen=True)
