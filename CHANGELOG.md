@@ -1,5 +1,46 @@
 # Changelog
 
+## Unreleased (toward v0.3.0)
+
+### Scope honesty
+- **`is_security_filtered` hardened (WI-009).** Now recognises `Everyone`
+  (S-1-1-0) alongside Authenticated Users and Domain Computers, applies
+  deny-ACE precedence (a deny Read/Apply on a broad trustee overrides its
+  allow), and treats an *empty* delegation list as "not filtered" rather than
+  a confident false positive — absence of delegation data is not evidence of
+  filtering. Nested membership and inherited ACEs remain explicitly not
+  modeled (charter: flag, don't simulate). Scope caveat reworded to "appears
+  security-filtered (… nested membership and inherited ACEs not evaluated)".
+- **All-disabled SOM is flagged, not silent.** `scope_caveats` now
+  distinguishes "SOM not found" from "SOM exists but every GPO link is
+  disabled," emitting a caveat for the latter instead of returning nothing
+  (previously both cases were silent).
+
+### Added
+- **Four hygiene categories surfaced on the estate summary (WI-007).**
+  `EstateSummary` now carries `broken_wmi_ref_count`,
+  `orphaned_wmi_filter_count`, `ilt_gpo_count`, and `stale_gpo_count`,
+  rendered in the Markdown/HTML report tables and the web dashboard.
+
+### Bug fixes
+- **`stale_gpos` leap-year drift.** Year math now divides elapsed days by
+  365.25 so a GPO just under the threshold is not rounded up across a leap
+  day. Added an injectable `now` parameter so staleness tests pin a reference
+  clock and no longer rot as wall-clock time passes the fixed fixture
+  timestamps (WI-010). `estate_doctor` accepts the same `now` so its
+  stale-GPO finding is deterministic under test too.
+- **Item-level-targeting findings name the file.** `IltHit` now reports the
+  specific GPP XML file(s) (e.g. `Registry.xml`) that carry `<Filters>`
+  instead of a hard-coded `SYSVOL`.
+- **`settings-at` dead loopback branch removed.** The text view's estate-wide
+  loopback block could surface GPOs not in scope at the queried SOM; loopback
+  is already covered, correctly scoped, by `scope_caveats`.
+
+### Tests
+- New `tests/test_scope_honesty.py` and `tests/test_scope_cli.py` covering
+  scope-caveat / effective-scope / ILT edge cases and the `scope` CLI command
+  (WI-008). Suite: 665 passed, 25 skipped; ruff and mypy --strict clean.
+
 ## v0.2.2 — 2026-06-10
 
 - **Note:** v0.2.1 was folded into this release.
