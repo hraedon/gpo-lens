@@ -5,6 +5,7 @@ These run without the real (gitignored) samples/ directory, so they can gate CI.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -377,8 +378,14 @@ def test_fixture_scope_caveats(fixture_estate):
     assert any("security-filtered" in c.lower() for c in caveats)
 
 
+# Pinned reference clock so staleness assertions stay deterministic as real
+# time advances past the fixture's fixed timestamps (stale GPO: 2022-01-01,
+# recent GPO: 2025-06-01). See stale_gpos(now=...).
+_STALE_REF_NOW = datetime(2026, 6, 13, tzinfo=timezone.utc)
+
+
 def test_fixture_stale_gpos(fixture_estate):
-    stale = stale_gpos(fixture_estate, threshold_years=2)
+    stale = stale_gpos(fixture_estate, threshold_years=2, now=_STALE_REF_NOW)
     stale_ids = {g.id for g, _ in stale}
     assert GPO_IDS["stale"] in stale_ids
     # Recent GPOs should not be flagged
@@ -386,7 +393,7 @@ def test_fixture_stale_gpos(fixture_estate):
 
 
 def test_fixture_stale_gpos_threshold(fixture_estate):
-    stale = stale_gpos(fixture_estate, threshold_years=10)
+    stale = stale_gpos(fixture_estate, threshold_years=10, now=_STALE_REF_NOW)
     assert len(stale) == 0
 
 
@@ -398,7 +405,7 @@ def test_fixture_ilt_detection(fixture_estate):
 
 
 def test_fixture_doctor_new_categories(fixture_estate):
-    findings = estate_doctor(fixture_estate)
+    findings = estate_doctor(fixture_estate, now=_STALE_REF_NOW)
     categories = {f.category for f in findings}
 
     assert "broken_wmi_ref" in categories

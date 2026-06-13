@@ -228,6 +228,8 @@ def create_app(db_path: str, *, root_path: str = "") -> FastAPI:
                     loopback_gpo_count=0, wmi_filtered_gpo_count=0,
                     enforced_link_count=0, dangling_link_count=0,
                     broken_ref_count=0, admx_gap_count=0,
+                    broken_wmi_ref_count=0, orphaned_wmi_filter_count=0,
+                    ilt_gpo_count=0, stale_gpo_count=0,
                     total_settings=0, total_delegation_entries=0,
                 )
         finally:
