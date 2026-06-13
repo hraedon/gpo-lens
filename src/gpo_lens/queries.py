@@ -10,6 +10,7 @@ from __future__ import annotations
 import sqlite3
 from collections import defaultdict
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
@@ -668,6 +669,10 @@ class EstateSummary:
     dangling_link_count: int
     broken_ref_count: int
     admx_gap_count: int
+    broken_wmi_ref_count: int
+    orphaned_wmi_filter_count: int
+    ilt_gpo_count: int
+    stale_gpo_count: int
     total_settings: int
     total_delegation_entries: int
 
@@ -836,6 +841,10 @@ def estate_summary(estate: Estate) -> EstateSummary:
         dangling_link_count=len(dangling_links(estate)),
         broken_ref_count=len(broken_refs(estate)),
         admx_gap_count=len(admx_gaps(estate)),
+        broken_wmi_ref_count=len(broken_wmi_refs(estate)),
+        orphaned_wmi_filter_count=len(orphaned_wmi_filters(estate)),
+        ilt_gpo_count=len(scan_ilt(estate)),
+        stale_gpo_count=len(stale_gpos(estate)),
         total_settings=sum(len(g.settings) for g in estate.gpos),
         total_delegation_entries=sum(len(g.delegation) for g in estate.gpos),
     )
@@ -877,15 +886,23 @@ def broken_wmi_refs(estate: Estate) -> list[BrokenWmiRef]:
     return results
 
 
-def stale_gpos(estate: Estate, threshold_years: int = 2) -> list[tuple[Gpo, int]]:
+def stale_gpos(
+    estate: Estate,
+    threshold_years: int = 2,
+    *,
+    now: datetime | None = None,
+) -> list[tuple[Gpo, int]]:
     """Linked GPOs modified more than *threshold_years* ago.
 
-    Returns ``(Gpo, years_since_modification)`` sorted oldest first.
+    Returns ``(Gpo, years_since_modification)`` sorted oldest first. *now*
+    defaults to the current UTC time; tests pin it so staleness assertions
+    do not rot as wall-clock time advances past fixed fixture timestamps.
     """
-    from datetime import datetime, timezone
-
     results: list[tuple[Gpo, int]] = []
-    now = datetime.now(timezone.utc)
+    if now is None:
+        now = datetime.now(timezone.utc)
+    elif now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
     for g in estate.gpos:
         if not g.links:
             continue
@@ -894,7 +911,9 @@ def stale_gpos(estate: Estate, threshold_years: int = 2) -> list[tuple[Gpo, int]
         mod = g.modified
         if mod.tzinfo is None:
             mod = mod.replace(tzinfo=timezone.utc)
-        delta_years = int((now - mod).days / 365)
+        # 365.25 accounts for leap years so a GPO just under the threshold is
+        # not rounded up across a leap day (e.g. 730 days != a full 2 years).
+        delta_years = int((now - mod).days / 365.25)
         if delta_years >= threshold_years:
             results.append((g, delta_years))
     results.sort(key=lambda t: t[1], reverse=True)
@@ -1207,8 +1226,14 @@ def baseline_diff(
     return results
 
 
-def estate_doctor(estate: Estate) -> list[DoctorFinding]:
-    """Run all hygiene checks and return prioritized findings."""
+def estate_doctor(
+    estate: Estate, *, now: datetime | None = None
+) -> list[DoctorFinding]:
+    """Run all hygiene checks and return prioritized findings.
+
+    *now* is forwarded to the staleness check; tests pin it so the stale-GPO
+    finding stays deterministic as wall-clock time advances.
+    """
     findings: list[DoctorFinding] = []
 
     for hit in cpassword_scan(estate):
@@ -1376,11 +1401,11 @@ def estate_doctor(estate: Estate) -> list[DoctorFinding]:
             category="ilt_gpo",
             gpo_id=ilt.gpo_id,
             gpo_name=ilt.gpo_name,
-            summary=f"Item-level targeting in {ilt.file}",
+            summary=f"Item-level targeting in {', '.join(ilt.files)}",
             detail=f"Filter types: {', '.join(ilt.filter_types)}",
         ))
 
-    for sg, years in stale_gpos(estate):
+    for sg, years in stale_gpos(estate, now=now):
         findings.append(DoctorFinding(
             severity="info",
             category="stale_gpo",
