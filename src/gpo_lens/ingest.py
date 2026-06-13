@@ -25,6 +25,9 @@ from gpo_lens.model import (
 )
 from gpo_lens.normalize import canonical_guid, load_json, parse_bool, parse_dt, parse_int
 
+# Decompression bomb guard: refuse to expand zip contents beyond this total.
+_MAX_DECOMPRESSED_BYTES = 2 * 1024 * 1024 * 1024
+
 
 def _localname(tag: str) -> str:
     """Strip namespace prefix from an XML tag."""
@@ -320,6 +323,13 @@ def parse_report_xml(xml_bytes: bytes) -> list[Gpo]:
     return gpos
 
 
+def _check_zip_total_size(zf: zipfile.ZipFile, limit: int) -> None:
+    """Raise ValueError if the total uncompressed size of ``zf`` exceeds ``limit``."""
+    total = sum(info.file_size for info in zf.infolist())
+    if total > limit:
+        raise ValueError("zip decompressed size exceeds limit")
+
+
 def load_baseline_from_zip(zip_path: str | Path) -> list[Gpo]:
     """Load baseline GPOs from a Microsoft Security Baseline zip.
 
@@ -330,14 +340,15 @@ def load_baseline_from_zip(zip_path: str | Path) -> list[Gpo]:
     Returns all GPOs found across all baseline GPOs in the archive.
     """
     import io
-    import zipfile
 
     gpos: list[Gpo] = []
     with zipfile.ZipFile(str(zip_path)) as outer:
+        _check_zip_total_size(outer, _MAX_DECOMPRESSED_BYTES)
         for name in outer.namelist():
             if name.endswith(".zip"):
                 inner_data = outer.read(name)
                 with zipfile.ZipFile(io.BytesIO(inner_data)) as inner:
+                    _check_zip_total_size(inner, _MAX_DECOMPRESSED_BYTES)
                     gpos.extend(_extract_gpos_from_zip(inner))
             elif name.endswith("gpreport.xml"):
                 raw = outer.read(name)
@@ -352,6 +363,7 @@ def load_baseline_from_zip(zip_path: str | Path) -> list[Gpo]:
 
 def _extract_gpos_from_zip(zf: zipfile.ZipFile) -> list[Gpo]:
     """Extract GPOs from gpreport.xml files in a zip."""
+    _check_zip_total_size(zf, _MAX_DECOMPRESSED_BYTES)
     gpos: list[Gpo] = []
     for name in zf.namelist():
         if name.endswith("gpreport.xml"):

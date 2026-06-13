@@ -945,7 +945,7 @@ class TestAskParamValidation:
         captured = capsys.readouterr()
         assert "requires parameter 'ou_path'" in captured.err
 
-    def test_ask_warns_on_unexpected_param(self, rich_db, capsys) -> None:
+    def test_ask_succeeds_with_unexpected_param(self, rich_db, capsys) -> None:
         routing = json.dumps(
             {"query": "estate_summary", "params": {"bogus": "value"}}
         )
@@ -961,7 +961,8 @@ class TestAskParamValidation:
                 ret = main(["--db", str(rich_db), "ask", "Summary"])
         assert ret == 0
         captured = capsys.readouterr()
-        assert "unexpected parameters" in captured.err
+        assert "Here is your summary." in captured.out
+        assert captured.err == ""
 
 
 class TestDoctorExplain:
