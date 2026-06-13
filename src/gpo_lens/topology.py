@@ -181,15 +181,24 @@ class SomConflict:
     winner: str                          # gpo_name of the last in chain
 
 
+def _find_som(estate: Estate, som_path: str) -> Som | None:
+    """Case-insensitive SOM lookup by path, or None if absent."""
+    for som in estate.soms:
+        if som.path.lower() == som_path.lower():
+            return som
+    return None
+
+
 def _resolve_som_chain(
     estate: Estate, som_path: str
 ) -> tuple[list[SomLink], dict[str, Gpo], dict[str, str]] | None:
-    """Find a SOM and return (enabled_chain, gpo_by_id, names) or None."""
-    target_som = None
-    for som in estate.soms:
-        if som.path.lower() == som_path.lower():
-            target_som = som
-            break
+    """Find a SOM and return (enabled_chain, gpo_by_id, names) or None.
+
+    Returns None both when the SOM does not exist and when it exists but has
+    no enabled links. Callers that need to tell those apart should use
+    ``_find_som`` directly (see ``scope_caveats``).
+    """
+    target_som = _find_som(estate, som_path)
     if target_som is None:
         return None
     chain = [link for link in target_som.links if link.enabled]
@@ -347,9 +356,34 @@ def settings_at_som(estate: Estate, som_path: str) -> list[EffectiveSetting]:
 # Scope honesty — effective scope, security filtering, WMI analysis, ILT
 # ---------------------------------------------------------------------------
 
-_BROAD_TRUSTEES = {"authenticated users", "domain computers"}
+_BROAD_TRUSTEES = {"authenticated users", "domain computers", "everyone"}
 _AU_SID = "s-1-5-11"
+_EVERYONE_SID = "s-1-1-0"
 _DC_SID_SUFFIX = "-515"
+
+
+def _broad_key(trustee: str, sid: str | None) -> str | None:
+    """Canonical key for a broad-application trustee, or None.
+
+    Collapses name and SID forms of Authenticated Users, Domain Computers,
+    and Everyone to a single key so allow/deny ACEs on the same trustee can
+    be paired for deny-precedence evaluation.
+    """
+    t = trustee.lower().strip()
+    s = (sid or "").lower().strip()
+    if t == "authenticated users" or s == _AU_SID:
+        return "authenticated_users"
+    if t == "domain computers" or s.endswith(_DC_SID_SUFFIX):
+        return "domain_computers"
+    if t == "everyone" or s == _EVERYONE_SID:
+        return "everyone"
+    return None
+
+
+def _grants_read_or_apply(permission: str) -> bool:
+    """True if the permission label conveys Read or Apply Group Policy."""
+    p = permission.lower().strip()
+    return "read" in p or "apply" in p
 
 
 @dataclass(frozen=True)
@@ -388,26 +422,39 @@ class EffectiveScope:
 
 
 def is_security_filtered(gpo: Gpo) -> bool:
-    """True if GPO does NOT grant Read/Apply to a broad trustee.
+    """True if the GPO's audience appears narrowed away from broad application.
 
-    A GPO is considered *not* security-filtered when Authenticated Users or
-    Domain Computers has either ``Read`` or ``Apply Group Policy`` — both are
-    signs of broad application (pre- and post-MS16-072).
+    A broad trustee is Authenticated Users, Domain Computers, or Everyone
+    (matched by name or SID). The GPO is considered *not* filtered when at
+    least one broad trustee holds an *allow* Read / Apply Group Policy ACE
+    that is not overridden by a *deny* on that same trustee.
+
+    Honest-by-charter semantics (this flags; it does not simulate AD ACL
+    evaluation):
+
+    - **Deny precedence.** Windows evaluates deny ACEs before allow. A broad
+      trustee whose allow is countered by a deny Read/Apply on the same
+      trustee does not count as broad application.
+    - **No delegation data → not filtered.** With an empty delegation list we
+      return ``False``: absence of data is not evidence of filtering, and
+      real AD inherits a default DACL granting Authenticated Users Read+Apply.
+      Returning ``True`` here would be a confident false positive.
+
+    Not modeled (deliberately): nested group membership, default/inherited
+    ACEs not present on the GPO, and cross-trustee set relationships (e.g.
+    that a deny on Everyone also blocks Authenticated Users).
     """
+    if not gpo.delegation:
+        return False
+    allowed: set[str] = set()
+    denied: set[str] = set()
     for entry in gpo.delegation:
-        if not entry.allowed:
+        key = _broad_key(entry.trustee, entry.trustee_sid)
+        if key is None or not _grants_read_or_apply(entry.permission):
             continue
-        trustee_lower = entry.trustee.lower().strip()
-        sid_lower = (entry.trustee_sid or "").lower().strip()
-        perm_lower = entry.permission.lower().strip()
-        is_broad = (
-            trustee_lower in _BROAD_TRUSTEES
-            or sid_lower == _AU_SID
-            or sid_lower.endswith(_DC_SID_SUFFIX)
-        )
-        if is_broad and ("read" in perm_lower or "apply" in perm_lower):
-            return False
-    return True
+        (allowed if entry.allowed else denied).add(key)
+    applies_broadly = any(key not in denied for key in allowed)
+    return not applies_broadly
 
 
 def security_filtering_detail(gpo: Gpo) -> SecurityFiltering:
@@ -458,6 +505,17 @@ def scope_caveats(estate: Estate, som_path: str) -> list[str]:
     """
     resolved = _resolve_som_chain(estate, som_path)
     if resolved is None:
+        # A missing SOM yields no caveats, but a SOM that exists with every
+        # link disabled is a real (and easily-missed) state worth flagging —
+        # not silence.
+        som = _find_som(estate, som_path)
+        if som is not None and som.links and not any(
+            link.enabled for link in som.links
+        ):
+            return [
+                f"  {som_path}: all {len(som.links)} GPO link(s) at this SOM are "
+                f"disabled — no GPO settings apply here"
+            ]
         return []
     chain, gpo_by_id, _names = resolved
     gpo_ids = {link.gpo_id for link in chain if link.enabled}
@@ -472,8 +530,9 @@ def scope_caveats(estate: Estate, som_path: str) -> list[str]:
             continue
         if is_security_filtered(gpo):
             caveats.append(
-                f"  {gpo.name}: security-filtered (not applied to "
-                f"Authenticated Users / Domain Computers)"
+                f"  {gpo.name}: appears security-filtered (no broad allow for "
+                f"Authenticated Users / Domain Computers / Everyone; "
+                f"nested membership and inherited ACEs not evaluated)"
             )
         if gpo.wmi_filter:
             caveats.append(f"  {gpo.name}: WMI filter attached ({gpo.wmi_filter})")
