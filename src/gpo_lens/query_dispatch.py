@@ -26,6 +26,40 @@ QUERY_REQUIRED_PARAMS: dict[str, list[str]] = {
     "settings_at_som": ["ou_path"],
 }
 
+_PARAM_VALIDATORS: dict[str, dict[str, type]] = {
+    "settings_at_som": {"ou_path": str},
+}
+
+
+def validate_params(query_name: str, params: dict[str, object]) -> dict[str, object]:
+    """Validate and filter params for a query. Raises ValueError on type mismatch."""
+    if query_name not in _QUERY_DISPATCH:
+        raise ValueError(f"Unknown query: {query_name}")
+    required = set(QUERY_REQUIRED_PARAMS.get(query_name, []))
+    expected = {"estate", *required}
+    schema = _PARAM_VALIDATORS.get(query_name, {})
+    validated: dict[str, object] = {}
+    for key, value in params.items():
+        if key == "estate":
+            validated[key] = value
+            continue
+        if key not in expected:
+            continue
+        expected_type = schema.get(key)
+        if expected_type and not isinstance(value, expected_type):
+            raise ValueError(
+                f"Parameter '{key}' must be {expected_type.__name__}, "
+                f"got {type(value).__name__}"
+            )
+        validated[key] = value
+    missing = required - set(validated.keys())
+    if missing:
+        raise ValueError(
+            f"Query '{query_name}' requires parameter '{missing.pop()}'"
+        )
+    return validated
+
+
 VALID_QUERIES: frozenset[str] = frozenset(_QUERY_DISPATCH.keys())
 
 

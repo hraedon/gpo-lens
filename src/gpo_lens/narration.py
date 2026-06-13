@@ -7,6 +7,8 @@ import os
 import urllib.error
 import urllib.request
 
+from gpo_lens.query_dispatch import VALID_QUERIES as _VALID_QUERIES
+
 
 class NarrationUnavailable(Exception):
     """Raised when narration cannot be produced (no API key, transport error, etc.)."""
@@ -93,23 +95,6 @@ Respond with ONLY a JSON object:
 - If not routeable: {"error": "cannot_route", "reason": "brief explanation"}
 
 Do NOT include any other text."""
-
-
-_VALID_QUERIES: frozenset[str] = frozenset({
-    "estate_summary",
-    "estate_doctor",
-    "settings_at_som",
-    "cpassword_scan",
-    "unlinked_gpos",
-    "empty_gpos",
-    "version_skew",
-    "broken_refs",
-    "enforced_links",
-    "dangling_links",
-    "ms16_072_vulnerable",
-    "topology_crosscheck",
-    "disabled_but_populated",
-})
 
 
 def route_question(question: str) -> dict[str, object]:

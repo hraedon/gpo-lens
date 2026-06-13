@@ -9,7 +9,12 @@ import sys
 from gpo_lens import queries
 from gpo_lens.cli._helpers import _get_estate, _render_json
 from gpo_lens.detection import mask_cpassword
-from gpo_lens.query_dispatch import QUERY_REQUIRED_PARAMS, VALID_QUERIES, dispatch_query
+from gpo_lens.query_dispatch import (
+    QUERY_REQUIRED_PARAMS,
+    VALID_QUERIES,
+    dispatch_query,
+    validate_params,
+)
 
 
 def _serialize_result(result: object) -> object:
@@ -74,25 +79,12 @@ def cmd_ask(args: argparse.Namespace) -> int:
         )
         return 1
 
-    call_kw: dict[str, object] = {"estate": estate, **params}
-
-    required = QUERY_REQUIRED_PARAMS.get(query_name, [])
-    for rp in required:
-        if rp not in call_kw:
-            print(
-                f"Error: query '{query_name}' requires parameter '{rp}'",
-                file=sys.stderr,
-            )
-            return 1
-
-    expected_keys = {"estate", *required}
-    unexpected = set(call_kw.keys()) - expected_keys
-    if unexpected:
-        print(
-            f"Warning: unexpected parameters for query '{query_name}': {unexpected}",
-            file=sys.stderr,
-        )
-        call_kw = {k: v for k, v in call_kw.items() if k in expected_keys}
+    params = {k: v for k, v in params.items() if k != "estate"}
+    try:
+        call_kw = validate_params(query_name, {"estate": estate, **params})
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
 
     query_result: object = dispatch_query(query_name, **call_kw)
 
