@@ -26,7 +26,7 @@ from gpo_lens.cli._hygiene import (
     cmd_unlinked,
     cmd_version_skew,
 )
-from gpo_lens.cli._narration import cmd_ask
+from gpo_lens.cli._narration import cmd_ask, cmd_explain_setting
 from gpo_lens.cli._report import cmd_report
 from gpo_lens.cli._serve import cmd_serve
 from gpo_lens.cli._settings import (
@@ -45,6 +45,7 @@ from gpo_lens.cli._topology import (
     cmd_dangling,
     cmd_enforced,
     cmd_loopback,
+    cmd_scope,
     cmd_som,
     cmd_topology_check,
     cmd_wmi,
@@ -229,6 +230,14 @@ def main(argv: list[str] | None = None) -> int:
     p.set_defaults(func=cmd_topology_check)
 
     p = sub.add_parser(
+        "scope",
+        help="Show effective scoping for a GPO (links, security filtering, WMI, loopback)",
+    )
+    p.add_argument("gpo", help="GPO name or canonical id")
+    _add_src(p)
+    p.set_defaults(func=cmd_scope)
+
+    p = sub.add_parser(
         "admx-gaps",
         help="Flag Registry CSE settings with raw key paths (no ADMX policy name)",
     )
@@ -346,6 +355,20 @@ def main(argv: list[str] | None = None) -> int:
     )
     _add_src(p)
     p.set_defaults(func=cmd_ask)
+
+    # explain-setting
+    p = sub.add_parser(
+        "explain-setting",
+        help="Explain what a registry setting / GPO identity does",
+    )
+    p.add_argument(
+        "identity",
+        help="Registry path or setting identity (optionally 'key:value')",
+    )
+    p.add_argument(
+        "--admx-dir", help="PolicyDefinitions directory for ADMX crosswalk",
+    )
+    p.set_defaults(func=cmd_explain_setting)
 
     # REPL
     p = sub.add_parser("repl", help="Interactive Python REPL with the estate loaded")

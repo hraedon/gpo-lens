@@ -174,6 +174,43 @@ _CORPUS: list[tuple[str, str, dict[str, object] | None]] = [
         "disabled_but_populated",
         None,
     ),
+    # Baseline diff
+    (
+        "Compare my estate against the Windows 11 security baseline",
+        "baseline_diff",
+        {"baseline_path": "Windows_11_SecondaryBaseline.zip"},
+    ),
+    (
+        "How does my domain drift from the Microsoft baseline?",
+        "baseline_diff",
+        {"baseline_path": "baseline.zip"},
+    ),
+    # Scope honesty
+    (
+        "What is the effective scope of the Default Domain Policy?",
+        "effective_scope",
+        {"gpo_id": "Default Domain Policy"},
+    ),
+    (
+        "Who does the lockdown GPO apply to?",
+        "effective_scope",
+        {"gpo_id": "lockdown"},
+    ),
+    (
+        "Are there any orphaned WMI filters nobody is using?",
+        "orphaned_wmi_filters",
+        None,
+    ),
+    (
+        "Which GPOs reference a WMI filter that doesn't exist?",
+        "broken_wmi_refs",
+        None,
+    ),
+    (
+        "Show me GPOs that haven't been touched in years",
+        "stale_gpos",
+        None,
+    ),
 ]
 
 _UNROUTABLE: list[tuple[str, str]] = [

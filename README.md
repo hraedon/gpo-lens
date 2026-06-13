@@ -74,6 +74,21 @@ pip install -e .
 - **Zero runtime dependencies.** Stdlib-only core (`xml.etree.ElementTree`,
   `json`, `sqlite3`, `argparse`) — portable and air-gappable.
 - **Air-gappable.** No network required for core features.
+- **Flag, don't simulate.** Topology resolution is OU-level; never claims
+  object-level RSoP (no per-user security/WMI/loopback evaluation). Scoping
+  mechanisms (loopback, security filtering, WMI filters, item-level targeting)
+  are flagged with caveats, not simulated.
+
+## Limits
+
+- **Single-domain estates.** The `Estate` model holds one domain's GPOs, SOMs,
+  and WMI filters. Multi-domain or multi-forest estates are not supported.
+- **Site-level GPO links.** The collector exports OU/domain inheritance only.
+  Sites are a real GPO scoping mechanism but are not captured. Extending the
+  collector for site links is additive and deferred until needed.
+- **Per-user/object RSoP simulation.** The tool resolves settings at the OU
+  level and flags scoping mechanisms (loopback, security filtering, WMI, ILT)
+  with caveats. It does not simulate per-user effective policy.
 
 ## Development
 

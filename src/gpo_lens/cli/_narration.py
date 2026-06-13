@@ -1,16 +1,17 @@
-"""CLI subcommand for LLM-powered natural language queries (ask)."""
+"""CLI subcommands for LLM-powered natural language queries and explanations."""
 from __future__ import annotations
 
 import argparse
 import dataclasses
 import json
+import os
 import sys
+from pathlib import Path
 
 from gpo_lens import queries
 from gpo_lens.cli._helpers import _get_estate, _render_json
 from gpo_lens.detection import mask_cpassword
 from gpo_lens.query_dispatch import (
-    QUERY_REQUIRED_PARAMS,
     VALID_QUERIES,
     dispatch_query,
     validate_params,
@@ -36,23 +37,11 @@ def cmd_ask(args: argparse.Namespace) -> int:
         route_question,
     )
 
-    dispatch_keys = set(VALID_QUERIES)
-    from gpo_lens.narration import _VALID_QUERIES as narration_valid
-
-    if dispatch_keys != narration_valid:
-        raise RuntimeError(
-            f"query_dispatch.VALID_QUERIES / narration._VALID_QUERIES out of sync: "
-            f"extra in dispatch: {dispatch_keys - narration_valid}, "
-            f"missing from dispatch: {narration_valid - dispatch_keys}"
-        )
-    required_keys = set(QUERY_REQUIRED_PARAMS.keys())
-    if required_keys - dispatch_keys:
-        raise RuntimeError(
-            f"QUERY_REQUIRED_PARAMS references unknown queries: "
-            f"{required_keys - dispatch_keys}"
-        )
-
-    question: str = args.question
+    question: str = (
+        "--- USER QUESTION START ---\n"
+        f"{args.question}\n"
+        "--- USER QUESTION END ---"
+    )
     raw_json: bool = args.no_narrate or getattr(args, "json", False)
 
     estate = _get_estate(args)
@@ -123,4 +112,64 @@ def cmd_ask(args: argparse.Namespace) -> int:
     else:
         print("Narration unavailable. Raw results:")
         _render_json(serialized_result)
+    return 0
+
+
+def cmd_explain_setting(args: argparse.Namespace) -> int:
+    """Explain what a registry setting / GPO identity does.
+
+    ADMX-first: if --admx-dir resolves the identity, print the policy name
+    and explain_text with zero model calls.  If ADMX cannot resolve it and an
+    API key is configured, fall back to an LLM narration clearly marked as
+    unverified.  Without an API key, degrade to a factual "not available" note.
+    """
+    from gpo_lens.admx_parser import parse_admx_dir
+
+    identity: str = args.identity
+    admx_dir = getattr(args, "admx_dir", None)
+
+    if admx_dir and Path(admx_dir).is_dir():
+        admx = parse_admx_dir(admx_dir)
+        parts = identity.split(":", 1)
+        key = parts[0] if parts else identity
+        value = parts[1] if len(parts) > 1 else ""
+        matches = admx.lookup(key, value)
+        if matches:
+            policy = matches[0]
+            print(policy.display_name)
+            if policy.explain_text:
+                print(f"\n{policy.explain_text}")
+            else:
+                print("\nNo ADMX explain text is available for this setting.")
+            return 0
+    elif admx_dir:
+        print(
+            f"Warning: --admx-dir not found or not a directory: {admx_dir}",
+            file=sys.stderr,
+        )
+
+    if not os.environ.get("GPO_LENS_API_KEY"):
+        print(
+            "No ADMX explanation available; set GPO_LENS_API_KEY for AI narration"
+        )
+        return 0
+
+    # Narration fallback (explicitly marked as unverified).
+    from gpo_lens.narration import NarrationUnavailable, call_llm
+
+    system = (
+        "You are a Group Policy analyst. Explain what the following setting "
+        "likely does, based on its identity/path text. You do not have "
+        "authoritative ADMX context. Begin your answer with "
+        "'NARRATED/UNVERIFIED:' and keep the explanation brief and factual."
+    )
+    try:
+        answer = call_llm(system, identity[:500])
+    except NarrationUnavailable as exc:
+        print(f"Error: narration unavailable ({exc})", file=sys.stderr)
+        return 1
+    if not answer.startswith("NARRATED/UNVERIFIED:"):
+        answer = "NARRATED/UNVERIFIED: " + answer
+    print(f"NARRATED/UNVERIFIED explanation for {identity}:\n")
+    print(answer)
     return 0

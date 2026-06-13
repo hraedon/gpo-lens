@@ -46,6 +46,7 @@ __all__ = [
     "has_ms16_072_read",
     "mask_cpassword",
     "parse_sddl",
+    "scan_ilt",
     "disabled_but_populated",
     "empty_gpos",
     "enforced_links",
@@ -733,4 +734,49 @@ def excessive_writers(
         ))
 
     results.sort(key=lambda w: w.gpo_count, reverse=True)
+    return results
+
+
+# ---------------------------------------------------------------------------
+# GPP item-level targeting (ILT) detection
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class IltHit:
+    """One SYSVOL GPP file carrying item-level targeting (``<Filters>``)."""
+
+    gpo_id: str
+    gpo_name: str
+    file: str
+    filter_types: tuple[str, ...]
+
+
+def _local_tag(elem: Element) -> str:
+    """Strip XML namespace prefix from an element tag."""
+    return elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
+
+
+def scan_ilt(estate: Estate) -> list[IltHit]:
+    """Scan SYSVOL GPP XML for ``<Filters>`` elements (item-level targeting).
+
+    Returns one ``IltHit`` per GPO (deduplicated across files/sides).
+    """
+    results: list[IltHit] = []
+    for gpo in estate.gpos:
+        gpo_filter_types: set[str] = set()
+        for tree, _abs, _rel in _walk_gpp_xml(gpo, only_known=False):
+            root = tree.getroot()
+            if root is None:
+                continue
+            for elem in root.iter():
+                if _local_tag(elem) == "Filters":
+                    for child in elem:
+                        gpo_filter_types.add(_local_tag(child))
+        if gpo_filter_types:
+            results.append(IltHit(
+                gpo_id=gpo.id,
+                gpo_name=gpo.name,
+                file="SYSVOL",
+                filter_types=tuple(sorted(gpo_filter_types)),
+            ))
     return results

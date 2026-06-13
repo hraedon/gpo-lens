@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import warnings
 import zipfile
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 from xml.etree.ElementTree import Element
 
 import defusedxml.ElementTree as ET
@@ -27,6 +28,86 @@ from gpo_lens.normalize import canonical_guid, load_json, parse_bool, parse_dt, 
 
 # Decompression bomb guard: refuse to expand zip contents beyond this total.
 _MAX_DECOMPRESSED_BYTES = 2 * 1024 * 1024 * 1024
+
+
+@runtime_checkable
+class _Readable(Protocol):
+    def read(self, size: int = -1) -> bytes: ...
+
+
+class SizeLimitedReader:
+    """Wraps a readable stream and raises ValueError if bytes exceed a limit.
+
+    Counts *actual* decompressed bytes during streaming reads, making it
+    immune to zip-bomb attacks that spoof ``info.file_size`` headers.
+
+    The ``read`` method caps the effective read size to 65536 bytes so that
+    a caller passing a huge ``size`` (e.g. 1 GB) cannot cause an excessive
+    single allocation before the limit check fires.
+    """
+
+    def __init__(self, source: _Readable, limit: int) -> None:
+        self._source = source
+        self._limit = limit
+        self._total = 0
+
+    def read(self, size: int = -1) -> bytes:
+        if size < 0:
+            size = 65536
+        elif size > 0:
+            size = min(size, 65536)
+        # size == 0: pass through as-is
+        chunk = self._source.read(size)
+        if chunk:
+            self._total += len(chunk)
+            if self._total > self._limit:
+                raise ValueError("zip decompressed size exceeds limit")
+        return chunk
+
+
+def _streaming_zip_read(
+    zf: zipfile.ZipFile,
+    name: str,
+    total_counter: list[int],
+    max_bytes: int | None = None,
+) -> bytes:
+    """Read a zip entry with streaming decompression size enforcement.
+
+    Unlike ``zf.read(name)`` which decompresses the entire entry into
+    memory before any size check, this reads in fixed-size chunks through
+    :class:`SizeLimitedReader`, enforcing the cap *during* decompression.
+    This prevents zip-bomb attacks where ``info.file_size`` headers are
+    spoofed to a small value while the actual content is much larger.
+
+    **Memory tradeoff:** The size limit is enforced *during* streaming
+    decompression, but the full (capped) content is buffered into a
+    ``BytesIO`` object in memory.  This is necessary because the caller
+    (e.g. ``load_baseline_from_zip``) needs the complete bytes to open a
+    nested ``ZipFile``.  Baseline zips are typically under 100 MB, well
+    within the 2 GB cap.  For the ``_safe_extract`` path (disk extraction),
+    bytes are written directly to disk, not buffered.
+    """
+    if max_bytes is None:
+        max_bytes = _MAX_DECOMPRESSED_BYTES
+    remaining = max_bytes - total_counter[0]
+    if remaining <= 0:
+        raise ValueError("zip decompressed size exceeds limit")
+
+    buf = io.BytesIO()
+    with zf.open(name) as src:
+        wrapped = SizeLimitedReader(src, remaining)
+        while True:
+            chunk = wrapped.read(65536)
+            if not chunk:
+                break
+            buf.write(chunk)
+        bytes_read = wrapped._total
+
+    total_counter[0] += bytes_read
+    if total_counter[0] > max_bytes:
+        raise ValueError("zip decompressed size exceeds limit")
+
+    return buf.getvalue()
 
 
 def _localname(tag: str) -> str:
@@ -323,13 +404,6 @@ def parse_report_xml(xml_bytes: bytes) -> list[Gpo]:
     return gpos
 
 
-def _check_zip_total_size(zf: zipfile.ZipFile, limit: int) -> None:
-    """Raise ValueError if the total uncompressed size of ``zf`` exceeds ``limit``."""
-    total = sum(info.file_size for info in zf.infolist())
-    if total > limit:
-        raise ValueError("zip decompressed size exceeds limit")
-
-
 def load_baseline_from_zip(zip_path: str | Path) -> list[Gpo]:
     """Load baseline GPOs from a Microsoft Security Baseline zip.
 
@@ -338,37 +412,50 @@ def load_baseline_from_zip(zip_path: str | Path) -> list[Gpo]:
     - Outer zip containing inner baseline zips
 
     Returns all GPOs found across all baseline GPOs in the archive.
-    """
-    import io
 
+    Uses streaming decompression with :func:`_streaming_zip_read` to enforce
+    the uncompressed-size cap *during* extraction, preventing zip-bomb
+    attacks that spoof ``info.file_size`` headers.
+
+    **Memory tradeoff:** The size limit is enforced during streaming
+    decompression via :class:`SizeLimitedReader`, but the full (capped)
+    decompressed content of each entry is buffered in memory (as a
+    ``BytesIO``) before parsing.  This is necessary because inner zips
+    require the complete byte stream to open.  Baseline zips are
+    typically under 100 MB, well within the 2 GB cap.
+    """
     gpos: list[Gpo] = []
+    total_bytes = [0]
     with zipfile.ZipFile(str(zip_path)) as outer:
-        _check_zip_total_size(outer, _MAX_DECOMPRESSED_BYTES)
         for name in outer.namelist():
             if name.endswith(".zip"):
-                inner_data = outer.read(name)
+                inner_data = _streaming_zip_read(outer, name, total_bytes)
                 with zipfile.ZipFile(io.BytesIO(inner_data)) as inner:
-                    _check_zip_total_size(inner, _MAX_DECOMPRESSED_BYTES)
-                    gpos.extend(_extract_gpos_from_zip(inner))
+                    gpos.extend(_extract_gpos_from_zip(inner, total_bytes))
             elif name.endswith("gpreport.xml"):
-                raw = outer.read(name)
+                raw = _streaming_zip_read(outer, name, total_bytes)
                 gpos.extend(parse_report_xml(raw))
 
         if not gpos:
-            # Try the outer zip itself as a GPO backup zip
-            gpos.extend(_extract_gpos_from_zip(outer))
+            gpos.extend(_extract_gpos_from_zip(outer, total_bytes))
 
     return gpos
 
 
-def _extract_gpos_from_zip(zf: zipfile.ZipFile) -> list[Gpo]:
-    """Extract GPOs from gpreport.xml files in a zip."""
-    _check_zip_total_size(zf, _MAX_DECOMPRESSED_BYTES)
+def _extract_gpos_from_zip(
+    zf: zipfile.ZipFile, total_counter: list[int] | None = None
+) -> list[Gpo]:
+    """Extract GPOs from gpreport.xml files in a zip.
+
+    Uses streaming decompression via :func:`_streaming_zip_read` to enforce
+    the uncompressed-size cap during extraction.
+    """
+    _total = total_counter if total_counter is not None else [0]
     gpos: list[Gpo] = []
     for name in zf.namelist():
         if name.endswith("gpreport.xml"):
             try:
-                raw = zf.read(name)
+                raw = _streaming_zip_read(zf, name, _total)
                 gpos.extend(parse_report_xml(raw))
             except (ET.ParseError, KeyError, ValueError) as exc:
                 warnings.warn(f"Skipping entry in zip: {exc}", stacklevel=1)

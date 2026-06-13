@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Registry clsid="{9CDCCB0F-DE08-463b-B39D-646F54292F80}">
+  <Registry clsid="{9CDCCB0F-DE08-463b-B39D-646F54292F80}" name="IltSetting" status="IltSetting" changed="2025-06-01" uid="{00000000-0000-0000-0000-000000000000}">
+    <Filters>
+      <FilterGroup bool="AND" not="0" name="FAKEFIXTURE\SecurityGroup" sid="S-1-5-21-1234567890-1234567890-1234567890-1001" userContext="1" primaryGroup="0" localGroup="0"/>
+    </Filters>
+    <Properties action="U" displayDecimal="0" default="0" hive="HKEY_CURRENT_USER" key="Software\Fake" name="IltSetting" type="REG_SZ" value="1"/>
+  </Registry>
+</Registry>

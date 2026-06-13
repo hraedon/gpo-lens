@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import io
 import xml.etree.ElementTree as ET
+import zipfile
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -114,7 +117,7 @@ class TestParseReport:
     def test_parse_empty_file_raises(self, tmp_path: Path) -> None:
         xml_path = tmp_path / "empty.xml"
         xml_path.write_text('<?xml version="1.0"?>\n<root/>', encoding="utf-8")
-        # No <GPO> elements → returns empty list, does not crash
+        # No <GPO> elements -> returns empty list, does not crash
         gpos = ingest.parse_report(xml_path)
         assert gpos == []
 
@@ -461,3 +464,296 @@ class TestParseOuTree:
         estate = ingest.load_estate(tmp_path)
         assert len(estate.ou_tree) == 1
         assert estate.ou_tree[0].name == "WS"
+
+
+# ---------------------------------------------------------------------------
+# WI-006: Streaming decompression size enforcement tests
+# ---------------------------------------------------------------------------
+
+
+class TestSizeLimitedReader:
+    """Tests for SizeLimitedReader - the core streaming size enforcer."""
+
+    def test_under_limit(self) -> None:
+        from gpo_lens.ingest import SizeLimitedReader
+
+        src = io.BytesIO(b"hello")
+        reader = SizeLimitedReader(src, 100)
+        data = reader.read()
+        assert data == b"hello"
+
+    def test_exceeds_limit(self) -> None:
+        from gpo_lens.ingest import SizeLimitedReader
+
+        src = io.BytesIO(b"x" * 200)
+        reader = SizeLimitedReader(src, 100)
+        with pytest.raises(ValueError, match="exceeds limit"):
+            reader.read(65536)
+
+    def test_exact_limit(self) -> None:
+        from gpo_lens.ingest import SizeLimitedReader
+
+        src = io.BytesIO(b"hello")
+        reader = SizeLimitedReader(src, 5)
+        data = reader.read()
+        assert data == b"hello"
+
+    def test_over_by_one(self) -> None:
+        from gpo_lens.ingest import SizeLimitedReader
+
+        src = io.BytesIO(b"hello!")
+        reader = SizeLimitedReader(src, 5)
+        with pytest.raises(ValueError, match="exceeds limit"):
+            reader.read()
+
+    def test_multiple_reads_accumulate(self) -> None:
+        from gpo_lens.ingest import SizeLimitedReader
+
+        src = io.BytesIO(b"aaaaaabbbbbb")
+        reader = SizeLimitedReader(src, 10)
+        reader.read(3)
+        reader.read(3)
+        reader.read(3)
+        with pytest.raises(ValueError, match="exceeds limit"):
+            reader.read(3)
+
+    def test_empty_read(self) -> None:
+        from gpo_lens.ingest import SizeLimitedReader
+
+        src = io.BytesIO(b"")
+        reader = SizeLimitedReader(src, 100)
+        data = reader.read()
+        assert data == b""
+
+    def test_large_read_request_capped(self) -> None:
+        """A read with a huge size is capped to 65536, preventing excessive allocation."""
+        from gpo_lens.ingest import SizeLimitedReader
+
+        # 200 bytes of data, 300-byte limit
+        src = io.BytesIO(b"x" * 200)
+        reader = SizeLimitedReader(src, 300)
+        # Request 1 GB read — should be capped, not allocate 1 GB
+        chunk = reader.read(1_073_741_824)
+        # BytesIO only has 200 bytes, so we get all of them
+        assert len(chunk) == 200
+        assert reader._total == 200
+
+
+class TestStreamingZipRead:
+    """Tests for _streaming_zip_read - streaming decompression with size enforcement."""
+
+    def test_normal_read_under_limit(self) -> None:
+        from gpo_lens.ingest import _streaming_zip_read
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("test.txt", b"hello world")
+        buf.seek(0)
+        with zipfile.ZipFile(buf, "r") as zf:
+            counter = [0]
+            data = _streaming_zip_read(zf, "test.txt", counter, max_bytes=1024)
+        assert data == b"hello world"
+        assert counter[0] == 11
+
+    def test_rejects_oversized_entry(self) -> None:
+        from gpo_lens.ingest import _streaming_zip_read
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("big.txt", b"x" * 200)
+        buf.seek(0)
+        with zipfile.ZipFile(buf, "r") as zf:
+            counter = [0]
+            with pytest.raises(ValueError, match="exceeds limit"):
+                _streaming_zip_read(zf, "big.txt", counter, max_bytes=100)
+
+    def test_accumulates_across_entries(self) -> None:
+        from gpo_lens.ingest import _streaming_zip_read
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("a.txt", b"a" * 60)
+            zf.writestr("b.txt", b"b" * 60)
+        buf.seek(0)
+        with zipfile.ZipFile(buf, "r") as zf:
+            counter = [0]
+            _streaming_zip_read(zf, "a.txt", counter, max_bytes=100)
+            assert counter[0] == 60
+            # Second read should fail because cumulative exceeds 100
+            with pytest.raises(ValueError, match="exceeds limit"):
+                _streaming_zip_read(zf, "b.txt", counter, max_bytes=100)
+
+    def test_spoofed_file_size_header_still_enforced(self) -> None:
+        """Zip-bomb vector: info.file_size says 1 byte, actual content is large.
+
+        _streaming_zip_read must reject this because it counts actual
+        decompressed bytes, not the declarative header value.
+
+        NOTE: Python's zipfile.ZipExtFile validates CRC and truncates
+        output to file_size bytes, so a real binary-spoofed zip raises
+        BadZipFile before our reader sees it.  We test our streaming
+        reader's independence from info.file_size by simulating a
+        decompression stream that yields more bytes than the header claims.
+        """
+        from gpo_lens.ingest import _streaming_zip_read
+
+        # Simulate zf.open("bomb.txt") returning 200 bytes
+        # even though info.file_size says 1
+        fake_stream = io.BytesIO(b"A" * 200)
+        mock_zf = MagicMock()
+        mock_zf.open.return_value.__enter__ = lambda s: fake_stream
+        mock_zf.open.return_value.__exit__ = MagicMock(return_value=False)
+
+        counter = [0]
+        with pytest.raises(ValueError, match="exceeds limit"):
+            _streaming_zip_read(mock_zf, "bomb.txt", counter, max_bytes=100)
+
+    def test_does_not_check_info_file_size_before_read(self) -> None:
+        """Verify _streaming_zip_read doesn't use info.file_size as a pre-check.
+
+        A naive implementation might check ``if info.file_size > limit: reject``
+        before opening the entry, which would be bypassed by spoofed headers.
+        Our implementation enforces the limit during actual streaming reads.
+        """
+        from gpo_lens.ingest import _streaming_zip_read
+
+        # Create a zip with content that exceeds our test limit
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("big.txt", b"x" * 200)
+        buf.seek(0)
+        with zipfile.ZipFile(buf, "r") as zf:
+            # info.file_size correctly says 200 -- our reader catches it
+            # during streaming, not by checking the header beforehand
+            counter = [0]
+            with pytest.raises(ValueError, match="exceeds limit"):
+                _streaming_zip_read(zf, "big.txt", counter, max_bytes=100)
+
+    def test_none_max_bytes_uses_default(self) -> None:
+        """When max_bytes is None, _streaming_zip_read uses _MAX_DECOMPRESSED_BYTES."""
+        import unittest.mock
+
+        from gpo_lens.ingest import _streaming_zip_read
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("test.txt", b"hello")
+        buf.seek(0)
+        with zipfile.ZipFile(buf, "r") as zf:
+            counter = [0]
+            with unittest.mock.patch("gpo_lens.ingest._MAX_DECOMPRESSED_BYTES", 100):
+                # With the default limit of 100, a 5-byte entry is fine
+                data = _streaming_zip_read(zf, "test.txt", counter)
+            assert data == b"hello"
+
+
+class TestStreamingBaselineZip:
+    """Tests for load_baseline_from_zip with streaming decompression enforcement."""
+
+    def _min_gpo_xml(self) -> str:
+        return (
+            '<?xml version="1.0" encoding="utf-8"?>\n'
+            "<GPO>\n"
+            "  <Identifier>\n"
+            "    <Identifier>{99999999-9999-9999-9999-999999999999}</Identifier>\n"
+            "    <Domain>test.local</Domain>\n"
+            "  </Identifier>\n"
+            "  <Name>Test GPO</Name>\n"
+            "  <CreatedTime>2024-01-01T00:00:00</CreatedTime>\n"
+            "  <ModifiedTime>2024-01-01T00:00:00</ModifiedTime>\n"
+            "  <ReadTime>2024-01-01T00:00:00</ReadTime>\n"
+            "  <Computer><Enabled>true</Enabled></Computer>\n"
+            "  <User><Enabled>true</Enabled></User>\n"
+            "  <FilterDataAvailable>false</FilterDataAvailable>\n"
+            "</GPO>\n"
+        )
+
+    def test_normal_baseline_zip_loads(self, tmp_path: Path) -> None:
+        gpo_xml = self._min_gpo_xml()
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr(
+                "GPOs/{99999999-9999-9999-9999-999999999999}/gpreport.xml",
+                gpo_xml,
+            )
+        zip_path = tmp_path / "baseline.zip"
+        zip_path.write_bytes(buf.getvalue())
+
+        gpos = ingest.load_baseline_from_zip(zip_path)
+        assert len(gpos) == 1
+        assert gpos[0].name == "Test GPO"
+
+    def test_nested_baseline_zip_loads(self, tmp_path: Path) -> None:
+        """Outer zip containing an inner zip with GPOs."""
+        gpo_xml = self._min_gpo_xml()
+        inner_buf = io.BytesIO()
+        with zipfile.ZipFile(inner_buf, "w", zipfile.ZIP_DEFLATED) as inner:
+            inner.writestr(
+                "GPOs/{99999999-9999-9999-9999-999999999999}/gpreport.xml",
+                gpo_xml,
+            )
+        outer_buf = io.BytesIO()
+        with zipfile.ZipFile(outer_buf, "w", zipfile.ZIP_DEFLATED) as outer:
+            outer.writestr("Windows 11 Security Baseline.zip", inner_buf.getvalue())
+
+        zip_path = tmp_path / "baseline.zip"
+        zip_path.write_bytes(outer_buf.getvalue())
+
+        gpos = ingest.load_baseline_from_zip(zip_path)
+        assert len(gpos) == 1
+        assert gpos[0].name == "Test GPO"
+
+    def test_large_nested_zip_rejected(self, tmp_path: Path) -> None:
+        """Nested zip with large content must be rejected during streaming.
+
+        A real zip-bomb uses highly compressible data inside nested zips.
+        The inner zip decompresses to much more than its compressed size.
+        Our streaming reader catches this by counting actual decompressed
+        bytes, not trusting header values.
+        """
+        import unittest.mock
+
+        # Create a large inner zip entry
+        gpo_xml = self._min_gpo_xml()
+        large_padding = " " * 5000  # make the content large
+        padded_xml = gpo_xml + large_padding
+
+        inner_buf = io.BytesIO()
+        with zipfile.ZipFile(inner_buf, "w", zipfile.ZIP_DEFLATED) as inner:
+            inner.writestr(
+                "GPOs/{99999999-9999-9999-9999-999999999999}/gpreport.xml",
+                padded_xml,
+            )
+        inner_data = inner_buf.getvalue()
+
+        outer_buf = io.BytesIO()
+        with zipfile.ZipFile(outer_buf, "w", zipfile.ZIP_DEFLATED) as outer:
+            outer.writestr("baseline.zip", inner_data)
+
+        zip_path = tmp_path / "baseline.zip"
+        zip_path.write_bytes(outer_buf.getvalue())
+
+        # Should be rejected because the actual decompressed content
+        # exceeds the limit (set low for testing)
+        with unittest.mock.patch("gpo_lens.ingest._MAX_DECOMPRESSED_BYTES", 200):
+            with pytest.raises(ValueError, match="exceeds limit"):
+                ingest.load_baseline_from_zip(zip_path)
+
+    def test_large_direct_zip_rejected(self, tmp_path: Path) -> None:
+        """Direct zip (no nesting) with large content must be rejected."""
+        import unittest.mock
+
+        # Create a zip with a large gpreport.xml
+        gpo_xml = self._min_gpo_xml()
+        padded_xml = gpo_xml + " " * 5000  # make it large
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("GPOs/test/gpreport.xml", padded_xml)
+
+        zip_path = tmp_path / "baseline.zip"
+        zip_path.write_bytes(buf.getvalue())
+
+        with unittest.mock.patch("gpo_lens.ingest._MAX_DECOMPRESSED_BYTES", 200):
+            with pytest.raises(ValueError, match="exceeds limit"):
+                ingest.load_baseline_from_zip(zip_path)

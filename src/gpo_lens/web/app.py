@@ -4,6 +4,7 @@ import dataclasses
 import json
 import logging
 import os
+import shutil
 import sqlite3
 import stat
 import threading
@@ -60,24 +61,70 @@ _MAX_QUESTION_LEN = 500
 
 
 def _safe_extract(zip_path: Path, dest: Path) -> None:
-    with zipfile.ZipFile(zip_path, "r") as zf:
-        dest_root = dest.resolve()
-        total_uncompressed = 0
-        for info in zf.infolist():
-            member = info.filename
-            mode = info.external_attr >> 16
-            if stat.S_ISLNK(mode):
-                raise ValueError(f"zip symlink blocked: {member}")
-            target = (dest / member).resolve()
-            if not target.is_relative_to(dest_root):
-                raise ValueError(f"zip-slip blocked: {member}")
-            total_uncompressed += info.file_size
-            if total_uncompressed > _MAX_UNCOMPRESSED_BYTES:
-                raise ValueError("zip uncompressed size exceeds limit")
-            zf.extract(member, dest)
-            extracted = (dest / member).resolve()
-            if not extracted.is_relative_to(dest_root):
-                raise ValueError(f"zip-slip blocked: {member}")
+    """Extract a zip to *dest* with defense-in-depth safety checks.
+
+    Four layers of protection:
+    1. Symlink check (pre-extract, from header ``external_attr``)
+    2. Path traversal check (pre-extract, resolves member path)
+    3. Streaming decompression size cap via :class:`SizeLimitedReader`
+       — counts *actual* decompressed bytes, immune to ``file_size``
+       header spoofing
+    4. Post-extract symlink and path traversal re-check
+
+    If any check fails (or an error occurs during extraction), all
+    partially-extracted files and directories are removed from *dest*
+    before the exception is re-raised, ensuring no tainted artifacts
+    remain on disk.
+
+    **Memory tradeoff:** Unlike :func:`~gpo_lens.ingest._streaming_zip_read`
+    which buffers decompressed bytes in memory, this function writes
+    directly to disk during extraction — no in-memory buffering of the
+    full content.
+    """
+    from gpo_lens.ingest import SizeLimitedReader
+
+    try:
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            dest_root = dest.resolve()
+            total_bytes_read = 0
+            for info in zf.infolist():
+                member = info.filename
+                mode = info.external_attr >> 16
+                if stat.S_ISLNK(mode):
+                    raise ValueError(f"zip symlink blocked: {member}")
+                target = (dest / member).resolve()
+                if not target.is_relative_to(dest_root):
+                    raise ValueError(f"zip-slip blocked: {member}")
+                if member.endswith("/"):
+                    target.mkdir(parents=True, exist_ok=True)
+                    continue
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with zf.open(member) as src:
+                    wrapped = SizeLimitedReader(
+                        src, _MAX_UNCOMPRESSED_BYTES - total_bytes_read
+                    )
+                    with open(target, "wb") as out:
+                        while True:
+                            chunk = wrapped.read(65536)
+                            if not chunk:
+                                break
+                            out.write(chunk)
+                    total_bytes_read += wrapped._total
+                    if total_bytes_read > _MAX_UNCOMPRESSED_BYTES:
+                        raise ValueError("zip uncompressed size exceeds limit")
+                extracted = target.resolve()
+                if extracted.is_symlink():
+                    raise ValueError(f"zip symlink blocked: {member}")
+                if not extracted.is_relative_to(dest_root):
+                    raise ValueError(f"zip-slip blocked: {member}")
+    except BaseException:
+        # Clean up any partially extracted files/dirs before re-raising
+        for child in dest.iterdir():
+            if child.is_dir():
+                shutil.rmtree(child)
+            else:
+                child.unlink()
+        raise
 
 
 def _sanitize_question(raw: str) -> str:

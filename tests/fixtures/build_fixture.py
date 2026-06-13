@@ -31,9 +31,14 @@ GUID_G = "{11111111-1111-1111-1111-111111111111}"
 GUID_H = "{22222222-2222-2222-2222-222222222222}"
 GUID_I = "{33333333-3333-3333-3333-333333333333}"
 GUID_J = "{44444444-4444-4444-4444-444444444444}"
+GUID_K = "{55555555-5555-5555-5555-555555555555}"
+GUID_L = "{66666666-6666-6666-6666-666666666666}"
+GUID_M = "{77777777-7777-7777-7777-777777777777}"
+GUID_N = "{88888888-8888-8888-8888-888888888888}"
 # fmt: on
 
-TS = "2024-01-01T00:00:00"
+TS = "2025-06-01T00:00:00"
+TS_STALE = "2022-01-01T00:00:00"
 
 AUTH_USERS_READ = {
     "trustee": "Authenticated Users",
@@ -41,6 +46,21 @@ AUTH_USERS_READ = {
     "standard": "Read",
     "type": "Allow",
 }
+
+SECURITY_FILTERED_DELEGATION = [
+    {
+        "trustee": "Helpdesk Operators",
+        "sid": "S-1-5-21-1234567890-1234567890-1234567890-1000",
+        "standard": "Apply Group Policy",
+        "type": "Allow",
+    },
+    {
+        "trustee": "Domain Admins",
+        "sid": "S-1-5-21-1234567890-1234567890-1234567890-512",
+        "standard": "Edit settings, delete, modify security",
+        "type": "Allow",
+    },
+]
 
 
 @dataclass
@@ -68,6 +88,7 @@ class GpoDef:
     user: SideDef = field(default_factory=SideDef)
     links: list[LinkDef] = field(default_factory=list)
     delegation: list[dict] = field(default_factory=list)
+    modified: str = TS
 
 
 def _make_link(
@@ -167,7 +188,7 @@ def gpo_to_xml(g: GpoDef) -> str:
         "    </Identifier>",
         f"    <Name>{_xe(g.name)}</Name>",
         f"    <CreatedTime>{TS}</CreatedTime>",
-        f"    <ModifiedTime>{TS}</ModifiedTime>",
+        f"    <ModifiedTime>{g.modified}</ModifiedTime>",
         f"    <ReadTime>{TS}</ReadTime>",
         "    <Computer>",
         _make_side_xml(g.computer),
@@ -373,6 +394,72 @@ GPO_DEFS = [
         links=[_make_link(DOMAIN, ROOT_DN)],
         delegation=[AUTH_USERS_READ],
     ),
+    GpoDef(
+        guid=GUID_K,
+        name="gpo-security-filtered",
+        computer=SideDef(
+            data=[
+                {
+                    "cse": "Registry",
+                    "blocks": [
+                        {"KeyName": r"HKLM\Software\Fake",
+                         "ValueName": "SecFiltered", "value": "1"},
+                    ],
+                }
+            ]
+        ),
+        links=[_make_link(DOMAIN, ROOT_DN)],
+        delegation=SECURITY_FILTERED_DELEGATION,
+    ),
+    GpoDef(
+        guid=GUID_L,
+        name="gpo-wmi-broken-ref",
+        computer=SideDef(
+            data=[
+                {
+                    "cse": "Registry",
+                    "blocks": [
+                        {"KeyName": r"HKLM\Software\Fake", "ValueName": "WmiRef", "value": "1"},
+                    ],
+                }
+            ]
+        ),
+        links=[_make_link(DOMAIN, ROOT_DN)],
+        delegation=[AUTH_USERS_READ],
+    ),
+    GpoDef(
+        guid=GUID_M,
+        name="gpo-gpp-ilt",
+        user=SideDef(
+            data=[
+                {
+                    "cse": "Registry",
+                    "blocks": [
+                        {"KeyName": r"HKCU\Software\Fake", "ValueName": "IltSetting", "value": "1"},
+                    ],
+                }
+            ]
+        ),
+        links=[_make_link(DOMAIN, ROOT_DN)],
+        delegation=[AUTH_USERS_READ],
+    ),
+    GpoDef(
+        guid=GUID_N,
+        name="gpo-stale",
+        modified=TS_STALE,
+        computer=SideDef(
+            data=[
+                {
+                    "cse": "Registry",
+                    "blocks": [
+                        {"KeyName": r"HKLM\Software\Fake", "ValueName": "StaleValue", "value": "1"},
+                    ],
+                }
+            ]
+        ),
+        links=[_make_link(DOMAIN, ROOT_DN)],
+        delegation=[AUTH_USERS_READ],
+    ),
 ]
 
 
@@ -392,6 +479,10 @@ def build_ou_tree() -> list[dict]:
         f"[LDAP://CN={GUID_H},CN=Policies,CN=System,{ROOT_DN.upper()};0]"
         f"[LDAP://CN={GUID_I},CN=Policies,CN=System,{ROOT_DN.upper()};0]"
         f"[LDAP://CN={GUID_J},CN=Policies,CN=System,{ROOT_DN.upper()};0]"
+        f"[LDAP://CN={GUID_K},CN=Policies,CN=System,{ROOT_DN.upper()};0]"
+        f"[LDAP://CN={GUID_L},CN=Policies,CN=System,{ROOT_DN.upper()};0]"
+        f"[LDAP://CN={GUID_M},CN=Policies,CN=System,{ROOT_DN.upper()};0]"
+        f"[LDAP://CN={GUID_N},CN=Policies,CN=System,{ROOT_DN.upper()};0]"
     )
     gplink_child = f"[LDAP://CN={GUID_D},CN=Policies,CN=System,{ROOT_DN.upper()};0]"
     return [
@@ -413,7 +504,9 @@ def build_ou_tree() -> list[dict]:
 def build_gp_inheritance() -> list[dict]:
     root_links = []
     for order, guid in enumerate(
-        [GUID_A, GUID_B, GUID_C, GUID_E, GUID_F, GUID_G, GUID_H, GUID_I, GUID_J], start=1
+        [GUID_A, GUID_B, GUID_C, GUID_E, GUID_F, GUID_G, GUID_H, GUID_I, GUID_J,
+         GUID_K, GUID_L, GUID_M, GUID_N],
+        start=1,
     ):
         root_links.append(
             {
@@ -476,7 +569,9 @@ def build_metadata() -> list[dict]:
                 "ComputerVersionSysvol": g.computer.ver_sysvol,
                 "UserVersionDirectory": g.user.ver_ds,
                 "UserVersionSysvol": g.user.ver_sysvol,
-                "WmiFilter": "Fake WMI Filter" if g.guid == GUID_E else None,
+                "WmiFilter": "Fake WMI Filter" if g.guid == GUID_E
+                else "Nonexistent WMI Filter" if g.guid == GUID_L
+                else None,
             }
         )
     return rows
@@ -487,7 +582,11 @@ def build_wmi_filters() -> list[dict]:
         {
             "Name": "Fake WMI Filter",
             "Query": "SELECT * FROM Win32_OperatingSystem WHERE Version LIKE '10.%'",
-        }
+        },
+        {
+            "Name": "Orphaned WMI Filter",
+            "Query": "SELECT * FROM Win32_Processor WHERE Architecture = 9",
+        },
     ]
 
 
@@ -535,6 +634,34 @@ def write_all(target: Path = FIXTURE_DIR) -> None:
         "</Groups>\n"
     )
     (sysvol / "Groups.xml").write_text(groups_xml, encoding="utf-8")
+
+    ilt_sysvol = (
+        target
+        / "SYSVOL-Policies"
+        / f"{{{GUID_M.strip('{}').upper()}}}"
+        / "User"
+        / "Preferences"
+    )
+    ilt_sysvol.mkdir(parents=True, exist_ok=True)
+    ilt_xml = (
+        '<?xml version="1.0" encoding="utf-8"?>\n'
+        '<Registry clsid="{9CDCCB0F-DE08-463b-B39D-646F54292F80}">\n'
+        '  <Registry clsid="{9CDCCB0F-DE08-463b-B39D-646F54292F80}"'
+        ' name="IltSetting" status="IltSetting"'
+        ' changed="2025-06-01" uid="{00000000-0000-0000-0000-000000000000}">\n'
+        '    <Filters>\n'
+        '      <FilterGroup bool="AND" not="0"'
+        ' name="FAKEFIXTURE\\SecurityGroup"'
+        ' sid="S-1-5-21-1234567890-1234567890-1234567890-1001"'
+        ' userContext="1" primaryGroup="0" localGroup="0"/>\n'
+        '    </Filters>\n'
+        '    <Properties action="U" displayDecimal="0" default="0"'
+        ' hive="HKEY_CURRENT_USER" key="Software\\Fake"'
+        ' name="IltSetting" type="REG_SZ" value="1"/>\n'
+        '  </Registry>\n'
+        '</Registry>\n'
+    )
+    (ilt_sysvol / "Registry.xml").write_text(ilt_xml, encoding="utf-8")
 
 
 if __name__ == "__main__":

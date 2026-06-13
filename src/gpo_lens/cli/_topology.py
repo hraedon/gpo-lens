@@ -155,3 +155,73 @@ def cmd_topology_check(args: argparse.Namespace) -> None:
                 ["kind", "ou_dn", "detail"],
                 [[d.kind, d.ou_dn, d.detail] for d in result],
             )
+
+
+def cmd_scope(args: argparse.Namespace) -> None:
+    estate = _get_estate(args)
+    result = queries.effective_scope(estate, args.gpo)
+    if result is None:
+        print(f"GPO not found: {args.gpo}")
+        return
+    if args.json:
+        _render_json({
+            "gpo_id": result.gpo_id,
+            "gpo_name": result.gpo_name,
+            "domain": result.domain,
+            "computer_enabled": result.computer_enabled,
+            "user_enabled": result.user_enabled,
+            "links": [
+                {
+                    "som_name": lnk.som_name,
+                    "som_path": lnk.som_path,
+                    "enabled": lnk.link_enabled,
+                    "enforced": lnk.enforced,
+                }
+                for lnk in result.links
+            ],
+            "security_filtering": {
+                "is_filtered": result.security_filtering.is_filtered,
+                "apply_trustees": result.security_filtering.apply_trustees,
+                "has_au_read": result.security_filtering.has_au_read,
+                "has_dc_read": result.security_filtering.has_dc_read,
+            },
+            "wmi_filter": {
+                "name": result.wmi_filter.name,
+                "query": result.wmi_filter.query,
+                "is_broken": result.wmi_filter.is_broken,
+            } if result.wmi_filter else None,
+            "loopback_mode": result.loopback_mode,
+            "caveats": result.caveats,
+        })
+    else:
+        print(f"\n  GPO: {result.gpo_name} ({result.gpo_id})")
+        print(f"  Domain: {result.domain}")
+        print(f"  Computer side: {'enabled' if result.computer_enabled else 'DISABLED'}")
+        print(f"  User side: {'enabled' if result.user_enabled else 'DISABLED'}")
+        print(f"\n  Links ({len(result.links)}):")
+        for lnk in result.links:
+            state = "enabled" if lnk.link_enabled else "DISABLED"
+            enf = " [ENFORCED]" if lnk.enforced else ""
+            print(f"    {lnk.som_name} ({state}){enf}")
+        print("\n  Security filtering:")
+        sf = result.security_filtering
+        if sf.is_filtered:
+            trustees = ", ".join(sf.apply_trustees) if sf.apply_trustees else "(none found)"
+            print(f"    FILTERED — explicit Apply Group Policy trustees: {trustees}")
+            print("    (exclusivity not evaluated; default ACEs and group membership not modeled)")
+        else:
+            print("    Not filtered (broad application)")
+        print(f"    AU Read: {'yes' if sf.has_au_read else 'NO'}")
+        print(f"    DC Read: {'yes' if sf.has_dc_read else 'NO'}")
+        if result.wmi_filter:
+            broken = " [BROKEN]" if result.wmi_filter.is_broken else ""
+            print(f"\n  WMI filter: {result.wmi_filter.name}{broken}")
+            if result.wmi_filter.query:
+                print(f"    {result.wmi_filter.query}")
+        if result.loopback_mode:
+            print(f"\n  Loopback: {result.loopback_mode.upper()}")
+        if result.caveats:
+            print("\n  Caveats:")
+            for c in result.caveats:
+                print(f"    {c}")
+        print()
