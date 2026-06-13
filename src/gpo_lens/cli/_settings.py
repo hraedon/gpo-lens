@@ -109,9 +109,10 @@ def cmd_settings_at(args: argparse.Namespace) -> None:
     estate = _get_estate(args)
     result = queries.settings_at_som(estate, args.som_path)
     loopback_map = queries.loopback_awareness(estate)
+    caveats = queries.scope_caveats(estate, args.som_path)
     if args.json:
-        _render_json(
-            [
+        _render_json({
+            "settings": [
                 {
                     "cse": r.cse,
                     "side": r.side,
@@ -126,13 +127,19 @@ def cmd_settings_at(args: argparse.Namespace) -> None:
                     "enforced": r.enforced,
                 }
                 for r in result
-            ]
-        )
+            ],
+            "caveats": caveats,
+        })
     else:
         if not result:
             print(f"No effective settings at {args.som_path}")
             return
-        if loopback_map:
+        if caveats:
+            print("\n  \u26a0 SCOPE CAVEATS:")
+            for c in caveats:
+                print(f"    {c}")
+            print("    Effective settings may differ — scoping mechanisms not simulated.\n")
+        elif loopback_map:
             print("\n  ⚠ LOOPBACK AWARENESS:")
             for gpo_id, mode in loopback_map.items():
                 gpo = estate.gpo_by_id(gpo_id)

@@ -6,9 +6,9 @@
       <Domain>fakefixture.local</Domain>
     </Identifier>
     <Name>gpo-cpassword</Name>
-    <CreatedTime>2024-01-01T00:00:00</CreatedTime>
-    <ModifiedTime>2024-01-01T00:00:00</ModifiedTime>
-    <ReadTime>2024-01-01T00:00:00</ReadTime>
+    <CreatedTime>2025-06-01T00:00:00</CreatedTime>
+    <ModifiedTime>2025-06-01T00:00:00</ModifiedTime>
+    <ReadTime>2025-06-01T00:00:00</ReadTime>
     <Computer>
       <Enabled>true</Enabled>
       <VersionDirectory>1</VersionDirectory>
@@ -54,9 +54,9 @@
       <Domain>fakefixture.local</Domain>
     </Identifier>
     <Name>gpo-ms16-072-vuln</Name>
-    <CreatedTime>2024-01-01T00:00:00</CreatedTime>
-    <ModifiedTime>2024-01-01T00:00:00</ModifiedTime>
-    <ReadTime>2024-01-01T00:00:00</ReadTime>
+    <CreatedTime>2025-06-01T00:00:00</CreatedTime>
+    <ModifiedTime>2025-06-01T00:00:00</ModifiedTime>
+    <ReadTime>2025-06-01T00:00:00</ReadTime>
     <Computer>
       <Enabled>true</Enabled>
       <VersionDirectory>1</VersionDirectory>
@@ -94,9 +94,9 @@
       <Domain>fakefixture.local</Domain>
     </Identifier>
     <Name>gpo-version-skew</Name>
-    <CreatedTime>2024-01-01T00:00:00</CreatedTime>
-    <ModifiedTime>2024-01-01T00:00:00</ModifiedTime>
-    <ReadTime>2024-01-01T00:00:00</ReadTime>
+    <CreatedTime>2025-06-01T00:00:00</CreatedTime>
+    <ModifiedTime>2025-06-01T00:00:00</ModifiedTime>
+    <ReadTime>2025-06-01T00:00:00</ReadTime>
     <Computer>
       <Enabled>false</Enabled>
       <VersionDirectory>3</VersionDirectory>
@@ -140,9 +140,9 @@
       <Domain>fakefixture.local</Domain>
     </Identifier>
     <Name>gpo-broken-unc</Name>
-    <CreatedTime>2024-01-01T00:00:00</CreatedTime>
-    <ModifiedTime>2024-01-01T00:00:00</ModifiedTime>
-    <ReadTime>2024-01-01T00:00:00</ReadTime>
+    <CreatedTime>2025-06-01T00:00:00</CreatedTime>
+    <ModifiedTime>2025-06-01T00:00:00</ModifiedTime>
+    <ReadTime>2025-06-01T00:00:00</ReadTime>
     <Computer>
       <Enabled>true</Enabled>
       <VersionDirectory>1</VersionDirectory>
@@ -186,9 +186,9 @@
       <Domain>fakefixture.local</Domain>
     </Identifier>
     <Name>gpo-loopback</Name>
-    <CreatedTime>2024-01-01T00:00:00</CreatedTime>
-    <ModifiedTime>2024-01-01T00:00:00</ModifiedTime>
-    <ReadTime>2024-01-01T00:00:00</ReadTime>
+    <CreatedTime>2025-06-01T00:00:00</CreatedTime>
+    <ModifiedTime>2025-06-01T00:00:00</ModifiedTime>
+    <ReadTime>2025-06-01T00:00:00</ReadTime>
     <Computer>
       <Enabled>true</Enabled>
       <VersionDirectory>1</VersionDirectory>
@@ -234,9 +234,9 @@
       <Domain>fakefixture.local</Domain>
     </Identifier>
     <Name>gpo-loopback-merge</Name>
-    <CreatedTime>2024-01-01T00:00:00</CreatedTime>
-    <ModifiedTime>2024-01-01T00:00:00</ModifiedTime>
-    <ReadTime>2024-01-01T00:00:00</ReadTime>
+    <CreatedTime>2025-06-01T00:00:00</CreatedTime>
+    <ModifiedTime>2025-06-01T00:00:00</ModifiedTime>
+    <ReadTime>2025-06-01T00:00:00</ReadTime>
     <Computer>
       <Enabled>true</Enabled>
       <VersionDirectory>1</VersionDirectory>
@@ -282,9 +282,9 @@
       <Domain>fakefixture.local</Domain>
     </Identifier>
     <Name>gpo-loopback-unknown</Name>
-    <CreatedTime>2024-01-01T00:00:00</CreatedTime>
-    <ModifiedTime>2024-01-01T00:00:00</ModifiedTime>
-    <ReadTime>2024-01-01T00:00:00</ReadTime>
+    <CreatedTime>2025-06-01T00:00:00</CreatedTime>
+    <ModifiedTime>2025-06-01T00:00:00</ModifiedTime>
+    <ReadTime>2025-06-01T00:00:00</ReadTime>
     <Computer>
       <Enabled>true</Enabled>
       <VersionDirectory>1</VersionDirectory>
@@ -330,9 +330,9 @@
       <Domain>fakefixture.local</Domain>
     </Identifier>
     <Name>gpo-blocked-ext</Name>
-    <CreatedTime>2024-01-01T00:00:00</CreatedTime>
-    <ModifiedTime>2024-01-01T00:00:00</ModifiedTime>
-    <ReadTime>2024-01-01T00:00:00</ReadTime>
+    <CreatedTime>2025-06-01T00:00:00</CreatedTime>
+    <ModifiedTime>2025-06-01T00:00:00</ModifiedTime>
+    <ReadTime>2025-06-01T00:00:00</ReadTime>
     <Computer>
       <Enabled>true</Enabled>
       <VersionDirectory>1</VersionDirectory>
@@ -373,9 +373,9 @@
       <Domain>fakefixture.local</Domain>
     </Identifier>
     <Name>gpo-user-disabled</Name>
-    <CreatedTime>2024-01-01T00:00:00</CreatedTime>
-    <ModifiedTime>2024-01-01T00:00:00</ModifiedTime>
-    <ReadTime>2024-01-01T00:00:00</ReadTime>
+    <CreatedTime>2025-06-01T00:00:00</CreatedTime>
+    <ModifiedTime>2025-06-01T00:00:00</ModifiedTime>
+    <ReadTime>2025-06-01T00:00:00</ReadTime>
     <Computer>
       <Enabled>true</Enabled>
       <VersionDirectory>1</VersionDirectory>
@@ -418,9 +418,9 @@
       <Domain>fakefixture.local</Domain>
     </Identifier>
     <Name>gpo-conflict</Name>
-    <CreatedTime>2024-01-01T00:00:00</CreatedTime>
-    <ModifiedTime>2024-01-01T00:00:00</ModifiedTime>
-    <ReadTime>2024-01-01T00:00:00</ReadTime>
+    <CreatedTime>2025-06-01T00:00:00</CreatedTime>
+    <ModifiedTime>2025-06-01T00:00:00</ModifiedTime>
+    <ReadTime>2025-06-01T00:00:00</ReadTime>
     <Computer>
       <Enabled>true</Enabled>
       <VersionDirectory>1</VersionDirectory>
@@ -443,6 +443,198 @@
       <Permissions>
         <TrusteePermissions>
           <Trustee><Name>Authenticated Users</Name><SID>S-1-5-11</SID></Trustee>
+          <Standard><GPOGroupedAccessEnum>Read</GPOGroupedAccessEnum></Standard>
+          <Type><PermissionType>Allow</PermissionType></Type>
+        </TrusteePermissions>
+      </Permissions>
+    </SecurityDescriptor>
+    <LinksTo>
+      <SOMName>fakefixture.local</SOMName>
+      <SOMPath>dc=fakefixture,dc=local</SOMPath>
+      <Enabled>true</Enabled>
+      <NoOverride>false</NoOverride>
+    </LinksTo>
+    <FilterDataAvailable>false</FilterDataAvailable>
+  </GPO>
+
+  <GPO>
+    <Identifier>
+      <Identifier>{55555555-5555-5555-5555-555555555555}</Identifier>
+      <Domain>fakefixture.local</Domain>
+    </Identifier>
+    <Name>gpo-security-filtered</Name>
+    <CreatedTime>2025-06-01T00:00:00</CreatedTime>
+    <ModifiedTime>2025-06-01T00:00:00</ModifiedTime>
+    <ReadTime>2025-06-01T00:00:00</ReadTime>
+    <Computer>
+      <Enabled>true</Enabled>
+      <VersionDirectory>1</VersionDirectory>
+      <VersionSysvol>1</VersionSysvol>
+      <ExtensionData>
+        <Name>Registry</Name>
+        <Extension>
+          <Registry KeyName="HKLM\Software\Fake" ValueName="SecFiltered">1</Registry>
+        </Extension>
+      </ExtensionData>
+    </Computer>
+    <User>
+      <Enabled>true</Enabled>
+      <VersionDirectory>1</VersionDirectory>
+      <VersionSysvol>1</VersionSysvol>
+    </User>
+    <SecurityDescriptor>
+      <Permissions>
+        <TrusteePermissions>
+          <Trustee>
+            <Name>Helpdesk Operators</Name>
+            <SID>S-1-5-21-1234567890-1234567890-1234567890-1000</SID>
+          </Trustee>
+          <Standard><GPOGroupedAccessEnum>Apply Group Policy</GPOGroupedAccessEnum></Standard>
+          <Type><PermissionType>Allow</PermissionType></Type>
+        </TrusteePermissions>
+        <TrusteePermissions>
+          <Trustee>
+            <Name>Domain Admins</Name>
+            <SID>S-1-5-21-1234567890-1234567890-1234567890-512</SID>
+          </Trustee>
+          <Standard><GPOGroupedAccessEnum>Edit settings, delete, modify security</GPOGroupedAccessEnum></Standard>
+          <Type><PermissionType>Allow</PermissionType></Type>
+        </TrusteePermissions>
+      </Permissions>
+    </SecurityDescriptor>
+    <LinksTo>
+      <SOMName>fakefixture.local</SOMName>
+      <SOMPath>dc=fakefixture,dc=local</SOMPath>
+      <Enabled>true</Enabled>
+      <NoOverride>false</NoOverride>
+    </LinksTo>
+    <FilterDataAvailable>false</FilterDataAvailable>
+  </GPO>
+
+  <GPO>
+    <Identifier>
+      <Identifier>{66666666-6666-6666-6666-666666666666}</Identifier>
+      <Domain>fakefixture.local</Domain>
+    </Identifier>
+    <Name>gpo-wmi-broken-ref</Name>
+    <CreatedTime>2025-06-01T00:00:00</CreatedTime>
+    <ModifiedTime>2025-06-01T00:00:00</ModifiedTime>
+    <ReadTime>2025-06-01T00:00:00</ReadTime>
+    <Computer>
+      <Enabled>true</Enabled>
+      <VersionDirectory>1</VersionDirectory>
+      <VersionSysvol>1</VersionSysvol>
+      <ExtensionData>
+        <Name>Registry</Name>
+        <Extension>
+          <Registry KeyName="HKLM\Software\Fake" ValueName="WmiRef">1</Registry>
+        </Extension>
+      </ExtensionData>
+    </Computer>
+    <User>
+      <Enabled>true</Enabled>
+      <VersionDirectory>1</VersionDirectory>
+      <VersionSysvol>1</VersionSysvol>
+    </User>
+    <SecurityDescriptor>
+      <Permissions>
+        <TrusteePermissions>
+          <Trustee>
+            <Name>Authenticated Users</Name>
+            <SID>S-1-5-11</SID>
+          </Trustee>
+          <Standard><GPOGroupedAccessEnum>Read</GPOGroupedAccessEnum></Standard>
+          <Type><PermissionType>Allow</PermissionType></Type>
+        </TrusteePermissions>
+      </Permissions>
+    </SecurityDescriptor>
+    <LinksTo>
+      <SOMName>fakefixture.local</SOMName>
+      <SOMPath>dc=fakefixture,dc=local</SOMPath>
+      <Enabled>true</Enabled>
+      <NoOverride>false</NoOverride>
+    </LinksTo>
+    <FilterDataAvailable>false</FilterDataAvailable>
+  </GPO>
+
+  <GPO>
+    <Identifier>
+      <Identifier>{77777777-7777-7777-7777-777777777777}</Identifier>
+      <Domain>fakefixture.local</Domain>
+    </Identifier>
+    <Name>gpo-gpp-ilt</Name>
+    <CreatedTime>2025-06-01T00:00:00</CreatedTime>
+    <ModifiedTime>2025-06-01T00:00:00</ModifiedTime>
+    <ReadTime>2025-06-01T00:00:00</ReadTime>
+    <Computer>
+      <Enabled>true</Enabled>
+      <VersionDirectory>1</VersionDirectory>
+      <VersionSysvol>1</VersionSysvol>
+    </Computer>
+    <User>
+      <Enabled>true</Enabled>
+      <VersionDirectory>1</VersionDirectory>
+      <VersionSysvol>1</VersionSysvol>
+      <ExtensionData>
+        <Name>Registry</Name>
+        <Extension>
+          <Registry KeyName="HKCU\Software\Fake" ValueName="IltSetting">1</Registry>
+        </Extension>
+      </ExtensionData>
+    </User>
+    <SecurityDescriptor>
+      <Permissions>
+        <TrusteePermissions>
+          <Trustee>
+            <Name>Authenticated Users</Name>
+            <SID>S-1-5-11</SID>
+          </Trustee>
+          <Standard><GPOGroupedAccessEnum>Read</GPOGroupedAccessEnum></Standard>
+          <Type><PermissionType>Allow</PermissionType></Type>
+        </TrusteePermissions>
+      </Permissions>
+    </SecurityDescriptor>
+    <LinksTo>
+      <SOMName>fakefixture.local</SOMName>
+      <SOMPath>dc=fakefixture,dc=local</SOMPath>
+      <Enabled>true</Enabled>
+      <NoOverride>false</NoOverride>
+    </LinksTo>
+    <FilterDataAvailable>false</FilterDataAvailable>
+  </GPO>
+
+  <GPO>
+    <Identifier>
+      <Identifier>{88888888-8888-8888-8888-888888888888}</Identifier>
+      <Domain>fakefixture.local</Domain>
+    </Identifier>
+    <Name>gpo-stale</Name>
+    <CreatedTime>2025-06-01T00:00:00</CreatedTime>
+    <ModifiedTime>2022-01-01T00:00:00</ModifiedTime>
+    <ReadTime>2025-06-01T00:00:00</ReadTime>
+    <Computer>
+      <Enabled>true</Enabled>
+      <VersionDirectory>1</VersionDirectory>
+      <VersionSysvol>1</VersionSysvol>
+      <ExtensionData>
+        <Name>Registry</Name>
+        <Extension>
+          <Registry KeyName="HKLM\Software\Fake" ValueName="StaleValue">1</Registry>
+        </Extension>
+      </ExtensionData>
+    </Computer>
+    <User>
+      <Enabled>true</Enabled>
+      <VersionDirectory>1</VersionDirectory>
+      <VersionSysvol>1</VersionSysvol>
+    </User>
+    <SecurityDescriptor>
+      <Permissions>
+        <TrusteePermissions>
+          <Trustee>
+            <Name>Authenticated Users</Name>
+            <SID>S-1-5-11</SID>
+          </Trustee>
           <Standard><GPOGroupedAccessEnum>Read</GPOGroupedAccessEnum></Standard>
           <Type><PermissionType>Allow</PermissionType></Type>
         </TrusteePermissions>

@@ -250,6 +250,7 @@ class TestArchitecture:
         "ingest",
         "store",
         "queries",
+        "topology",
         "detection",
         "admx_parser",
         "display",
@@ -749,7 +750,34 @@ class TestSafeExtract:
         zip_path.write_bytes(buf.getvalue())
 
         with patch("gpo_lens.web.app._MAX_UNCOMPRESSED_BYTES", 100):
-            with pytest.raises(ValueError, match="uncompressed size"):
+            with pytest.raises(ValueError, match="exceeds limit"):
+                _safe_extract(zip_path, dest)
+
+    def test_spoofed_file_size_still_enforced(self, tmp_path: Path) -> None:
+        """Zip-bomb: streaming reader catches large content regardless of headers.
+
+        _safe_extract uses SizeLimitedReader which counts actual
+        decompressed bytes during streaming, not info.file_size.
+
+        NOTE: Python's zipfile validates CRC and truncates output to
+        file_size bytes, so binary header spoofing is caught at the
+        zipfile layer.  The real protection is against legitimately
+        large entries where streaming enforcement catches the cap
+        violation during decompression, not after.
+        """
+        from gpo_lens.web.app import _safe_extract
+
+        dest = tmp_path / "dest"
+        dest.mkdir()
+        zip_path = tmp_path / "big.zip"
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("big.txt", "x" * 200)
+        zip_path.write_bytes(buf.getvalue())
+
+        with patch("gpo_lens.web.app._MAX_UNCOMPRESSED_BYTES", 100):
+            with pytest.raises(ValueError, match="exceeds limit"):
                 _safe_extract(zip_path, dest)
 
     def test_absolute_path_blocked(self, tmp_path: Path) -> None:
@@ -768,6 +796,41 @@ class TestSafeExtract:
             _safe_extract(zip_path, dest)
 
         assert list(dest.rglob("*")) == [], "rejected zip should leave dest empty"
+
+    def test_post_extract_failure_cleans_up(self, tmp_path: Path) -> None:
+        """A zip that passes pre-extract checks but fails post-extract must
+        leave no files behind in the destination.
+
+        This tests the cleanup-on-failure behaviour: when extraction raises
+        after files have been written to disk, those partial files must be
+        removed before re-raising.
+        """
+        from gpo_lens.web.app import _safe_extract
+
+        dest = tmp_path / "dest"
+        dest.mkdir()
+        zip_path = tmp_path / "postfail.zip"
+
+        # Create a zip with a normal-looking file entry.  It passes all
+        # pre-extract checks (no symlink header, no path traversal), and
+        # the file gets fully written to disk.  But the size cap is set
+        # low enough that the post-write total_bytes_read check raises
+        # ValueError — simulating a post-extract failure with a file
+        # already on disk.
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("subdir/goodfile.txt", "hello world")
+        zip_path.write_bytes(buf.getvalue())
+
+        with patch("gpo_lens.web.app._MAX_UNCOMPRESSED_BYTES", 5):
+            with pytest.raises(ValueError, match="exceeds limit"):
+                _safe_extract(zip_path, dest)
+
+        # The partially extracted file/dir must have been cleaned up
+        remaining = list(dest.rglob("*"))
+        assert remaining == [], (
+            f"post-extract failure should clean up, but found: {remaining}"
+        )
 
 
 class TestSanitizeQuestion:

@@ -14,18 +14,24 @@ from gpo_lens.queries import (
     admx_gaps,
     blocked_extensions,
     broken_refs,
+    broken_wmi_refs,
     conflicts,
     cpassword_scan,
     dangling_links,
     disabled_but_populated,
+    effective_scope,
     empty_gpos,
     enforced_links,
     estate_doctor,
+    is_security_filtered,
     loopback_awareness,
     loopback_gpos,
     ms16_072_vulnerable,
+    orphaned_wmi_filters,
+    scope_caveats,
     settings_at_som,
     som_conflicts,
+    stale_gpos,
     topology_crosscheck,
     unlinked_gpos,
     version_skew,
@@ -45,6 +51,10 @@ GPO_IDS = {
     "conflict": "22222222-2222-2222-2222-222222222222",
     "loopback_merge": "33333333-3333-3333-3333-333333333333",
     "loopback_unknown": "44444444-4444-4444-4444-444444444444",
+    "security_filtered": "55555555-5555-5555-5555-555555555555",
+    "wmi_broken_ref": "66666666-6666-6666-6666-666666666666",
+    "gpp_ilt": "77777777-7777-7777-7777-777777777777",
+    "stale": "88888888-8888-8888-8888-888888888888",
 }
 GPO_NAMES = {
     "cpassword": "gpo-cpassword",
@@ -57,6 +67,10 @@ GPO_NAMES = {
     "conflict": "gpo-conflict",
     "loopback_merge": "gpo-loopback-merge",
     "loopback_unknown": "gpo-loopback-unknown",
+    "security_filtered": "gpo-security-filtered",
+    "wmi_broken_ref": "gpo-wmi-broken-ref",
+    "gpp_ilt": "gpo-gpp-ilt",
+    "stale": "gpo-stale",
 }
 ROOT_DN = "dc=fakefixture,dc=local"
 CHILD_DN = "ou=child,dc=fakefixture,dc=local"
@@ -70,7 +84,7 @@ def fixture_estate():
 # AC-1: fixture loads via load_estate
 
 def test_fixture_gpo_count(fixture_estate):
-    assert len(fixture_estate.gpos) == 10
+    assert len(fixture_estate.gpos) == 14
 
 
 def test_fixture_som_counts(fixture_estate):
@@ -139,8 +153,10 @@ def test_fixture_version_skew(fixture_estate):
 
 def test_fixture_ms16_072(fixture_estate):
     vuln = ms16_072_vulnerable(fixture_estate)
-    assert len(vuln) == 1
-    assert vuln[0].name == "gpo-ms16-072-vuln"
+    assert len(vuln) == 2
+    vuln_names = {g.name for g in vuln}
+    assert "gpo-ms16-072-vuln" in vuln_names
+    assert "gpo-security-filtered" in vuln_names
 
 
 def test_fixture_cpassword_hit(fixture_estate):
@@ -182,7 +198,7 @@ def test_fixture_domain(fixture_estate):
 
 
 def test_fixture_wmi_filter_count(fixture_estate):
-    assert len(fixture_estate.wmi_filters) == 1
+    assert len(fixture_estate.wmi_filters) == 2
 
 
 def test_fixture_ou_tree(fixture_estate):
@@ -194,14 +210,13 @@ def test_fixture_ou_tree(fixture_estate):
 def test_fixture_estate_doctor(fixture_estate):
     from gpo_lens.queries import estate_summary
     summary = estate_summary(fixture_estate)
-    assert summary.gpo_count == 10
+    assert summary.gpo_count == 14
     assert summary.som_count == 2
-    assert summary.ms16_072_vulnerable_count == 1
+    assert summary.ms16_072_vulnerable_count == 2
     assert summary.cpassword_hit_count == 1
     assert summary.version_skew_count == 1
     assert summary.loopback_gpo_count == 3
     assert summary.broken_ref_count == 1
-    # Enforced at domain root + enforced inherited at child = 2
     assert summary.enforced_link_count == 2
     assert summary.dangling_link_count == 0
 
@@ -215,9 +230,11 @@ def test_fixture_estate_doctor_findings(fixture_estate):
     assert cpassword_finds[0].gpo_id == GPO_IDS["cpassword"]
 
     ms16_finds = [f for f in findings if f.category == "ms16_072"]
-    assert len(ms16_finds) == 1
-    assert ms16_finds[0].severity == "high"
-    assert ms16_finds[0].gpo_id == GPO_IDS["ms16_072"]
+    assert len(ms16_finds) == 2
+    assert all(f.severity == "high" for f in ms16_finds)
+    ms16_gpo_ids = {f.gpo_id for f in ms16_finds}
+    assert GPO_IDS["ms16_072"] in ms16_gpo_ids
+    assert GPO_IDS["security_filtered"] in ms16_gpo_ids
 
     skew_finds = [f for f in findings if f.category == "version_skew"]
     assert len(skew_finds) == 1
@@ -242,8 +259,10 @@ def test_fixture_topology_crosscheck(fixture_estate):
 
 def test_fixture_wmi_filtered_gpos(fixture_estate):
     hits = wmi_filtered_gpos(fixture_estate)
-    assert len(hits) == 1
-    assert hits[0].id == GPO_IDS["loopback"]
+    assert len(hits) == 2
+    hit_ids = {g.id for g in hits}
+    assert GPO_IDS["loopback"] in hit_ids
+    assert GPO_IDS["wmi_broken_ref"] in hit_ids
 
 
 def test_fixture_admx_gaps_detected(fixture_estate):
@@ -281,7 +300,7 @@ def test_fixture_empty_gpos(fixture_estate):
 
 
 def test_fixture_unlinked_gpos(fixture_estate):
-    # All 10 GPOs have links in the fixture
+    # All 14 GPOs have links in the fixture
     hits = unlinked_gpos(fixture_estate)
     assert len(hits) == 0
 
@@ -294,3 +313,104 @@ def test_fixture_conflicts(fixture_estate):
     gpo_ids_in_conflict = {e[0] for e in conflict.entries}
     assert GPO_IDS["broken_unc"] in gpo_ids_in_conflict
     assert GPO_IDS["conflict"] in gpo_ids_in_conflict
+
+
+# ---------------------------------------------------------------------------
+# Scope honesty tests (Plan 013 Workstream S)
+# ---------------------------------------------------------------------------
+
+def test_fixture_security_filtered(fixture_estate):
+    sec_gpo = fixture_estate.gpo_by_id(GPO_IDS["security_filtered"])
+    assert sec_gpo is not None
+    assert is_security_filtered(sec_gpo)
+    # Normal GPOs should NOT be filtered
+    normal_gpo = fixture_estate.gpo_by_id(GPO_IDS["cpassword"])
+    assert normal_gpo is not None
+    assert not is_security_filtered(normal_gpo)
+
+
+def test_fixture_effective_scope(fixture_estate):
+    scope = effective_scope(fixture_estate, GPO_IDS["security_filtered"])
+    assert scope is not None
+    assert scope.security_filtering.is_filtered
+    assert any("security-filtered" in c.lower() for c in scope.caveats)
+
+    scope_normal = effective_scope(fixture_estate, GPO_IDS["cpassword"])
+    assert scope_normal is not None
+    assert not scope_normal.security_filtering.is_filtered
+
+
+def test_fixture_effective_scope_by_name(fixture_estate):
+    scope = effective_scope(fixture_estate, "gpo-security-filtered")
+    assert scope is not None
+    assert scope.gpo_id == GPO_IDS["security_filtered"]
+
+
+def test_fixture_effective_scope_not_found(fixture_estate):
+    assert effective_scope(fixture_estate, "nonexistent-gpo") is None
+
+
+def test_fixture_effective_scope_wmi(fixture_estate):
+    scope = effective_scope(fixture_estate, GPO_IDS["wmi_broken_ref"])
+    assert scope is not None
+    assert scope.wmi_filter is not None
+    assert scope.wmi_filter.is_broken
+
+
+def test_fixture_orphaned_wmi_filters(fixture_estate):
+    orphans = orphaned_wmi_filters(fixture_estate)
+    orphan_names = {f.name for f in orphans}
+    assert "Orphaned WMI Filter" in orphan_names
+
+
+def test_fixture_broken_wmi_refs(fixture_estate):
+    refs = broken_wmi_refs(fixture_estate)
+    assert len(refs) == 1
+    assert refs[0].gpo_id == GPO_IDS["wmi_broken_ref"]
+    assert refs[0].filter_name == "Nonexistent WMI Filter"
+
+
+def test_fixture_scope_caveats(fixture_estate):
+    caveats = scope_caveats(fixture_estate, ROOT_DN)
+    # Root has security-filtered GPO + WMI-filtered GPO + loopback GPOs in scope
+    assert len(caveats) > 0
+    assert any("security-filtered" in c.lower() for c in caveats)
+
+
+def test_fixture_stale_gpos(fixture_estate):
+    stale = stale_gpos(fixture_estate, threshold_years=2)
+    stale_ids = {g.id for g, _ in stale}
+    assert GPO_IDS["stale"] in stale_ids
+    # Recent GPOs should not be flagged
+    assert GPO_IDS["cpassword"] not in stale_ids
+
+
+def test_fixture_stale_gpos_threshold(fixture_estate):
+    stale = stale_gpos(fixture_estate, threshold_years=10)
+    assert len(stale) == 0
+
+
+def test_fixture_ilt_detection(fixture_estate):
+    from gpo_lens.detection import scan_ilt
+    hits = scan_ilt(fixture_estate)
+    ilt_ids = {h.gpo_id for h in hits}
+    assert GPO_IDS["gpp_ilt"] in ilt_ids
+
+
+def test_fixture_doctor_new_categories(fixture_estate):
+    findings = estate_doctor(fixture_estate)
+    categories = {f.category for f in findings}
+
+    assert "broken_wmi_ref" in categories
+    assert "orphaned_wmi_filter" in categories
+    assert "ilt_gpo" in categories
+    assert "stale_gpo" in categories
+
+    broken = [f for f in findings if f.category == "broken_wmi_ref"]
+    assert broken[0].gpo_id == GPO_IDS["wmi_broken_ref"]
+
+    stale = [f for f in findings if f.category == "stale_gpo"]
+    assert stale[0].gpo_id == GPO_IDS["stale"]
+
+    orphan = [f for f in findings if f.category == "orphaned_wmi_filter"]
+    assert "Orphaned WMI Filter" in orphan[0].summary
