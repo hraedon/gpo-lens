@@ -743,11 +743,17 @@ def excessive_writers(
 
 @dataclass(frozen=True)
 class IltHit:
-    """One SYSVOL GPP file carrying item-level targeting (``<Filters>``)."""
+    """One GPO carrying item-level targeting (``<Filters>``) in its GPP XML.
+
+    Deduplicated to one hit per GPO; ``files`` lists every GPP XML (by
+    SYSVOL-relative path, e.g. ``Registry.xml``) that carried a ``<Filters>``
+    element, so the finding points at the specific preference file rather than
+    the whole SYSVOL tree.
+    """
 
     gpo_id: str
     gpo_name: str
-    file: str
+    files: tuple[str, ...]
     filter_types: tuple[str, ...]
 
 
@@ -764,19 +770,24 @@ def scan_ilt(estate: Estate) -> list[IltHit]:
     results: list[IltHit] = []
     for gpo in estate.gpos:
         gpo_filter_types: set[str] = set()
-        for tree, _abs, _rel in _walk_gpp_xml(gpo, only_known=False):
+        gpo_files: set[str] = set()
+        for tree, _abs, rel in _walk_gpp_xml(gpo, only_known=False):
             root = tree.getroot()
             if root is None:
                 continue
+            file_has_filters = False
             for elem in root.iter():
                 if _local_tag(elem) == "Filters":
+                    file_has_filters = True
                     for child in elem:
                         gpo_filter_types.add(_local_tag(child))
+            if file_has_filters:
+                gpo_files.add(rel.name)
         if gpo_filter_types:
             results.append(IltHit(
                 gpo_id=gpo.id,
                 gpo_name=gpo.name,
-                file="SYSVOL",
+                files=tuple(sorted(gpo_files)),
                 filter_types=tuple(sorted(gpo_filter_types)),
             ))
     return results

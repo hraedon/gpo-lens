@@ -108,7 +108,6 @@ def cmd_show(args: argparse.Namespace) -> None:
 def cmd_settings_at(args: argparse.Namespace) -> None:
     estate = _get_estate(args)
     result = queries.settings_at_som(estate, args.som_path)
-    loopback_map = queries.loopback_awareness(estate)
     caveats = queries.scope_caveats(estate, args.som_path)
     if args.json:
         _render_json({
@@ -139,13 +138,6 @@ def cmd_settings_at(args: argparse.Namespace) -> None:
             for c in caveats:
                 print(f"    {c}")
             print("    Effective settings may differ — scoping mechanisms not simulated.\n")
-        elif loopback_map:
-            print("\n  ⚠ LOOPBACK AWARENESS:")
-            for gpo_id, mode in loopback_map.items():
-                gpo = estate.gpo_by_id(gpo_id)
-                name = gpo.name if gpo else gpo_id
-                print(f"    [{name}] has loopback mode = {mode.upper()}")
-            print("    Effective settings may differ due to loopback processing.\n")
         by_gpo: dict[str, list[queries.EffectiveSetting]] = {}
         for r in result:
             by_gpo.setdefault(r.winner_gpo_name, []).append(r)
@@ -259,6 +251,7 @@ def cmd_settings_dump(args: argparse.Namespace) -> None:
                 "display_name": r.display_name,
                 "display_value": r.display_value,
                 "from_disabled_side": r.from_disabled_side,
+                "source_state": r.source_state,
             }
             for r in results
         ])
