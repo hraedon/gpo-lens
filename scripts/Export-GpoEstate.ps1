@@ -9,6 +9,7 @@
     - gpo-metadata.json      status, timestamps, version skew (DS vs SYSVOL), WMI filter
     - gp-inheritance.json    per-SOM inheritance: block, enforced, precedence order
     - ou-tree.json           raw OU tree (gPLink/gPOptions) as a topology cross-check
+    - sites.json             AD site GPO links (gPLink/gPOptions) from the Config partition
     - wmi-filters.json        WMI filter names + query text
     - SYSVOL-Policies\        raw SYSVOL policy files (settings + GPP XML)
   Then zips the lot for handoff.
@@ -70,6 +71,7 @@ $allGpos = Get-GPO -All
 $gpoCount = $allGpos.Count
 $ouCount = @(Get-ADOrganizationalUnit -Filter *).Count
 $wmiCount = @(Get-ADObject -Filter "objectClass -eq 'msWMI-Som'" -Properties 'msWMI-Name' -ErrorAction SilentlyContinue).Count
+$siteCount = @(Get-ADObject -SearchBase "CN=Sites,$((Get-ADRootDSE).configurationNamingContext)" -LDAPFilter "(objectClass=site)" -ErrorAction SilentlyContinue).Count
 
 if ($DryRun) {
     $sysvolSizeStr = "skipped"
@@ -84,6 +86,7 @@ if ($DryRun) {
     Write-Host "  GPOs:          $gpoCount"
     Write-Host "  OUs:           $ouCount"
     Write-Host "  WMI filters:   $wmiCount"
+    Write-Host "  AD sites:      $siteCount"
     Write-Host "  Output dir:    $out"
     Write-Host "  SYSVOL:        $(if ($SkipSysvol) {'skipped'} else {$sysvolSizeStr})"
     Write-Host "  Zip:           $(if ($NoZip) {'skipped'} else {"$out.zip"})"
@@ -96,7 +99,7 @@ Write-Host "Exporting $($dom.DNSRoot) -> $out"
 $successSections = [System.Collections.Generic.List[string]]::new()
 $failedSections  = [System.Collections.Generic.List[string]]::new()
 
-$totalSections = 6
+$totalSections = 7
 $sectionNum = 0
 
 function Set-SectionProgress {
@@ -170,6 +173,20 @@ try {
     $successSections.Add("OU tree")
 } catch {
     $failedSections.Add("OU tree: $($_.Exception.Message)")
+}
+
+$sectionNum++
+Set-SectionProgress -Activity "AD sites" -Section $sectionNum
+try {
+    # Site GPO links live in the Configuration partition, not under the domain.
+    $configNC = (Get-ADRootDSE).configurationNamingContext
+    Get-ADObject -SearchBase "CN=Sites,$configNC" -LDAPFilter "(objectClass=site)" `
+        -Properties gPLink, gPOptions, name |
+        Select-Object DistinguishedName, Name, gPLink, gPOptions |
+        ConvertTo-Json -Depth 4 | Set-Content (Join-Path $out 'sites.json') -Encoding UTF8
+    $successSections.Add("AD sites")
+} catch {
+    $failedSections.Add("AD sites: $($_.Exception.Message)")
 }
 
 $sectionNum++

@@ -290,14 +290,73 @@ def som_conflicts(estate: Estate, som_path: str) -> list[SomConflict]:
 
 
 def precedence_conflicts(estate: Estate) -> list[tuple[Som, list[SomConflict]]]:
-    """Estate-wide precedence conflict summary."""
+    """Estate-wide precedence conflict summary (OU/domain SOMs only).
+
+    Site SOMs are a parallel scoping axis whose per-machine application is not
+    resolved here, so they are excluded from the OU-precedence view.
+    """
     results: list[tuple[Som, list[SomConflict]]] = []
     for som in estate.soms:
-        if som.links:
+        if som.links and som.container_type != "site":
             conflicts_ = som_conflicts(estate, som.path)
             if conflicts_:
                 results.append((som, conflicts_))
     return results
+
+
+# ---------------------------------------------------------------------------
+# AD site links (parallel scoping axis — flagged, not resolved per-machine)
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class SiteGpoLink:
+    """One GPO linked at an AD site."""
+
+    gpo_id: str
+    gpo_name: str
+    enabled: bool
+    enforced: bool
+    order: int
+
+
+@dataclass(frozen=True)
+class SiteScope:
+    """An AD site and its direct GPO links."""
+
+    name: str
+    dn: str
+    links: list[SiteGpoLink]
+
+
+def site_scopes(estate: Estate) -> list[SiteScope]:
+    """All AD sites with their direct GPO links, resolved to GPO names."""
+    names = {g.id: g.name for g in estate.gpos}
+    out: list[SiteScope] = []
+    for som in estate.soms:
+        if som.container_type != "site":
+            continue
+        links = [
+            SiteGpoLink(
+                gpo_id=link.gpo_id,
+                gpo_name=names.get(link.gpo_id, link.gpo_id),
+                enabled=link.enabled,
+                enforced=link.enforced,
+                order=link.order,
+            )
+            for link in sorted(som.links, key=lambda link: link.order)
+        ]
+        out.append(SiteScope(name=som.name, dn=som.path, links=links))
+    return out
+
+
+def has_site_links(estate: Estate) -> bool:
+    """True if any AD site carries at least one *enabled* GPO link."""
+    return any(
+        link.enabled
+        for som in estate.soms
+        if som.container_type == "site"
+        for link in som.links
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -545,6 +604,20 @@ def scope_caveats(estate: Estate, som_path: str) -> list[str]:
             caveats.append(
                 f"  {gpo.name}: loopback={mode} (user settings may be replaced/merged)"
             )
+
+    if has_site_links(estate):
+        n_links = sum(
+            1
+            for som in estate.soms
+            if som.container_type == "site"
+            for link in som.links
+            if link.enabled
+        )
+        caveats.append(
+            f"  AD site links: {n_links} site-linked GPO link(s) apply before this "
+            f"domain/OU chain based on the client's AD site (not resolved here; "
+            f"see `gpo-lens sites`)"
+        )
 
     return caveats
 

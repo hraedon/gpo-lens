@@ -36,8 +36,10 @@ narrates facts the core computed. See `README.md` for the full charter.
 - **No AI in the deterministic core.** Tiers 1–2.5 must run with zero model calls.
 - **Flag, don't simulate.** Topology resolution is OU-level; never claim
   object-level RSoP (no per-user security/WMI/loopback evaluation). Scoping
-  mechanisms (loopback, security filtering, WMI filters, item-level targeting)
-  are flagged with caveats in topology views, never simulated.
+  mechanisms (loopback, security filtering, WMI filters, item-level targeting,
+  AD-site links) are flagged with caveats in topology views, never simulated.
+  Sites are modeled as `container_type="site"` SOMs (a parallel axis, excluded
+  from OU-precedence views); per-machine site membership is not resolved.
 - **Canonical GPO id everywhere:** lowercase, braces stripped. All cross-input
   joins use it (see `normalize.canonical_guid`).
 - **BOM-tolerant JSON:** collector JSON may carry a UTF-8 BOM (PowerShell 5.1).

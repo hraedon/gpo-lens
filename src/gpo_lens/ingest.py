@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import re
 import warnings
 import zipfile
 from pathlib import Path
@@ -675,6 +676,65 @@ def parse_ou_tree(json_path: str | Path) -> list[OuRecord]:
     return records
 
 
+# gPLink segment: ``[LDAP://CN={guid},...;flags]``. flags bit 0 = link
+# disabled, bit 1 = enforced (NoOverride).
+_GPLINK_RE = re.compile(r"\[LDAP://[Cc][Nn]=(\{[^}]+\}|[^,;]+),[^;]*;(\d+)\]")
+
+
+def _parse_gplink(raw: str | None, target_dn: str) -> list[SomLink]:
+    """Parse a raw ``gPLink`` attribute into ordered :class:`SomLink` entries.
+
+    Order is the segment position (1-based) as written. Invalid GUID segments
+    are skipped rather than raising.
+    """
+    links: list[SomLink] = []
+    if not raw:
+        return links
+    for order, match in enumerate(_GPLINK_RE.finditer(raw), start=1):
+        guid_raw, flags_raw = match.group(1), match.group(2)
+        try:
+            gpo_id = canonical_guid(guid_raw)
+        except ValueError:
+            continue
+        flags = int(flags_raw)
+        links.append(
+            SomLink(
+                gpo_id=gpo_id,
+                order=order,
+                enabled=(flags & 1) == 0,
+                enforced=(flags & 2) != 0,
+                target=target_dn,
+            )
+        )
+    return links
+
+
+def parse_sites(json_path: str | Path) -> list[Som]:
+    """Parse ``sites.json`` into site scope-of-management nodes.
+
+    Each AD site becomes a :class:`Som` with ``container_type="site"`` carrying
+    its *direct* gPLink GPOs. Sites are a parallel scoping axis (not OU
+    ancestors); their per-machine application (IP subnet -> site) is
+    intentionally not resolved here.
+    """
+    data = load_json(json_path)
+    if not isinstance(data, list):
+        data = [data]
+    sites: list[Som] = []
+    for record in data:
+        dn = record.get("DistinguishedName", "")
+        name = record.get("Name", "")
+        som = Som(
+            path=dn,
+            name=name,
+            container_type="site",
+            inheritance_blocked=False,
+        )
+        som.links = _parse_gplink(record.get("gPLink"), dn)
+        sites.append(som)
+    return sites
+
+
 def load_estate(sample_dir: str | Path) -> Estate:
     """Orchestrate loading a full estate from a sample directory."""
     src = Path(sample_dir)
@@ -688,6 +748,12 @@ def load_estate(sample_dir: str | Path) -> Estate:
     soms: list[Som] = []
     if inheritance_path.exists():
         soms = parse_inheritance(inheritance_path)
+
+    # AD sites are a parallel scoping axis; append them as container_type="site"
+    # SOMs. Absent sites.json (older exports) changes nothing.
+    sites_path = src / "sites.json"
+    if sites_path.exists():
+        soms.extend(parse_sites(sites_path))
 
     metadata_path = src / "gpo-metadata.json"
     if metadata_path.exists():
