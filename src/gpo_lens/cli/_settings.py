@@ -251,6 +251,7 @@ def cmd_settings_dump(args: argparse.Namespace) -> None:
                 "display_name": r.display_name,
                 "display_value": r.display_value,
                 "from_disabled_side": r.from_disabled_side,
+                "source_state": r.source_state,
             }
             for r in results
         ])

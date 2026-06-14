@@ -66,6 +66,23 @@ pip install -e .
 | `topology-check` | Cross-check OU tree against inheritance |
 | `delegation` | Delegation deep-dive audit |
 
+## Machine-readable output
+
+Add the global `--json` flag to emit a stable, versioned envelope on stdout:
+
+```bash
+gpo-lens --json doctor | jq '.data.findings[] | select(.severity=="critical")'
+```
+
+Every `--json` payload is wrapped as `{schema_version, kind, tool_version,
+generated_at, data}`, so downstream tools can depend on the shape and detect
+contract evolution. Errors go to stderr with a nonzero exit (stdout stays clean
+JSON); `report` is human-format only and refuses `--json` (use `summary --json`
+for the machine-readable snapshot). The frozen shapes — and which sibling tools
+consume them — are documented in
+[`docs/spec/json-contract.md`](docs/spec/json-contract.md) and pinned by
+`tests/test_json_contract.py`.
+
 ## Design principles
 
 - **Deterministic core.** No AI in the truth path. Parse, normalize, query —

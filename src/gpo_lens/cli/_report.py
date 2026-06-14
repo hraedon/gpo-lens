@@ -12,6 +12,17 @@ from gpo_lens.cli._helpers import _get_estate
 
 
 def cmd_report(args: argparse.Namespace) -> int:
+    # `report` produces a human-readable document (md/html), not part of the
+    # machine-readable JSON contract. Refuse --json loudly rather than silently
+    # emitting Markdown that a consumer would try (and fail) to parse as JSON.
+    if getattr(args, "json", False):
+        print(
+            "report produces human-readable documents (--format md|html), not JSON. "
+            "For machine-readable output use 'summary --json' (estate snapshot), "
+            "'doctor --json' (findings), or 'settings-dump --json' (per-setting rows).",
+            file=sys.stderr,
+        )
+        return 2
     estate = _get_estate(args)
     baseline = None
     changelog_entries = None

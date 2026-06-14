@@ -286,7 +286,7 @@ class TestCLI:
             capture_output=True, text=True,
         )
         assert r_json.returncode == 0
-        data = json.loads(r_json.stdout)
+        data = json.loads(r_json.stdout)["data"]
         assert len(data) == 1
         assert data[0]["change_type"] == "added"
 
@@ -718,7 +718,7 @@ class TestCLI:
             capture_output=True, text=True,
         )
         assert r.returncode == 0
-        data = json.loads(r.stdout)
+        data = json.loads(r.stdout)["data"]
         assert "changes" in data
         assert len(data["changes"]) == 1
         assert data["changes"][0]["change_type"] == "added"
@@ -808,7 +808,7 @@ class TestCLI:
             capture_output=True, text=True,
         )
         assert r.returncode == 0
-        data = json.loads(r.stdout)
+        data = json.loads(r.stdout)["data"]
         assert len(data["changes"]) == 1
         assert data["changes"][0]["side"] == "User"
 
@@ -995,7 +995,7 @@ class TestDoctorExplain:
                 ret = main(["--json", "--db", str(rich_db), "doctor", "--explain"])
         assert ret == 0
         captured = capsys.readouterr()
-        data = json.loads(captured.out)
+        data = json.loads(captured.out)["data"]
         assert "findings" in data
         assert "narration" in data
 
@@ -1005,7 +1005,7 @@ class TestDoctorExplain:
             ret = main(["--json", "--db", str(rich_db), "doctor", "--explain"])
         assert ret == 0
         captured = capsys.readouterr()
-        data = json.loads(captured.out)
+        data = json.loads(captured.out)["data"]
         assert "findings" in data
         assert data["narration"] is None
 
@@ -1080,7 +1080,7 @@ class TestAsk:
                 )
         assert ret == 0
         captured = capsys.readouterr()
-        data = json.loads(captured.out)
+        data = json.loads(captured.out)["data"]
         assert isinstance(data, list)
         if data:
             assert isinstance(data[0], dict), (

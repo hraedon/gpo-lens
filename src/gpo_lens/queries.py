@@ -951,6 +951,7 @@ class SettingsDumpRow:
     display_name: str
     display_value: str
     from_disabled_side: bool
+    source_state: str = "normal"  # "normal" | "blocked" (<Blocked/> extension)
 
 
 @dataclass(frozen=True)
@@ -1090,6 +1091,7 @@ def settings_dump(
                 side=s.side, cse=s.cse, identity=s.identity,
                 display_name=s.display_name, display_value=s.display_value,
                 from_disabled_side=s.from_disabled_side,
+                source_state=s.source_state,
             ))
     return results
 

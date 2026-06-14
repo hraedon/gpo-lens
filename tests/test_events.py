@@ -408,7 +408,7 @@ class TestEventsCLI:
         )
         assert r.returncode == 0
         import json
-        data = json.loads(r.stdout)
+        data = json.loads(r.stdout)["data"]
         assert isinstance(data, list)
         assert len(data) == 1
         assert data[0]["event_type"] == "gpo.created"
@@ -429,7 +429,7 @@ class TestEventsCLI:
         )
         assert r.returncode == 0
         import json
-        data = json.loads(r.stdout)
+        data = json.loads(r.stdout)["data"]
         assert isinstance(data, list)
         assert len(data) == 1
         assert data[0]["event_type"] == "ingest.summary"
@@ -453,7 +453,7 @@ class TestEventsCLI:
         )
         assert r.returncode == 0
         import json
-        data = json.loads(r.stdout)
+        data = json.loads(r.stdout)["data"]
         assert isinstance(data, list)
         assert len(data) == 1
         assert data[0]["event_type"] == "gpo.created"
