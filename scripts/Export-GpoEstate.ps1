@@ -8,6 +8,8 @@
     - reports\*.xml          per-GPO XML reports (GUID in filename disambiguates dupes)
     - collection-errors.json GPOs that could not be read (e.g. Authenticated Users
                              Read stripped), named by GUID so coverage gaps are explicit
+    - gpo-inventory.json     every GPC GUID this account could enumerate; run once as a
+                             privileged account for an authoritative coverage baseline
     - gpo-metadata.json      status, timestamps, version skew (DS vs SYSVOL), WMI filter
     - gp-inheritance.json    per-SOM inheritance: block, enforced, precedence order
     - ou-tree.json           raw OU tree (gPLink/gPOptions) as a topology cross-check
@@ -153,6 +155,11 @@ try {
     $policiesDN = "CN=Policies,CN=System,$($dom.DistinguishedName)"
     $allGpc = Get-ADObject -SearchBase $policiesDN -LDAPFilter "(objectClass=groupPolicyContainer)" `
         -Properties displayName -ErrorAction Stop
+    # Persist the inventory (every GPC GUID this account could enumerate). Run the
+    # collector once as a privileged account for an AUTHORITATIVE inventory; gpo-lens
+    # reconciles it against the (least-privilege) export to name coverage gaps.
+    @($allGpc | ForEach-Object { [pscustomobject]@{ Id = $_.Name.Trim('{}'); DisplayName = $_.displayName } }) |
+        ConvertTo-Json -Depth 4 | Set-Content (Join-Path $out 'gpo-inventory.json') -Encoding UTF8
     $knownIds = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
     foreach ($g in $allGpos) { $null = $knownIds.Add($g.Id.Guid) }
     foreach ($gpc in $allGpc) {

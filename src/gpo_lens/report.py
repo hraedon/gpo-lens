@@ -22,6 +22,7 @@ _SUMMARY_FIELDS: list[tuple[str, str]] = [
     ("GPOs", "gpo_count"),
     ("SOMs", "som_count"),
     ("Sites with GPO links", "linked_site_count"),
+    ("Coverage gaps (uncollected GPOs)", "coverage_gap_count"),
     ("WMI filters", "wmi_filter_count"),
     ("WMI-filtered GPOs", "wmi_filtered_gpo_count"),
     ("Unlinked GPOs", "unlinked_count"),

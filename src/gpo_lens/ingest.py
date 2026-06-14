@@ -15,6 +15,7 @@ from xml.etree.ElementTree import Element
 import defusedxml.ElementTree as ET
 
 from gpo_lens.model import (
+    CoverageGap,
     DelegationEntry,
     Estate,
     Gpo,
@@ -735,6 +736,68 @@ def parse_sites(json_path: str | Path) -> list[Som]:
     return sites
 
 
+def parse_coverage_gaps(
+    inventory_path: Path, errors_path: Path, gpos: list[Gpo]
+) -> list[CoverageGap]:
+    """Reconcile the authoritative inventory + collector failures against the export.
+
+    A GPO present in ``gpo-inventory.json`` (ideally produced by a privileged
+    run) but absent from the ingested GPOs is an inaccessible coverage gap. A
+    GPO named in ``collection-errors.json`` that also did not make it into the
+    export is a collection failure. Both are named, never silently dropped.
+    Either file being absent is fine (older exports reconcile to no gaps).
+    """
+    known = {g.id for g in gpos}
+    seen: set[str] = set()
+    gaps: list[CoverageGap] = []
+
+    if inventory_path.exists():
+        inv = load_json(inventory_path)
+        if not isinstance(inv, list):
+            inv = [inv]
+        for rec in inv:
+            raw = rec.get("Id") or rec.get("id") or ""
+            try:
+                gid = canonical_guid(raw)
+            except ValueError:
+                continue
+            if gid in known or gid in seen:
+                continue
+            gaps.append(CoverageGap(
+                gpo_id=gid,
+                display_name=rec.get("DisplayName") or rec.get("displayName"),
+                kind="inaccessible",
+                detail="In the GPO inventory but absent from the export "
+                       "(the collection account could not read it)",
+            ))
+            seen.add(gid)
+
+    if errors_path.exists():
+        errs = load_json(errors_path)
+        if not isinstance(errs, list):
+            errs = [errs]
+        for rec in errs:
+            raw = rec.get("GpoId") or rec.get("gpo_id") or ""
+            if not raw:
+                continue
+            try:
+                gid = canonical_guid(raw)
+            except ValueError:
+                continue
+            if gid in known or gid in seen:
+                continue
+            gaps.append(CoverageGap(
+                gpo_id=gid,
+                display_name=rec.get("DisplayName") or rec.get("display_name"),
+                kind="collection_error",
+                detail=rec.get("Error") or rec.get("Stage")
+                       or "the collector reported a read failure",
+            ))
+            seen.add(gid)
+
+    return gaps
+
+
 def load_estate(sample_dir: str | Path) -> Estate:
     """Orchestrate loading a full estate from a sample directory."""
     src = Path(sample_dir)
@@ -777,7 +840,12 @@ def load_estate(sample_dir: str | Path) -> Estate:
     if ou_tree_path.exists():
         ou_tree = parse_ou_tree(ou_tree_path)
 
+    coverage_gaps = parse_coverage_gaps(
+        src / "gpo-inventory.json", src / "collection-errors.json", gpos
+    )
+
     return Estate(
         domain=domain, gpos=gpos, soms=soms,
         wmi_filters=wmi_filters, ou_tree=ou_tree,
+        coverage_gaps=coverage_gaps,
     )
