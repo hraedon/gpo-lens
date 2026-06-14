@@ -89,8 +89,12 @@ def test_fixture_gpo_count(fixture_estate):
 
 
 def test_fixture_som_counts(fixture_estate):
-    assert len(fixture_estate.soms) == 2
-    assert sum(1 for s in fixture_estate.soms if s.inheritance_blocked) == 1
+    ou_soms = [s for s in fixture_estate.soms if s.container_type != "site"]
+    assert len(ou_soms) == 2
+    assert sum(1 for s in ou_soms if s.inheritance_blocked) == 1
+    # Two AD sites: one unlinked, one with an enforced GPO link.
+    site_soms = [s for s in fixture_estate.soms if s.container_type == "site"]
+    assert len(site_soms) == 2
 
 
 # AC-2: calibration assertions ported to fixture
@@ -218,7 +222,9 @@ def test_fixture_estate_doctor(fixture_estate):
     assert summary.version_skew_count == 1
     assert summary.loopback_gpo_count == 3
     assert summary.broken_ref_count == 1
-    assert summary.enforced_link_count == 2
+    # 2 OU/domain enforced links + 1 enforced site link.
+    assert summary.enforced_link_count == 3
+    assert summary.linked_site_count == 1
     assert summary.dangling_link_count == 0
 
 

@@ -1,0 +1,14 @@
+﻿[
+  {
+    "DistinguishedName": "CN=Default-First-Site-Name,CN=Sites,CN=Configuration,DC=FAKEFIXTURE,DC=LOCAL",
+    "Name": "Default-First-Site-Name",
+    "gPLink": "",
+    "gPOptions": 0
+  },
+  {
+    "DistinguishedName": "CN=Branch-Office,CN=Sites,CN=Configuration,DC=FAKEFIXTURE,DC=LOCAL",
+    "Name": "Branch-Office",
+    "gPLink": "[LDAP://CN={22222222-2222-2222-2222-222222222222},CN=Policies,CN=System,DC=FAKEFIXTURE,DC=LOCAL;2]",
+    "gPOptions": 0
+  }
+]

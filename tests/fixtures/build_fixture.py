@@ -590,6 +590,30 @@ def build_wmi_filters() -> list[dict]:
     ]
 
 
+def build_sites() -> list[dict]:
+    """AD site GPO links (Configuration partition).
+
+    One unlinked site and one site with an *enforced* link to an existing GPO,
+    so the site caveat and precedence note are exercised.
+    """
+    config_nc = f"CN=Configuration,{ROOT_DN.upper()}"
+    return [
+        {
+            "DistinguishedName": f"CN=Default-First-Site-Name,CN=Sites,{config_nc}",
+            "Name": "Default-First-Site-Name",
+            "gPLink": "",
+            "gPOptions": 0,
+        },
+        {
+            "DistinguishedName": f"CN=Branch-Office,CN=Sites,{config_nc}",
+            "Name": "Branch-Office",
+            # Enforced (;2) link to an existing GPO.
+            "gPLink": f"[LDAP://CN={GUID_H},CN=Policies,CN=System,{ROOT_DN.upper()};2]",
+            "gPOptions": 0,
+        },
+    ]
+
+
 def write_all(target: Path = FIXTURE_DIR) -> None:
     target.mkdir(parents=True, exist_ok=True)
 
@@ -613,6 +637,10 @@ def write_all(target: Path = FIXTURE_DIR) -> None:
     (target / "wmi-filters.json").write_text(
         json.dumps(wmi, separators=(",", ":")) + "\n", encoding="utf-8"
     )
+
+    sites = build_sites()
+    sites_data = json.dumps(sites, indent=2) + "\n"
+    (target / "sites.json").write_bytes(b"\xef\xbb\xbf" + sites_data.encode("utf-8"))
 
     sysvol = (
         target

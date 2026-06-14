@@ -56,9 +56,12 @@ from gpo_lens.topology import (
     EffectiveScope,
     EffectiveSetting,
     SecurityFiltering,
+    SiteGpoLink,
+    SiteScope,
     SomConflict,
     WmiFilterScope,
     effective_scope,
+    has_site_links,
     is_security_filtered,
     loopback_awareness,
     loopback_gpos,
@@ -66,6 +69,7 @@ from gpo_lens.topology import (
     scope_caveats,
     security_filtering_detail,
     settings_at_som,
+    site_scopes,
     som_conflicts,
     som_effective_gpos,
     wmi_filtered_gpos,
@@ -93,6 +97,8 @@ __all__ = [
     "SecurityFiltering",
     "SettingsDiffRow",
     "SettingsDumpRow",
+    "SiteGpoLink",
+    "SiteScope",
     "SnapshotDiff",
     "SnapshotSettingChange",
     "SddlAce",
@@ -115,6 +121,7 @@ __all__ = [
     "effective_scope",
     "empty_gpos",
     "enforced_links",
+    "has_site_links",
     "estate_doctor",
     "estate_summary",
     "excessive_writers",
@@ -135,6 +142,7 @@ __all__ = [
     "settings_at_som",
     "settings_diff",
     "settings_dump",
+    "site_scopes",
     "snapshot_changelog",
     "snapshot_diff",
     "snapshot_settings_diff",
@@ -654,6 +662,8 @@ class EstateSummary:
     domain: str
     gpo_count: int
     som_count: int
+    linked_site_count: int
+    coverage_gap_count: int
     wmi_filter_count: int
     unlinked_count: int
     empty_count: int
@@ -825,7 +835,14 @@ def estate_summary(estate: Estate) -> EstateSummary:
     return EstateSummary(
         domain=estate.domain,
         gpo_count=len(estate.gpos),
-        som_count=len(estate.soms),
+        # OU/domain SOMs only; sites are a parallel axis counted separately.
+        som_count=sum(1 for s in estate.soms if s.container_type != "site"),
+        linked_site_count=sum(
+            1
+            for s in estate.soms
+            if s.container_type == "site" and any(link.enabled for link in s.links)
+        ),
+        coverage_gap_count=len(estate.coverage_gaps),
         wmi_filter_count=len(estate.wmi_filters),
         unlinked_count=len(unlinked_gpos(estate)),
         empty_count=len(empty_gpos(estate)),
@@ -1237,6 +1254,20 @@ def estate_doctor(
     finding stays deterministic as wall-clock time advances.
     """
     findings: list[DoctorFinding] = []
+
+    for cov in estate.coverage_gaps:
+        findings.append(DoctorFinding(
+            severity="high",
+            category="coverage_gap",
+            gpo_id=cov.gpo_id,
+            gpo_name=cov.display_name or "(unreadable)",
+            summary=(
+                "GPO could not be collected — estate analysis is incomplete"
+                if cov.kind == "inaccessible"
+                else "GPO collection failed — estate analysis may be incomplete"
+            ),
+            detail=cov.detail,
+        ))
 
     for hit in cpassword_scan(estate):
         findings.append(DoctorFinding(
