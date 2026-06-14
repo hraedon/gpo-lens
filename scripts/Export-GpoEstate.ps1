@@ -6,6 +6,8 @@
   Read-only collector. Produces, per domain:
     - AllGPOs.xml            combined Get-GPOReport (whole domain)
     - reports\*.xml          per-GPO XML reports (GUID in filename disambiguates dupes)
+    - collection-errors.json GPOs that could not be read (e.g. Authenticated Users
+                             Read stripped), named by GUID so coverage gaps are explicit
     - gpo-metadata.json      status, timestamps, version skew (DS vs SYSVOL), WMI filter
     - gp-inheritance.json    per-SOM inheritance: block, enforced, precedence order
     - ou-tree.json           raw OU tree (gPLink/gPOptions) as a topology cross-check
@@ -110,20 +112,70 @@ function Set-SectionProgress {
 
 $sectionNum++
 Set-SectionProgress -Activity "GPO settings (XML reports)" -Section $sectionNum
+# Per-GPO resilience: one unreadable GPO (e.g. Authenticated Users Read stripped
+# for security filtering) must not abort the rest. Each failure is captured with
+# its GUID so analysis can flag incomplete coverage rather than silently omit it.
+$collectionErrors = [System.Collections.Generic.List[object]]::new()
+
 try {
-    Get-GPOReport -All -ReportType Xml -LiteralPath (Join-Path $out 'AllGPOs.xml')
-    $i = 0
-    foreach ($gpo in $allGpos) {
-        $safe = ($gpo.DisplayName -replace '[\\/:*?"<>|\[\]]', '_')
-        Get-GPOReport -Guid $gpo.Id -ReportType Xml `
-            -LiteralPath (Join-Path $out "reports\${safe}__$($gpo.Id).xml")
-        $i++
-        Write-Progress -Activity "GPO settings (XML reports)" `
-            -Status "$i / $gpoCount" -PercentComplete ([math]::Round(($sectionNum - 1 + ($i / $gpoCount)) / $totalSections * 100))
-    }
-    $successSections.Add("GPO settings (XML reports)")
+    Get-GPOReport -All -ReportType Xml -LiteralPath (Join-Path $out 'AllGPOs.xml') -ErrorAction Stop
 } catch {
-    $failedSections.Add("GPO settings (XML reports): $($_.Exception.Message)")
+    $collectionErrors.Add([pscustomobject]@{
+        GpoId = $null; DisplayName = '(combined report)'; Stage = 'report-all'
+        Error = $_.Exception.Message
+    })
+    Write-Warning "Combined GPO report failed: $($_.Exception.Message)"
+}
+
+$i = 0
+foreach ($gpo in $allGpos) {
+    $i++
+    Write-Progress -Activity "GPO settings (XML reports)" `
+        -Status "$i / $gpoCount" -PercentComplete ([math]::Round(($sectionNum - 1 + ($i / $gpoCount)) / $totalSections * 100))
+    $safe = ($gpo.DisplayName -replace '[\\/:*?"<>|\[\]]', '_')
+    try {
+        Get-GPOReport -Guid $gpo.Id -ReportType Xml `
+            -LiteralPath (Join-Path $out "reports\${safe}__$($gpo.Id).xml") -ErrorAction Stop
+    } catch {
+        $collectionErrors.Add([pscustomobject]@{
+            GpoId = $gpo.Id.Guid; DisplayName = $gpo.DisplayName; Stage = 'report'
+            Error = $_.Exception.Message
+        })
+        Write-Warning "GPO report failed for '$($gpo.DisplayName)' ($($gpo.Id)): $($_.Exception.Message)"
+    }
+}
+
+# Completeness cross-check: Get-GPO -All silently omits GPOs whose properties the
+# account cannot read, but the Policies container grants List Contents, so the GPC
+# objects (and their GUIDs) are still enumerable. Any GUID present in AD but absent
+# from Get-GPO -All is an inaccessible GPO we must name, not drop.
+try {
+    $policiesDN = "CN=Policies,CN=System,$($dom.DistinguishedName)"
+    $allGpc = Get-ADObject -SearchBase $policiesDN -LDAPFilter "(objectClass=groupPolicyContainer)" `
+        -Properties displayName -ErrorAction Stop
+    $knownIds = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($g in $allGpos) { $null = $knownIds.Add($g.Id.Guid) }
+    foreach ($gpc in $allGpc) {
+        $guid = $gpc.Name.Trim('{}')
+        if (-not $knownIds.Contains($guid)) {
+            $collectionErrors.Add([pscustomobject]@{
+                GpoId = $guid; DisplayName = $gpc.displayName; Stage = 'enumerate'
+                Error = 'GPC exists in AD but Get-GPO could not read it (Authenticated Users Read may be stripped)'
+            })
+            Write-Warning "Inaccessible GPO detected: $guid$(if ($gpc.displayName) { " ($($gpc.displayName))" })"
+        }
+    }
+} catch {
+    Write-Warning "GPC completeness cross-check failed: $($_.Exception.Message)"
+}
+
+# Always emit the manifest (valid JSON array even when empty) so analysis can read it.
+if ($collectionErrors.Count -eq 0) {
+    '[]' | Set-Content (Join-Path $out 'collection-errors.json') -Encoding UTF8
+    $successSections.Add("GPO settings (XML reports)")
+} else {
+    $collectionErrors | ConvertTo-Json -Depth 4 | Set-Content (Join-Path $out 'collection-errors.json') -Encoding UTF8
+    $failedSections.Add("GPO settings: $($collectionErrors.Count) GPO(s) could not be collected (see collection-errors.json)")
 }
 
 $sectionNum++
