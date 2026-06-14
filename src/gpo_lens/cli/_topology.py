@@ -229,3 +229,43 @@ def cmd_scope(args: argparse.Namespace) -> int:
                 print(f"    {c}")
         print()
     return 0
+
+
+def cmd_sites(args: argparse.Namespace) -> None:
+    estate = _get_estate(args)
+    scopes = queries.site_scopes(estate)
+    if args.json:
+        _render_json([
+            {
+                "name": s.name,
+                "dn": s.dn,
+                "links": [
+                    {
+                        "gpo_id": lnk.gpo_id,
+                        "gpo_name": lnk.gpo_name,
+                        "enabled": lnk.enabled,
+                        "enforced": lnk.enforced,
+                        "order": lnk.order,
+                    }
+                    for lnk in s.links
+                ],
+            }
+            for s in scopes
+        ])
+        return
+    if not scopes:
+        print("No AD sites captured (no sites.json in the export).")
+        return
+    for s in scopes:
+        print(f"\n  Site: {s.name}")
+        if not s.links:
+            print("    (no GPO links)")
+            continue
+        for lnk in s.links:
+            state = "enabled" if lnk.enabled else "DISABLED"
+            enf = " [ENFORCED]" if lnk.enforced else ""
+            print(f"    {lnk.gpo_name} ({state}){enf}")
+    print(
+        "\n  Note: site-linked GPOs apply before domain/OU based on the client's "
+        "AD site (IP subnet -> site), which is not resolved here."
+    )

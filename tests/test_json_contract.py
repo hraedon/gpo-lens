@@ -76,6 +76,7 @@ def test_every_consumed_command_emits_the_envelope(capsys, contract_db):
         ("events", ()),
         ("baseline-diff", (str(FIXTURES),)),
         ("scope", ("gpo-cpassword",)),
+        ("sites", ()),
     ]
     for kind, args in cases:
         _payload(capsys, contract_db, kind, *args)
@@ -150,6 +151,19 @@ def test_events_shape(capsys, contract_db):
         "events[]",
     )
     assert isinstance(data[0]["payload"], dict)
+
+
+def test_sites_shape(capsys, contract_db):
+    data = _payload(capsys, contract_db, "sites")
+    assert isinstance(data, list) and data  # fixture has two sites
+    _assert_keys(data[0], {"name", "dn", "links"}, "sites[]")
+    linked = next((s for s in data if s["links"]), None)
+    assert linked is not None, "expected a site with at least one link"
+    _assert_keys(
+        linked["links"][0],
+        {"gpo_id", "gpo_name", "enabled", "enforced", "order"},
+        "sites[].links[]",
+    )
 
 
 def test_scope_shape(capsys, contract_db):

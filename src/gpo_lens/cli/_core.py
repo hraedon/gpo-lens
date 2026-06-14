@@ -46,6 +46,7 @@ from gpo_lens.cli._topology import (
     cmd_enforced,
     cmd_loopback,
     cmd_scope,
+    cmd_sites,
     cmd_som,
     cmd_topology_check,
     cmd_wmi,
@@ -221,6 +222,13 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("wmi-filters", help="List WMI filters with query text")
     _add_src(p)
     p.set_defaults(func=cmd_wmi_filters)
+
+    p = sub.add_parser(
+        "sites",
+        help="AD sites and their GPO links (lowest precedence; not resolved per-machine)",
+    )
+    _add_src(p)
+    p.set_defaults(func=cmd_sites)
 
     p = sub.add_parser(
         "topology-check",

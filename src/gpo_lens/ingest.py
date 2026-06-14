@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import re
 import warnings
 import zipfile
 from pathlib import Path
@@ -14,6 +15,7 @@ from xml.etree.ElementTree import Element
 import defusedxml.ElementTree as ET
 
 from gpo_lens.model import (
+    CoverageGap,
     DelegationEntry,
     Estate,
     Gpo,
@@ -675,6 +677,127 @@ def parse_ou_tree(json_path: str | Path) -> list[OuRecord]:
     return records
 
 
+# gPLink segment: ``[LDAP://CN={guid},...;flags]``. flags bit 0 = link
+# disabled, bit 1 = enforced (NoOverride).
+_GPLINK_RE = re.compile(r"\[LDAP://[Cc][Nn]=(\{[^}]+\}|[^,;]+),[^;]*;(\d+)\]")
+
+
+def _parse_gplink(raw: str | None, target_dn: str) -> list[SomLink]:
+    """Parse a raw ``gPLink`` attribute into ordered :class:`SomLink` entries.
+
+    Order is the segment position (1-based) as written. Invalid GUID segments
+    are skipped rather than raising.
+    """
+    links: list[SomLink] = []
+    if not raw:
+        return links
+    for order, match in enumerate(_GPLINK_RE.finditer(raw), start=1):
+        guid_raw, flags_raw = match.group(1), match.group(2)
+        try:
+            gpo_id = canonical_guid(guid_raw)
+        except ValueError:
+            continue
+        flags = int(flags_raw)
+        links.append(
+            SomLink(
+                gpo_id=gpo_id,
+                order=order,
+                enabled=(flags & 1) == 0,
+                enforced=(flags & 2) != 0,
+                target=target_dn,
+            )
+        )
+    return links
+
+
+def parse_sites(json_path: str | Path) -> list[Som]:
+    """Parse ``sites.json`` into site scope-of-management nodes.
+
+    Each AD site becomes a :class:`Som` with ``container_type="site"`` carrying
+    its *direct* gPLink GPOs. Sites are a parallel scoping axis (not OU
+    ancestors); their per-machine application (IP subnet -> site) is
+    intentionally not resolved here.
+    """
+    data = load_json(json_path)
+    if not isinstance(data, list):
+        data = [data]
+    sites: list[Som] = []
+    for record in data:
+        dn = record.get("DistinguishedName", "")
+        name = record.get("Name", "")
+        som = Som(
+            path=dn,
+            name=name,
+            container_type="site",
+            inheritance_blocked=False,
+        )
+        som.links = _parse_gplink(record.get("gPLink"), dn)
+        sites.append(som)
+    return sites
+
+
+def parse_coverage_gaps(
+    inventory_path: Path, errors_path: Path, gpos: list[Gpo]
+) -> list[CoverageGap]:
+    """Reconcile the authoritative inventory + collector failures against the export.
+
+    A GPO present in ``gpo-inventory.json`` (ideally produced by a privileged
+    run) but absent from the ingested GPOs is an inaccessible coverage gap. A
+    GPO named in ``collection-errors.json`` that also did not make it into the
+    export is a collection failure. Both are named, never silently dropped.
+    Either file being absent is fine (older exports reconcile to no gaps).
+    """
+    known = {g.id for g in gpos}
+    seen: set[str] = set()
+    gaps: list[CoverageGap] = []
+
+    if inventory_path.exists():
+        inv = load_json(inventory_path)
+        if not isinstance(inv, list):
+            inv = [inv]
+        for rec in inv:
+            raw = rec.get("Id") or rec.get("id") or ""
+            try:
+                gid = canonical_guid(raw)
+            except ValueError:
+                continue
+            if gid in known or gid in seen:
+                continue
+            gaps.append(CoverageGap(
+                gpo_id=gid,
+                display_name=rec.get("DisplayName") or rec.get("displayName"),
+                kind="inaccessible",
+                detail="In the GPO inventory but absent from the export "
+                       "(the collection account could not read it)",
+            ))
+            seen.add(gid)
+
+    if errors_path.exists():
+        errs = load_json(errors_path)
+        if not isinstance(errs, list):
+            errs = [errs]
+        for rec in errs:
+            raw = rec.get("GpoId") or rec.get("gpo_id") or ""
+            if not raw:
+                continue
+            try:
+                gid = canonical_guid(raw)
+            except ValueError:
+                continue
+            if gid in known or gid in seen:
+                continue
+            gaps.append(CoverageGap(
+                gpo_id=gid,
+                display_name=rec.get("DisplayName") or rec.get("display_name"),
+                kind="collection_error",
+                detail=rec.get("Error") or rec.get("Stage")
+                       or "the collector reported a read failure",
+            ))
+            seen.add(gid)
+
+    return gaps
+
+
 def load_estate(sample_dir: str | Path) -> Estate:
     """Orchestrate loading a full estate from a sample directory."""
     src = Path(sample_dir)
@@ -688,6 +811,12 @@ def load_estate(sample_dir: str | Path) -> Estate:
     soms: list[Som] = []
     if inheritance_path.exists():
         soms = parse_inheritance(inheritance_path)
+
+    # AD sites are a parallel scoping axis; append them as container_type="site"
+    # SOMs. Absent sites.json (older exports) changes nothing.
+    sites_path = src / "sites.json"
+    if sites_path.exists():
+        soms.extend(parse_sites(sites_path))
 
     metadata_path = src / "gpo-metadata.json"
     if metadata_path.exists():
@@ -711,7 +840,12 @@ def load_estate(sample_dir: str | Path) -> Estate:
     if ou_tree_path.exists():
         ou_tree = parse_ou_tree(ou_tree_path)
 
+    coverage_gaps = parse_coverage_gaps(
+        src / "gpo-inventory.json", src / "collection-errors.json", gpos
+    )
+
     return Estate(
         domain=domain, gpos=gpos, soms=soms,
         wmi_filters=wmi_filters, ou_tree=ou_tree,
+        coverage_gaps=coverage_gaps,
     )

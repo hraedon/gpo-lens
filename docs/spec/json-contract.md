@@ -69,8 +69,11 @@ Required fields are listed; commands may add fields additively. These are the
 shapes complements consume — the golden test pins exactly this set.
 
 ### `summary --json` → object (estate snapshot)
-`domain`, `gpo_count`, `som_count`, `wmi_filter_count`, `broken_ref_count`
-(plus the full set of hygiene counts: `unlinked_count`, `empty_count`,
+`domain`, `gpo_count`, `som_count` (OU/domain SOMs only),
+`linked_site_count` (AD sites carrying ≥1 enabled GPO link),
+`coverage_gap_count` (GPOs that exist but could not be collected),
+`wmi_filter_count`, `broken_ref_count` (plus the full set of hygiene counts:
+`unlinked_count`, `empty_count`,
 `disabled_but_populated_count`, `conflict_count`, `version_skew_count`,
 `ms16_072_vulnerable_count`, `cpassword_hit_count`, `loopback_gpo_count`,
 `wmi_filtered_gpo_count`, `enforced_link_count`, `dangling_link_count`,
@@ -79,6 +82,9 @@ shapes complements consume — the golden test pins exactly this set.
 
 ### `doctor --json` → object
 `findings`: array of `{severity, category, gpo_id, gpo_name, summary, detail}`.
+`category` includes `coverage_gap` for GPOs that exist but could not be
+collected (reconciled from `gpo-inventory.json` / `collection-errors.json`) —
+the analysis is explicit that it is incomplete rather than silently partial.
 
 ### `settings-dump --json` → array of rows
 `{gpo_id, gpo_name, side, cse, identity, display_name, display_value,
@@ -107,6 +113,12 @@ whose shape depends on `event_type`:
 
 Note: the per-record `schema_version` here is the *event* schema version, which
 is independent of the top-level contract `schema_version`.
+
+### `sites --json` → array
+AD sites and their direct GPO links. `[{name, dn, links: [{gpo_id, gpo_name,
+enabled, enforced, order}]}]`. Site-linked GPOs are applied before domain/OU
+(lowest precedence); per-machine site membership is not resolved (flag, don't
+simulate). Empty when the export carried no `sites.json`.
 
 ### `scope <gpo> --json` → object
 `{gpo_id, gpo_name, domain, computer_enabled, user_enabled, links,

@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 
 from gpo_lens.events import init_events_table
 from gpo_lens.model import (
+    CoverageGap,
     DelegationEntry,
     Estate,
     Gpo,
@@ -177,6 +178,18 @@ def init_db(conn: sqlite3.Connection) -> None:
         )
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS coverage_gap (
+            snapshot_id INTEGER NOT NULL REFERENCES snapshot(id) ON DELETE CASCADE,
+            gpo_id TEXT NOT NULL,
+            display_name TEXT,
+            kind TEXT NOT NULL,
+            detail TEXT NOT NULL,
+            PRIMARY KEY (snapshot_id, gpo_id)
+        )
+        """
+    )
     init_events_table(conn)
     conn.commit()
 
@@ -333,6 +346,13 @@ def save_estate(conn: sqlite3.Connection, estate: Estate, taken_at: datetime | N
             "INSERT INTO ou_tree (snapshot_id, dn, name, gp_link, gp_options) "
             "VALUES (?, ?, ?, ?, ?)",
             (snapshot_id, ou.dn, ou.name, ou.gp_link, ou.gp_options),
+        )
+
+    for gap in estate.coverage_gaps:
+        conn.execute(
+            "INSERT OR IGNORE INTO coverage_gap "
+            "(snapshot_id, gpo_id, display_name, kind, detail) VALUES (?, ?, ?, ?, ?)",
+            (snapshot_id, gap.gpo_id, gap.display_name, gap.kind, gap.detail),
         )
 
     conn.commit()
@@ -506,12 +526,22 @@ def load_estate(conn: sqlite3.Connection, snapshot_id: int | None = None) -> Est
     ):
         ou_tree.append(OuRecord(dn=row[0], name=row[1], gp_link=row[2], gp_options=row[3]))
 
+    coverage_gaps: list[CoverageGap] = []
+    for row in conn.execute(
+        "SELECT gpo_id, display_name, kind, detail FROM coverage_gap WHERE snapshot_id = ?",
+        (snapshot_id,),
+    ):
+        coverage_gaps.append(
+            CoverageGap(gpo_id=row[0], display_name=row[1], kind=row[2], detail=row[3])
+        )
+
     return Estate(
         domain=domain,
         gpos=list(gpos.values()),
         soms=list(soms.values()),
         wmi_filters=wmi_filters,
         ou_tree=ou_tree,
+        coverage_gaps=coverage_gaps,
     )
 
 
