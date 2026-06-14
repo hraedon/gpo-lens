@@ -61,6 +61,7 @@ pip install -e .
 | `loopback` | GPOs that configure loopback processing |
 | `wmi` | GPOs with WMI filters attached |
 | `wmi-filters` | List WMI filters with query text |
+| `sites` | AD sites and their GPO links (lowest precedence; not resolved per-machine) |
 | `broken-refs` | Detect broken references in settings |
 | `admx-gaps` | Settings with raw key paths (no ADMX policy name) |
 | `topology-check` | Cross-check OU tree against inheritance |
@@ -100,9 +101,11 @@ consume them — are documented in
 
 - **Single-domain estates.** The `Estate` model holds one domain's GPOs, SOMs,
   and WMI filters. Multi-domain or multi-forest estates are not supported.
-- **Site-level GPO links.** The collector exports OU/domain inheritance only.
-  Sites are a real GPO scoping mechanism but are not captured. Extending the
-  collector for site links is additive and deferred until needed.
+- **Site-level GPO links.** Captured and surfaced (`sites` command) and flagged
+  as a caveat on OU views, but **not resolved per-machine**: which computers a
+  site-linked GPO reaches depends on IP subnet → site membership, which is
+  runtime/RSoP state the deterministic core does not evaluate (flag, don't
+  simulate).
 - **Per-user/object RSoP simulation.** The tool resolves settings at the OU
   level and flags scoping mechanisms (loopback, security filtering, WMI, ILT)
   with caveats. It does not simulate per-user effective policy.

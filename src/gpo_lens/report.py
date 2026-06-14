@@ -21,6 +21,7 @@ _SUMMARY_FIELDS: list[tuple[str, str]] = [
     ("Domain", "domain"),
     ("GPOs", "gpo_count"),
     ("SOMs", "som_count"),
+    ("Sites with GPO links", "linked_site_count"),
     ("WMI filters", "wmi_filter_count"),
     ("WMI-filtered GPOs", "wmi_filtered_gpo_count"),
     ("Unlinked GPOs", "unlinked_count"),
@@ -725,7 +726,9 @@ def _generate_md(
 
     summary = queries.estate_summary(estate)
     findings = queries.estate_doctor(estate)
-    soms_with_links = [som for som in estate.soms if som.links]
+    soms_with_links = [
+        som for som in estate.soms if som.links and som.container_type != "site"
+    ]
 
     parts: list[str] = []
     parts.append(f"# Estate Report: {summary.domain}\n")
@@ -793,7 +796,9 @@ def _generate_html(
 
     summary = queries.estate_summary(estate)
     findings = queries.estate_doctor(estate)
-    soms_with_links = [som for som in estate.soms if som.links]
+    soms_with_links = [
+        som for som in estate.soms if som.links and som.container_type != "site"
+    ]
 
     body_parts: list[str] = []
 

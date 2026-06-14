@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased (toward v0.4.0)
+
+### Sees site scope (Plan 014)
+- **AD site-linked GPOs are now captured and surfaced.** The collector exports
+  `sites.json` (Configuration-partition site `gPLink`/`gPOptions`); ingest models
+  each site as a `container_type="site"` SOM with its direct links. New
+  `gpo-lens sites` command (text + `--json`, contract `kind: "sites"`) lists
+  sites and their GPO links.
+- **OU views now flag site scope.** `settings-at` / `scope` caveats note that
+  site-linked GPOs apply before the domain/OU chain based on the client's AD
+  site, which is **not** resolved per-machine (flag, don't simulate).
+- **Summary gains `linked_site_count`**; `som_count` now counts OU/domain SOMs
+  only (sites counted separately). `enforced_links` / `dangling_links` correctly
+  include enforced/broken site links.
+- **Backward compatible:** an export without `sites.json` ingests unchanged.
+
 ## v0.3.0 — 2026-06-14
 
 Headline: **honest about scope, and a frozen machine-readable contract.**
