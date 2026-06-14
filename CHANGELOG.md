@@ -2,6 +2,24 @@
 
 ## Unreleased (toward v0.3.0)
 
+### JSON output contract (frozen, `schema_version: 1`)
+- **Versioned envelope on every `--json` payload.** All machine-readable output
+  is now wrapped as `{schema_version, kind, tool_version, generated_at, data}`,
+  so downstream consumers can depend on a stable shape and detect contract
+  evolution. Documented in `docs/spec/json-contract.md` and pinned by
+  `tests/test_json_contract.py` (the freeze guard). Consumers read `data`.
+- **`report --json` no longer silently emits Markdown.** It now refuses `--json`
+  (exit 2, stderr) and points at the real machine-readable commands. `report`
+  is a human document (`--format md|html`); the snapshot is `summary --json`,
+  the per-setting body is `settings-dump --json`.
+- **`settings-dump --json` now carries `source_state`** (`"normal"`/`"blocked"`)
+  per row, exposing `<Blocked/>`-extension settings to consumers.
+- **Errors under `--json` no longer leak to stdout.** `scope <gpo>` for a
+  missing GPO now exits nonzero with the message on stderr (was exit 0 with a
+  plain-text line on stdout), so "exit 0 ⟹ stdout is the envelope" holds.
+- **Documented precondition:** the `events` stream is populated only by
+  `ingest --diff-latest`.
+
 ### Scope honesty
 - **`is_security_filtered` hardened (WI-009).** Now recognises `Everyone`
   (S-1-1-0) alongside Authenticated Users and Domain Computers, applies

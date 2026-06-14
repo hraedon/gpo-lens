@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 
 from gpo_lens import queries
 from gpo_lens.cli._helpers import _get_estate, _print_table, _render_json
@@ -157,12 +158,14 @@ def cmd_topology_check(args: argparse.Namespace) -> None:
             )
 
 
-def cmd_scope(args: argparse.Namespace) -> None:
+def cmd_scope(args: argparse.Namespace) -> int:
     estate = _get_estate(args)
     result = queries.effective_scope(estate, args.gpo)
     if result is None:
-        print(f"GPO not found: {args.gpo}")
-        return
+        # Error to stderr + nonzero exit so a --json consumer never sees a
+        # plain-text "not found" on stdout mistaken for a success payload.
+        print(f"GPO not found: {args.gpo}", file=sys.stderr)
+        return 1
     if args.json:
         _render_json({
             "gpo_id": result.gpo_id,
@@ -225,3 +228,4 @@ def cmd_scope(args: argparse.Namespace) -> None:
             for c in result.caveats:
                 print(f"    {c}")
         print()
+    return 0

@@ -14,7 +14,7 @@ from gpo_lens.cli._diff import (
 )
 from gpo_lens.cli._estate import cmd_ingest, cmd_summary
 from gpo_lens.cli._events import cmd_events, cmd_events_export
-from gpo_lens.cli._helpers import DEFAULT_DB
+from gpo_lens.cli._helpers import DEFAULT_DB, _set_json_kind
 from gpo_lens.cli._hygiene import (
     cmd_blocked,
     cmd_broken_refs,
@@ -387,6 +387,8 @@ def main(argv: list[str] | None = None) -> int:
     if not hasattr(args, "func"):
         parser.print_help()
         return 1
+    # Label every --json envelope with the active subcommand (the contract `kind`).
+    _set_json_kind(getattr(args, "command", None))
     try:
         return args.func(args) or 0
     except SystemExit:

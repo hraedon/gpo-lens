@@ -118,7 +118,7 @@ class TestScopeCLI:
             text=True,
         )
         assert r.returncode == 0
-        data = json.loads(r.stdout)
+        data = json.loads(r.stdout)["data"]
         assert data["gpo_id"] == "scope-gpo-1"
         assert data["gpo_name"] == "Scope Test GPO"
         assert "caveats" in data
@@ -129,8 +129,10 @@ class TestScopeCLI:
             capture_output=True,
             text=True,
         )
-        assert r.returncode == 0
-        assert "not found" in r.stdout.lower()
+        # Not-found is an error: nonzero exit, message on stderr, clean stdout.
+        assert r.returncode == 1
+        assert r.stdout == ""
+        assert "not found" in r.stderr.lower()
 
     def test_scope_shows_wmi_caveat(self, scope_db) -> None:
         r = subprocess.run(
