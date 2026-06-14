@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased (toward v0.4.0)
+## v0.4.0 — 2026-06-14
+
+Headline: **sees site scope, and honest about collection coverage.** AD
+site-linked GPOs are captured and flagged; GPOs the collector can't read are
+named (reconciliation) instead of silently dropped.
 
 ### Honest about collection coverage (Plan 015)
 - **Coverage reconciliation.** A GPO with Authenticated Users Read fully
