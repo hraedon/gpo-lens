@@ -954,6 +954,11 @@ def test_estate_summary():
     assert s.empty_count == 0
     assert s.conflict_count == 0
     assert s.ms16_072_vulnerable_count == 1  # no delegation entries
+    # WI-007: the four newer doctor categories are surfaced on the summary.
+    assert s.broken_wmi_ref_count == 0
+    assert s.orphaned_wmi_filter_count == 0
+    assert s.ilt_gpo_count == 0
+    assert s.stale_gpo_count == 0
 
 
 # ---- existing queries still pass smoke --------------------------------------
