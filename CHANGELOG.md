@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased (toward v0.3.0)
+## v0.3.0 — 2026-06-14
+
+Headline: **honest about scope, and a frozen machine-readable contract.**
+Scope-honesty across loopback/security-filtering/WMI/ILT, plus a versioned
+JSON output contract that downstream tools can build against.
 
 ### JSON output contract (frozen, `schema_version: 1`)
 - **Versioned envelope on every `--json` payload.** All machine-readable output
