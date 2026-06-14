@@ -40,6 +40,11 @@ narrates facts the core computed. See `README.md` for the full charter.
   AD-site links) are flagged with caveats in topology views, never simulated.
   Sites are modeled as `container_type="site"` SOMs (a parallel axis, excluded
   from OU-precedence views); per-machine site membership is not resolved.
+- **Coverage honesty.** Collection is bounded by the collector account's AD
+  access (a stripped-AU GPO is invisible to a least-privilege account). Don't
+  paper over it — reconcile `gpo-inventory.json` (authoritative, privileged run)
+  + `collection-errors.json` against the export and surface missing GPOs as
+  `coverage_gap` findings. Never present a partial estate as complete.
 - **Canonical GPO id everywhere:** lowercase, braces stripped. All cross-input
   joins use it (see `normalize.canonical_guid`).
 - **BOM-tolerant JSON:** collector JSON may carry a UTF-8 BOM (PowerShell 5.1).

@@ -183,6 +183,21 @@ class OuRecord:
     gp_options: int | None    # gPOptions: 0=not blocked, 1=block inheritance
 
 
+@dataclass(frozen=True)
+class CoverageGap:
+    """A GPO known to exist but missing from the collected export.
+
+    ``kind`` is ``"inaccessible"`` (present in the authoritative inventory but
+    not in the export — e.g. Authenticated Users Read stripped) or
+    ``"collection_error"`` (the collector saw it but failed to pull its report).
+    """
+
+    gpo_id: str
+    display_name: str | None
+    kind: str
+    detail: str
+
+
 @dataclass
 class Estate:
     """The whole normalized estate for one domain snapshot."""
@@ -192,6 +207,7 @@ class Estate:
     soms: list[Som] = field(default_factory=list)
     wmi_filters: list[WmiFilter] = field(default_factory=list)
     ou_tree: list[OuRecord] = field(default_factory=list)
+    coverage_gaps: list[CoverageGap] = field(default_factory=list)
 
     def gpo_by_id(self, gpo_id: str) -> Gpo | None:
         return next((g for g in self.gpos if g.id == gpo_id), None)

@@ -2,6 +2,22 @@
 
 ## Unreleased (toward v0.4.0)
 
+### Honest about collection coverage (Plan 015)
+- **Coverage reconciliation.** A GPO with Authenticated Users Read fully
+  stripped is invisible to a least-privilege collector account (verified on a
+  real domain). Rather than chase full read by granting per-GPO permissions, the
+  collector emits `gpo-inventory.json` (every GPC GUID it could enumerate — run
+  it once as a privileged account for an authoritative baseline), and gpo-lens
+  reconciles inventory + `collection-errors.json` against the export: any GPO
+  that exists but was not collected is surfaced as a **coverage gap** (new
+  `doctor` `coverage_gap` finding + `summary.coverage_gap_count`) — named, never
+  silently dropped. Backward compatible (absent manifests → no gaps).
+- **Collector hardening.** Per-GPO report collection is resilient (one
+  unreadable GPO no longer aborts the rest); inaccessible GPOs are detected via
+  an AD enumeration cross-check and recorded in `collection-errors.json`.
+- **Collector fix:** `Get-GPOReport` uses `-Path` (was the nonexistent
+  `-LiteralPath`, which silently failed every report — surfaced by live testing).
+
 ### Sees site scope (Plan 014)
 - **AD site-linked GPOs are now captured and surfaced.** The collector exports
   `sites.json` (Configuration-partition site `gPLink`/`gPOptions`); ingest models

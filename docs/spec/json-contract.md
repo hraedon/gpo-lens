@@ -70,9 +70,10 @@ shapes complements consume — the golden test pins exactly this set.
 
 ### `summary --json` → object (estate snapshot)
 `domain`, `gpo_count`, `som_count` (OU/domain SOMs only),
-`linked_site_count` (AD sites carrying ≥1 enabled GPO link), `wmi_filter_count`,
-`broken_ref_count` (plus the full set of hygiene counts: `unlinked_count`,
-`empty_count`,
+`linked_site_count` (AD sites carrying ≥1 enabled GPO link),
+`coverage_gap_count` (GPOs that exist but could not be collected),
+`wmi_filter_count`, `broken_ref_count` (plus the full set of hygiene counts:
+`unlinked_count`, `empty_count`,
 `disabled_but_populated_count`, `conflict_count`, `version_skew_count`,
 `ms16_072_vulnerable_count`, `cpassword_hit_count`, `loopback_gpo_count`,
 `wmi_filtered_gpo_count`, `enforced_link_count`, `dangling_link_count`,
@@ -81,6 +82,9 @@ shapes complements consume — the golden test pins exactly this set.
 
 ### `doctor --json` → object
 `findings`: array of `{severity, category, gpo_id, gpo_name, summary, detail}`.
+`category` includes `coverage_gap` for GPOs that exist but could not be
+collected (reconciled from `gpo-inventory.json` / `collection-errors.json`) —
+the analysis is explicit that it is incomplete rather than silently partial.
 
 ### `settings-dump --json` → array of rows
 `{gpo_id, gpo_name, side, cse, identity, display_name, display_value,

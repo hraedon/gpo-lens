@@ -221,6 +221,7 @@ def create_app(db_path: str, *, root_path: str = "") -> FastAPI:
                 findings = []
                 summary = EstateSummary(
                     domain="", gpo_count=0, som_count=0, linked_site_count=0,
+                    coverage_gap_count=0,
                     wmi_filter_count=0, unlinked_count=0, empty_count=0,
                     disabled_but_populated_count=0, conflict_count=0,
                     blocked_extension_count=0, version_skew_count=0,
