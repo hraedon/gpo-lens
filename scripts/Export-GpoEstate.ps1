@@ -118,7 +118,7 @@ Set-SectionProgress -Activity "GPO settings (XML reports)" -Section $sectionNum
 $collectionErrors = [System.Collections.Generic.List[object]]::new()
 
 try {
-    Get-GPOReport -All -ReportType Xml -LiteralPath (Join-Path $out 'AllGPOs.xml') -ErrorAction Stop
+    Get-GPOReport -All -ReportType Xml -Path (Join-Path $out 'AllGPOs.xml') -ErrorAction Stop
 } catch {
     $collectionErrors.Add([pscustomobject]@{
         GpoId = $null; DisplayName = '(combined report)'; Stage = 'report-all'
@@ -135,7 +135,7 @@ foreach ($gpo in $allGpos) {
     $safe = ($gpo.DisplayName -replace '[\\/:*?"<>|\[\]]', '_')
     try {
         Get-GPOReport -Guid $gpo.Id -ReportType Xml `
-            -LiteralPath (Join-Path $out "reports\${safe}__$($gpo.Id).xml") -ErrorAction Stop
+            -Path (Join-Path $out "reports\${safe}__$($gpo.Id).xml") -ErrorAction Stop
     } catch {
         $collectionErrors.Add([pscustomobject]@{
             GpoId = $gpo.Id.Guid; DisplayName = $gpo.DisplayName; Stage = 'report'
