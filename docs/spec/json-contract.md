@@ -126,6 +126,25 @@ security_filtering, wmi_filter, loopback_mode, caveats}`, where
 `security_filtering` = `{is_filtered, apply_trustees, has_au_read, has_dc_read}`
 and `wmi_filter` is `{name, query, is_broken}` or `null`.
 
+### `gpp-tasks --json` → array
+Scheduled tasks / immediate tasks deployed by GPO (`ScheduledTasks.xml`).
+`[{gpo_id, gpo_name, side, file, kind, name, action, command, arguments,
+run_as}]`. `side` is `"Computer"` (Machine) or `"User"`. Read-only inventory —
+surfaces what is configured, does not evaluate reachability. Empty when no GPO
+ships a `ScheduledTasks.xml`.
+
+### `gpp-groups --json` → array
+Local-group membership changes deployed by GPO (`Groups.xml` /
+`LocalUsersAndGroups.xml`). `[{gpo_id, gpo_name, side, file, group_name,
+group_sid, members_added, members_removed}]`. `members_added` /
+`members_removed` are arrays of trustee names. Empty when no GPO configures
+group membership.
+
+### `show <gpo> --json` → object (informational)
+`{id, name, domain, description, computer_enabled, user_enabled, links,
+settings_count, delegation_count}`. Informational (not in the "consumed"
+table below); prefer `scope`/`doctor` for cross-tool integration.
+
 ## Who consumes what (current complements)
 
 | Complement (parked) | Consumes |

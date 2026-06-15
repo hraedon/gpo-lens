@@ -240,6 +240,10 @@ def _fold_chain_to_buckets(
             continue
         gpo_name = names.get(link.gpo_id, "<unknown>")
         for s in gpo.settings:
+            # A setting on a disabled side does not apply — skip it. These
+            # ghosts are surfaced separately by disabled_but_populated().
+            if s.from_disabled_side:
+                continue
             key = (s.cse, s.side, s.identity)
             buckets[key].append(_BucketEntry(
                 gpo_id=link.gpo_id,
@@ -270,6 +274,7 @@ def som_conflicts(estate: Estate, som_path: str) -> list[SomConflict]:
         for e in entries:
             status = "winner" if e.gpo_name == winner else "overridden"
             conflict_entries.append((e.gpo_name, e.value, status))
+        conflict_entries.sort()
         display_name = next(
             (e.display_name for e in entries if e.display_name), ""
         )
@@ -286,6 +291,7 @@ def som_conflicts(estate: Estate, som_path: str) -> list[SomConflict]:
             )
         )
 
+    results.sort(key=lambda sc: (sc.cse, sc.side, sc.identity.lower()))
     return results
 
 
@@ -301,6 +307,7 @@ def precedence_conflicts(estate: Estate) -> list[tuple[Som, list[SomConflict]]]:
             conflicts_ = som_conflicts(estate, som.path)
             if conflicts_:
                 results.append((som, conflicts_))
+    results.sort(key=lambda pair: pair[0].path)
     return results
 
 
@@ -418,7 +425,10 @@ def settings_at_som(estate: Estate, som_path: str) -> list[EffectiveSetting]:
 _BROAD_TRUSTEES = {"authenticated users", "domain computers", "everyone"}
 _AU_SID = "s-1-5-11"
 _EVERYONE_SID = "s-1-1-0"
-_DC_SID_SUFFIX = "-515"
+# Domain Computers = S-1-5-21-{domain}-515. Require the domain-SID prefix so
+# we don't match arbitrary SIDs whose RID happens to end in "515".
+_DOMAIN_SID_PREFIX = "s-1-5-21-"
+_DC_RID_SUFFIX = "-515"
 
 
 def _broad_key(trustee: str, sid: str | None) -> str | None:
@@ -432,7 +442,7 @@ def _broad_key(trustee: str, sid: str | None) -> str | None:
     s = (sid or "").lower().strip()
     if t == "authenticated users" or s == _AU_SID:
         return "authenticated_users"
-    if t == "domain computers" or s.endswith(_DC_SID_SUFFIX):
+    if t == "domain computers" or (s.startswith(_DOMAIN_SID_PREFIX) and s.endswith(_DC_RID_SUFFIX)):
         return "domain_computers"
     if t == "everyone" or s == _EVERYONE_SID:
         return "everyone"
@@ -534,7 +544,9 @@ def security_filtering_detail(gpo: Gpo) -> SecurityFiltering:
         ):
             if trustee_lower == "authenticated users" or sid_lower == _AU_SID:
                 has_au_read = True
-            if trustee_lower == "domain computers" or sid_lower.endswith(_DC_SID_SUFFIX):
+            if trustee_lower == "domain computers" or (
+                sid_lower.startswith(_DOMAIN_SID_PREFIX) and sid_lower.endswith(_DC_RID_SUFFIX)
+            ):
                 has_dc_read = True
         if "apply" in perm_lower or "grouppolicy" in perm_lower.replace(" ", ""):
             if entry.trustee not in apply_trustees:

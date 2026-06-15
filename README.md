@@ -9,7 +9,7 @@ already computed.
 
 ```powershell
 # On a DC or RSAT box, export the estate (read-only, no changes):
-scripts/Export-GpoEstate.ps1 -OutputDir C:\GpoExport
+scripts/Export-GpoEstate.ps1 -OutputRoot C:\GpoExport
 ```
 
 ```bash
@@ -64,6 +64,8 @@ pip install -e .
 | `sites` | AD sites and their GPO links (lowest precedence; not resolved per-machine) |
 | `broken-refs` | Detect broken references in settings |
 | `admx-gaps` | Settings with raw key paths (no ADMX policy name) |
+| `gpp-tasks` | Inventory of scheduled tasks deployed by GPO |
+| `gpp-groups` | Local-group membership changes deployed by GPO |
 | `topology-check` | Cross-check OU tree against inheritance |
 | `delegation` | Delegation deep-dive audit |
 
@@ -89,13 +91,20 @@ consume them — are documented in
 - **Deterministic core.** No AI in the truth path. Parse, normalize, query —
   all pure and verifiable.
 - **Read-only.** Never touches live AD. Input is file copies only.
-- **Zero runtime dependencies.** Stdlib-only core (`xml.etree.ElementTree`,
-  `json`, `sqlite3`, `argparse`) — portable and air-gappable.
+- **Minimal runtime dependencies.** The core CLI depends only on `defusedxml`
+  (XML bomb protection) beyond the standard library — portable and
+  air-gappable. The web UI is an optional extra (`pip install -e ".[web]"`).
 - **Air-gappable.** No network required for core features.
 - **Flag, don't simulate.** Topology resolution is OU-level; never claims
   object-level RSoP (no per-user security/WMI/loopback evaluation). Scoping
   mechanisms (loopback, security filtering, WMI filters, item-level targeting)
   are flagged with caveats, not simulated.
+
+## Requirements
+
+- Python 3.12+
+- The collector (`scripts/Export-GpoEstate.ps1`) requires Windows with the
+  `GroupPolicy` and `ActiveDirectory` RSAT modules (a DC or RSAT-equipped host).
 
 ## Limits
 
@@ -109,6 +118,13 @@ consume them — are documented in
 - **Per-user/object RSoP simulation.** The tool resolves settings at the OU
   level and flags scoping mechanisms (loopback, security filtering, WMI, ILT)
   with caveats. It does not simulate per-user effective policy.
+- **`<Blocked/>` extensions.** When the GPO report renders an extension as
+  `<Blocked/>` (the CSE was unreadable in-report — common with some third-party
+  extensions), gpo-lens records the setting with `source_state="blocked"` and
+  surfaces it in `admx-gaps`. For the Registry CSE specifically, the binary
+  `Registry.pol` (collected in SYSVOL) is parsed to **resolve** blocked
+  settings into real key/value/type triples (`source_state="registry_pol"`).
+  Other blocked CSEs remain opaque.
 - **Collection coverage is bounded by the collector account's access.** A GPO
   with *Authenticated Users Read* fully stripped is invisible to a
   least-privilege account — not just unreadable. Rather than chase full read by

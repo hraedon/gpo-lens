@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from datetime import datetime, timezone
 
@@ -24,6 +25,7 @@ from gpo_lens.model import (
 def init_db(conn: sqlite3.Connection) -> None:
     """Create tables (idempotent, ``IF NOT EXISTS``)."""
     conn.execute("PRAGMA foreign_keys = ON")
+    _restrict_db_permissions(conn)
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS snapshot (
@@ -54,6 +56,7 @@ def init_db(conn: sqlite3.Connection) -> None:
             filter_data_available INTEGER NOT NULL,
             wmi_filter TEXT,
             sysvol_path TEXT,
+            description TEXT,
             PRIMARY KEY (snapshot_id, id)
         )
         """
@@ -191,7 +194,44 @@ def init_db(conn: sqlite3.Connection) -> None:
         """
     )
     init_events_table(conn)
+    _migrate_schema(conn)
     conn.commit()
+
+
+def _column_exists(conn: sqlite3.Connection, table: str, column: str) -> bool:
+    """True if ``column`` exists on ``table`` (used by additive migrations)."""
+    rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
+    return any(r[1] == column for r in rows)
+
+
+def _migrate_schema(conn: sqlite3.Connection) -> None:
+    """Additive column migrations for DBs created by older gpo-lens versions.
+
+    ``CREATE TABLE IF NOT EXISTS`` won't add columns to an existing table, so
+    each additive column needs an ``ALTER TABLE`` here guarded by a column
+    check. Only additive (NULLable) columns — never renames or drops.
+    """
+    if not _column_exists(conn, "gpo", "description"):
+        conn.execute("ALTER TABLE gpo ADD COLUMN description TEXT")
+
+
+def _restrict_db_permissions(conn: sqlite3.Connection) -> None:
+    """Tighten the DB file to owner-only (0600).
+
+    The snapshot DB holds the full estate (GPO names, delegation, settings,
+    cpassword metadata) — on a shared host it should not be world/group
+    readable. SQLite creates files with the process umask (often 0644), so we
+    tighten on every ``init_db``. Best-effort: in-memory and non-local paths
+    are skipped.
+    """
+    row = conn.execute("PRAGMA database_list").fetchone()
+    if not row or not row[2]:
+        return
+    path = row[2]
+    try:
+        os.chmod(path, 0o600)
+    except (OSError, ValueError):
+        pass
 
 
 def _dt_to_iso(dt: datetime | None) -> str | None:
@@ -224,8 +264,8 @@ def save_estate(conn: sqlite3.Connection, estate: Estate, taken_at: datetime | N
                 snapshot_id, id, name, domain, created, modified, read,
                 computer_enabled, user_enabled, computer_ver_ds, computer_ver_sysvol,
                 user_ver_ds, user_ver_sysvol, sddl, owner, filter_data_available,
-                wmi_filter, sysvol_path
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                wmi_filter, sysvol_path, description
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 snapshot_id,
@@ -246,6 +286,7 @@ def save_estate(conn: sqlite3.Connection, estate: Estate, taken_at: datetime | N
                 int(g.filter_data_available),
                 g.wmi_filter,
                 g.sysvol_path,
+                g.description,
             ),
         )
         for link in g.links:
@@ -384,8 +425,9 @@ def load_estate(conn: sqlite3.Connection, snapshot_id: int | None = None) -> Est
         SELECT id, name, domain, created, modified, read,
                computer_enabled, user_enabled, computer_ver_ds, computer_ver_sysvol,
                user_ver_ds, user_ver_sysvol, sddl, owner, filter_data_available,
-               wmi_filter, sysvol_path
+               wmi_filter, sysvol_path, description
         FROM gpo WHERE snapshot_id = ?
+        ORDER BY id
         """,
         (snapshot_id,),
     ):
@@ -407,6 +449,7 @@ def load_estate(conn: sqlite3.Connection, snapshot_id: int | None = None) -> Est
             filter_data_available=bool(row[14]),
             wmi_filter=row[15],
             sysvol_path=row[16],
+            description=row[17],
         )
         gpos[gpo.id] = gpo
 
@@ -415,6 +458,7 @@ def load_estate(conn: sqlite3.Connection, snapshot_id: int | None = None) -> Est
         """
         SELECT gpo_id, som_name, som_path, link_enabled, enforced
         FROM gpo_link WHERE snapshot_id = ?
+        ORDER BY gpo_id, som_path
         """,
         (snapshot_id,),
     ):
@@ -437,6 +481,7 @@ def load_estate(conn: sqlite3.Connection, snapshot_id: int | None = None) -> Est
         SELECT gpo_id, side, cse, identity, display_name, display_value,
                raw, from_disabled_side, source_state
         FROM setting WHERE snapshot_id = ?
+        ORDER BY gpo_id, side, cse, identity
         """,
         (snapshot_id,),
     ):
@@ -462,6 +507,7 @@ def load_estate(conn: sqlite3.Connection, snapshot_id: int | None = None) -> Est
         """
         SELECT gpo_id, trustee, trustee_sid, permission, allowed
         FROM delegation WHERE snapshot_id = ?
+        ORDER BY gpo_id, trustee
         """,
         (snapshot_id,),
     ):
@@ -481,7 +527,8 @@ def load_estate(conn: sqlite3.Connection, snapshot_id: int | None = None) -> Est
     # Load SOMs
     soms: dict[str, Som] = {}
     for row in conn.execute(
-        "SELECT path, name, container_type, inheritance_blocked FROM som WHERE snapshot_id = ?",
+        "SELECT path, name, container_type, inheritance_blocked "
+        "FROM som WHERE snapshot_id = ? ORDER BY path",
         (snapshot_id,),
     ):
         som = Som(
@@ -496,6 +543,7 @@ def load_estate(conn: sqlite3.Connection, snapshot_id: int | None = None) -> Est
         """
         SELECT som_path, gpo_id, order_, enabled, enforced, target
         FROM som_link WHERE snapshot_id = ?
+        ORDER BY som_path, order_
         """,
         (snapshot_id,),
     ):
@@ -514,21 +562,23 @@ def load_estate(conn: sqlite3.Connection, snapshot_id: int | None = None) -> Est
 
     wmi_filters: list[WmiFilter] = []
     for row in conn.execute(
-        "SELECT name, query FROM wmi_filter WHERE snapshot_id = ?",
+        "SELECT name, query FROM wmi_filter WHERE snapshot_id = ? ORDER BY name",
         (snapshot_id,),
     ):
         wmi_filters.append(WmiFilter(name=row[0], query=row[1]))
 
     ou_tree: list[OuRecord] = []
     for row in conn.execute(
-        "SELECT dn, name, gp_link, gp_options FROM ou_tree WHERE snapshot_id = ?",
+        "SELECT dn, name, gp_link, gp_options FROM ou_tree "
+        "WHERE snapshot_id = ? ORDER BY dn",
         (snapshot_id,),
     ):
         ou_tree.append(OuRecord(dn=row[0], name=row[1], gp_link=row[2], gp_options=row[3]))
 
     coverage_gaps: list[CoverageGap] = []
     for row in conn.execute(
-        "SELECT gpo_id, display_name, kind, detail FROM coverage_gap WHERE snapshot_id = ?",
+        "SELECT gpo_id, display_name, kind, detail FROM coverage_gap "
+        "WHERE snapshot_id = ? ORDER BY gpo_id",
         (snapshot_id,),
     ):
         coverage_gaps.append(

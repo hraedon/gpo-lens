@@ -106,6 +106,9 @@ def _gpo_sections(
         _GpoSectionItem("User side", "Enabled" if gpo.user_enabled else "Disabled"),
     ]
 
+    if gpo.description:
+        properties.append(_GpoSectionItem("Description", gpo.description))
+
     if gpo.computer_ver_ds is not None or gpo.computer_ver_sysvol is not None:
         comp_skew = " **SKEW**" if gpo.computer_version_skew else ""
         properties.append(

@@ -86,6 +86,7 @@ def cmd_show(args: argparse.Namespace) -> None:
             "id": gpo.id,
             "name": gpo.name,
             "domain": gpo.domain,
+            "description": gpo.description,
             "computer_enabled": gpo.computer_enabled,
             "user_enabled": gpo.user_enabled,
             "links": [
@@ -99,6 +100,8 @@ def cmd_show(args: argparse.Namespace) -> None:
     else:
         print(f"GPO: {gpo.name} ({gpo.id})")
         print(f"  Domain: {gpo.domain}")
+        if gpo.description:
+            print(f"  Description: {gpo.description}")
         for s in gpo.settings[:100]:
             print(f"  [{s.cse}] {s.side}/{s.identity}: {s.display_value}")
         if len(gpo.settings) > 100:

@@ -75,10 +75,11 @@ a DC/RSAT box). The tool consumes its output dir.
 |--------|---------|
 | `model.py` | Dataclasses — the normalized contract |
 | `normalize.py` | Pure helpers: `canonical_guid`, `load_json`, `parse_bool/int/dt` |
-| `ingest.py` | Parse collector outputs → `Estate`. Also `parse_report_xml` for raw bytes (UTF-8/16), `load_baseline_from_zip` for Microsoft baseline zips |
-| `store.py` | SQLite persistence for snapshot history |
+| `ingest.py` | Parse collector outputs → `Estate`. Also `parse_report_xml` for raw bytes (UTF-8/16), `load_baseline_from_zip` for Microsoft baseline zips, `augment_blocked_registry_from_pol` to resolve `<Blocked/>` Registry extensions from `Registry.pol` |
+| `store.py` | SQLite persistence for snapshot history (additive schema migrations in `_migrate_schema`) |
 | `queries.py` | Query composition, Tier 2/2.5 queries, estate_doctor, baseline_diff, snapshot diffing, topology, conflicts |
-| `detection.py` | Pure scanner functions — cpassword, MS16-072, version skew, broken refs, etc. Result types: `CpasswordHit`, `BrokenRef`, `AdmxGap` |
+| `detection.py` | Pure scanner functions — cpassword, MS16-072, version skew, broken refs, scheduled tasks, local-group mods, etc. Result types: `CpasswordHit`, `BrokenRef`, `AdmxGap`, `ScheduledTaskInfo`, `LocalGroupMod` |
+| `registry_pol.py` | PReg binary parser — decodes `Registry.pol` files into `PregRecord`s (resolves `<Blocked/>` settings) |
 | `admx_parser.py` | ADMX/ADML template parser — builds registry-path → policy-name crosswalk for baseline diff |
 | `display.py` | Table renderer |
 | `report.py` | Markdown/HTML estate report generation |

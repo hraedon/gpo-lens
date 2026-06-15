@@ -167,6 +167,26 @@ def test_ms16_072_dc_read_via_sid():
     assert queries.ms16_072_vulnerable(estate) == []
 
 
+def test_ms16_072_dc_sid_requires_domain_prefix():
+    """A SID ending in -515 but outside S-1-5-21-* must NOT match Domain Computers.
+
+    Previously `endswith("-515")` matched any such SID (e.g. a builtin-domain
+    group), producing a false MS16-072 pass. The check now requires the
+    domain-SID prefix.
+    """
+    gpo = _make_gpo(
+        delegation=[
+            DelegationEntry(
+                gpo_id="x", trustee="Backup-thing", trustee_sid="S-1-5-32-515",
+                permission="Read", allowed=True,
+            ),
+        ]
+    )
+    estate = Estate(gpos=[gpo])
+    # The bogus -515 SID is not Domain Computers → no broad read → vulnerable.
+    assert gpo in queries.ms16_072_vulnerable(estate)
+
+
 # ---- delegation_deep_dive --------------------------------------------------
 
 
@@ -1200,6 +1220,77 @@ def test_settings_at_som_enforced_flag():
     result = queries.settings_at_som(estate, "ou=ws,dc=test,dc=local")
     assert len(result) == 1
     assert result[0].enforced is True
+
+
+def test_settings_at_som_excludes_disabled_side_settings():
+    """A setting on a disabled side does NOT apply — it must not appear as
+    effective (charter: flag, don't simulate). Disabled-side ghosts are
+    surfaced separately by disabled_but_populated()."""
+    from gpo_lens.model import Setting, Som, SomLink
+
+    gpo = _make_gpo(
+        id="gpo-1", name="Disabled Side GPO",
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="Computer", cse="Security",
+                identity="Account:Foo", display_name="Foo",
+                display_value="5", raw={}, from_disabled_side=True,
+            ),
+            Setting(
+                gpo_id="gpo-1", side="User", cse="Registry",
+                identity="Bar", display_name="Bar",
+                display_value="B", raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    som = Som(
+        path="ou=ws,dc=test,dc=local",
+        name="WS", container_type="ou", inheritance_blocked=False,
+        links=[SomLink(gpo_id="gpo-1", order=1, enabled=True, enforced=True, target="")],
+    )
+    estate = Estate(gpos=[gpo], soms=[som])
+    result = queries.settings_at_som(estate, "ou=ws,dc=test,dc=local")
+    # The disabled-side Computer setting is excluded; only the live User setting appears.
+    assert len(result) == 1
+    assert result[0].identity == "Bar"
+    assert result[0].side == "User"
+
+
+def test_som_conflicts_excludes_disabled_side_settings():
+    """A disabled-side setting must not fabricate a conflict."""
+    from gpo_lens.model import Setting, Som, SomLink
+
+    gpo_live = _make_gpo(
+        id="gpo-live", name="Live",
+        settings=[
+            Setting(
+                gpo_id="gpo-live", side="Computer", cse="Security",
+                identity="X", display_name="X",
+                display_value="1", raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    gpo_ghost = _make_gpo(
+        id="gpo-ghost", name="Ghost",
+        settings=[
+            Setting(
+                gpo_id="gpo-ghost", side="Computer", cse="Security",
+                identity="X", display_name="X",
+                display_value="2", raw={}, from_disabled_side=True,
+            ),
+        ],
+    )
+    som = Som(
+        path="ou=ws,dc=test,dc=local",
+        name="WS", container_type="ou", inheritance_blocked=False,
+        links=[
+            SomLink(gpo_id="gpo-live", order=1, enabled=True, enforced=False, target=""),
+            SomLink(gpo_id="gpo-ghost", order=2, enabled=True, enforced=False, target=""),
+        ],
+    )
+    estate = Estate(gpos=[gpo_live, gpo_ghost], soms=[som])
+    # Only the live setting applies → no differing-value conflict.
+    assert queries.som_conflicts(estate, "ou=ws,dc=test,dc=local") == []
 
 
 def test_settings_at_som_multiple_identities():
@@ -2310,6 +2401,68 @@ def test_settings_dump_filter_combined():
 def test_settings_dump_empty():
     estate = Estate(gpos=[])
     assert queries.settings_dump(estate) == []
+
+
+def test_settings_dump_output_is_sorted():
+    """settings_dump output must be deterministic regardless of GPO/setting
+    insertion order — it feeds --json consumers and snapshot diffs."""
+    from gpo_lens.model import Setting
+
+    gpo_b = _make_gpo(
+        id="gpo-b", name="Beta",
+        settings=[
+            Setting(
+                gpo_id="gpo-b", side="User", cse="Registry",
+                identity="Z", display_name="Z", display_value="z",
+                raw={}, from_disabled_side=False,
+            ),
+            Setting(
+                gpo_id="gpo-b", side="Computer", cse="Security",
+                identity="A", display_name="A", display_value="a",
+                raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    gpo_a = _make_gpo(
+        id="gpo-a", name="Alpha",
+        settings=[
+            Setting(
+                gpo_id="gpo-a", side="Computer", cse="Security",
+                identity="B", display_name="B", display_value="b",
+                raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    forward = queries.settings_dump(Estate(gpos=[gpo_a, gpo_b]))
+    reverse = queries.settings_dump(Estate(gpos=[gpo_b, gpo_a]))
+    assert forward == reverse
+    keys = [(r.gpo_id, r.side, r.cse, r.identity.lower()) for r in forward]
+    assert keys == sorted(keys)
+
+
+def test_conflicts_output_is_sorted_and_deterministic():
+    """conflicts() output and its entries must be order-independent of input."""
+    from gpo_lens.model import Setting
+
+    def _make_conflicting(name: str, ident: str, value: str) -> Gpo:
+        return _make_gpo(
+            id=f"gpo-{name}", name=name,
+            settings=[
+                Setting(
+                    gpo_id=f"gpo-{name}", side="Computer", cse="Security",
+                    identity=ident, display_name=ident, display_value=value,
+                    raw={}, from_disabled_side=False,
+                ),
+            ],
+        )
+
+    a1, a2 = _make_conflicting("a1", "SharedID", "1"), _make_conflicting("a2", "SharedID", "2")
+    b1, b2 = _make_conflicting("b1", "Other", "x"), _make_conflicting("b2", "Other", "y")
+    forward = queries.conflicts(Estate(gpos=[a1, a2, b1, b2]))
+    reverse = queries.conflicts(Estate(gpos=[b2, b1, a2, a1]))
+    assert forward == reverse
+    for c in forward:
+        assert c.entries == sorted(c.entries)
 
 
 def test_broken_refs_prefers_gpp_detail_over_settings(tmp_path):
@@ -3473,3 +3626,139 @@ def test_settings_diff_side_exact_match(tmp_path):
     result = queries.settings_diff(str(fa), str(fb), side="Computer")
     assert len(result) == 1
     assert result[0].side == "Computer"
+
+
+# ---- GPP structured scanners (scheduled tasks, local groups) ---------------
+
+
+def _write_gpp(tmp_path, gpo_id: str, side: str, filename: str, xml: str) -> Gpo:
+    """Build a GPO whose sysvol_path contains a GPP file under Machine/Preferences."""
+    base = tmp_path / "sysvol" / gpo_id
+    prefs = base / side / "Preferences"
+    prefs.mkdir(parents=True)
+    (prefs / filename).write_text(xml)
+    return _make_gpo(id=gpo_id, name=f"GPO {gpo_id}", sysvol_path=str(base))
+
+
+def test_scan_scheduled_tasks_extracts_structured_fields(tmp_path):
+    from gpo_lens.detection import scan_scheduled_tasks
+
+    xml = (
+        '<?xml version="1.0"?>\n'
+        '<ScheduledTasks clsid="{x}">\n'
+        '  <Task clsid="{y}" name="Backup Job">\n'
+        '    <Properties action="REPLACE" appName="C:\\Tools\\bkup.exe"\n'
+        '      arguments="--full" runAs="DOMAIN\\BackupSvc"/>\n'
+        '  </Task>\n'
+        '</ScheduledTasks>\n'
+    )
+    gpo = _write_gpp(tmp_path, "gpo-1", "Machine", "ScheduledTasks.xml", xml)
+    hits = scan_scheduled_tasks(gpo)
+    assert len(hits) == 1
+    h = hits[0]
+    assert h.kind == "Task"
+    assert h.name == "Backup Job"
+    assert h.action == "REPLACE"
+    assert h.command == r"C:\Tools\bkup.exe"
+    assert h.arguments == "--full"
+    assert h.run_as == r"DOMAIN\BackupSvc"
+    assert h.side == "Computer"
+    assert "ScheduledTasks.xml" in h.file
+
+
+def test_scan_scheduled_tasks_picks_up_immediate_tasks(tmp_path):
+    from gpo_lens.detection import scan_scheduled_tasks
+
+    xml = (
+        '<?xml version="1.0"?>\n'
+        '<ScheduledTasks>\n'
+        '  <ImmediateTaskV2 name="OneShot">\n'
+        '    <Properties action="CREATE" appName="boot.cmd"/>\n'
+        '  </ImmediateTaskV2>\n'
+        '</ScheduledTasks>\n'
+    )
+    gpo = _write_gpp(tmp_path, "gpo-u", "User", "ScheduledTasks.xml", xml)
+    hits = scan_scheduled_tasks(gpo)
+    assert len(hits) == 1
+    assert hits[0].kind == "ImmediateTaskV2"
+    assert hits[0].side == "User"
+
+
+def test_scan_scheduled_tasks_empty_when_no_file(tmp_path):
+    from gpo_lens.detection import scan_scheduled_tasks
+
+    gpo = _make_gpo(id="gpo-1", sysvol_path=str(tmp_path / "nope"))
+    assert scan_scheduled_tasks(gpo) == []
+
+
+def test_scan_local_groups_extracts_member_deltas(tmp_path):
+    from gpo_lens.detection import scan_local_groups
+
+    xml = (
+        '<?xml version="1.0"?>\n'
+        '<Groups>\n'
+        '  <Group name="Administrators (local)">\n'
+        '    <Properties action="UPDATE" groupName="Administrators" groupSid="S-1-5-32-544">\n'
+        '      <Members>\n'
+        '        <Member name="DOMAIN\\Tier1" action="ADD" sid="S-1-5-21-1-1101"/>\n'
+        '        <Member name="DOMAIN\\Old" action="REMOVE" sid="S-1-5-21-1-1102"/>\n'
+        '      </Members>\n'
+        '    </Properties>\n'
+        '  </Group>\n'
+        '</Groups>\n'
+    )
+    # Real GPP stores this in Groups.xml, not a separate file.
+    gpo = _write_gpp(tmp_path, "gpo-2", "Machine", "Groups.xml", xml)
+    mods = scan_local_groups(gpo)
+    assert len(mods) == 1
+    m = mods[0]
+    assert m.group_name == "Administrators"
+    assert m.group_sid == "S-1-5-32-544"
+    assert m.members_added == (r"DOMAIN\Tier1",)
+    assert m.members_removed == (r"DOMAIN\Old",)
+    assert m.side == "Computer"
+
+
+def test_scan_local_groups_ignores_user_elements(tmp_path):
+    """A <User> account definition in Groups.xml is not a group membership mod."""
+    from gpo_lens.detection import scan_local_groups
+
+    xml = (
+        '<?xml version="1.0"?>\n'
+        '<Groups>\n'
+        '  <User name="svc">\n'
+        '    <Properties action="UPDATE" userName="svc"/>\n'
+        '  </User>\n'
+        '</Groups>\n'
+    )
+    gpo = _write_gpp(tmp_path, "gpo-3", "Machine", "Groups.xml", xml)
+    assert scan_local_groups(gpo) == []
+
+
+def test_scheduled_tasks_and_local_group_mods_are_deterministic(tmp_path):
+    """Estate-wide roll-up order must not depend on GPO iteration order."""
+    from gpo_lens.detection import local_group_mods, scheduled_tasks
+
+    xml_t = (
+        '<ScheduledTasks><Task name="T1"><Properties action="CREATE"'
+        ' appName="a.exe"/></Task></ScheduledTasks>'
+    )
+    g1 = _write_gpp(tmp_path, "gpo-b", "Machine", "ScheduledTasks.xml", xml_t)
+    g2 = _write_gpp(tmp_path, "gpo-a", "Machine", "ScheduledTasks.xml", xml_t)
+    fwd = scheduled_tasks(Estate(gpos=[g1, g2]))
+    rev = scheduled_tasks(Estate(gpos=[g2, g1]))
+    assert fwd == rev
+    assert [(t.gpo_id, t.name) for t in fwd] == sorted(
+        (t.gpo_id, t.name) for t in fwd
+    )
+    # local_group_mods with the same property
+    xml_g = (
+        '<Groups><Group name="x"><Properties groupName="Administrators">'
+        '<Members><Member name="D\\A" action="ADD"/></Members></Properties>'
+        '</Group></Groups>'
+    )
+    h1 = _write_gpp(tmp_path, "gpo-d", "Machine", "Groups.xml", xml_g)
+    h2 = _write_gpp(tmp_path, "gpo-c", "Machine", "Groups.xml", xml_g)
+    assert local_group_mods(Estate(gpos=[h1, h2])) == local_group_mods(
+        Estate(gpos=[h2, h1])
+    )

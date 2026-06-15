@@ -130,6 +130,7 @@ class Gpo:
     filter_data_available: bool
     wmi_filter: str | None              # from gpo-metadata.json
     sysvol_path: str | None             # matched SYSVOL-Policies/{GUID} dir
+    description: str | None = None      # <Description> from the report (admin's note)
     links: list[GpoLink] = field(default_factory=list)
     settings: list[Setting] = field(default_factory=list)
     delegation: list[DelegationEntry] = field(default_factory=list)

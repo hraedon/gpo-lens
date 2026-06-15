@@ -89,6 +89,7 @@ class GpoDef:
     links: list[LinkDef] = field(default_factory=list)
     delegation: list[dict] = field(default_factory=list)
     modified: str = TS
+    description: str = ""
 
 
 def _make_link(
@@ -187,6 +188,10 @@ def gpo_to_xml(g: GpoDef) -> str:
         f"      <Domain>{DOMAIN}</Domain>",
         "    </Identifier>",
         f"    <Name>{_xe(g.name)}</Name>",
+    ]
+    if g.description:
+        lines.append(f"    <Description>{_xe(g.description)}</Description>")
+    lines.extend([
         f"    <CreatedTime>{TS}</CreatedTime>",
         f"    <ModifiedTime>{g.modified}</ModifiedTime>",
         f"    <ReadTime>{TS}</ReadTime>",
@@ -196,7 +201,7 @@ def gpo_to_xml(g: GpoDef) -> str:
         "    <User>",
         _make_side_xml(g.user),
         "    </User>",
-    ]
+    ])
     if g.delegation:
         compact = g.guid in (GUID_F, GUID_G, GUID_H)
         lines.append(_make_delegation_xml(g.delegation, compact=compact))
@@ -216,6 +221,7 @@ GPO_DEFS = [
     GpoDef(
         guid=GUID_A,
         name="gpo-cpassword",
+        description="Baseline domain security; do not modify without change review.",
         computer=SideDef(
             data=[
                 {
@@ -662,6 +668,42 @@ def write_all(target: Path = FIXTURE_DIR) -> None:
         "</Groups>\n"
     )
     (sysvol / "Groups.xml").write_text(groups_xml, encoding="utf-8")
+
+    # ScheduledTasks.xml + LocalUsersAndGroups.xml on the same GPO's Machine
+    # side — exercise the structured GPP scanners (scan_scheduled_tasks /
+    # scan_local_groups).
+    tasks_xml = (
+        '<?xml version="1.0" encoding="utf-8"?>\n'
+        '<ScheduledTasks clsid="{3A9C9A85-A59E-484F-9CC8-1B1B7AF1AAA1}">\n'
+        '  <Task clsid="{...}" name="Update App Catalog" changed="2025-06-01">\n'
+        '    <Properties action="UPDATE" appName="%SystemRoot%\\System32\\app.exe"\n'
+        '      arguments="--sync" runAs="NT AUTHORITY\\SYSTEM"/>\n'
+        '  </Task>\n'
+        '  <ImmediateTaskV2 clsid="{...}" name="OneShot Bootstrap">\n'
+        '    <Properties action="CREATE" appName="bootstrap.cmd"\n'
+        '      arguments="" runAs="FAKEFIXTURE\\JoinAccount"/>\n'
+        '  </ImmediateTaskV2>\n'
+        '</ScheduledTasks>\n'
+    )
+    (sysvol / "ScheduledTasks.xml").write_text(tasks_xml, encoding="utf-8")
+
+    lug_xml = (
+        '<?xml version="1.0" encoding="utf-8"?>\n'
+        '<Groups clsid="{3125E937-EB16-4b4c-9934-544FC6D66F83}">\n'
+        '  <Group clsid="{...}" name="Administrators (local)" changed="2025-06-01">\n'
+        '    <Properties action="UPDATE" groupName="Administrators"\n'
+        '      groupSid="S-1-5-32-544" removePolicy="0">\n'
+        '      <Members>\n'
+        '        <Member name="FAKEFIXTURE\\Tier1Admins" action="ADD"\n'
+        '          sid="S-1-5-21-1234567890-1234567890-1234567890-1101"/>\n'
+        '        <Member name="FAKEFIXTURE\\LegacyAdmin" action="REMOVE"\n'
+        '          sid="S-1-5-21-1234567890-1234567890-1234567890-1102"/>\n'
+        '      </Members>\n'
+        '    </Properties>\n'
+        '  </Group>\n'
+        '</Groups>\n'
+    )
+    (sysvol / "LocalUsersAndGroups.xml").write_text(lug_xml, encoding="utf-8")
 
     ilt_sysvol = (
         target

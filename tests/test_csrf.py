@@ -16,7 +16,11 @@ CSRF Middleware Logic (app.py::_csrf_check):
     - Non-POST methods (GET, HEAD, etc.)
 
   localhost = hostname in ("localhost", "127.0.0.1", "::1",
-                           "0.0.0.0", "localhost.localdomain")
+                           "localhost.localdomain")
+
+  NOTE: 0.0.0.0 is intentionally NOT allow-listed — it is the bind-any
+  wildcard, not a legitimate client Origin. A cross-origin POST can spoof
+  Origin: http://0.0.0.0, so allowing it would defeat the CSRF guard.
 
 Threat model: The web UI is designed for loopback-only deployment.
 If someone accidentally binds non-loopback, the CSRF check prevents
@@ -113,7 +117,6 @@ class TestCsrfMatchingOrigin:
         "http://127.0.0.1:8080",
         "http://[::1]",
         "http://[::1]:8000",
-        "http://0.0.0.0",
         "http://localhost.localdomain",
     ])
     def test_post_with_localhost_origin_passes(self, csrf_client, origin: str) -> None:
@@ -149,6 +152,8 @@ class TestCsrfMismatchedOrigin:
         "http://192.168.1.1",
         "http://10.0.0.1",
         "http://localhost.evil.com",  # hostname is NOT "localhost"
+        "http://0.0.0.0",             # bind-any wildcard — spoofable, not allow-listed
+        "http://0.0.0.0:8000",
     ])
     def test_post_with_external_origin_rejected(self, csrf_client, origin: str) -> None:
         resp = csrf_client.post("/api/narrate", headers={"origin": origin})
@@ -185,7 +190,6 @@ class TestCsrfMatchingReferer:
         "http://localhost/ingest",
         "http://127.0.0.1:8000/ask",
         "http://[::1]:8000/ask",
-        "http://0.0.0.0:8000/",
         "http://localhost.localdomain:8000/ask",
     ])
     def test_post_with_localhost_referer_no_origin_passes(

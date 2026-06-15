@@ -326,10 +326,12 @@ def conflicts(estate: Estate) -> list[Conflict]:
             if pair not in seen_pairs:
                 seen_pairs.add(pair)
                 entries.append(pair)
+        entries.sort()
         results.append(Conflict(
             cse=cse, side=side, identity=identity,
             display_name=settings[0].display_name, entries=entries,
         ))
+    results.sort(key=lambda c: (c.cse, c.side, c.identity.lower()))
     return results
 
 
@@ -1110,6 +1112,7 @@ def settings_dump(
                 from_disabled_side=s.from_disabled_side,
                 source_state=s.source_state,
             ))
+    results.sort(key=lambda r: (r.gpo_id, r.side, r.cse, r.identity.lower()))
     return results
 
 
