@@ -168,9 +168,11 @@ def create_app(db_path: str, *, root_path: str = "") -> FastAPI:
     def _is_localhost_origin(origin: str) -> bool:
         from urllib.parse import urlparse
         parsed = urlparse(origin)
+        # `0.0.0.0` is the bind-any wildcard, not a legitimate client Origin —
+        # a cross-origin attacker can spoof it, so it must NOT be allow-listed.
         return parsed.hostname in (
             "localhost", "127.0.0.1", "::1",
-            "0.0.0.0", "localhost.localdomain",
+            "localhost.localdomain",
         )
 
     @app.middleware("http")

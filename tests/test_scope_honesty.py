@@ -1,8 +1,8 @@
 """Unit tests for scope-honesty features in topology.py.
 
-Covers scope_caveats, effective_scope, and scan_ilt edge cases.
-Does NOT assert on is_security_filtered's empty-delegation behavior
-or Everyone/S-1-1-0 handling (concurrent changes in progress).
+Covers scope_caveats, effective_scope, scan_ilt edge cases, and the
+is_security_filtered / _broad_key SID-matching rules (including the tightened
+Domain Computers check that requires the S-1-5-21-* prefix).
 """
 
 from __future__ import annotations
@@ -505,3 +505,71 @@ class TestScanIlt:
         hits = scan_ilt(estate)
         assert len(hits) == 3
         assert {h.gpo_id for h in hits} == set(hits_expected)
+
+
+# ---------------------------------------------------------------------------
+# is_security_filtered / _broad_key — SID matching
+# ---------------------------------------------------------------------------
+
+
+class TestBroadTrusteeSidMatching:
+    """Domain Computers is S-1-5-21-{domain}-515. The -515 suffix check must
+    be scoped to domain SIDs so a non-domain SID ending in 515 doesn't
+    false-match (which would mask a real security-filtering finding)."""
+
+    def test_dc_sid_with_domain_prefix_matches(self) -> None:
+        from gpo_lens.topology import _broad_key
+
+        assert _broad_key("x", "S-1-5-21-123-456-515") == "domain_computers"
+
+    def test_builtin_sid_ending_in_515_does_not_match(self) -> None:
+        from gpo_lens.topology import _broad_key
+
+        # S-1-5-32-515 is in the builtin domain, not a domain principal.
+        assert _broad_key("x", "S-1-5-32-515") is None
+
+    def test_arbitrary_sid_ending_in_515_does_not_match(self) -> None:
+        from gpo_lens.topology import _broad_key
+
+        assert _broad_key("x", "S-1-2-3-515") is None
+
+    def test_name_match_still_works_without_sid(self) -> None:
+        from gpo_lens.topology import _broad_key
+
+        assert _broad_key("Domain Computers", None) == "domain_computers"
+
+    def test_is_security_filtered_flags_gpo_with_only_bogus_515_sid(self) -> None:
+        """A GPO whose only 'broad' trustee is a non-domain SID ending in 515
+        is genuinely filtered — the bogus SID must not count as Domain Computers."""
+        gpo = _make_gpo(
+            id="gpo-sf",
+            delegation=[
+                DelegationEntry(
+                    gpo_id="gpo-sf",
+                    trustee="NotDC",
+                    trustee_sid="S-1-5-32-515",
+                    permission="Read",
+                    allowed=True,
+                ),
+            ],
+        )
+        from gpo_lens.topology import is_security_filtered
+
+        assert is_security_filtered(gpo) is True
+
+    def test_is_security_filtered_passes_with_real_dc_sid(self) -> None:
+        gpo = _make_gpo(
+            id="gpo-ok",
+            delegation=[
+                DelegationEntry(
+                    gpo_id="gpo-ok",
+                    trustee="DC",
+                    trustee_sid="S-1-5-21-999-515",
+                    permission="Apply Group Policy",
+                    allowed=True,
+                ),
+            ],
+        )
+        from gpo_lens.topology import is_security_filtered
+
+        assert is_security_filtered(gpo) is False

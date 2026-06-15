@@ -524,6 +524,42 @@ class TestCLI:
         )
         assert r.returncode == 0
 
+    def test_gpp_tasks(self):
+        r = subprocess.run(
+            GPO_LENS + ["gpp-tasks", "tests/fixtures"],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+
+    def test_gpp_tasks_json_envelope(self):
+        import json as _json
+        r = subprocess.run(
+            GPO_LENS + ["--json", "gpp-tasks", "tests/fixtures"],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+        env = _json.loads(r.stdout)
+        assert env["schema_version"] == 1
+        assert env["kind"] == "gpp-tasks"
+        assert isinstance(env["data"], list)
+        # The fixture ships two scheduled tasks on GPO A.
+        assert len(env["data"]) == 2
+
+    def test_gpp_groups_json_envelope(self):
+        import json as _json
+        r = subprocess.run(
+            GPO_LENS + ["--json", "gpp-groups", "tests/fixtures"],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0
+        env = _json.loads(r.stdout)
+        assert env["kind"] == "gpp-groups"
+        assert isinstance(env["data"], list)
+        assert len(env["data"]) == 1
+        row = env["data"][0]
+        assert row["group_name"] == "Administrators"
+        assert row["group_sid"] == "S-1-5-32-544"
+
     def test_admx_gaps(self, db_path):
         r = subprocess.run(
             GPO_LENS + ["--db", str(db_path), "admx-gaps"],

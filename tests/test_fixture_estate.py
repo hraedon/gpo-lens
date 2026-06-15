@@ -190,9 +190,14 @@ def test_fixture_settings_at_som(fixture_estate):
         assert es.winner_gpo_id
         assert es.winner_gpo_name
         assert es.identity
-    # At least one enforced setting (from GPO C)
-    assert any(es.enforced for es in result)
-    # At least one overridden_by populated
+    # GPO C (version_skew) is the only enforced-link GPO at root, but its
+    # Computer side is DISABLED — its settings are disabled-side ghosts and
+    # must NOT appear as effective (charter: flag, don't simulate). They are
+    # surfaced separately by disabled_but_populated().
+    enforced_ids = {es.winner_gpo_id for es in result if es.enforced}
+    assert GPO_IDS["version_skew"] not in enforced_ids
+    assert not any(es.winner_gpo_id == GPO_IDS["version_skew"] for es in result)
+    # At least one overridden_by populated (the D/H BadValue conflict at child)
     assert any(es.overridden_by for es in result)
 
 
@@ -200,6 +205,41 @@ def test_fixture_settings_at_som(fixture_estate):
 
 def test_fixture_domain(fixture_estate):
     assert fixture_estate.domain == "fakefixture.local"
+
+
+def test_fixture_description_parsed(fixture_estate):
+    """GPO A carries a <Description>; it must round-trip into Gpo.description."""
+    gpo_a = fixture_estate.gpo_by_id(GPO_IDS["cpassword"])
+    assert gpo_a is not None
+    assert gpo_a.description == (
+        "Baseline domain security; do not modify without change review."
+    )
+    # GPOs without <Description> parse to None.
+    gpo_b = fixture_estate.gpo_by_id(GPO_IDS["ms16_072"])
+    assert gpo_b is not None
+    assert gpo_b.description is None
+
+
+def test_fixture_gpp_scanners_find_tasks_and_groups(fixture_estate):
+    """The fixture's GPO A carries ScheduledTasks.xml + LocalUsersAndGroups.xml;
+    the structured scanners must surface them."""
+    from gpo_lens.detection import local_group_mods, scheduled_tasks
+
+    tasks = scheduled_tasks(fixture_estate)
+    assert len(tasks) == 2
+    names = {t.name for t in tasks}
+    assert {"Update App Catalog", "OneShot Bootstrap"} <= names
+    # The SYSTEM-run task is the higher-signal finding for an audit.
+    sys_task = next(t for t in tasks if t.run_as == "NT AUTHORITY\\SYSTEM")
+    assert sys_task.command.endswith("app.exe")
+
+    mods = local_group_mods(fixture_estate)
+    assert len(mods) == 1
+    m = mods[0]
+    assert m.group_name == "Administrators"
+    assert m.group_sid == "S-1-5-32-544"
+    assert "FAKEFIXTURE\\Tier1Admins" in m.members_added
+    assert "FAKEFIXTURE\\LegacyAdmin" in m.members_removed
 
 
 def test_fixture_wmi_filter_count(fixture_estate):

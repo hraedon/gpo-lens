@@ -6,7 +6,7 @@ import sys
 
 from gpo_lens import queries
 from gpo_lens.cli._helpers import _get_estate, _print_table, _render_json
-from gpo_lens.detection import mask_cpassword
+from gpo_lens.detection import local_group_mods, mask_cpassword, scheduled_tasks
 
 
 def cmd_unlinked(args: argparse.Namespace) -> None:
@@ -131,6 +131,71 @@ def cmd_broken_refs(args: argparse.Namespace) -> None:
             [
                 [r.gpo_id, r.gpo_name, r.ref_type, r.ref_value, r.detail]
                 for r in result
+            ],
+        )
+
+
+def cmd_gpp_tasks(args: argparse.Namespace) -> None:
+    """Structured inventory of scheduled tasks deployed by GPO."""
+    estate = _get_estate(args)
+    result = scheduled_tasks(estate)
+    if args.json:
+        _render_json(
+            [
+                {
+                    "gpo_id": t.gpo_id,
+                    "gpo_name": t.gpo_name,
+                    "side": t.side,
+                    "file": t.file,
+                    "kind": t.kind,
+                    "name": t.name,
+                    "action": t.action,
+                    "command": t.command,
+                    "arguments": t.arguments,
+                    "run_as": t.run_as,
+                }
+                for t in result
+            ]
+        )
+    else:
+        _print_table(
+            ["gpo", "side", "kind", "name", "action", "command", "run_as"],
+            [
+                [t.gpo_name, t.side, t.kind, t.name, t.action, t.command, t.run_as]
+                for t in result
+            ],
+        )
+
+
+def cmd_gpp_groups(args: argparse.Namespace) -> None:
+    """Structured inventory of local-group membership changes by GPO."""
+    estate = _get_estate(args)
+    result = local_group_mods(estate)
+    if args.json:
+        _render_json(
+            [
+                {
+                    "gpo_id": m.gpo_id,
+                    "gpo_name": m.gpo_name,
+                    "side": m.side,
+                    "file": m.file,
+                    "group_name": m.group_name,
+                    "group_sid": m.group_sid,
+                    "members_added": list(m.members_added),
+                    "members_removed": list(m.members_removed),
+                }
+                for m in result
+            ]
+        )
+    else:
+        _print_table(
+            ["gpo", "side", "group", "sid", "+added", "-removed"],
+            [
+                [
+                    m.gpo_name, m.side, m.group_name, m.group_sid,
+                    "; ".join(m.members_added), "; ".join(m.members_removed),
+                ]
+                for m in result
             ],
         )
 

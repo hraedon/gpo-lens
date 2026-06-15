@@ -27,6 +27,8 @@ from gpo_lens.model import (
     WmiFilter,
 )
 from gpo_lens.normalize import canonical_guid, load_json, parse_bool, parse_dt, parse_int
+from gpo_lens.paths import ci_path
+from gpo_lens.registry_pol import parse_registry_pol
 
 # Decompression bomb guard: refuse to expand zip contents beyond this total.
 _MAX_DECOMPRESSED_BYTES = 2 * 1024 * 1024 * 1024
@@ -502,6 +504,7 @@ def _parse_single_gpo(gpo_elem: Element) -> Gpo:
     sddl = _text(_child_by_localname(sd, "SDDL")) if sd is not None else None
     owner = _text(_child_by_localname(sd, "Owner")) if sd is not None else None
     filter_data = parse_bool(_text(_child_by_localname(gpo_elem, "FilterDataAvailable")))
+    description = _text(_child_by_localname(gpo_elem, "Description"))
 
     gpo = Gpo(
         id=gpo_id,
@@ -521,6 +524,7 @@ def _parse_single_gpo(gpo_elem: Element) -> Gpo:
         filter_data_available=filter_data,
         wmi_filter=None,
         sysvol_path=None,
+        description=description,
     )
     gpo.links = _parse_links(gpo_elem, gpo_id)
     gpo.settings = _parse_settings(gpo_elem, gpo_id)
@@ -640,6 +644,83 @@ def attach_sysvol_paths(sysvol_dir: str | Path, gpos: list[Gpo]) -> None:
             f"{unmatched} GPO(s) had SYSVOL paths outside the base directory; skipped",
             stacklevel=1,
         )
+
+
+def augment_blocked_registry_from_pol(gpos: list[Gpo]) -> None:
+    """Resolve ``<Blocked/>`` Registry extensions from the binary ``Registry.pol``.
+
+    The GPO report sometimes renders the Registry CSE as ``<Blocked/>`` (the
+    GPMC could not read it). When that happens the affected side carries a
+    single placeholder setting with ``source_state="blocked"`` and no values.
+    The authoritative values live in ``Machine/Registry.pol`` /
+    ``User/Registry.pol`` (PReg binary format). Where that file exists, this
+    replaces the blocked placeholder with the real settings, tagged
+    ``source_state="registry_pol"``. Where it is absent, the placeholder is
+    kept (we cannot fabricate values).
+
+    Read-only and deterministic. Does not touch report-rendered Registry
+    settings (those are kept as-is).
+    """
+    _SIDE_DIR = {"Computer": "Machine", "User": "User"}
+    for gpo in gpos:
+        if not gpo.sysvol_path:
+            continue
+        base = Path(gpo.sysvol_path)
+        blocked_idxs = [
+            i for i, s in enumerate(gpo.settings)
+            if s.source_state == "blocked"
+            and "registr" in s.cse.lower()
+        ]
+        if not blocked_idxs:
+            continue
+        # Group blocked placeholders by side; one placeholder per blocked side.
+        blocked_sides = {gpo.settings[i].side for i in blocked_idxs}
+        resolved_any = False
+        additions: list[Setting] = []
+        for side in blocked_sides:
+            # Side dir casing varies on a real SYSVOL (default GPOs use MACHINE);
+            # resolve case-insensitively for a case-sensitive analysis host.
+            pol = ci_path(base, _SIDE_DIR.get(side, side), "Registry.pol")
+            if pol is None:
+                continue
+            try:
+                records = parse_registry_pol(pol.read_bytes())
+            except (OSError, ValueError):
+                continue
+            if not records:
+                continue
+            resolved_any = True
+            for rec in records:
+                identity = (
+                    f"{rec.key}:{rec.value_name}"
+                    if (rec.key and rec.value_name)
+                    else (rec.key or rec.value_name)
+                )
+                additions.append(Setting(
+                    gpo_id=gpo.id,
+                    side=side,
+                    cse="Registry",
+                    identity=identity,
+                    display_name=rec.value_name or rec.key,
+                    display_value=rec.display_value,
+                    raw={
+                        "key": rec.key,
+                        "value_name": rec.value_name,
+                        "type_code": rec.type_code,
+                        "type_name": rec.type_name,
+                        "size": rec.size,
+                        "source": "registry_pol",
+                    },
+                    from_disabled_side=False,
+                    source_state="registry_pol",
+                ))
+        if resolved_any:
+            # Drop the blocked placeholders for the sides we resolved; keep the
+            # real settings. Unresolved sides keep their placeholder.
+            gpo.settings = [
+                s for i, s in enumerate(gpo.settings) if i not in set(blocked_idxs)
+            ]
+            gpo.settings.extend(additions)
 
 
 def parse_wmi_filters(json_path: str | Path) -> list[WmiFilter]:
@@ -829,6 +910,10 @@ def load_estate(sample_dir: str | Path) -> Estate:
         alt = src / "SYSVOL" / "Policies"
         if alt.exists():
             attach_sysvol_paths(alt, gpos)
+
+    # Resolve <Blocked/> Registry extensions from the binary Registry.pol where
+    # SYSVOL is present. No-op when SYSVOL wasn't copied or nothing is blocked.
+    augment_blocked_registry_from_pol(gpos)
 
     wmi_filters: list[WmiFilter] = []
     wmi_path = src / "wmi-filters.json"

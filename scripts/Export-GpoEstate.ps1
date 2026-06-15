@@ -60,6 +60,9 @@ foreach ($mod in @('GroupPolicy','ActiveDirectory')) {
 }
 
 try {
+    if (-not (Test-Path -LiteralPath $OutputRoot)) {
+        New-Item -ItemType Directory -Force -Path $OutputRoot | Out-Null
+    }
     $testFile = Join-Path $OutputRoot "_writetest_.tmp"
     [System.IO.File]::WriteAllText($testFile, "test")
     Remove-Item $testFile -Force
@@ -261,16 +264,39 @@ try {
 
 $sectionNum++
 Set-SectionProgress -Activity "SYSVOL copy" -Section $sectionNum
-try {
-    if (-not $SkipSysvol) {
-        $src = "\\$($dom.DNSRoot)\SYSVOL\$($dom.DNSRoot)\Policies"
-        Copy-Item $src -Destination (Join-Path $out 'SYSVOL-Policies') -Recurse -Force
+if ($SkipSysvol) {
+    $successSections.Add("SYSVOL copy (skipped)")
+} else {
+    $src = "\\$($dom.DNSRoot)\SYSVOL\$($dom.DNSRoot)\Policies"
+    $dest = Join-Path $out 'SYSVOL-Policies'
+    New-Item -ItemType Directory -Force -Path $dest | Out-Null
+    $sysvolErrors = 0
+    # Per-policy-folder resilience (mirrors the Get-GPOReport loop): one unreadable
+    # policy folder (e.g. Authenticated Users Read stripped for security filtering)
+    # must not abort the whole copy. Record the GUID so coverage gaps are explicit
+    # rather than silently dropped, consistent with collection-errors.json.
+    foreach ($pf in @(Get-ChildItem -LiteralPath $src -Directory -ErrorAction SilentlyContinue)) {
+        try {
+            Copy-Item -LiteralPath $pf.FullName -Destination $dest -Recurse -Force -ErrorAction Stop
+        } catch {
+            $sysvolErrors++
+            $collectionErrors.Add([pscustomobject]@{
+                GpoId = $pf.Name.Trim('{}'); DisplayName = $null; Stage = 'sysvol'
+                Error = $_.Exception.Message
+            })
+            Write-Warning "SYSVOL copy failed for policy folder $($pf.Name): $($_.Exception.Message)"
+        }
+    }
+    # Loose files at the Policies root (rare) — keep parity with a full copy.
+    Get-ChildItem -LiteralPath $src -File -ErrorAction SilentlyContinue |
+        ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $dest -Force -ErrorAction SilentlyContinue }
+    if ($sysvolErrors -eq 0) {
         $successSections.Add("SYSVOL copy")
     } else {
-        $successSections.Add("SYSVOL copy (skipped)")
+        $failedSections.Add("SYSVOL copy: $sysvolErrors policy folder(s) inaccessible (see collection-errors.json)")
+        # Re-serialize so SYSVOL denials join report/enumerate gaps in one manifest.
+        $collectionErrors | ConvertTo-Json -Depth 4 | Set-Content (Join-Path $out 'collection-errors.json') -Encoding UTF8
     }
-} catch {
-    $failedSections.Add("SYSVOL copy: $($_.Exception.Message)")
 }
 
 Write-Progress -Activity "Export complete" -Completed
@@ -285,8 +311,25 @@ if ($failedSections.Count -gt 0) {
 }
 
 if (-not $NoZip) {
+    # NB: Windows PowerShell 5.1's Compress-Archive writes BACKSLASH path
+    # separators and directory entries that extract on Linux without the
+    # traversal (x) bit — which breaks ingest on a non-Windows analysis box.
+    # Build the archive by hand with forward-slash, file-only entries so it is
+    # portable regardless of the extractor.
+    Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
     try {
-        Compress-Archive -Path (Join-Path $out '*') -DestinationPath "$out.zip" -Force
+        if (Test-Path -LiteralPath "$out.zip") { Remove-Item -LiteralPath "$out.zip" -Force }
+        $zip = [System.IO.Compression.ZipFile]::Open("$out.zip", 'Create')
+        try {
+            $rootLen = $out.Length + 1
+            foreach ($f in Get-ChildItem -LiteralPath $out -Recurse -File) {
+                $entryName = $f.FullName.Substring($rootLen).Replace('\', '/')
+                [void][System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+                    $zip, $f.FullName, $entryName)
+            }
+        } finally {
+            $zip.Dispose()
+        }
         Write-Host "Done: $out.zip"
     } catch {
         Write-Warning "Zip failed ($($_.Exception.Message)). Send the folder instead: $out"

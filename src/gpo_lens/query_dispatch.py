@@ -70,8 +70,6 @@ QUERY_REQUIRED_PARAMS: dict[str, list[str]] = {
     "effective_scope": ["gpo_id"],
 }
 
-_QUERY_PARAMS: dict[str, list[str]] = dict(QUERY_REQUIRED_PARAMS)  # noqa: F841
-
 _PARAM_VALIDATORS: dict[str, dict[str, type]] = {
     "settings_at_som": {"ou_path": str},
     "baseline_diff": {"baseline_path": str},

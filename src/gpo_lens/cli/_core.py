@@ -22,6 +22,8 @@ from gpo_lens.cli._hygiene import (
     cmd_disabled_populated,
     cmd_doctor,
     cmd_empty,
+    cmd_gpp_groups,
+    cmd_gpp_tasks,
     cmd_ms16_072,
     cmd_unlinked,
     cmd_version_skew,
@@ -284,6 +286,21 @@ def main(argv: list[str] | None = None) -> int:
     )
     _add_src(p)
     p.set_defaults(func=cmd_broken_refs)
+
+    # Structured GPP audits
+    p = sub.add_parser(
+        "gpp-tasks",
+        help="Inventory of scheduled tasks deployed by GPO (GPP ScheduledTasks.xml)",
+    )
+    _add_src(p)
+    p.set_defaults(func=cmd_gpp_tasks)
+
+    p = sub.add_parser(
+        "gpp-groups",
+        help="Local-group membership changes deployed by GPO (GPP Groups.xml)",
+    )
+    _add_src(p)
+    p.set_defaults(func=cmd_gpp_groups)
 
     # settings-dump
     p = sub.add_parser(

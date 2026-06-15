@@ -17,6 +17,7 @@ from gpo_lens.model import (
     SddlAce,
     SddlAcl,
 )
+from gpo_lens.paths import ci_child, ci_path
 
 if TYPE_CHECKING:
     from gpo_lens.admx_parser import PolicyDefinitions
@@ -35,6 +36,8 @@ __all__ = [
     "CpasswordHit",
     "DenyAce",
     "ExcessiveWriter",
+    "LocalGroupMod",
+    "ScheduledTaskInfo",
     "SddlAce",
     "SddlAcl",
     "admx_gaps",
@@ -44,9 +47,13 @@ __all__ = [
     "deny_aces",
     "excessive_writers",
     "has_ms16_072_read",
+    "local_group_mods",
     "mask_cpassword",
     "parse_sddl",
     "scan_ilt",
+    "scan_local_groups",
+    "scan_scheduled_tasks",
+    "scheduled_tasks",
     "disabled_but_populated",
     "empty_gpos",
     "enforced_links",
@@ -89,6 +96,36 @@ class AdmxGap:
     display_name: str
     key_path: str
     value_name: str
+
+
+@dataclass(frozen=True)
+class ScheduledTaskInfo:
+    """One scheduled task / immediate task deployed by a GPP ScheduledTasks.xml."""
+
+    gpo_id: str
+    gpo_name: str
+    side: Side              # "Computer" (Machine) or "User"
+    file: str               # rel file path within SYSVOL
+    kind: str               # element local name: "Task", "ImmediateTaskV2", ...
+    name: str               # task name attribute
+    action: str             # CREATE / REPLACE / UPDATE / DELETE
+    command: str            # executable path (appName / Path)
+    arguments: str
+    run_as: str             # run-as account, if specified
+
+
+@dataclass(frozen=True)
+class LocalGroupMod:
+    """One local-group membership modification from LocalUsersAndGroups.xml."""
+
+    gpo_id: str
+    gpo_name: str
+    side: Side
+    file: str
+    group_name: str                 # target local group, e.g. "Administrators"
+    group_sid: str                  # e.g. S-1-5-32-544
+    members_added: tuple[str, ...]
+    members_removed: tuple[str, ...]
 
 
 _GPP_XML_FILES = (
@@ -135,20 +172,46 @@ def _walk_gpp_xml(
     if not gpo.sysvol_path:
         return
     base = Path(gpo.sysvol_path)
+    known_lower = {f.lower() for f in _GPP_XML_FILES}
     for side_dir in ("Machine", "User"):
-        prefs = base / side_dir / "Preferences"
-        if not prefs.exists():
+        # Side/Preferences casing varies on a real SYSVOL (e.g. the default GPOs
+        # use MACHINE/USER); resolve case-insensitively for a Linux analysis host.
+        side = ci_child(base, side_dir)
+        if side is None:
             continue
-        if only_known:
-            candidates = [prefs / f for f in _GPP_XML_FILES]
-        else:
-            candidates = sorted(prefs.iterdir())
+        prefs = ci_child(side, "Preferences")
+        if prefs is None:
+            continue
+        # On a real SYSVOL each GPP CSE lives in its own subfolder
+        # (Preferences/Groups/Groups.xml); some hand-built exports flatten them
+        # (Preferences/Groups.xml). Collect XML from both shapes, one level deep.
+        # Per-entry try/except keeps one unreadable subtree (a security-filtered
+        # GPO copied with ACLs intact, or an extraction that dropped a dir's
+        # traversal bit) from aborting the scan — coverage gaps are surfaced via
+        # collection-errors.json, not by crashing.
+        try:
+            entries = sorted(prefs.iterdir())
+        except OSError:
+            continue
+        candidates: list[Path] = []
+        for entry in entries:
+            try:
+                if entry.is_dir():
+                    candidates.extend(
+                        sorted(c for c in entry.iterdir() if c.is_file())
+                    )
+                elif entry.is_file():
+                    candidates.append(entry)
+            except OSError:
+                continue
         for file_path in candidates:
-            if not file_path.is_file() or file_path.suffix.lower() != ".xml":
+            if file_path.suffix.lower() != ".xml":
+                continue
+            if only_known and file_path.name.lower() not in known_lower:
                 continue
             try:
                 tree = ET.parse(file_path)
-            except ET.ParseError:
+            except (ET.ParseError, OSError):
                 continue
             if tree.getroot() is None:
                 continue
@@ -180,7 +243,9 @@ def _trustee_matches_ms16_072(trustee: str, sid: str | None) -> bool:
         s = sid.strip().lower()
         if s == "s-1-5-11":
             return True
-        if s.endswith("-515"):
+        # Domain Computers = S-1-5-21-{domain}-515. Require the domain-SID
+        # prefix so an arbitrary SID ending in "515" doesn't false-match.
+        if s.startswith("s-1-5-21-") and s.endswith("-515"):
             return True
     return False
 
@@ -277,6 +342,153 @@ def _scan_gpp_xml_for_refs(gpo: Gpo) -> list[BrokenRef]:
                         detail=f"GPP {rel_file} <{tag}>: executable path '{exe_val}'",
                     ))
     return results
+
+
+# ---------------------------------------------------------------------------
+# Structured GPP audits — ScheduledTasks and LocalUsersAndGroups
+# ---------------------------------------------------------------------------
+
+_TASK_ELEMENT_NAMES = frozenset({
+    "Task", "TaskV2", "ScheduledTask", "ImmediateTask", "ImmediateTaskV2",
+})
+
+
+def _localname(tag: str) -> str:
+    return tag.split("}", 1)[-1] if "}" in tag else tag
+
+
+def _props(elem: Element) -> Element | None:
+    """Find the first <Properties> child by local name (namespace-tolerant)."""
+    for child in elem:
+        if _localname(child.tag) == "Properties":
+            return child
+    return None
+
+
+def scan_scheduled_tasks(gpo: Gpo) -> list[ScheduledTaskInfo]:
+    """Structured inventory of every scheduled task deployed by this GPO.
+
+    Walks ``Machine``/``User`` ``Preferences/ScheduledTasks.xml``. One
+    :class:`ScheduledTaskInfo` per ``<Task>``/``<ImmediateTaskV2>`` element.
+    Read-only; surfaces what is configured, does not evaluate reachability.
+    """
+    results: list[ScheduledTaskInfo] = []
+    for tree, _abs, rel in _walk_gpp_xml(gpo, only_known=True):
+        if rel.name.lower() != "scheduledtasks.xml":
+            continue
+        side: Side = "Computer" if rel.parts[0].lower() == "machine" else "User"
+        root = tree.getroot()
+        if root is None:
+            continue
+        # GPP task elements are direct children of <ScheduledTasks>. Iterating all
+        # descendants would also match the nested <Task> wrapper inside an
+        # ImmediateTaskV2's <Properties>, emitting a spurious empty row.
+        for elem in root:
+            ln = _localname(elem.tag)
+            if ln not in _TASK_ELEMENT_NAMES:
+                continue
+            props = _props(elem)
+            command = ""
+            arguments = ""
+            action = ""
+            run_as = ""
+            if props is not None:
+                command = _extract_xml_attr(props, "appName", "Path", "exePath") or ""
+                arguments = props.get("arguments", "") or ""
+                action = props.get("action", "") or ""
+                run_as = (
+                    _extract_xml_attr(props, "runAs")
+                    or elem.get("runAs", "")
+                    or ""
+                )
+            else:
+                run_as = elem.get("runAs", "") or ""
+            results.append(ScheduledTaskInfo(
+                gpo_id=gpo.id,
+                gpo_name=gpo.name,
+                side=side,
+                file=str(rel),
+                kind=ln,
+                name=elem.get("name", "") or "",
+                action=action,
+                command=command,
+                arguments=arguments,
+                run_as=run_as,
+            ))
+    return results
+
+
+def scan_local_groups(gpo: Gpo) -> list[LocalGroupMod]:
+    """Structured inventory of local-group membership changes by this GPO.
+
+    Walks ``Machine``/``User`` ``Preferences/LocalUsersAndGroups.xml``.
+    One :class:`LocalGroupMod` per ``<Group>`` element. ``<User>`` account
+    definitions are not reported here (they have no membership delta).
+    Read-only.
+    """
+    results: list[LocalGroupMod] = []
+    for tree, _abs, rel in _walk_gpp_xml(gpo, only_known=True):
+        # GPP stores group membership in Groups.xml; some tooling emits a
+        # separate LocalUsersAndGroups.xml. Scan both.
+        if rel.name.lower() not in ("groups.xml", "localusersandgroups.xml"):
+            continue
+        side: Side = "Computer" if rel.parts[0].lower() == "machine" else "User"
+        root = tree.getroot()
+        if root is None:
+            continue
+        for elem in root.iter():
+            if _localname(elem.tag) != "Group":
+                continue
+            props = _props(elem)
+            group_name = ""
+            group_sid = ""
+            if props is not None:
+                group_name = props.get("groupName", "") or props.get("name", "") or ""
+                group_sid = props.get("groupSid", "") or ""
+            added: list[str] = []
+            removed: list[str] = []
+            for member in elem.iter():
+                if _localname(member.tag) != "Member":
+                    continue
+                m_name = member.get("name", "") or ""
+                m_action = (member.get("action", "") or "").upper()
+                if not m_name:
+                    continue
+                if m_action == "REMOVE":
+                    if m_name not in removed:
+                        removed.append(m_name)
+                else:
+                    if m_name not in added:
+                        added.append(m_name)
+            results.append(LocalGroupMod(
+                gpo_id=gpo.id,
+                gpo_name=gpo.name,
+                side=side,
+                file=str(rel),
+                group_name=group_name,
+                group_sid=group_sid,
+                members_added=tuple(added),
+                members_removed=tuple(removed),
+            ))
+    return results
+
+
+def scheduled_tasks(estate: Estate) -> list[ScheduledTaskInfo]:
+    """Estate-wide roll-up of :func:`scan_scheduled_tasks`, sorted for determinism."""
+    out: list[ScheduledTaskInfo] = []
+    for g in estate.gpos:
+        out.extend(scan_scheduled_tasks(g))
+    out.sort(key=lambda t: (t.gpo_id, t.side, t.name.lower(), t.kind))
+    return out
+
+
+def local_group_mods(estate: Estate) -> list[LocalGroupMod]:
+    """Estate-wide roll-up of :func:`scan_local_groups`, sorted for determinism."""
+    out: list[LocalGroupMod] = []
+    for g in estate.gpos:
+        out.extend(scan_local_groups(g))
+    out.sort(key=lambda m: (m.gpo_id, m.side, m.group_name.lower()))
+    return out
 
 
 def unlinked_gpos(estate: Estate) -> list[Gpo]:
@@ -443,15 +655,15 @@ def broken_refs(estate: Estate) -> list[BrokenRef]:
                 script_name = s.display_value.strip()
                 if script_name and not script_name.startswith("\\\\"):
                     base = Path(g.sysvol_path)
-                    candidates = []
-                    for side_dir in ("Machine", "User"):
-                        candidates.extend([
-                            base / side_dir / "Scripts" / script_name,
-                            base / side_dir / "Scripts" / "Logon" / script_name,
-                            base / side_dir / "Scripts" / "Shutdown" / script_name,
-                            base / side_dir / "Scripts" / "Startup" / script_name,
-                        ])
-                    if not any(c.exists() for c in candidates):
+                    # Resolve case-insensitively (real SYSVOL casing varies) and
+                    # tolerate unreadable subtrees — a false "missing" here would
+                    # be a spurious finding.
+                    found_script = any(
+                        ci_path(base, side_dir, "Scripts", *sub, script_name) is not None
+                        for side_dir in ("Machine", "User")
+                        for sub in ((), ("Logon",), ("Shutdown",), ("Startup",))
+                    )
+                    if not found_script:
                         _add(BrokenRef(
                             gpo_id=g.id, gpo_name=g.name,
                             ref_type="missing_script", ref_value=script_name,

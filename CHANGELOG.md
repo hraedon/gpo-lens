@@ -1,5 +1,101 @@
 # Changelog
 
+## v0.5.0 — 2026-06-15
+
+### Windows deployment run-through fixes (first end-to-end run on real AD)
+First full collector→ingest→doctor run against a live domain (read-only, via a
+least-privilege service account) surfaced several defects that the flat,
+hand-built test fixtures had hidden:
+- **GPP scanners now work against a real SYSVOL.** `gpp-tasks`, `gpp-groups`,
+  and cpassword detection silently returned nothing on real exports: a real
+  SYSVOL nests each CSE in its own subfolder (`Preferences/Groups/Groups.xml`),
+  but the walker only looked one level too shallow (`Preferences/Groups.xml`).
+  It now handles both the nested and flat shapes.
+- **Case-insensitive SYSVOL path resolution.** Default GPOs ship as
+  `MACHINE`/`USER` (upper-case); on a case-sensitive (Linux) analysis host the
+  literal `Machine`/`User` lookups missed them entirely — affecting GPP scans,
+  `Registry.pol` resolution, and script-reference checks. New `paths.py`
+  (`ci_child`/`ci_path`) resolves SYSVOL children case-insensitively.
+- **`doctor` no longer crashes on an unreadable SYSVOL subtree.** A
+  security-filtered GPO copied with its ACLs intact (or an extraction that
+  dropped a directory's traversal bit) raised `PermissionError` and aborted the
+  whole run; such subtrees are now skipped (coverage gaps are still surfaced via
+  `collection-errors.json`).
+- **Collector: resilient SYSVOL copy.** One inaccessible policy folder
+  (Authenticated Users Read stripped) aborted the entire SYSVOL copy; it now
+  skips and records each denied folder in `collection-errors.json`, mirroring
+  the per-GPO `Get-GPOReport` resilience.
+- **Collector: portable archive.** Replaced `Compress-Archive` (Windows
+  PowerShell 5.1 writes backslash separators and directory entries that extract
+  on Linux without the traversal bit) with a forward-slash, file-only zip — so
+  the export ingests cleanly on a non-Windows analysis box.
+- **Collector: create `OutputRoot` if missing** (the write-test failed when the
+  output directory did not yet exist).
+- **`gpp-tasks`: no spurious empty row** for the nested `<Task>` wrapper inside
+  an `ImmediateTaskV2`'s `<Properties>` (iterate direct children, not all
+  descendants).
+- **README: `-OutputDir` → `-OutputRoot`** (the documented flag did not exist).
+
+### Added — deeper coverage (GPP structured audits, Registry.pol, GPO descriptions)
+- **GPP scheduled-task audit (`gpp-tasks`).** Structured inventory of every
+  scheduled task / immediate task deployed by GPO (`ScheduledTasks.xml`),
+  with name, action, command, arguments, and run-as account. Deterministic,
+  read-only; surfaces what is configured without evaluating reachability.
+  Text + `--json` (envelope `kind: "gpp-tasks"`).
+- **GPP local-group audit (`gpp-groups`).** Structured inventory of local-group
+  membership changes (`Groups.xml` / `LocalUsersAndGroups.xml`): target group
+  + SID, members added, members removed. The single most common "who is a
+  local admin where" audit question, now answerable from the estate.
+- **`Registry.pol` binary parser — resolves `<Blocked/>` Registry settings.**
+  When the GPO report renders the Registry CSE as `<Blocked/>`, the
+  authoritative values live in `Machine`/`User` `Registry.pol` (PReg format).
+  gpo-lens now parses it and replaces the opaque blocked placeholder with the
+  real key/value/type triples (`source_state="registry_pol"`). New
+  `registry_pol.py` module (pure stdlib). Where `Registry.pol` is absent the
+  blocked placeholder is kept (we do not fabricate values).
+- **`Gpo.description`.** The GPO `<Description>` field (the admin's note) is
+  now captured, persisted, and surfaced in `show`, the web detail view, and
+  the report — letting `stale_gpo` findings distinguish "forgotten" from
+  "intentionally frozen."
+- **SQLite additive migrations.** `init_db` now runs `_migrate_schema` so an
+  existing DB from an older gpo-lens gains new columns (additive only) on
+  open, rather than silently producing wrong results.
+
+### Charter & correctness fixes (deep review)
+- **`settings_at_som` / `som_conflicts` no longer present disabled-side
+  settings as effective.** A setting on a side whose `Enabled=false` does not
+  apply regardless of link enforcement — surfacing it as "effective" violated
+  the "flag, don't simulate" charter. These settings are still reported by
+  `disabled_but_populated` (the correct channel).
+- **Tightened Domain Computers SID matching.** Both `is_security_filtered`
+  (topology) and the MS16-072 check (detection) now require the `S-1-5-21-*`
+  domain-SID prefix before matching the `-515` RID. Previously any SID ending
+  in `-515` (e.g. a builtin-domain group) could false-match Domain Computers,
+  masking real security-filtering / MS16-072 findings.
+- **Determinism hardening.** `settings_dump`, `conflicts`, `som_conflicts`,
+  and `precedence_conflicts` now sort their output; `load_estate` adds
+  `ORDER BY` to every table read. Estate reconstruction from a DB snapshot is
+  now order-independent of insertion order, which snapshot diffs and the
+  `--json` contract depend on.
+
+### Hardening
+- **CSRF: `0.0.0.0` removed from the localhost Origin allow-list.** It is the
+  bind-any wildcard, not a legitimate client Origin, and a cross-origin POST
+  can spoof it. `localhost`/`127.0.0.1`/`::1`/`localhost.localdomain` remain.
+- **SQLite DB files are created `0600`.** `init_db` now tightens the snapshot
+  DB to owner-only regardless of the process umask — the DB holds the full
+  estate (GPO names, delegation, settings) and must not be world/group
+  readable on a shared host.
+
+### Docs
+- **README: "zero runtime dependencies" corrected** to "minimal runtime
+  dependencies (defusedxml)" — the prior claim was inaccurate. Added a
+  Requirements section (Python 3.12+, RSAT modules) and documented the
+  `<Blocked/>` limit.
+
+### Cleanup
+- Removed dead `_QUERY_PARAMS` alias from `query_dispatch.py`.
+
 ## v0.4.0 — 2026-06-14
 
 Headline: **sees site scope, and honest about collection coverage.** AD
