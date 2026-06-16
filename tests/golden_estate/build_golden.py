@@ -658,16 +658,23 @@ def _build_blocked_reg_sysvol() -> None:
     )
 
 
+# A minimal but real GPT.INI. Every GPO's SYSVOL root has one; emitting it for
+# otherwise-content-less GPOs keeps their folder non-empty so git tracks it (git
+# cannot commit an empty directory — a bare MACHINE dir vanishes on a fresh CI
+# clone, leaving attach_sysvol_paths unable to match the GUID).
+_GPT_INI = "[General]\r\nVersion=0\r\n"
+
+
 def _build_secfilt_sysvol() -> None:
-    """GPO 4 SYSVOL: empty — the GPO has no settings content."""
-    # Create the MACHINE dir so attach_sysvol_paths can match the GUID, but
-    # leave it empty (no Preferences, no Registry.pol).
-    _sysvol_dir(GUID_SECFILT, "MACHINE")
+    """GPO 4 SYSVOL: no settings content, but a real GPT.INI at the root so the
+    folder is tracked by git and attach_sysvol_paths can match the GUID."""
+    _write_sysvol_file(GUID_SECFILT, "GPT.INI", content=_GPT_INI)
 
 
 def _build_wmifilt_sysvol() -> None:
-    """GPO 5 SYSVOL: empty — WMI filter is the interesting attribute."""
-    _sysvol_dir(GUID_WMIFILT, "MACHINE")
+    """GPO 5 SYSVOL: no settings content (WMI filter is the interesting
+    attribute), but a real GPT.INI so the folder is tracked."""
+    _write_sysvol_file(GUID_WMIFILT, "GPT.INI", content=_GPT_INI)
 
 
 def _build_drives_sysvol() -> None:
