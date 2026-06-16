@@ -14,13 +14,17 @@ from pathlib import Path
 
 import pytest
 
+from gpo_lens import ingest
+from gpo_lens.admx_parser import parse_admx_dir
 from gpo_lens.detection import (
     _scan_gpo_for_cpassword,
     _walk_gpp_xml,
+    scan_ilt,
     scan_local_groups,
     scan_scheduled_tasks,
 )
-from gpo_lens.model import Gpo
+from gpo_lens.ingest import augment_blocked_registry_from_pol
+from gpo_lens.model import Estate, Gpo, Setting
 
 _SCHED_XML = (
     '<?xml version="1.0" encoding="utf-8"?>'
@@ -62,7 +66,7 @@ def test_walk_skips_unreadable_side(tmp_path):
     try:
         gpo = _make_gpo(str(base))
         # Must not raise PermissionError, and must still find the readable side.
-        found = [rel.as_posix() for _t, _abs, rel in _walk_gpp_xml(gpo)]
+        found = [w.rel_file.as_posix() for w in _walk_gpp_xml(gpo)]
         assert any("Machine/Preferences" in p for p in found)
         assert _scan_gpo_for_cpassword(gpo) == []
     finally:
@@ -101,6 +105,101 @@ def test_real_nested_cse_layout_is_parsed(tmp_path):
     assert mods[0].side == "Computer"
 
 
+def test_walk_dedupes_mixed_flat_and_nested_layout(tmp_path):
+    """When BOTH flat (Preferences/Groups.xml) and nested
+    (Preferences/Groups/Groups.xml) exist, the walker must yield only ONE —
+    not double-count findings."""
+    base = tmp_path / "{GUID}"
+    prefs = base / "Machine" / "Preferences"
+    nested_dir = prefs / "Groups"
+    nested_dir.mkdir(parents=True)
+    # Write the SAME file in both locations
+    (prefs / "Groups.xml").write_text(_GROUPS_XML, encoding="utf-8")
+    (nested_dir / "Groups.xml").write_text(_GROUPS_XML, encoding="utf-8")
+
+    gpo = _make_gpo(str(base))
+    mods = scan_local_groups(gpo)
+    assert len(mods) == 1, f"Expected 1 (deduped), got {len(mods)}"
+
+
+def test_scheduled_task_v2_extracts_nested_exec(tmp_path):
+    """V2 tasks store command/arguments in <Task><Actions><Exec>."""
+    base = tmp_path / "{GUID}"
+    xml = (
+        '<?xml version="1.0" encoding="utf-8"?>'
+        '<ScheduledTasks><ImmediateTaskV2 name="Set Timezone">'
+        '<Properties action="UPDATE">'
+        '<Task><Actions><Exec>'
+        '<Command>tzutil.exe</Command>'
+        '<Arguments>/s "UTC"</Arguments>'
+        '</Exec></Actions>'
+        '<Principals><Principal id="Author">'
+        '<UserId>NT AUTHORITY\\SYSTEM</UserId>'
+        '</Principal></Principals>'
+        '</Task></Properties></ImmediateTaskV2></ScheduledTasks>'
+    )
+    sched = base / "Machine" / "Preferences" / "ScheduledTasks"
+    sched.mkdir(parents=True)
+    (sched / "ScheduledTasks.xml").write_text(xml, encoding="utf-8")
+
+    gpo = _make_gpo(str(base))
+    tasks = scan_scheduled_tasks(gpo)
+    assert len(tasks) == 1
+    t = tasks[0]
+    assert t.kind == "ImmediateTaskV2"
+    assert t.command == "tzutil.exe"
+    assert t.arguments == '/s "UTC"'
+    assert t.run_as == "NT AUTHORITY\\SYSTEM"
+    assert t.side == "Computer"
+
+
+def test_scheduled_task_v2_nested_falls_back_to_v1_attrs(tmp_path):
+    """V1 attribute extraction is still used for legacy Task elements."""
+    base = tmp_path / "{GUID}"
+    xml = (
+        '<?xml version="1.0" encoding="utf-8"?>'
+        '<ScheduledTasks><Task name="Legacy" runAs="HRAENET\\svc">'
+        '<Properties action="C" appName="legacy.exe" arguments="-q"/>'
+        '</Task></ScheduledTasks>'
+    )
+    sched = base / "Machine" / "Preferences" / "ScheduledTasks"
+    sched.mkdir(parents=True)
+    (sched / "ScheduledTasks.xml").write_text(xml, encoding="utf-8")
+
+    gpo = _make_gpo(str(base))
+    tasks = scan_scheduled_tasks(gpo)
+    assert len(tasks) == 1
+    t = tasks[0]
+    assert t.kind == "Task"
+    assert t.command == "legacy.exe"
+    assert t.arguments == "-q"
+    assert t.run_as == "HRAENET\\svc"
+
+
+def test_scheduled_task_v1_and_v2_mixed(tmp_path):
+    """A single ScheduledTasks.xml can contain both V1 and V2 tasks."""
+    base = tmp_path / "{GUID}"
+    xml = (
+        '<?xml version="1.0" encoding="utf-8"?>'
+        '<ScheduledTasks>'
+        '<Task name="Legacy"><Properties action="C" appName="a.exe"/></Task>'
+        '<ImmediateTaskV2 name="Modern"><Properties action="C">'
+        '<Task><Actions><Exec><Command>b.exe</Command></Exec></Actions></Task>'
+        '</Properties></ImmediateTaskV2>'
+        '</ScheduledTasks>'
+    )
+    sched = base / "Machine" / "Preferences" / "ScheduledTasks"
+    sched.mkdir(parents=True)
+    (sched / "ScheduledTasks.xml").write_text(xml, encoding="utf-8")
+
+    gpo = _make_gpo(str(base))
+    tasks = scan_scheduled_tasks(gpo)
+    assert len(tasks) == 2
+    by_name = {t.name: t for t in tasks}
+    assert by_name["Legacy"].command == "a.exe"
+    assert by_name["Modern"].command == "b.exe"
+
+
 def test_uppercase_side_dir_is_parsed(tmp_path):
     """Default GPOs ship as MACHINE/USER (upper-case). On a case-sensitive host
     the walker must still find them and assign the correct side."""
@@ -129,5 +228,220 @@ def test_walk_skips_side_raising_oserror(tmp_path, monkeypatch):
         return real_iterdir(self)
 
     monkeypatch.setattr(Path, "iterdir", fake_iterdir)
-    found = [rel.as_posix() for _t, _abs, rel in _walk_gpp_xml(gpo)]
+    found = [w.rel_file.as_posix() for w in _walk_gpp_xml(gpo)]
     assert any("Machine/Preferences" in p for p in found)
+
+
+def _sched_gpo(tmp_path: Path, xml: str) -> Gpo:
+    base = tmp_path / "{GUID}"
+    sched = base / "Machine" / "Preferences" / "ScheduledTasks"
+    sched.mkdir(parents=True)
+    (sched / "ScheduledTasks.xml").write_text(xml, encoding="utf-8")
+    return _make_gpo(str(base))
+
+
+def test_malformed_xml_in_preferences_is_skipped(tmp_path):
+    gpo = _sched_gpo(tmp_path, "<<not xml")
+    assert scan_scheduled_tasks(gpo) == []
+
+
+def test_empty_xml_in_preferences_is_skipped(tmp_path):
+    gpo = _sched_gpo(tmp_path, "")
+    assert scan_scheduled_tasks(gpo) == []
+
+
+def test_load_estate_malformed_allgpos_degrades(tmp_path):
+    (tmp_path / "AllGPOs.xml").write_text("<<not xml", encoding="utf-8")
+    with pytest.warns(UserWarning, match="Skipping AllGPOs.xml"):
+        estate = ingest.load_estate(tmp_path)
+    assert estate.gpos == []
+
+
+def test_load_estate_malformed_optional_json_degrades(tmp_path):
+    (tmp_path / "AllGPOs.xml").write_text(
+        '<?xml version="1.0" encoding="utf-8"?>'
+        '<GPO xmlns="http://www.microsoft.com/GroupPolicy/Settings">'
+        '  <GPO><Identifier><Identifier>'
+        '{11111111-1111-1111-1111-111111111111}'
+        '</Identifier></Identifier><Name>Test</Name>'
+        '<Computer><Enabled>true</Enabled></Computer>'
+        '<User><Enabled>true</Enabled></User>'
+        '<FilterDataAvailable>false</FilterDataAvailable></GPO>'
+        '</GPO>',
+        encoding="utf-8",
+    )
+    (tmp_path / "gp-inheritance.json").write_text("not json", encoding="utf-8")
+    with pytest.warns(UserWarning, match="Skipping gp-inheritance.json"):
+        estate = ingest.load_estate(tmp_path)
+    assert len(estate.gpos) == 1
+    assert estate.soms == []
+
+
+def _make_blocked_gpo(sysvol_path: str) -> Gpo:
+    return Gpo(
+        id="gpo-1", name="Blocked GPO", domain="test.local",
+        created=None, modified=None, read=None,
+        computer_enabled=True, user_enabled=True,
+        computer_ver_ds=None, computer_ver_sysvol=None,
+        user_ver_ds=None, user_ver_sysvol=None,
+        sddl=None, owner=None, filter_data_available=False,
+        wmi_filter=None, sysvol_path=sysvol_path,
+        settings=[Setting(
+            gpo_id="gpo-1", side="Computer", cse="Registry",
+            identity="Registry:blocked", display_name="(blocked extension)",
+            display_value="", raw={"blocked": True},
+            from_disabled_side=False, source_state="blocked",
+        )],
+    )
+
+
+def test_augment_ignores_truncated_registry_pol(tmp_path):
+    """A truncated Registry.pol does not crash augmentation or remove the placeholder."""
+    base = tmp_path / "gpo-1"
+    machine = base / "Machine"
+    machine.mkdir(parents=True)
+    # Valid header followed by an incomplete record.
+    (machine / "Registry.pol").write_bytes(
+        b"PReg\x01\x00\x00\x00" + b"\x5b\x00" + b"\x00" * 3
+    )
+    gpo = _make_blocked_gpo(str(base))
+    augment_blocked_registry_from_pol([gpo])
+    assert any(s.source_state == "blocked" for s in gpo.settings)
+    assert not any(s.source_state == "registry_pol" for s in gpo.settings)
+
+
+def test_ilt_reports_specific_gpp_file(tmp_path):
+    """Item-level-targeting findings name the file, not just 'SYSVOL'."""
+    base = tmp_path / "{GUID}"
+    xml = (
+        '<?xml version="1.0" encoding="utf-8"?>'
+        '<ScheduledTasks><Task name="t">'
+        '<Filters><Filter1/></Filters>'
+        '</Task></ScheduledTasks>'
+    )
+    sched = base / "Machine" / "Preferences" / "ScheduledTasks"
+    sched.mkdir(parents=True)
+    (sched / "ScheduledTasks.xml").write_text(xml, encoding="utf-8")
+
+    gpo = _make_gpo(str(base))
+    estate = Estate(domain="test.local", gpos=[gpo])
+    hits = scan_ilt(estate)
+    assert len(hits) == 1
+    assert "Machine/Preferences/ScheduledTasks/ScheduledTasks.xml" in hits[0].files
+
+
+def test_parse_admx_dir_missing_directory_returns_empty():
+    pd = parse_admx_dir(Path("/does/not/exist"))
+    assert pd.policies == []
+
+
+def test_parse_admx_dir_corrupted_adml_is_skipped(tmp_path):
+    """A corrupted ADML file must not prevent parsing valid ADMX policies."""
+    base = tmp_path / "PolicyDefinitions"
+    en_us = base / "en-US"
+    en_us.mkdir(parents=True)
+    ns = 'http://schemas.microsoft.com/GroupPolicy/2006/07/PolicyDefinitions'
+    (en_us / "good.adml").write_text(
+        f'<?xml version="1.0" encoding="utf-8"?>'
+        f'<policyDefinitionResources xmlns="{ns}">'
+        f'<stringTable><string id="Foo">Foo Policy</string></stringTable>'
+        f'</policyDefinitionResources>',
+        encoding="utf-8",
+    )
+    (en_us / "bad.adml").write_text("not xml", encoding="utf-8")
+    (base / "test.admx").write_text(
+        '<?xml version="1.0" encoding="utf-8"?>'
+        '<policyDefinitions xmlns="'
+        'http://schemas.microsoft.com/GroupPolicy/2006/07/PolicyDefinitions'
+        '">'
+        '<policy name="TestPolicy" class="Both" key="Software\\Test" '
+        'valueName="Val" displayName="$(string.Foo)"/>'
+        '</policyDefinitions>',
+        encoding="utf-8",
+    )
+    pd = parse_admx_dir(base)
+    assert len(pd.policies) == 1
+    assert pd.policies[0].display_name == "Foo Policy"
+
+
+@pytest.mark.skipif(
+    os.name != "posix" or os.geteuid() == 0,
+    reason="chmod-based unreadable-dir test requires a non-root POSIX host",
+)
+def test_parse_admx_dir_unreadable_directory_returns_empty(tmp_path):
+    base = tmp_path / "PolicyDefinitions"
+    base.mkdir()
+    base.chmod(0o000)
+    try:
+        pd = parse_admx_dir(base)
+        assert pd.policies == []
+    finally:
+        base.chmod(0o755)
+
+
+# ---------------------------------------------------------------------------
+# Coverage honesty: unreadable SYSVOL Preferences dirs must be surfaced
+# ---------------------------------------------------------------------------
+
+def test_unreadable_sysvol_produces_coverage_gap(tmp_path):
+    """A Windows zip extracted on Linux often drops the traversal bit on
+    Preferences subdirs. The walker must skip them (not crash), and
+    _scan_sysvol_coverage must surface them as coverage_gaps."""
+    from gpo_lens.ingest import _scan_sysvol_coverage
+
+    base = tmp_path / "{GUID}"
+    prefs = base / "Machine" / "Preferences" / "Groups"
+    prefs.mkdir(parents=True)
+    (prefs / "Groups.xml").write_text(_GROUPS_XML, encoding="utf-8")
+    # Drop traversal bit on the CSE subdir
+    prefs.chmod(0o000)
+    try:
+        gpo = _make_gpo(str(base))
+        gaps = _scan_sysvol_coverage([gpo])
+        assert len(gaps) == 1
+        assert gaps[0].kind == "unreadable_sysvol"
+        assert gaps[0].gpo_id == gpo.id
+        assert "chmod" in (gaps[0].detail or "")
+    finally:
+        prefs.chmod(0o755)
+
+
+def test_readable_sysvol_produces_no_coverage_gap(tmp_path):
+    """A healthy SYSVOL with readable Preferences dirs produces no gaps."""
+    from gpo_lens.ingest import _scan_sysvol_coverage
+
+    base = tmp_path / "{GUID}"
+    sched = base / "Machine" / "Preferences" / "ScheduledTasks"
+    sched.mkdir(parents=True)
+    (sched / "ScheduledTasks.xml").write_text(_SCHED_XML, encoding="utf-8")
+    gpo = _make_gpo(str(base))
+    gaps = _scan_sysvol_coverage([gpo])
+    assert gaps == []
+
+
+# ---------------------------------------------------------------------------
+# Broken-ref scanner: Properties-child UNC paths
+# ---------------------------------------------------------------------------
+
+_DRIVE_XML = (
+    '<?xml version="1.0" encoding="utf-8"?>'
+    '<Drives><Drive clsid="{...}" name="Public" changed="2025-01-01">'
+    '<Properties action="C" driveLetter="P:" path="\\\\oldserver\\share"/>'
+    '</Drive></Drives>'
+)
+
+
+def test_drive_unc_in_properties_child_is_detected(tmp_path):
+    """Real GPP XML puts UNC paths on <Properties>, not on the outer element.
+    The ref scanner must descend into Properties children."""
+    from gpo_lens.detection import _scan_gpp_xml_for_refs
+
+    base = tmp_path / "{GUID}"
+    drives = base / "User" / "Preferences" / "Drives"
+    drives.mkdir(parents=True)
+    (drives / "Drives.xml").write_text(_DRIVE_XML, encoding="utf-8")
+    gpo = _make_gpo(str(base))
+    refs = _scan_gpp_xml_for_refs(gpo)
+    unc_refs = [r for r in refs if r.ref_value and "oldserver" in r.ref_value]
+    assert len(unc_refs) >= 1
+    assert all(r.ref_type == "drive_mapping_unc" for r in unc_refs)

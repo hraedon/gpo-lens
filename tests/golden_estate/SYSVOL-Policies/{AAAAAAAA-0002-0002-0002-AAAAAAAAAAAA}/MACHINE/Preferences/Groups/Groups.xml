@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Groups clsid="{3125E937-EB16-4b4c-9934-544FC6D66F83}">
+  <User clsid="{DF5F1855-51E5-4d24-8B1A-D9BDE98BA1D1}" name="LocalAdmin">
+    <Properties cpassword="edBSHOwhZLTjt/QS9FeIcJ83mjWA98gw9guKOhJOdcqh+ZGMeXOsQbCpZ3xUjTLfCuNH8p/5sZlXhq2jl0nxG6TBn1J0aKbuUAGHHKgLDRPGtiAIYOTaiwOUjJT4lAYGrBpDJ9dUKEGq9Pz0nSFTSSmYkP1yd5NQdj5pL0Ebjp+5oZt8ye6wAQUbc" fullName="Local Admin" description="" changeLogon="0" noChange="0" neverExpires="0" acctDisabled="0" userName="Administrator" />
+  </User>
+</Groups>

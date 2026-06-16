@@ -573,3 +573,311 @@ class TestBroadTrusteeSidMatching:
         from gpo_lens.topology import is_security_filtered
 
         assert is_security_filtered(gpo) is False
+
+
+# ---------------------------------------------------------------------------
+# is_security_filtered — Everyone, deny-ACE precedence, empty delegation
+# ---------------------------------------------------------------------------
+
+
+class TestIsSecurityFilteredEveryone:
+    """Everyone (S-1-1-0) is a broad trustee. A GPO delegated to Everyone
+    with Allow Read or Allow Apply is not security-filtered."""
+
+    def test_everyone_allow_read_not_filtered(self) -> None:
+        from gpo_lens.topology import is_security_filtered
+
+        gpo = _make_gpo(
+            id="gpo-everyone-read",
+            delegation=[
+                DelegationEntry(
+                    gpo_id="gpo-everyone-read",
+                    trustee="Everyone",
+                    trustee_sid="S-1-1-0",
+                    permission="Read",
+                    allowed=True,
+                ),
+            ],
+        )
+        assert is_security_filtered(gpo) is False
+
+    def test_everyone_allow_apply_not_filtered(self) -> None:
+        from gpo_lens.topology import is_security_filtered
+
+        gpo = _make_gpo(
+            id="gpo-everyone-apply",
+            delegation=[
+                DelegationEntry(
+                    gpo_id="gpo-everyone-apply",
+                    trustee="Everyone",
+                    trustee_sid="S-1-1-0",
+                    permission="Apply Group Policy",
+                    allowed=True,
+                ),
+            ],
+        )
+        assert is_security_filtered(gpo) is False
+
+    def test_everyone_matched_by_sid_only(self) -> None:
+        from gpo_lens.topology import is_security_filtered
+
+        gpo = _make_gpo(
+            id="gpo-everyone-sid",
+            delegation=[
+                DelegationEntry(
+                    gpo_id="gpo-everyone-sid",
+                    trustee="All Users",
+                    trustee_sid="S-1-1-0",
+                    permission="Read",
+                    allowed=True,
+                ),
+            ],
+        )
+        assert is_security_filtered(gpo) is False
+
+    def test_everyone_name_match_without_sid(self) -> None:
+        from gpo_lens.topology import is_security_filtered
+
+        gpo = _make_gpo(
+            id="gpo-everyone-name",
+            delegation=[
+                DelegationEntry(
+                    gpo_id="gpo-everyone-name",
+                    trustee="Everyone",
+                    trustee_sid=None,
+                    permission="Read",
+                    allowed=True,
+                ),
+            ],
+        )
+        assert is_security_filtered(gpo) is False
+
+
+class TestIsSecurityFilteredDenyPrecedence:
+    """Deny ACEs override allow ACEs for the same broad trustee. A broad
+    trustee whose allow is countered by a deny on that same trustee does
+    not count as broad application."""
+
+    def test_au_allow_plus_au_deny_same_trustee(self) -> None:
+        from gpo_lens.topology import is_security_filtered
+
+        gpo = _make_gpo(
+            id="gpo-au-deny",
+            delegation=[
+                DelegationEntry(
+                    gpo_id="gpo-au-deny",
+                    trustee="Authenticated Users",
+                    trustee_sid="S-1-5-11",
+                    permission="Read",
+                    allowed=True,
+                ),
+                DelegationEntry(
+                    gpo_id="gpo-au-deny",
+                    trustee="Authenticated Users",
+                    trustee_sid="S-1-5-11",
+                    permission="Read",
+                    allowed=False,
+                ),
+            ],
+        )
+        assert is_security_filtered(gpo) is True
+
+    def test_au_allow_plus_da_deny_different_trustee(self) -> None:
+        from gpo_lens.topology import is_security_filtered
+
+        gpo = _make_gpo(
+            id="gpo-au-allow-da-deny",
+            delegation=[
+                DelegationEntry(
+                    gpo_id="gpo-au-allow-da-deny",
+                    trustee="Authenticated Users",
+                    trustee_sid="S-1-5-11",
+                    permission="Read",
+                    allowed=True,
+                ),
+                DelegationEntry(
+                    gpo_id="gpo-au-allow-da-deny",
+                    trustee="Domain Admins",
+                    trustee_sid="S-1-5-21-999-512",
+                    permission="Read",
+                    allowed=False,
+                ),
+            ],
+        )
+        assert is_security_filtered(gpo) is False
+
+    def test_everyone_allow_plus_everyone_deny(self) -> None:
+        from gpo_lens.topology import is_security_filtered
+
+        gpo = _make_gpo(
+            id="gpo-everyone-both",
+            delegation=[
+                DelegationEntry(
+                    gpo_id="gpo-everyone-both",
+                    trustee="Everyone",
+                    trustee_sid="S-1-1-0",
+                    permission="Apply Group Policy",
+                    allowed=True,
+                ),
+                DelegationEntry(
+                    gpo_id="gpo-everyone-both",
+                    trustee="Everyone",
+                    trustee_sid="S-1-1-0",
+                    permission="Apply Group Policy",
+                    allowed=False,
+                ),
+            ],
+        )
+        assert is_security_filtered(gpo) is True
+
+    def test_au_allow_plus_dc_deny_not_same_trustee(self) -> None:
+        from gpo_lens.topology import is_security_filtered
+
+        gpo = _make_gpo(
+            id="gpo-au-allow-dc-deny",
+            delegation=[
+                DelegationEntry(
+                    gpo_id="gpo-au-allow-dc-deny",
+                    trustee="Authenticated Users",
+                    trustee_sid="S-1-5-11",
+                    permission="Read",
+                    allowed=True,
+                ),
+                DelegationEntry(
+                    gpo_id="gpo-au-allow-dc-deny",
+                    trustee="Domain Computers",
+                    trustee_sid="S-1-5-21-999-515",
+                    permission="Read",
+                    allowed=False,
+                ),
+            ],
+        )
+        assert is_security_filtered(gpo) is False
+
+
+class TestIsSecurityFilteredEmptyDelegation:
+    """Empty delegation → not filtered (absence of data is not evidence of
+    filtering). Only non-broad trustees → filtered (narrowed)."""
+
+    def test_empty_delegation_not_filtered(self) -> None:
+        from gpo_lens.topology import is_security_filtered
+
+        gpo = _make_gpo(id="gpo-no-deleg", delegation=[])
+        assert is_security_filtered(gpo) is False
+
+    def test_only_non_broad_trustee_is_filtered(self) -> None:
+        from gpo_lens.topology import is_security_filtered
+
+        gpo = _make_gpo(
+            id="gpo-narrow-only",
+            delegation=[
+                DelegationEntry(
+                    gpo_id="gpo-narrow-only",
+                    trustee="Helpdesk Operators",
+                    trustee_sid="S-1-5-21-999-1000",
+                    permission="Apply Group Policy",
+                    allowed=True,
+                ),
+            ],
+        )
+        assert is_security_filtered(gpo) is True
+
+    def test_delegation_with_non_read_apply_permission_ignored(self) -> None:
+        from gpo_lens.topology import is_security_filtered
+
+        gpo = _make_gpo(
+            id="gpo-edit-only",
+            delegation=[
+                DelegationEntry(
+                    gpo_id="gpo-edit-only",
+                    trustee="Authenticated Users",
+                    trustee_sid="S-1-5-11",
+                    permission="Edit settings",
+                    allowed=True,
+                ),
+            ],
+        )
+        assert is_security_filtered(gpo) is True
+
+
+class TestIsSecurityFilteredMixed:
+    """Mixed scenarios with multiple broad trustees and deny ACEs."""
+
+    def test_au_allow_dc_allow_narrow_deny(self) -> None:
+        from gpo_lens.topology import is_security_filtered
+
+        gpo = _make_gpo(
+            id="gpo-mixed-1",
+            delegation=[
+                DelegationEntry(
+                    gpo_id="gpo-mixed-1",
+                    trustee="Authenticated Users",
+                    trustee_sid="S-1-5-11",
+                    permission="Read",
+                    allowed=True,
+                ),
+                DelegationEntry(
+                    gpo_id="gpo-mixed-1",
+                    trustee="Domain Computers",
+                    trustee_sid="S-1-5-21-999-515",
+                    permission="Read",
+                    allowed=True,
+                ),
+                DelegationEntry(
+                    gpo_id="gpo-mixed-1",
+                    trustee="Helpdesk Operators",
+                    trustee_sid="S-1-5-21-999-1000",
+                    permission="Read",
+                    allowed=False,
+                ),
+            ],
+        )
+        assert is_security_filtered(gpo) is False
+
+    def test_two_broad_one_allowed_one_denied(self) -> None:
+        from gpo_lens.topology import is_security_filtered
+
+        gpo = _make_gpo(
+            id="gpo-mixed-2",
+            delegation=[
+                DelegationEntry(
+                    gpo_id="gpo-mixed-2",
+                    trustee="Authenticated Users",
+                    trustee_sid="S-1-5-11",
+                    permission="Read",
+                    allowed=True,
+                ),
+                DelegationEntry(
+                    gpo_id="gpo-mixed-2",
+                    trustee="Domain Computers",
+                    trustee_sid="S-1-5-21-999-515",
+                    permission="Read",
+                    allowed=False,
+                ),
+            ],
+        )
+        assert is_security_filtered(gpo) is False
+
+    def test_au_denied_but_everyone_allowed(self) -> None:
+        from gpo_lens.topology import is_security_filtered
+
+        gpo = _make_gpo(
+            id="gpo-mixed-3",
+            delegation=[
+                DelegationEntry(
+                    gpo_id="gpo-mixed-3",
+                    trustee="Authenticated Users",
+                    trustee_sid="S-1-5-11",
+                    permission="Read",
+                    allowed=False,
+                ),
+                DelegationEntry(
+                    gpo_id="gpo-mixed-3",
+                    trustee="Everyone",
+                    trustee_sid="S-1-1-0",
+                    permission="Read",
+                    allowed=True,
+                ),
+            ],
+        )
+        assert is_security_filtered(gpo) is False

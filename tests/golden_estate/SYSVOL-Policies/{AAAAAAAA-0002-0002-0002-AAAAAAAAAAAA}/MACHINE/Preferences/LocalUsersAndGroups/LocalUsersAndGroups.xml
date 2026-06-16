@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Groups clsid="{3125E937-EB16-4b4c-9934-544FC6D66F83}">
+  <Group clsid="{00000000-0000-0000-0000-000000000003}" name="Administrators (local)" changed="2025-01-01">
+    <Properties action="UPDATE" groupName="Administrators" groupSid="S-1-5-32-544" removePolicy="0">
+      <Members>
+        <Member name="GOLDEN\ServerAdmins" action="ADD" sid="S-1-5-21-999999999-999999999-999999999-1101"/>
+        <Member name="GOLDEN\LegacyAdmin" action="REMOVE" sid="S-1-5-21-999999999-999999999-999999999-1102"/>
+      </Members>
+    </Properties>
+  </Group>
+</Groups>

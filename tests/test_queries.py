@@ -1638,10 +1638,10 @@ def test_broken_refs_gpp_xml_drive_unc(tmp_path):
     gpo = _make_gpo(id="gpo-1", sysvol_path=str(gpo_dir))
     estate = Estate(gpos=[gpo])
     result = queries.broken_refs(estate)
-    gpp_refs = [r for r in result if r.ref_type == "gpp_file_ref"]
-    assert len(gpp_refs) >= 1
-    assert r"\\fileserver\shares\home" in gpp_refs[0].ref_value
-    assert "Drive" in gpp_refs[0].detail
+    drive_refs = [r for r in result if r.ref_type == "drive_mapping_unc"]
+    assert len(drive_refs) >= 1
+    assert r"\\fileserver\shares\home" in drive_refs[0].ref_value
+    assert "Drive" in drive_refs[0].detail
 
 
 def test_broken_refs_gpp_xml_file_unc(tmp_path):
@@ -2491,8 +2491,9 @@ def test_broken_refs_prefers_gpp_detail_over_settings(tmp_path):
     result = queries.broken_refs(estate)
     matching = [r for r in result if r.ref_value == r"\\fileserver\share\home"]
     assert len(matching) == 1
-    # GPP ref_type should win over generic unc_path
-    assert matching[0].ref_type == "gpp_file_ref"
+    # Both sources produce drive_mapping_unc; SYSVOL detail should win
+    assert matching[0].ref_type == "drive_mapping_unc"
+    assert "GPP" in matching[0].detail or "Drive" in matching[0].detail
 
 
 def test_broken_refs_settings_detail_kept_when_no_gpp(tmp_path):
