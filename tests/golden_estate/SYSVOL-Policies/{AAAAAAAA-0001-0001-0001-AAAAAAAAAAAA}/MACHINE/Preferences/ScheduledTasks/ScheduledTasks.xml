@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScheduledTasks clsid="{3A9C9A85-A59E-484F-9CC8-1B1B7AF1AAA1}">
+  <Task clsid="{00000000-0000-0000-0000-000000000001}" name="Legacy App Install" changed="2025-01-01">
+    <Properties action="CREATE" appName="%SystemRoot%\System32\legacy.exe" arguments="--install" runAs="NT AUTHORITY\SYSTEM"/>
+  </Task>
+  <ImmediateTaskV2 clsid="{00000000-0000-0000-0000-000000000002}" name="Set Timezone" changed="2025-01-01">
+    <Properties action="UPDATE">
+      <Task>
+        <Actions Context="Author">
+          <Exec>
+            <Command>tzutil.exe</Command>
+            <Arguments>/s "UTC"</Arguments>
+          </Exec>
+        </Actions>
+        <Principals>
+          <Principal id="Author">
+            <UserId>NT AUTHORITY\SYSTEM</UserId>
+          </Principal>
+        </Principals>
+      </Task>
+    </Properties>
+  </ImmediateTaskV2>
+</ScheduledTasks>

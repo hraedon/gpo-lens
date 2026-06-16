@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Drives clsid="{8FDDCC1A-B1A6-4c9c-A3B5-D6B7F7C0A4D1}">
+  <Drive clsid="{AAAAAAAA-0008-0008-0008-AAAAAAAA0001}" name="P: -> \\GOLDEN.local\shares\public" changed="2025-01-01">
+    <Properties action="CREATE" driveLetter="P:" path="\\GOLDEN.local\shares\public" label="Public" persistent="1" useLetter="1">
+      <Filters>
+        <FilterOrgUnit name="OU=Workstations,DC=GOLDEN,DC=local" not="0"/>
+      </Filters>
+    </Properties>
+  </Drive>
+  <Drive clsid="{AAAAAAAA-0008-0008-0008-AAAAAAAA0002}" name="Q: -> \\oldserver.golden.local\deprecated\share" changed="2025-01-01">
+    <Properties action="CREATE" driveLetter="Q:" path="\\oldserver.golden.local\deprecated\share" label="Deprecated" persistent="1" useLetter="1"/>
+  </Drive>
+  <Drive clsid="{AAAAAAAA-0008-0008-0008-AAAAAAAA0003}" name="Z: -> \\missing-server\share" changed="2025-01-01">
+    <Properties action="CREATE" driveLetter="Z:" path="\\missing-server\share" label="Missing" persistent="1" useLetter="1"/>
+  </Drive>
+</Drives>

@@ -16,6 +16,7 @@ from gpo_lens.model import (
     ExcessiveWriter,
     SddlAce,
     SddlAcl,
+    Side,
 )
 from gpo_lens.paths import ci_child, ci_path
 
@@ -25,7 +26,6 @@ if TYPE_CHECKING:
         DelegationEntry,
         Estate,
         Gpo,
-        Side,
         Som,
         SomLink,
     )
@@ -128,6 +128,14 @@ class LocalGroupMod:
     members_removed: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class _GppXmlFile:
+    side: Side
+    cse: str
+    tree: ElementTree
+    rel_file: Path
+
+
 _GPP_XML_FILES = (
     "Groups.xml", "Services.xml", "Drives.xml", "ScheduledTasks.xml",
     "DataSources.xml", "Printers.xml", "Folders.xml", "Files.xml",
@@ -135,6 +143,8 @@ _GPP_XML_FILES = (
     "Regional.xml", "PowerOptions.xml", "NetworkShares.xml",
     "LocalUsersAndGroups.xml", "EventLogs.xml",
 )
+
+_SIDE_MAP: dict[str, Side] = {"Machine": "Computer", "User": "User"}
 
 _MS16_072_TRUSTEES = {"authenticated users", "domain computers"}
 
@@ -158,17 +168,20 @@ _GPP_PATH_ATTRS: dict[str, tuple[str, ...]] = {
     "ScheduledTask": ("appPath", "exePath", "Path", "Arguments"),
     "Task": ("appPath", "exePath", "Path", "Arguments"),
     "ImmediateTask": ("appPath", "exePath", "Path", "Arguments"),
-    "Drive": ("Path",),
+    "Drive": ("Path", "path"),
     "File": ("fromPath", "toPath", "targetPath", "SourcePath", "DestinationPath"),
     "Service": ("serviceName",),
     "DataSource": ("dsn", "dsnTarget"),
+    "SharedPrinter": ("path", "port"),
+    "Printer": ("path", "port"),
+    "LocalPrinter": ("path", "port"),
 }
 
 
 def _walk_gpp_xml(
     gpo: Gpo, *, only_known: bool = False,
-) -> Iterable[tuple[ElementTree, Path, Path]]:
-    """Yield ``(tree, abs_file, rel_file)`` for each parseable GPP XML file."""
+) -> Iterable[_GppXmlFile]:
+    """Yield normalized ``(side, cse, tree, rel_file)`` for parseable GPP XML."""
     if not gpo.sysvol_path:
         return
     base = Path(gpo.sysvol_path)
@@ -177,6 +190,7 @@ def _walk_gpp_xml(
         # Side/Preferences casing varies on a real SYSVOL (e.g. the default GPOs
         # use MACHINE/USER); resolve case-insensitively for a Linux analysis host.
         side = ci_child(base, side_dir)
+        side_out = _SIDE_MAP[side_dir]
         if side is None:
             continue
         prefs = ci_child(side, "Preferences")
@@ -187,8 +201,8 @@ def _walk_gpp_xml(
         # (Preferences/Groups.xml). Collect XML from both shapes, one level deep.
         # Per-entry try/except keeps one unreadable subtree (a security-filtered
         # GPO copied with ACLs intact, or an extraction that dropped a dir's
-        # traversal bit) from aborting the scan — coverage gaps are surfaced via
-        # collection-errors.json, not by crashing.
+        # traversal bit) from aborting the scan. Unreadable dirs are surfaced
+        # as coverage_gaps by _scan_sysvol_coverage in ingest.load_estate.
         try:
             entries = sorted(prefs.iterdir())
         except OSError:
@@ -204,7 +218,17 @@ def _walk_gpp_xml(
                     candidates.append(entry)
             except OSError:
                 continue
-        for file_path in candidates:
+        # Deduplicate by filename (case-insensitive). A mixed-layout export may
+        # carry BOTH Preferences/Groups.xml (flat) AND Preferences/Groups/
+        # Groups.xml (nested) — yielding both would double-count findings.
+        # Prefer the nested path (more components = canonical SYSVOL shape).
+        by_name: dict[str, Path] = {}
+        for fp in candidates:
+            key = fp.name.lower()
+            prev = by_name.get(key)
+            if prev is None or len(fp.parts) > len(prev.parts):
+                by_name[key] = fp
+        for file_path in by_name.values():
             if file_path.suffix.lower() != ".xml":
                 continue
             if only_known and file_path.name.lower() not in known_lower:
@@ -215,13 +239,18 @@ def _walk_gpp_xml(
                 continue
             if tree.getroot() is None:
                 continue
-            yield tree, file_path, file_path.relative_to(base)
+            yield _GppXmlFile(
+                side=side_out,
+                cse=file_path.stem,
+                tree=tree,
+                rel_file=file_path.relative_to(base),
+            )
 
 
 def _scan_gpo_for_cpassword(gpo: Gpo) -> list[CpasswordHit]:
     results: list[CpasswordHit] = []
-    for tree, _abs, rel in _walk_gpp_xml(gpo, only_known=True):
-        root = tree.getroot()
+    for walk in _walk_gpp_xml(gpo, only_known=True):
+        root = walk.tree.getroot()
         if root is None:
             continue
         for elem in root.iter():
@@ -230,7 +259,7 @@ def _scan_gpo_for_cpassword(gpo: Gpo) -> list[CpasswordHit]:
                 tag = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
                 results.append(CpasswordHit(
                     gpo_id=gpo.id, gpo_name=gpo.name,
-                    file=str(rel), tag=tag, cpassword=cpw,
+                    file=str(walk.rel_file), tag=tag, cpassword=cpw,
                 ))
     return results
 
@@ -313,26 +342,42 @@ def _extract_xml_attr(elem: Element, *attrs: str) -> str | None:
 
 def _scan_gpp_xml_for_refs(gpo: Gpo) -> list[BrokenRef]:
     results: list[BrokenRef] = []
-    for tree, _abs, rel_file in _walk_gpp_xml(gpo, only_known=False):
-        root = tree.getroot()
+    for walk in _walk_gpp_xml(gpo, only_known=False):
+        root = walk.tree.getroot()
         if root is None:
             continue
+        rel_file = walk.rel_file
         for elem in root.iter():
             tag = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
             path_attrs = _GPP_PATH_ATTRS.get(tag)
             if path_attrs is None:
                 continue
-            for attr in path_attrs:
-                val = elem.get(attr)
-                if not val or not val.strip():
-                    continue
-                val = val.strip()
-                for unc in _scan_text_for_unc(val):
-                    results.append(BrokenRef(
-                        gpo_id=gpo.id, gpo_name=gpo.name,
-                        ref_type="gpp_file_ref", ref_value=unc,
-                        detail=f"GPP {rel_file} <{tag} @{attr}>: UNC path",
-                    ))
+            # Check the element's own attributes AND its <Properties> child.
+            # Real GPP XML puts path-like attributes on <Properties>, not on
+            # the parent element (e.g. <Drive><Properties path="\\srv\share"/>
+            # </Drive>), so scanning only the outer element misses them.
+            check_elems: list[tuple[Element, str]] = [(elem, tag)]
+            props = _props(elem)
+            if props is not None:
+                check_elems.append((props, f"{tag}/Properties"))
+            for src_elem, src_tag in check_elems:
+                for attr in path_attrs:
+                    val = src_elem.get(attr)
+                    if not val or not val.strip():
+                        continue
+                    val = val.strip()
+                    for unc in _scan_text_for_unc(val):
+                        cse_lower = walk.cse.lower()
+                        ref_type = (
+                            "drive_mapping_unc"
+                            if cse_lower in ("drives", "printers")
+                            else "gpp_file_ref"
+                        )
+                        results.append(BrokenRef(
+                            gpo_id=gpo.id, gpo_name=gpo.name,
+                            ref_type=ref_type, ref_value=unc,
+                            detail=f"GPP {rel_file} <{src_tag} @{attr}>: UNC path",
+                        ))
             exe_val = _extract_xml_attr(elem, "appPath", "exePath", "Path")
             if exe_val and tag in ("ScheduledTask", "Task", "ImmediateTask"):
                 if exe_val and not exe_val.startswith("\\\\") and not exe_val.startswith("%"):
@@ -365,6 +410,13 @@ def _props(elem: Element) -> Element | None:
     return None
 
 
+def _child_by_localname(parent: Element, name: str) -> Element | None:
+    for child in parent:
+        if _localname(child.tag) == name:
+            return child
+    return None
+
+
 def scan_scheduled_tasks(gpo: Gpo) -> list[ScheduledTaskInfo]:
     """Structured inventory of every scheduled task deployed by this GPO.
 
@@ -373,11 +425,10 @@ def scan_scheduled_tasks(gpo: Gpo) -> list[ScheduledTaskInfo]:
     Read-only; surfaces what is configured, does not evaluate reachability.
     """
     results: list[ScheduledTaskInfo] = []
-    for tree, _abs, rel in _walk_gpp_xml(gpo, only_known=True):
-        if rel.name.lower() != "scheduledtasks.xml":
+    for walk in _walk_gpp_xml(gpo, only_known=True):
+        if walk.cse.lower() != "scheduledtasks":
             continue
-        side: Side = "Computer" if rel.parts[0].lower() == "machine" else "User"
-        root = tree.getroot()
+        root = walk.tree.getroot()
         if root is None:
             continue
         # GPP task elements are direct children of <ScheduledTasks>. Iterating all
@@ -401,13 +452,40 @@ def scan_scheduled_tasks(gpo: Gpo) -> list[ScheduledTaskInfo]:
                     or elem.get("runAs", "")
                     or ""
                 )
+                # V2 tasks store command/arguments/runAs in nested Task XML.
+                is_v2 = ln.endswith("V2")
+                if (not command or not arguments) and is_v2:
+                    task = _child_by_localname(props, "Task")
+                    if task is not None:
+                        actions = _child_by_localname(task, "Actions")
+                        if actions is not None:
+                            # A task may define multiple <Exec> actions; we
+                            # report the first with a non-empty Command.
+                            exec_elem = _child_by_localname(actions, "Exec")
+                            if exec_elem is not None:
+                                if not command:
+                                    cmd_elem = _child_by_localname(exec_elem, "Command")
+                                    if cmd_elem is not None and cmd_elem.text:
+                                        command = cmd_elem.text.strip()
+                                if not arguments:
+                                    arg_elem = _child_by_localname(exec_elem, "Arguments")
+                                    if arg_elem is not None and arg_elem.text:
+                                        arguments = arg_elem.text.strip()
+                        if not run_as:
+                            principals = _child_by_localname(task, "Principals")
+                            if principals is not None:
+                                principal = _child_by_localname(principals, "Principal")
+                                if principal is not None:
+                                    user_id = _child_by_localname(principal, "UserId")
+                                    if user_id is not None and user_id.text:
+                                        run_as = user_id.text.strip()
             else:
                 run_as = elem.get("runAs", "") or ""
             results.append(ScheduledTaskInfo(
                 gpo_id=gpo.id,
                 gpo_name=gpo.name,
-                side=side,
-                file=str(rel),
+                side=walk.side,
+                file=str(walk.rel_file),
                 kind=ln,
                 name=elem.get("name", "") or "",
                 action=action,
@@ -427,13 +505,12 @@ def scan_local_groups(gpo: Gpo) -> list[LocalGroupMod]:
     Read-only.
     """
     results: list[LocalGroupMod] = []
-    for tree, _abs, rel in _walk_gpp_xml(gpo, only_known=True):
+    for walk in _walk_gpp_xml(gpo, only_known=True):
         # GPP stores group membership in Groups.xml; some tooling emits a
         # separate LocalUsersAndGroups.xml. Scan both.
-        if rel.name.lower() not in ("groups.xml", "localusersandgroups.xml"):
+        if walk.cse.lower() not in ("groups", "localusersandgroups"):
             continue
-        side: Side = "Computer" if rel.parts[0].lower() == "machine" else "User"
-        root = tree.getroot()
+        root = walk.tree.getroot()
         if root is None:
             continue
         for elem in root.iter():
@@ -463,8 +540,8 @@ def scan_local_groups(gpo: Gpo) -> list[LocalGroupMod]:
             results.append(LocalGroupMod(
                 gpo_id=gpo.id,
                 gpo_name=gpo.name,
-                side=side,
-                file=str(rel),
+                side=walk.side,
+                file=str(walk.rel_file),
                 group_name=group_name,
                 group_sid=group_sid,
                 members_added=tuple(added),
@@ -983,8 +1060,8 @@ def scan_ilt(estate: Estate) -> list[IltHit]:
     for gpo in estate.gpos:
         gpo_filter_types: set[str] = set()
         gpo_files: set[str] = set()
-        for tree, _abs, rel in _walk_gpp_xml(gpo, only_known=False):
-            root = tree.getroot()
+        for walk in _walk_gpp_xml(gpo, only_known=False):
+            root = walk.tree.getroot()
             if root is None:
                 continue
             file_has_filters = False
@@ -994,7 +1071,7 @@ def scan_ilt(estate: Estate) -> list[IltHit]:
                     for child in elem:
                         gpo_filter_types.add(_local_tag(child))
             if file_has_filters:
-                gpo_files.add(rel.name)
+                gpo_files.add(walk.rel_file.as_posix())
         if gpo_filter_types:
             results.append(IltHit(
                 gpo_id=gpo.id,

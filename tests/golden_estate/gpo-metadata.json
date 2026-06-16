@@ -1,0 +1,50 @@
+﻿[
+  {
+    "Id": "{AAAAAAAA-0001-0001-0001-AAAAAAAAAAAA}",
+    "ComputerVersionDirectory": 1,
+    "ComputerVersionSysvol": 1,
+    "UserVersionDirectory": 1,
+    "UserVersionSysvol": 1,
+    "WmiFilter": null
+  },
+  {
+    "Id": "{AAAAAAAA-0002-0002-0002-AAAAAAAAAAAA}",
+    "ComputerVersionDirectory": 1,
+    "ComputerVersionSysvol": 1,
+    "UserVersionDirectory": 1,
+    "UserVersionSysvol": 1,
+    "WmiFilter": null
+  },
+  {
+    "Id": "{AAAAAAAA-0003-0003-0003-AAAAAAAAAAAA}",
+    "ComputerVersionDirectory": 2,
+    "ComputerVersionSysvol": 2,
+    "UserVersionDirectory": 1,
+    "UserVersionSysvol": 1,
+    "WmiFilter": null
+  },
+  {
+    "Id": "{AAAAAAAA-0004-0004-0004-AAAAAAAAAAAA}",
+    "ComputerVersionDirectory": 1,
+    "ComputerVersionSysvol": 1,
+    "UserVersionDirectory": 1,
+    "UserVersionSysvol": 1,
+    "WmiFilter": null
+  },
+  {
+    "Id": "{AAAAAAAA-0005-0005-0005-AAAAAAAAAAAA}",
+    "ComputerVersionDirectory": 1,
+    "ComputerVersionSysvol": 1,
+    "UserVersionDirectory": 1,
+    "UserVersionSysvol": 1,
+    "WmiFilter": "Golden WMI Filter"
+  },
+  {
+    "Id": "{AAAAAAAA-0008-0008-0008-AAAAAAAAAAAA}",
+    "ComputerVersionDirectory": 0,
+    "ComputerVersionSysvol": 0,
+    "UserVersionDirectory": 1,
+    "UserVersionSysvol": 1,
+    "WmiFilter": null
+  }
+]

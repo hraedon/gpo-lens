@@ -1,0 +1,230 @@
+# Collector export format (on-disk input contract)
+
+**Status:** draft (first formal capture of the de-facto format).
+**Produced by:** `scripts/Export-GpoEstate.ps1` (PowerShell, read-only).
+**Consumed by:** `src/gpo_lens/ingest.py` (`load_estate` and helpers).
+
+This is the *input* contract — the on-disk layout that the collector writes and
+the parser reads. It is distinct from the JSON output contract
+(`docs/spec/json-contract.md`), which governs what gpo-lens emits downstream.
+
+## Directory layout
+
+```
+<export-dir>/
+├── AllGPOs.xml              UTF-8, combined Get-GPOReport -ReportType Xml -All
+├── gpo-metadata.json        Per-GPO metadata (versions, SDDL, WMI filter names)
+├── gp-inheritance.json      Per-SOM inheritance (block, enforced, precedence order)
+├── ou-tree.json             Raw OU tree (gPLink / gPOptions attributes)
+├── sites.json               AD site GPO links (gPLink / gPOptions from Config NC)
+├── wmi-filters.json         WMI filter definitions (name + query text)
+├── collection-errors.json   GPOs that could not be collected (always present; may be `[]`)
+├── gpo-inventory.json       Authoritative GPO list from privileged enumeration
+├── reports/                 Per-GPO XML reports (UTF-16)
+│   └── <SafeName>__<GUID>.xml
+└── SYSVOL-Policies/         Copied SYSVOL policy file tree
+    └── {<GUID>}/
+        ├── gpreport.xml     Per-GPO XML report (UTF-16, from SYSVOL copy)
+        ├── MACHINE/         (or "Machine" — casing varies; see below)
+        │   ├── Registry.pol PReg binary format
+        │   └── Preferences/
+        │       ├── Groups/
+        │       │   └── Groups.xml
+        │       ├── ScheduledTasks/
+        │       │   └── ScheduledTasks.xml
+        │       ├── LocalUsersAndGroups/
+        │       │   └── LocalUsersAndGroups.xml
+        │       ├── DriveMaps/
+        │       │   └── DriveMaps.xml
+        │       └── ...
+        └── USER/            (or "User" — casing varies; see below)
+            ├── Registry.pol
+            └── Preferences/
+                └── ...
+```
+
+### Export directory naming
+
+The collector names the export directory
+`<DNS-domain>-<YYYYMMDD-HHmmss>` (e.g.
+`workdomain.local-20260614-153000`). The parser does not depend on this
+naming convention — it discovers files by well-known names relative to the
+supplied root.
+
+## Per-CSE subfolder layout
+
+On a real SYSVOL, each Group Policy Preferences CSE lives in its own
+subfolder under `Preferences/`:
+
+```
+Preferences/
+├── Groups/
+│   └── Groups.xml
+├── ScheduledTasks/
+│   └── ScheduledTasks.xml
+├── DriveMaps/
+│   └── DriveMaps.xml
+└── ...
+```
+
+This is the **canonical** (nested) shape produced by the collector, which
+copies the SYSVOL tree verbatim.
+
+Some hand-built or older exports flatten this structure:
+
+```
+Preferences/
+├── Groups.xml
+├── ScheduledTasks.xml
+└── ...
+```
+
+The parser handles **both** shapes. It walks `Preferences/` one level deep,
+collecting XML files from both direct children and one level of subdirectory
+children. See `detection._walk_gpp_xml` for the canonical implementation of
+this dual-shape scan.
+
+## Side-directory casing
+
+Real SYSVOL uses **uppercase** `MACHINE` / `USER` for the default GPOs
+(`{31B2F340-…}`, `{6AC1786C-…}`). Custom GPOs typically use title-case
+`Machine` / `User`. Other casings are possible.
+
+The analysis host is typically **Linux** (case-sensitive filesystem), so the
+parser resolves side-directory names case-insensitively via
+`paths.ci_child` / `paths.ci_path`. A literal path is tried first (fast path
+on case-insensitive hosts), then a directory scan falls back to
+case-insensitive matching.
+
+The GPO report XML (`AllGPOs.xml`, per-GPO `reports/*.xml`) uses the
+canonical element names `<Computer>` and `<User>` regardless of SYSVOL casing.
+
+## File inventory
+
+| File | Format | Source | Purpose |
+|------|--------|--------|---------|
+| `AllGPOs.xml` | XML, UTF-8 | `Get-GPOReport -All -ReportType Xml` | Combined GPO settings, delegation, links |
+| `reports/<name>__<guid>.xml` | XML, UTF-16 | `Get-GPOReport -Guid <id> -ReportType Xml` | Per-GPO report; used by baseline-zip loader, not by `load_estate` (which reads `AllGPOs.xml`) |
+| `gpo-metadata.json` | JSON, UTF-8 (may have BOM) | `Get-GPO -All` piped to `Select-Object` | Version skew (DS vs SYSVOL), WMI filter name, timestamps |
+| `gp-inheritance.json` | JSON, UTF-8 (may have BOM) | `Get-GPInheritance` per SOM | SOM chain: block, enforced, precedence order |
+| `ou-tree.json` | JSON, UTF-8 (may have BOM) | `Get-ADOrganizationalUnit` with `gPLink`/`gPOptions` | Raw gPLink attribute for topology cross-check |
+| `sites.json` | JSON, UTF-8 (may have BOM) | `Get-ADObject` from Config NC | AD site GPO links (parallel scoping axis) |
+| `wmi-filters.json` | JSON, UTF-8 (may have BOM) | `Get-ADObject -Filter "objectClass -eq 'msWMI-Som'"` | WMI filter name + query text |
+| `collection-errors.json` | JSON, UTF-8 (may have BOM) | Collector error accumulation | GPOs that could not be read; always present (may be `[]`) |
+| `gpo-inventory.json` | JSON, UTF-8 (may have BOM) | `Get-ADObject` from Policies container | Authoritative GPC GUID list; produced by privileged run |
+| `SYSVOL-Policies/` | Directory tree | `Copy-Item -Recurse` from `\\domain\SYSVOL\domain\Policies` | Raw policy files (Registry.pol, GPP XML, gpreport.xml) |
+
+### Required vs optional files
+
+`AllGPOs.xml` is the **only required** file — its absence raises
+`FileNotFoundError` from `load_estate`. All other files are optional; the
+parser silently skips missing files and falls back to defaults (empty lists,
+no metadata, no SYSVOL augmentation). This allows partial exports (e.g. a
+SYSVOL-only copy, or an export from a machine without RSAT) to still produce
+useful results.
+
+## Encoding
+
+| File | Encoding | Parser handling |
+|------|----------|-----------------|
+| `AllGPOs.xml` | UTF-8 | Parsed directly by `defusedxml`; no BOM stripping needed |
+| Per-GPO `gpreport.xml` (SYSVOL) | UTF-16 (PowerShell 5.1 default) | `parse_report_xml` detects BOM (`FF FE` / `FE FF`) and decodes as UTF-16 |
+| All `.json` files | UTF-8, **may carry UTF-8 BOM** (`EF BB BF`) | `normalize.load_json` uses `utf-8-sig` encoding, which transparently strips BOM |
+| `Registry.pol` | PReg binary format | `registry_pol.parse_registry_pol` reads raw bytes |
+
+**BOM tolerance is mandatory.** PowerShell 5.1's `Set-Content -Encoding UTF8`
+prepends a UTF-8 BOM. The `build_fixture.py` generator intentionally writes a
+BOM on `ou-tree.json` and `sites.json` to ensure the parser is tested against
+this reality.
+
+## Zip handling
+
+When the collector is run without `-NoZip`, it produces a `.zip` archive of
+the export directory. Key properties:
+
+- **Forward-slash separators.** The collector explicitly replaces backslashes
+  with forward slashes when creating zip entries, ensuring portability on
+  Linux extractors.
+- **File-only entries.** The collector adds only files (no directory entries),
+  avoiding the missing-traversal-bit problem that `Compress-Archive` on
+  PowerShell 5.1 can produce.
+- **Zip-slip protection.** The parser's `_safe_extract` normalizes paths and
+  rejects entries that would extract outside the target directory.
+- **Decompression-bomb guard.** `_streaming_zip_read` enforces a 2 GB
+  decompressed-size cap during streaming reads, preventing zip bombs that
+  spoof `info.file_size` headers.
+
+## Permissions and unreadable subtrees
+
+The SYSVOL copy preserves Windows ACLs. On a Linux analysis host:
+
+- An **unreadable directory** (e.g. a security-filtered GPO whose folder the
+  collector account cannot enter) produces a `collection-errors.json` entry
+  with `Stage: sysvol`.
+- The parser never crashes on an unreadable subtree — `ci_child` returns
+  `None` on `OSError`, and `_walk_gpp_xml` catches `OSError` per-entry.
+- Missing SYSVOL data is surfaced as a `coverage_gap` finding (kind
+  `"inaccessible"` or `"collection_error"`), never silently dropped.
+
+### Zip extraction and lost traversal bits (common gotcha)
+
+Windows-produced zips extracted on Linux with `unzip` may **lose the execute
+(traversal) bit** on `Preferences/` subdirectories. When this happens, all GPP
+content (Groups.xml, ScheduledTasks.xml, Drives.xml, etc.) becomes invisible
+without any crash or error message from the extractor.
+
+The parser detects this condition and surfaces it as a `coverage_gap` finding
+with `kind: "unreadable_sysvol"`, including the remediation command:
+
+```bash
+chmod -R +rX SYSVOL-Policies/
+```
+
+If you see `unreadable_sysvol` coverage gaps after extraction, run the above
+command and re-run the analysis. This is the most common cause of "the tool
+found zero GPP settings on a known-active estate."
+
+## GPO ID normalization
+
+All GPO IDs are **canonical**: lowercase, braces stripped. The parser applies
+`normalize.canonical_guid` to every ID read from XML, JSON, and gPLink
+attributes. Cross-input joins (report ↔ metadata ↔ SYSVOL ↔ inheritance)
+use this canonical key.
+
+## SYSVOL path matching
+
+The parser matches each GPO to its SYSVOL folder by trying, in order:
+
+1. `SYSVOL-Policies/{<UPPER-CASE-GUID>}` (brace-wrapped, upper-case — the
+   SYSVOL convention)
+2. `SYSVOL-Policies/<canonical-id>` (lowercase, no braces)
+3. `SYSVOL-Policies/<CANONICAL-ID>` (upper-case, no braces)
+
+The first match that resolves within the SYSVOL base directory is used. Path
+traversal outside the base (symlink attacks) is rejected.
+
+## Versioning (proposed)
+
+The current format has no version indicator. To support future collector
+changes without breaking the parser, a `format_version` field should be added
+to `gpo-metadata.json` (or a new `manifest.json` at the export root).
+
+Proposed schema:
+
+```json
+{
+  "format_version": 1,
+  "collector": "Export-GpoEstate.ps1",
+  "collected_at": "2026-06-14T15:30:00Z",
+  "domain": "workdomain.local"
+}
+```
+
+The parser would read this field and adjust its expectations accordingly.
+Version 0 (absent field) is the current format. Incrementing `format_version`
+signals a breaking change to the on-disk layout.
+
+Until `format_version` is implemented, the parser detects the export format
+implicitly by the presence/absence of well-known files, which is sufficient
+but fragile. Adding the version field is a low-risk improvement that should
+ship with the next collector revision.

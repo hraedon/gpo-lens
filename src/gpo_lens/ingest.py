@@ -27,7 +27,7 @@ from gpo_lens.model import (
     WmiFilter,
 )
 from gpo_lens.normalize import canonical_guid, load_json, parse_bool, parse_dt, parse_int
-from gpo_lens.paths import ci_path
+from gpo_lens.paths import ci_child, ci_path
 from gpo_lens.registry_pol import parse_registry_pol
 
 # Decompression bomb guard: refuse to expand zip contents beyond this total.
@@ -437,8 +437,11 @@ def load_baseline_from_zip(zip_path: str | Path) -> list[Gpo]:
                 with zipfile.ZipFile(io.BytesIO(inner_data)) as inner:
                     gpos.extend(_extract_gpos_from_zip(inner, total_bytes))
             elif name.endswith("gpreport.xml"):
-                raw = _streaming_zip_read(outer, name, total_bytes)
-                gpos.extend(parse_report_xml(raw))
+                try:
+                    raw = _streaming_zip_read(outer, name, total_bytes)
+                    gpos.extend(parse_report_xml(raw))
+                except (ET.ParseError, KeyError, UnicodeDecodeError) as exc:
+                    warnings.warn(f"Skipping entry in zip: {exc}", stacklevel=1)
 
         if not gpos:
             gpos.extend(_extract_gpos_from_zip(outer, total_bytes))
@@ -461,7 +464,7 @@ def _extract_gpos_from_zip(
             try:
                 raw = _streaming_zip_read(zf, name, _total)
                 gpos.extend(parse_report_xml(raw))
-            except (ET.ParseError, KeyError, ValueError) as exc:
+            except (ET.ParseError, KeyError, ValueError, UnicodeDecodeError) as exc:
                 warnings.warn(f"Skipping entry in zip: {exc}", stacklevel=1)
                 continue
     return gpos
@@ -879,29 +882,86 @@ def parse_coverage_gaps(
     return gaps
 
 
+def _scan_sysvol_coverage(gpos: list[Gpo]) -> list[CoverageGap]:
+    """Detect GPOs whose SYSVOL Preferences directories are unreadable.
+
+    A Windows-produced zip extracted on Linux often drops the traversal (``x``)
+    bit on subdirectories. The parser skips these silently (correct — it must
+    not crash), but the charter demands coverage honesty: if GPP content is
+    invisible, surface it as a coverage_gap so the user knows the estate view
+    is partial and can fix permissions (``chmod -R +rX SYSVOL-Policies``).
+    """
+    gaps: list[CoverageGap] = []
+    for gpo in gpos:
+        if not gpo.sysvol_path:
+            continue
+        base = Path(gpo.sysvol_path)
+        unreadable: list[str] = []
+        for side_dir in ("Machine", "User"):
+            side = ci_child(base, side_dir)
+            if side is None:
+                continue
+            prefs = ci_child(side, "Preferences")
+            if prefs is None:
+                continue
+            try:
+                for entry in sorted(prefs.iterdir()):
+                    if entry.is_dir():
+                        list(entry.iterdir())
+            except OSError as exc:
+                unreadable.append(
+                    f"{side_dir}/Preferences ({exc.__class__.__name__})"
+                )
+        if unreadable:
+            gaps.append(CoverageGap(
+                gpo_id=gpo.id,
+                display_name=gpo.name,
+                kind="unreadable_sysvol",
+                detail=(
+                    f"GPP content in {', '.join(unreadable)} is invisible. "
+                    f"If this is a zip extraction, run: chmod -R +rX on the "
+                    f"SYSVOL-Policies directory."
+                ),
+            ))
+    return gaps
+
+
 def load_estate(sample_dir: str | Path) -> Estate:
     """Orchestrate loading a full estate from a sample directory."""
     src = Path(sample_dir)
     report_path = src / "AllGPOs.xml"
     if not report_path.exists():
         raise FileNotFoundError(f"AllGPOs.xml not found in {src}")
-    gpos = parse_report(report_path)
+    gpos: list[Gpo] = []
+    try:
+        gpos = parse_report(report_path)
+    except (ET.ParseError, OSError, UnicodeDecodeError) as exc:
+        warnings.warn(f"Skipping AllGPOs.xml: {exc}", stacklevel=1)
     domain = gpos[0].domain if gpos else ""
 
     inheritance_path = src / "gp-inheritance.json"
     soms: list[Som] = []
     if inheritance_path.exists():
-        soms = parse_inheritance(inheritance_path)
+        try:
+            soms = parse_inheritance(inheritance_path)
+        except (OSError, ValueError) as exc:
+            warnings.warn(f"Skipping gp-inheritance.json: {exc}", stacklevel=1)
 
     # AD sites are a parallel scoping axis; append them as container_type="site"
     # SOMs. Absent sites.json (older exports) changes nothing.
     sites_path = src / "sites.json"
     if sites_path.exists():
-        soms.extend(parse_sites(sites_path))
+        try:
+            soms.extend(parse_sites(sites_path))
+        except (OSError, ValueError) as exc:
+            warnings.warn(f"Skipping sites.json: {exc}", stacklevel=1)
 
     metadata_path = src / "gpo-metadata.json"
     if metadata_path.exists():
-        merge_metadata(metadata_path, gpos)
+        try:
+            merge_metadata(metadata_path, gpos)
+        except (OSError, ValueError) as exc:
+            warnings.warn(f"Skipping gpo-metadata.json: {exc}", stacklevel=1)
 
     sysvol_dir = src / "SYSVOL-Policies"
     if sysvol_dir.exists():
@@ -918,16 +978,24 @@ def load_estate(sample_dir: str | Path) -> Estate:
     wmi_filters: list[WmiFilter] = []
     wmi_path = src / "wmi-filters.json"
     if wmi_path.exists():
-        wmi_filters = parse_wmi_filters(wmi_path)
+        try:
+            wmi_filters = parse_wmi_filters(wmi_path)
+        except (OSError, ValueError) as exc:
+            warnings.warn(f"Skipping wmi-filters.json: {exc}", stacklevel=1)
 
     ou_tree: list[OuRecord] = []
     ou_tree_path = src / "ou-tree.json"
     if ou_tree_path.exists():
-        ou_tree = parse_ou_tree(ou_tree_path)
+        try:
+            ou_tree = parse_ou_tree(ou_tree_path)
+        except (OSError, ValueError) as exc:
+            warnings.warn(f"Skipping ou-tree.json: {exc}", stacklevel=1)
 
     coverage_gaps = parse_coverage_gaps(
         src / "gpo-inventory.json", src / "collection-errors.json", gpos
     )
+
+    coverage_gaps.extend(_scan_sysvol_coverage(gpos))
 
     return Estate(
         domain=domain, gpos=gpos, soms=soms,

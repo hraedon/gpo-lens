@@ -123,32 +123,53 @@ def parse_admx_dir(policy_defs_dir: str | Path) -> PolicyDefinitions:
     (falls back to the first available locale if en-US is missing).
     """
     base = Path(policy_defs_dir)
-    if not base.is_dir():
+    try:
+        if not base.is_dir():
+            return PolicyDefinitions()
+    except OSError:
         return PolicyDefinitions()
 
     # 1. Parse ADML strings — prefer en-US, fall back to first locale
     adml_strings: dict[str, str] = {}
     en_us = base / "en-US"
-    adml_dir = en_us if en_us.is_dir() else None
+    try:
+        adml_dir = en_us if en_us.is_dir() else None
+    except OSError:
+        adml_dir = None
     if adml_dir is None:
         # Find first locale directory
-        for child in sorted(base.iterdir()):
-            if child.is_dir() and any(child.glob("*.adml")):
-                adml_dir = child
-                break
+        try:
+            children = sorted(base.iterdir())
+        except OSError:
+            children = []
+        for child in children:
+            try:
+                if child.is_dir() and any(child.glob("*.adml")):
+                    adml_dir = child
+                    break
+            except OSError:
+                continue
     if adml_dir is not None:
-        for adml_file in adml_dir.glob("*.adml"):
+        try:
+            adml_files = list(adml_dir.glob("*.adml"))
+        except OSError:
+            adml_files = []
+        for adml_file in adml_files:
             try:
                 adml_strings.update(_parse_adml_strings(adml_file))
-            except ET.ParseError:
+            except (ET.ParseError, OSError):
                 continue
 
     # 2. Parse ADMX files
     policies: list[AdmxPolicy] = []
-    for admx_file in sorted(base.glob("*.admx")):
+    try:
+        admx_files = sorted(base.glob("*.admx"))
+    except OSError:
+        admx_files = []
+    for admx_file in admx_files:
         try:
             tree = ET.parse(admx_file)
-        except ET.ParseError:
+        except (ET.ParseError, OSError):
             continue
         root = tree.getroot()
         if root is None:

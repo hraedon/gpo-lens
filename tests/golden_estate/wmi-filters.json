@@ -1,0 +1,1 @@
+[{"Name":"Golden WMI Filter","Query":"SELECT * FROM Win32_OperatingSystem WHERE ProductType = 1"}]

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Printers clsid="{A5B2CF1A-1A9E-4f0c-A39D-6AC0223C8A23}">
+  <SharedPrinter clsid="{AAAAAAAA-0008-0008-0008-BBBBBBBB0001}" name="\\printserver\lab-printer" changed="2025-01-01">
+    <Properties action="UPDATE" path="\\printserver\lab-printer" default="1" port="\\printserver\lab-printer"/>
+  </SharedPrinter>
+</Printers>
