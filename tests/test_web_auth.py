@@ -13,7 +13,7 @@ from gpo_lens.store import init_db
 from gpo_lens.web.app import create_app
 from gpo_lens.web.auth import (
     LOCAL_PRINCIPAL,
-    LOOPBACK_VIEWER,
+    LOOPBACK_PRINCIPAL,
     ROLE_PERMISSIONS,
     Permission,
     Principal,
@@ -195,13 +195,17 @@ class TestLoopbackAuth:
         assert not _is_loopback("192.168.1.1")
         assert not _is_loopback(None)
 
-    def test_no_token_loopback_returns_viewer(self, monkeypatch):
+    def test_no_token_loopback_returns_local_principal(self, monkeypatch):
+        # No token configured means the server is loopback-only (the bind guard
+        # in cli/_serve.py enforces this), so the local operator is trusted with
+        # the full analyst capability set — but not ADMIN.
         monkeypatch.delenv("GPO_LENS_AUTH_TOKEN", raising=False)
         req = FakeRequest("127.0.0.1")
         principal = get_principal(req)
-        assert principal == LOOPBACK_VIEWER
+        assert principal == LOOPBACK_PRINCIPAL
         assert principal.has(Permission.VIEW)
-        assert not principal.has(Permission.INGEST)
+        assert principal.has(Permission.INGEST)
+        assert principal.has(Permission.NARRATE)
         assert not principal.has(Permission.ADMIN)
 
     def test_no_token_remote_raises_401(self, monkeypatch):
@@ -230,13 +234,15 @@ class TestLoopbackAuth:
         principal = get_principal(req, authorization="Bearer secret")
         assert principal == LOCAL_PRINCIPAL
 
-    def test_no_token_loopback_can_view_but_not_ingest(self, tmp_db):
+    def test_no_token_loopback_can_view_and_ingest(self, tmp_db):
         app = create_app(tmp_db)
-        app.dependency_overrides[get_principal] = lambda: LOOPBACK_VIEWER
+        app.dependency_overrides[get_principal] = lambda: LOOPBACK_PRINCIPAL
         try:
             client = TestClient(app, headers={"origin": "http://localhost"})
             assert client.get("/").status_code == 200
-            assert client.post("/ingest").status_code == 403
+            # The local operator may reach the privileged endpoints; a POST with
+            # no file is rejected for missing data (422), not for authz (403).
+            assert client.post("/ingest").status_code != 403
         finally:
             app.dependency_overrides.clear()
 

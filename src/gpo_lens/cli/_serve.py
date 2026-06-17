@@ -45,5 +45,12 @@ def cmd_serve(args: object) -> int:
         url = f"http://{bracketed}:{port}"
         webbrowser.open(url)
 
-    uvicorn.run(app, host=host, port=port)
+    # Do not trust X-Forwarded-* headers. gpo-lens has no proxy-aware auth; its
+    # loopback-trust model assumes the TCP peer is the real client. uvicorn
+    # trusts proxy headers from 127.0.0.1 by default, which behind a same-host
+    # reverse proxy (e.g. IIS/HttpPlatformHandler) would surface the forwarded
+    # client IP and break loopback-trust (every browser request 401s). Treat the
+    # same-host proxy as loopback and gate access at the proxy layer instead
+    # (see deploy/iis/README.md "Access control").
+    uvicorn.run(app, host=host, port=port, proxy_headers=False)
     return 0

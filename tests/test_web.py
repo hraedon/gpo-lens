@@ -295,16 +295,16 @@ class TestDashboard:
     def test_dashboard_contains_doctor_findings(self, client) -> None:
         resp = client.get("/")
         html = resp.text
-        assert "Doctor Findings" in html
-        assert "badge-critical" in html
+        assert "Doctor findings" in html
+        assert "gp-pill critical" in html
 
     def test_dashboard_shows_severity_badges(self, client) -> None:
         resp = client.get("/")
         html = resp.text
-        assert "badge-critical" in html
-        assert "badge-high" in html
-        assert "badge-medium" in html
-        assert "badge-low" in html
+        assert "gp-pill critical" in html
+        assert "gp-pill high" in html
+        assert "gp-pill medium" in html
+        assert "gp-pill low" in html
 
     def test_dashboard_findings_link_to_gpo_detail(self, client) -> None:
         resp = client.get("/")
@@ -316,10 +316,10 @@ class TestDashboard:
     def test_dashboard_severity_order(self, client) -> None:
         resp = client.get("/")
         html = resp.text
-        critical_pos = html.find("badge-critical")
-        high_pos = html.find("badge-high")
-        medium_pos = html.find("badge-medium")
-        low_pos = html.find("badge-low")
+        critical_pos = html.find("gp-pill critical")
+        high_pos = html.find("gp-pill high")
+        medium_pos = html.find("gp-pill medium")
+        low_pos = html.find("gp-pill low")
         assert critical_pos < high_pos
         assert high_pos < medium_pos
         assert medium_pos < low_pos
@@ -357,7 +357,7 @@ class TestGpoDetail:
     def test_gpo_detail_version_skew_computer_side(self, client) -> None:
         resp = client.get("/gpo/cccccccc-cccc-cccc-cccc-cccccccccccc")
         html = resp.text
-        assert "badge-critical" in html
+        assert "gp-chip crit" in html
 
 
 class TestOuBrowser:
@@ -381,7 +381,7 @@ class TestOuBrowser:
     def test_ou_detail_shows_loopback_banner(self, client) -> None:
         resp = client.get("/ou/dc=fakefixture,dc=local")
         assert resp.status_code == 200
-        assert "Loopback processing is configured" in resp.text
+        assert "Loopback processing" in resp.text
 
 
 class TestIngest:
@@ -636,7 +636,7 @@ class TestChangelog:
         resp = client.get(f"/changelog?snap_a={snap_a}&snap_b={snap_b}")
         assert resp.status_code == 200
         html = resp.text
-        assert "changelog-entry" in html
+        assert "Changes" in html
 
     def test_changelog_distinguishes_entry_types(self, changelog_db, monkeypatch) -> None:
         from fastapi.testclient import TestClient
@@ -654,8 +654,8 @@ class TestChangelog:
         )
         resp = client.get(f"/changelog?snap_a={snap_a}&snap_b={snap_b}")
         html = resp.text
-        assert "metadata-only" in html
-        assert "settings-detail" in html
+        assert "metadata only" in html
+        assert "settings detail" in html
 
 
 class TestBaseline:
@@ -672,10 +672,13 @@ class TestBaseline:
         assert resp.status_code == 200
         html = resp.text
         has_badge = (
-            "badge-compliant" in html
-            or "badge-drift" in html
-            or "badge-missing" in html
-            or "badge-extra" in html
+            "gp-chip" in html
+            and (
+                "drift" in html
+                or "compliant" in html
+                or "missing" in html
+                or "extra" in html
+            )
         )
         assert has_badge
 
@@ -687,7 +690,7 @@ class TestBaseline:
         )
         assert resp.status_code == 200
         html = resp.text
-        assert "ADMX Name" in html
+        assert "ADMX" in html
         assert "no ADMX policy name" in html
 
     def test_upload_exceeds_size_limit_returns_413(self, client) -> None:
@@ -927,7 +930,6 @@ class TestOuDetailScopeCaveats:
         resp = client.get("/ou/dc=fakefixture,dc=local")
         assert resp.status_code == 200
         html = resp.text
-        assert "scope-caveats" in html
         assert "Scope caveats" in html
         assert "flagged, not simulated" in html
 

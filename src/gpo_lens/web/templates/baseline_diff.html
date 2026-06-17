@@ -1,58 +1,62 @@
 {% extends "base.html" %}
 
-{% block title %}gpo-lens - Baseline Comparison{% endblock %}
+{% block title %}gpo-lens — Baseline{% endblock %}
 
 {% block content %}
-<h1>Baseline Comparison</h1>
+<div class="gp-page-head">
+  <div>
+    <div class="gp-eyebrow">Drift against a known-good</div>
+    <h1>Baseline</h1>
+    <div class="sub">Upload a baseline export to compare the current estate against it.</div>
+  </div>
+</div>
 
 {% if error %}
-<div class="banner error">{{ error }}</div>
+<div class="gp-callout crit" style="margin-bottom:14px">
+  <span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6M9 9l6 6"/></svg></span>
+  <p>{{ error }}</p>
+</div>
 {% endif %}
 
-<form action="{{ url_for('baseline_post') }}" method="post" enctype="multipart/form-data">
-  <div style="margin-bottom:0.5rem;">
-    <label for="baseline-zip">Upload baseline zip:</label>
-    <input type="file" name="file" id="baseline-zip" accept=".zip">
+<form action="{{ url_for('baseline_post') }}" method="post" enctype="multipart/form-data" class="gp-panel pad">
+  <div class="gp-form-row">
+    <div class="gp-field" style="flex:1">
+      <label class="gp-label" for="baseline-zip">Baseline export (.zip)</label>
+      <input type="file" name="file" id="baseline-zip" accept=".zip" class="gp-input">
+    </div>
+    <button type="submit" class="gp-btn primary">Compare</button>
   </div>
-  <button type="submit">Compare</button>
 </form>
 
 {% if diff_entries %}
-<section>
-  <h2>Results ({{ diff_entries|length }} settings)</h2>
+<section class="gp-section">
+  <h2>Differences <span class="count">{{ diff_entries|length }}</span></h2>
   {% if total_count is defined %}
-  <p class="admx-rate">{{ unresolved_count }} of {{ total_count }} settings had no ADMX policy name</p>
+  <p class="muted" style="font-size:12.5px;margin:-4px 0 12px">{{ unresolved_count }} of {{ total_count }} settings had no ADMX policy name.</p>
   {% endif %}
-  <table>
-    <thead>
-      <tr>
-        <th>Status</th>
-        <th>Side</th>
-        <th>CSE</th>
-        <th>Identity</th>
-        <th>Display Name</th>
-        <th>Expected</th>
-        <th>Actual</th>
-        <th>GPO(s)</th>
-        <th>ADMX Name</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for entry in diff_entries %}
-      <tr>
-        <td><span class="badge badge-{{ entry.status }}">{{ entry.status }}</span></td>
-        <td>{{ entry.side }}</td>
-        <td>{{ entry.cse }}</td>
-        <td>{{ entry.identity }}</td>
-        <td>{{ entry.display_name }}</td>
-        <td>{{ entry.expected_value }}</td>
-        <td>{{ entry.actual_value }}</td>
-        <td>{{ entry.gpo_id }}</td>
-        <td>{{ entry.admx_name }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  <div class="gp-table-wrap">
+    <table class="gp-table">
+      <thead>
+        <tr><th style="width:100px">Status</th><th>Side</th><th>CSE</th><th>Identity</th><th>Name</th><th>Expected</th><th>Actual</th><th>GPO(s)</th><th>ADMX</th></tr>
+      </thead>
+      <tbody>
+        {% for entry in diff_entries %}
+        {% set tone = 'crit' if entry.status == 'drift' else ('ok' if entry.status == 'compliant' else ('accent' if entry.status == 'extra' else 'muted')) %}
+        <tr>
+          <td><span class="gp-chip {{ tone }}">{{ entry.status }}</span></td>
+          <td>{{ entry.side }}</td>
+          <td>{{ entry.cse }}</td>
+          <td class="mono">{{ entry.identity }}</td>
+          <td>{{ entry.display_name }}</td>
+          <td>{{ entry.expected_value }}</td>
+          <td>{{ entry.actual_value }}</td>
+          <td class="mono muted">{{ entry.gpo_id }}</td>
+          <td>{{ entry.admx_name }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </section>
 {% endif %}
 {% endblock %}

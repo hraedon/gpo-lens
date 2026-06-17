@@ -1,113 +1,128 @@
 {% extends "base.html" %}
 
-{% block title %}gpo-lens - OU Detail{% endblock %}
+{% block title %}gpo-lens — {{ som.name }}{% endblock %}
 
 {% block content %}
-{% if som is none %}
-<h1>OU not found</h1>
-<p>The requested path was not found in this estate.</p>
-{% else %}
-<h1>{{ som.name }}</h1>
-<p><strong>Path:</strong> {{ som.path }}</p>
-<p><strong>Inheritance Blocked:</strong> {% if som.inheritance_blocked %}Yes{% else %}No{% endif %}</p>
+<div class="gp-page-head">
+  <div>
+    <div class="gp-eyebrow">Scope of management</div>
+    <h1>{{ som.name }}</h1>
+    <div class="sub mono">{{ som.path }}</div>
+  </div>
+  <div>
+    {% if som.inheritance_blocked %}
+    <span class="gp-pill high"><span class="dot"></span>Inheritance blocked</span>
+    {% else %}
+    <span class="gp-pill muted"><span class="dot"></span>Inheritance on</span>
+    {% endif %}
+  </div>
+</div>
 
 {% if loopback_warning %}
-<div class="banner warning">
-    Loopback processing is configured in this OU's GPO chain. User-side settings may be replaced or merged — this tool does not simulate per-user RSoP.
+<div class="gp-callout warn" style="margin-bottom:14px">
+  <span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 014-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg></span>
+  <div>
+    <h4>Loopback processing is in this chain</h4>
+    <p>User-side settings may be replaced or merged. This tool does not simulate per-user RSoP.</p>
+  </div>
 </div>
 {% endif %}
 
-<div class="banner warning scope-caveats">
-    <strong>Scope caveats — flagged, not simulated.</strong>
-    <p>The effective settings below are resolved at the OU level. The following scoping mechanisms may change what actually applies to a given user or computer and are <em>not</em> evaluated by this tool:</p>
+<div class="gp-callout accent">
+  <span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg></span>
+  <div>
+    <h4>Scope caveats — flagged, not simulated</h4>
+    <p>Effective settings are resolved at the OU level. These mechanisms can change what actually applies to a given user or computer and are <em>not</em> evaluated here:</p>
     {% if caveats %}
     <ul>
-        {% for c in caveats %}
-        <li>{{ c.strip() }}</li>
-        {% endfor %}
+      {% for c in caveats %}<li>{{ c.strip() }}</li>{% endfor %}
     </ul>
-    <p>Effective settings may differ from the values shown below.</p>
     {% else %}
-    <p>No scoping caveats detected for GPOs in scope here (no loopback, security filtering, WMI filters, item-level targeting, or site links).</p>
+    <p style="margin-top:6px">None detected for the GPOs in scope (no loopback, security filtering, WMI filters, item-level targeting, or site links).</p>
     {% endif %}
+  </div>
 </div>
 
-<h2>Effective GPO Chain</h2>
-<table>
-    <thead>
-        <tr>
-            <th>Order</th>
-            <th>GPO</th>
-            <th>Enabled</th>
-            <th>Enforced</th>
-            <th>Target</th>
-        </tr>
-    </thead>
-    <tbody>
-        {% for eg in effective_gpos %}
-        <tr>
-            <td>{{ eg.order }}</td>
-            <td>{{ eg.gpo_name }}</td>
-            <td>{% if eg.enabled %}Yes{% else %}No{% endif %}</td>
-            <td>{% if eg.enforced %}Yes{% else %}No{% endif %}</td>
-            <td>{{ eg.target }}</td>
-        </tr>
-        {% endfor %}
-    </tbody>
-</table>
+<section class="gp-section">
+  <h2>Effective precedence {% if effective_gpos %}<span class="count">{{ effective_gpos|length }} in chain · applied last wins</span>{% endif %}</h2>
+  {% if effective_gpos %}
+  <ol class="gp-chain">
+    {% for eg in effective_gpos %}
+    <li class="{% if not eg.enabled %}disabled{% endif %} {% if eg.enforced %}enforced{% endif %}">
+      <span class="node"></span><span class="spine"></span>
+      <div class="gp-chain-card">
+        <div>
+          <div class="gp-chain-name">
+            {% if eg.gpo_id %}<a href="{{ url_for('gpo_detail', gpo_id=eg.gpo_id) }}">{{ eg.gpo_name }}</a>{% else %}{{ eg.gpo_name }}{% endif %}
+          </div>
+          <div class="muted mono" style="font-size:11px;margin-top:2px">{{ eg.target }}</div>
+        </div>
+        <div class="gp-chain-meta">
+          {% if eg.enforced %}<span class="gp-chip warn">enforced</span>{% endif %}
+          {% if not eg.enabled %}<span class="gp-chip muted">link off</span>{% endif %}
+          <span class="gp-chain-ord">#{{ eg.order }}</span>
+        </div>
+      </div>
+    </li>
+    {% endfor %}
+  </ol>
+  {% else %}
+  <p class="muted">No GPOs apply at this scope.</p>
+  {% endif %}
+</section>
 
-<h2>Effective Settings</h2>
-<table>
-    <thead>
-        <tr>
-            <th>CSE</th>
-            <th>Side</th>
-            <th>Identity</th>
-            <th>Value</th>
-            <th>Winner GPO</th>
-            <th>Enforced</th>
-        </tr>
-    </thead>
-    <tbody>
+<section class="gp-section">
+  <h2>Effective settings {% if settings %}<span class="count">{{ settings|length }}</span>{% endif %}</h2>
+  {% if settings %}
+  <div class="gp-table-wrap">
+    <table class="gp-table">
+      <thead>
+        <tr><th>CSE</th><th>Side</th><th>Identity</th><th>Value</th><th>Winner</th><th style="width:90px">Enforced</th></tr>
+      </thead>
+      <tbody>
         {% for s in settings %}
         <tr>
-            <td>{{ s.cse }}</td>
-            <td>{{ s.side }}</td>
-            <td>{{ s.identity }}</td>
-            <td>{{ s.display_value }}</td>
-            <td>{{ s.winner_gpo_name }}</td>
-            <td>{% if s.enforced %}Yes{% else %}No{% endif %}</td>
+          <td>{{ s.cse }}</td>
+          <td>{{ s.side }}</td>
+          <td class="mono">{{ s.identity }}</td>
+          <td>{{ s.display_value }}</td>
+          <td>{{ s.winner_gpo_name }}</td>
+          <td>{% if s.enforced %}<span class="gp-chip warn">yes</span>{% else %}<span class="muted">—</span>{% endif %}</td>
         </tr>
         {% endfor %}
-    </tbody>
-</table>
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="muted">No effective settings resolved at this scope.</p>
+  {% endif %}
+</section>
 
-<h2>Conflicts</h2>
-{% if conflicts %}
-<table>
-    <thead>
-        <tr>
-            <th>Identity</th>
-            <th>GPOs</th>
-            <th>Winner</th>
-        </tr>
-    </thead>
-    <tbody>
+<section class="gp-section">
+  <h2>Conflicts {% if conflicts %}<span class="count">{{ conflicts|length }}</span>{% endif %}</h2>
+  {% if conflicts %}
+  <div class="gp-table-wrap">
+    <table class="gp-table">
+      <thead>
+        <tr><th>Identity</th><th>Contenders</th><th style="width:160px">Winner</th></tr>
+      </thead>
+      <tbody>
         {% for c in conflicts %}
         <tr>
-            <td>{{ c.identity }}</td>
-            <td>
-                {% for gpo_name, value, status in c.entries %}
-                {{ gpo_name }} ({{ status }}: {{ value }}){% if not loop.last %}, {% endif %}
-                {% endfor %}
-            </td>
-            <td>{{ c.winner }}</td>
+          <td class="mono">{{ c.identity }}</td>
+          <td>
+            {% for gpo_name, value, status in c.entries %}
+            <div>{{ gpo_name }} <span class="muted">({{ status }}: {{ value }})</span></div>
+            {% endfor %}
+          </td>
+          <td>{{ c.winner }}</td>
         </tr>
         {% endfor %}
-    </tbody>
-</table>
-{% else %}
-<p>No conflicts detected for this OU.</p>
-{% endif %}
-{% endif %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="muted">No conflicting settings detected for this scope.</p>
+  {% endif %}
+</section>
 {% endblock %}
