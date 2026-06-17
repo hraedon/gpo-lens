@@ -17,6 +17,7 @@
     <thead>
       <tr>
         <th>Name</th>
+        <th style="width:90px">Type</th>
         <th>Distinguished name</th>
         <th class="num" style="width:80px">Links</th>
         <th style="width:130px">Inheritance</th>
@@ -26,6 +27,15 @@
       {% for som in soms %}
       <tr>
         <td><a href="{{ url_for('ou_detail', path=som.path) }}">{{ som.name }}</a></td>
+        <td>
+          {% if som.container_type == "site" %}
+          <span class="gp-chip info">Site</span>
+          {% elif som.container_type == "domain" %}
+          <span class="gp-chip accent">Domain</span>
+          {% else %}
+          <span class="gp-chip muted">OU</span>
+          {% endif %}
+        </td>
         <td class="mono muted">{{ som.path }}</td>
         <td class="num">{{ som.links | length }}</td>
         <td>

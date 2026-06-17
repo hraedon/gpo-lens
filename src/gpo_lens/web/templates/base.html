@@ -4,6 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}gpo-lens{% endblock %}</title>
+    <link rel="icon" href="{{ url_for('static', path='favicon.svg') }}" type="image/svg+xml">
     <link rel="stylesheet" href="{{ url_for('static', path='css/tokens.css') }}">
     <script src="{{ url_for('static', path='theme.js') }}"></script>
 </head>
@@ -45,6 +46,7 @@
             </svg>
         </button>
     </header>
+    {% block breadcrumb %}{% endblock %}
     <main class="gp-page">
         <div class="gp-wrap">
             {% block content %}{% endblock %}

@@ -130,18 +130,6 @@ class TestRoutePermissions:
         response = client.post("/ingest")
         assert response.status_code != 200
 
-    def test_narrate_stub_requires_narrate(self, tmp_db, auth_token):
-        app = create_app(tmp_db)
-        client = TestClient(
-            app,
-            headers={
-                "origin": "http://localhost",
-                "Authorization": f"Bearer {auth_token}",
-            },
-        )
-        response = client.post("/api/narrate")
-        assert response.status_code == 501
-
 
 class TestViewerAccessDenied:
     def test_viewer_can_access_home(self, tmp_db, viewer_principal):
@@ -160,16 +148,6 @@ class TestViewerAccessDenied:
         try:
             client = TestClient(app, headers={"origin": "http://localhost"})
             response = client.post("/ingest")
-            assert response.status_code == 403
-        finally:
-            app.dependency_overrides.clear()
-
-    def test_viewer_denied_narrate(self, tmp_db, viewer_principal):
-        app = create_app(tmp_db)
-        app.dependency_overrides[get_principal] = lambda authorization=None: viewer_principal
-        try:
-            client = TestClient(app, headers={"origin": "http://localhost"})
-            response = client.post("/api/narrate")
             assert response.status_code == 403
         finally:
             app.dependency_overrides.clear()

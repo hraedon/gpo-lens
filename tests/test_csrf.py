@@ -120,15 +120,13 @@ class TestCsrfMatchingOrigin:
         "http://localhost.localdomain",
     ])
     def test_post_with_localhost_origin_passes(self, csrf_client, origin: str) -> None:
-        resp = csrf_client.post("/api/narrate", headers={"origin": origin})
-        # Should NOT be 403 (CSRF blocked). The /api/narrate endpoint
-        # returns 501 (not implemented), not 403.
+        resp = csrf_client.post("/ingest", headers={"origin": origin})
         assert resp.status_code != 403
 
     def test_post_with_localhost_origin_ignores_evil_referer(self, csrf_client) -> None:
         """When Origin is localhost, Referer is not checked."""
         resp = csrf_client.post(
-            "/api/narrate",
+            "/ingest",
             headers={
                 "origin": "http://localhost",
                 "referer": "https://evil.com/attack",
@@ -156,7 +154,7 @@ class TestCsrfMismatchedOrigin:
         "http://0.0.0.0:8000",
     ])
     def test_post_with_external_origin_rejected(self, csrf_client, origin: str) -> None:
-        resp = csrf_client.post("/api/narrate", headers={"origin": origin})
+        resp = csrf_client.post("/ingest", headers={"origin": origin})
         assert resp.status_code == 403
         assert "CSRF" in resp.json()["detail"]
 
@@ -168,7 +166,7 @@ class TestCsrfMismatchedOrigin:
         attacker's Origin, which is not localhost, so it's rejected.
         """
         resp = csrf_client.post(
-            "/api/narrate",
+            "/ingest",
             headers={
                 "origin": "https://attacker.com",
                 "referer": "https://attacker.com/evil-page",
@@ -195,7 +193,7 @@ class TestCsrfMatchingReferer:
     def test_post_with_localhost_referer_no_origin_passes(
         self, csrf_client, referer: str
     ) -> None:
-        resp = csrf_client.post("/api/narrate", headers={"referer": referer})
+        resp = csrf_client.post("/ingest", headers={"referer": referer})
         assert resp.status_code != 403
 
 
@@ -216,7 +214,7 @@ class TestCsrfMismatchedReferer:
     def test_post_with_external_referer_no_origin_rejected(
         self, csrf_client, referer: str
     ) -> None:
-        resp = csrf_client.post("/api/narrate", headers={"referer": referer})
+        resp = csrf_client.post("/ingest", headers={"referer": referer})
         assert resp.status_code == 403
 
 
@@ -245,7 +243,7 @@ class TestCsrfNoOriginNoReferer:
     """
 
     def test_post_with_no_origin_no_referer_returns_403(self, csrf_client) -> None:
-        resp = csrf_client.post("/api/narrate")
+        resp = csrf_client.post("/ingest")
         assert resp.status_code == 403
 
     def test_csrf_blocks_ingest_without_headers(self, csrf_client) -> None:
@@ -300,9 +298,9 @@ class TestCsrfSpoofedExternalOrigin:
         )
         assert resp.status_code == 403
 
-    def test_cross_origin_narrate_blocked(self, csrf_client) -> None:
+    def test_cross_origin_ingest_post_blocked(self, csrf_client) -> None:
         resp = csrf_client.post(
-            "/api/narrate",
+            "/ingest",
             headers={"origin": "https://evil.com"},
         )
         assert resp.status_code == 403
@@ -313,7 +311,7 @@ class TestCsrfSpoofedExternalOrigin:
         The browser sends Referer (not Origin in some older cases).
         """
         resp = csrf_client.post(
-            "/api/narrate",
+            "/ingest",
             headers={"referer": "https://evil.com/attack-form"},
         )
         assert resp.status_code == 403

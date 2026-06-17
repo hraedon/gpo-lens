@@ -969,3 +969,57 @@ class TestSecurityHeaders:
         assert "script-src 'self'" in csp
         assert "script-src 'unsafe-inline'" not in csp
 
+
+class TestUiEnhancements:
+    def test_favicon_link_present(self, client) -> None:
+        resp = client.get("/")
+        assert 'rel="icon"' in resp.text
+        assert "favicon.svg" in resp.text
+
+    def test_gpo_detail_has_breadcrumb(self, client) -> None:
+        resp = client.get("/gpo/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+        assert "gp-breadcrumb" in resp.text
+        assert "aria-current" in resp.text
+
+    def test_ou_detail_has_breadcrumb(self, client) -> None:
+        resp = client.get("/ou/dc=fakefixture,dc=local")
+        assert "gp-breadcrumb" in resp.text
+        assert "Directory" in resp.text
+
+    def test_ingest_page_has_confirm_overlay(self, client) -> None:
+        resp = client.get("/ingest")
+        assert "confirm-overlay" in resp.text
+        assert "role=\"dialog\"" in resp.text
+        assert "aria-modal" in resp.text
+
+    def test_ingest_page_uses_upload_js(self, client) -> None:
+        resp = client.get("/ingest")
+        assert "upload.js" in resp.text
+
+    def test_baseline_page_has_drag_drop_zone(self, client) -> None:
+        resp = client.get("/baseline")
+        assert "drop-zone" in resp.text
+        assert "upload.js" in resp.text
+
+    def test_ou_list_has_type_column(self, client) -> None:
+        resp = client.get("/ou")
+        assert "gp-chip info" in resp.text or "gp-chip muted" in resp.text
+
+    def test_ou_list_shows_site_chip(self, client) -> None:
+        resp = client.get("/ou")
+        html = resp.text
+        assert "Site" in html
+
+    def test_ask_input_has_maxlength(self, client) -> None:
+        resp = client.get("/ask")
+        assert "maxlength=\"500\"" in resp.text
+
+    def test_changelog_shows_guidance_with_few_snapshots(self, client) -> None:
+        resp = client.get("/changelog")
+        assert "Need at least two snapshots" in resp.text
+
+    def test_error_page_404_shows_detail(self, client) -> None:
+        resp = client.get("/gpo/00000000-0000-0000-0000-000000000000")
+        assert resp.status_code == 404
+        assert "GPO not found" in resp.text
+
