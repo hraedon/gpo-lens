@@ -20,7 +20,7 @@ from fastapi.templating import Jinja2Templates
 
 from gpo_lens import events as _events
 from gpo_lens import ingest as _ingest
-from gpo_lens import queries
+from gpo_lens import queries, topology
 from gpo_lens import store as _store
 from gpo_lens.query_dispatch import (
     VALID_QUERIES,
@@ -369,6 +369,9 @@ def create_app(db_path: str, *, root_path: str = "") -> FastAPI:
         if gpo is None:
             raise HTTPException(status_code=404, detail="GPO not found")
 
+        scope = topology.effective_scope(estate, gpo_id)
+        caveats = scope.caveats if scope is not None else []
+
         disabled_sides: set[str] = set()
         if not gpo.computer_enabled and any(
             s.side == "Computer" and s.from_disabled_side for s in gpo.settings
@@ -393,6 +396,7 @@ def create_app(db_path: str, *, root_path: str = "") -> FastAPI:
                 "gpo": gpo,
                 "settings_by_side": dict(settings_by_side),
                 "disabled_sides": disabled_sides,
+                "caveats": caveats,
             },
         )
 

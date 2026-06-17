@@ -940,6 +940,20 @@ class TestOuDetailScopeCaveats:
         assert "loopback" in html_lower
 
 
+class TestGpoDetailScopeCaveats:
+    def test_gpo_detail_renders_scope_caveats_section(self, client) -> None:
+        resp = client.get("/gpo/eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee")
+        assert resp.status_code == 200
+        html = resp.text
+        assert "Scope caveats" in html
+        assert "flagged, not simulated" in html
+
+    def test_gpo_detail_lists_loopback_caveat(self, client) -> None:
+        resp = client.get("/gpo/eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee")
+        assert resp.status_code == 200
+        assert "Loopback mode:" in resp.text
+
+
 class TestSecurityHeaders:
     def test_csp_header_present(self, client) -> None:
         resp = client.get("/")
