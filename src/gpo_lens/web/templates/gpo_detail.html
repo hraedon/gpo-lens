@@ -30,6 +30,21 @@
   </div>
 </section>
 
+<div class="gp-callout accent">
+  <span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg></span>
+  <div>
+    <h4>Scope caveats — flagged, not simulated</h4>
+    <p>These scoping mechanisms can change what actually applies to a given user or computer and are <em>not</em> evaluated here:</p>
+    {% if caveats %}
+    <ul>
+      {% for c in caveats %}<li>{{ c.strip() }}</li>{% endfor %}
+    </ul>
+    {% else %}
+    <p style="margin-top:6px">None detected for this GPO (no security filtering, WMI filter, loopback, item-level targeting, or unlinked state).</p>
+    {% endif %}
+  </div>
+</div>
+
 <section class="gp-section">
   <h2>Versions</h2>
   <div class="gp-table-wrap">
