@@ -26,6 +26,7 @@ CORE_MODULES: tuple[str, ...] = (
     "ingest",
     "store",
     "queries",
+    "snapshot_diff",
     "detection",
     "admx_parser",
     "display",

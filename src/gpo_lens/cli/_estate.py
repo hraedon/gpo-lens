@@ -4,7 +4,7 @@ import argparse
 import dataclasses
 import sqlite3
 
-from gpo_lens import ingest, queries, store
+from gpo_lens import ingest, queries, snapshot_diff, store
 from gpo_lens.cli._helpers import _get_estate, _render_json
 
 
@@ -70,8 +70,8 @@ def _emit_ingest_events(
 ) -> None:
     from gpo_lens.events import append_events as _append_events
 
-    diff = queries.snapshot_diff(conn, prev, sid)
-    settings_changes = queries.snapshot_settings_diff(conn, prev, sid)
+    diff = snapshot_diff.snapshot_diff(conn, prev, sid)
+    settings_changes = snapshot_diff.snapshot_settings_diff(conn, prev, sid)
     settings_by_gpo: dict[str, list[dict[str, str | None]]] = {}
     for sc in settings_changes:
         settings_by_gpo.setdefault(sc.gpo_id, []).append({
@@ -140,7 +140,7 @@ def cmd_ingest(args: argparse.Namespace) -> None:
             if args.diff_latest:
                 prev = _latest_snapshot_before(conn, sid)
                 if prev:
-                    entries = queries.snapshot_changelog(conn, prev, sid)
+                    entries = snapshot_diff.snapshot_changelog(conn, prev, sid)
                     out["changelog"] = [
                         {
                             "gpo_id": e.gpo_id,
@@ -158,7 +158,7 @@ def cmd_ingest(args: argparse.Namespace) -> None:
             if args.diff_latest:
                 prev = _latest_snapshot_before(conn, sid)
                 if prev:
-                    entries = queries.snapshot_changelog(conn, prev, sid)
+                    entries = snapshot_diff.snapshot_changelog(conn, prev, sid)
                     if entries:
                         print("\nChanges since previous snapshot:")
                         for e in entries:

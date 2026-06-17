@@ -12,10 +12,10 @@ if TYPE_CHECKING:
     from gpo_lens.model import Estate, Gpo, Som
     from gpo_lens.queries import (
         BaselineDiffEntry,
-        ChangelogEntry,
         DoctorFinding,
         EstateSummary,
     )
+    from gpo_lens.snapshot_diff import ChangelogEntry
 
 _SUMMARY_FIELDS: list[tuple[str, str]] = [
     ("Domain", "domain"),
