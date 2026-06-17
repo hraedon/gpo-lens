@@ -6,15 +6,18 @@ import pytest
 
 pytest.importorskip("fastapi")
 
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from gpo_lens.store import init_db
 from gpo_lens.web.app import create_app
 from gpo_lens.web.auth import (
     LOCAL_PRINCIPAL,
+    LOOPBACK_VIEWER,
     ROLE_PERMISSIONS,
     Permission,
     Principal,
+    _is_loopback,
     get_principal,
     requires,
 )
@@ -36,6 +39,12 @@ def viewer_principal():
         role="viewer",
         permissions=frozenset(ROLE_PERMISSIONS["viewer"]),
     )
+
+
+@pytest.fixture
+def auth_token(monkeypatch):
+    monkeypatch.setenv("GPO_LENS_AUTH_TOKEN", "test-secret-token")
+    return "test-secret-token"
 
 
 class TestPermissionEnum:
@@ -97,21 +106,39 @@ class TestRoutePermissions:
                 f"Route {route.path} ({route.name}) is missing a permission check"
             )
 
-    def test_home_requires_view(self, tmp_db):
+    def test_home_requires_view(self, tmp_db, auth_token):
         app = create_app(tmp_db)
-        client = TestClient(app, headers={"origin": "http://localhost"})
+        client = TestClient(
+            app,
+            headers={
+                "origin": "http://localhost",
+                "Authorization": f"Bearer {auth_token}",
+            },
+        )
         response = client.get("/")
         assert response.status_code == 200
 
-    def test_ingest_route_requires_ingest(self, tmp_db):
+    def test_ingest_route_requires_ingest(self, tmp_db, auth_token):
         app = create_app(tmp_db)
-        client = TestClient(app, headers={"origin": "http://localhost"})
+        client = TestClient(
+            app,
+            headers={
+                "origin": "http://localhost",
+                "Authorization": f"Bearer {auth_token}",
+            },
+        )
         response = client.post("/ingest")
         assert response.status_code != 200
 
-    def test_narrate_stub_requires_narrate(self, tmp_db):
+    def test_narrate_stub_requires_narrate(self, tmp_db, auth_token):
         app = create_app(tmp_db)
-        client = TestClient(app, headers={"origin": "http://localhost"})
+        client = TestClient(
+            app,
+            headers={
+                "origin": "http://localhost",
+                "Authorization": f"Bearer {auth_token}",
+            },
+        )
         response = client.post("/api/narrate")
         assert response.status_code == 501
 
@@ -144,6 +171,72 @@ class TestViewerAccessDenied:
             client = TestClient(app, headers={"origin": "http://localhost"})
             response = client.post("/api/narrate")
             assert response.status_code == 403
+        finally:
+            app.dependency_overrides.clear()
+
+
+class FakeClient:
+    def __init__(self, host: str | None):
+        self.host = host
+
+
+class FakeRequest:
+    def __init__(self, host: str | None):
+        self.client = FakeClient(host) if host else None
+
+
+class TestLoopbackAuth:
+    def test_is_loopback(self):
+        assert _is_loopback("127.0.0.1")
+        assert _is_loopback("::1")
+        assert _is_loopback("localhost")
+        assert _is_loopback("::ffff:127.0.0.1")
+        assert not _is_loopback("10.0.0.5")
+        assert not _is_loopback("192.168.1.1")
+        assert not _is_loopback(None)
+
+    def test_no_token_loopback_returns_viewer(self, monkeypatch):
+        monkeypatch.delenv("GPO_LENS_AUTH_TOKEN", raising=False)
+        req = FakeRequest("127.0.0.1")
+        principal = get_principal(req)
+        assert principal == LOOPBACK_VIEWER
+        assert principal.has(Permission.VIEW)
+        assert not principal.has(Permission.INGEST)
+        assert not principal.has(Permission.ADMIN)
+
+    def test_no_token_remote_raises_401(self, monkeypatch):
+        monkeypatch.delenv("GPO_LENS_AUTH_TOKEN", raising=False)
+        req = FakeRequest("10.0.0.5")
+        with pytest.raises(HTTPException) as exc:
+            get_principal(req)
+        assert exc.value.status_code == 401
+
+    def test_no_token_missing_client_raises_401(self, monkeypatch):
+        monkeypatch.delenv("GPO_LENS_AUTH_TOKEN", raising=False)
+        req = FakeRequest(None)
+        with pytest.raises(HTTPException) as exc:
+            get_principal(req)
+        assert exc.value.status_code == 401
+
+    def test_with_token_loopback_gets_admin(self, monkeypatch):
+        monkeypatch.setenv("GPO_LENS_AUTH_TOKEN", "secret")
+        req = FakeRequest("127.0.0.1")
+        principal = get_principal(req, authorization="Bearer secret")
+        assert principal == LOCAL_PRINCIPAL
+
+    def test_with_token_remote_gets_admin(self, monkeypatch):
+        monkeypatch.setenv("GPO_LENS_AUTH_TOKEN", "secret")
+        req = FakeRequest("10.0.0.5")
+        principal = get_principal(req, authorization="Bearer secret")
+        assert principal == LOCAL_PRINCIPAL
+
+    def test_no_token_loopback_can_view_but_not_ingest(self, tmp_db):
+        app = create_app(tmp_db)
+        app.dependency_overrides[get_principal] = lambda: LOOPBACK_VIEWER
+        try:
+            client = TestClient(app, headers={"origin": "http://localhost"})
+            assert client.get("/").status_code == 200
+            assert client.post("/ingest").status_code == 403
         finally:
             app.dependency_overrides.clear()
 

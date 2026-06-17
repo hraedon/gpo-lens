@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Iterable
@@ -11,6 +10,13 @@ from xml.etree.ElementTree import Element, ElementTree
 
 import defusedxml.ElementTree as ET
 
+from gpo_lens.authz import (
+    MS16_072_TRUSTEES,
+    broad_trustee_key,
+    is_deny_ace_type,
+    parse_sddl,
+    parse_sddl_rights,
+)
 from gpo_lens.model import (
     DenyAce,
     ExcessiveWriter,
@@ -146,8 +152,6 @@ _GPP_XML_FILES = (
 
 _SIDE_MAP: dict[str, Side] = {"Machine": "Computer", "User": "User"}
 
-_MS16_072_TRUSTEES = {"authenticated users", "domain computers"}
-
 _ADMX_REGISTRY_PREFIXES = (
     "software\\",
     "hklm\\",
@@ -264,21 +268,6 @@ def _scan_gpo_for_cpassword(gpo: Gpo) -> list[CpasswordHit]:
     return results
 
 
-def _trustee_matches_ms16_072(trustee: str, sid: str | None) -> bool:
-    t = trustee.strip().lower()
-    if t in _MS16_072_TRUSTEES:
-        return True
-    if sid:
-        s = sid.strip().lower()
-        if s == "s-1-5-11":
-            return True
-        # Domain Computers = S-1-5-21-{domain}-515. Require the domain-SID
-        # prefix so an arbitrary SID ending in "515" doesn't false-match.
-        if s.startswith("s-1-5-21-") and s.endswith("-515"):
-            return True
-    return False
-
-
 _READ_IMPLYING_PERMISSIONS = frozenset({
     "read",
     "edit settings",
@@ -290,7 +279,7 @@ _READ_IMPLYING_PERMISSIONS = frozenset({
 def _has_ms16_072_read(delegation: list[DelegationEntry]) -> bool:
     return any(
         e.allowed
-        and _trustee_matches_ms16_072(e.trustee, e.trustee_sid)
+        and broad_trustee_key(e.trustee, e.trustee_sid, MS16_072_TRUSTEES) is not None
         and e.permission.strip().lower() in _READ_IMPLYING_PERMISSIONS
         for e in delegation
     )
@@ -574,8 +563,14 @@ def unlinked_gpos(estate: Estate) -> list[Gpo]:
 
 
 def empty_gpos(estate: Estate) -> list[Gpo]:
-    """GPOs with no settings on either side."""
-    return [g for g in estate.gpos if not g.settings]
+    """GPOs with no readable settings on either side.
+
+    Per ``docs/spec/wi_queries.md`` AC-02, a GPO with only ``<Blocked/>``
+    extensions (and therefore source_state="blocked" settings) counts as
+    empty.  Blocked extensions are still surfaced separately by
+    ``blocked_extensions``.
+    """
+    return [g for g in estate.gpos if not any(s.source_state != "blocked" for s in g.settings)]
 
 
 def disabled_but_populated(estate: Estate) -> list[tuple[Gpo, Side]]:
@@ -762,16 +757,6 @@ def broken_refs(estate: Estate) -> list[BrokenRef]:
     return results
 
 
-_SDDL_ACE_TYPE_MAP = {
-    "A": "allow",
-    "D": "deny",
-    "OA": "object_allow",
-    "OD": "object_deny",
-    "AU": "audit_success",
-    "OU": "audit_object",
-    "AL": "alarm",
-}
-
 _WRITE_RIGHTS = {"GA", "GW", "WD", "WO", "SD", "DT", "WP", "DC", "CC"}
 
 
@@ -796,148 +781,8 @@ def _is_default_writer_sid(sid: str) -> bool:
     return _is_domain_admins_sid(sid_lower)
 
 
-_VALID_SDDL_RIGHTS = {
-    "GA", "GR", "GW", "GX", "RC", "SD", "WD", "WO", "RP", "WP",
-    "CC", "DC", "LC", "LO", "DT", "CR", "FA", "FR", "FW", "FX",
-    "KA", "KR", "KW", "KX",
-}
-
-
-def _parse_sddl_rights(rights: str) -> list[str]:
-    """Extract individual 2-letter SDDL right codes from a rights string.
-
-    SDDL rights may be pipe-separated (``GR|GW``) or concatenated
-    (``RPWP``) or both.  We split on ``|`` first, then walk each part
-    extracting consecutive 2-letter codes from the known set.
-    """
-    result: list[str] = []
-    for part in rights.split("|"):
-        part = part.strip().upper()
-        i = 0
-        while i + 1 < len(part):
-            code = part[i:i + 2]
-            if code in _VALID_SDDL_RIGHTS:
-                result.append(code)
-                i += 2
-            else:
-                i += 1
-    return result
-
-
 def _has_write_right(rights: str) -> bool:
-    return any(r in _WRITE_RIGHTS for r in _parse_sddl_rights(rights))
-
-
-def _parse_ace_string(ace_str: str) -> SddlAce | None:
-    parts = ace_str.split(";")
-    if len(parts) != 6:
-        return None
-    ace_type_raw = parts[0].strip()
-    ace_type = _SDDL_ACE_TYPE_MAP.get(ace_type_raw.upper())
-    if ace_type is None:
-        return None
-    flags = parts[1].strip()
-    rights = parts[2].strip()
-    object_guid = parts[3].strip()
-    inherit_object_guid = parts[4].strip()
-    trustee_sid = parts[5].strip()
-    return SddlAce(
-        ace_type=ace_type,
-        flags=flags,
-        rights=rights,
-        object_guid=object_guid,
-        inherit_object_guid=inherit_object_guid,
-        trustee_sid=trustee_sid,
-    )
-
-
-def _find_section_starts(sddl: str) -> dict[str, int]:
-    """Find the start positions of O:, G:, D:, S: sections in SDDL.
-
-    Uses parenthesis-depth tracking so that SIDs containing D/S/G/O
-    characters (e.g. ``S-1-5-18`` inside the Owner value) are not
-    mistaken for section headers.  Only characters at depth 0 followed
-    by ':' are considered section markers.
-    """
-    sections: dict[str, int] = {}
-    depth = 0
-    i = 0
-    while i < len(sddl):
-        ch = sddl[i]
-        if ch == "(":
-            depth += 1
-        elif ch == ")":
-            depth -= 1
-            if depth < 0:
-                depth = 0
-        elif depth == 0 and ch in "OGDS" and i + 1 < len(sddl) and sddl[i + 1] == ":":
-            sections.setdefault(ch, i)
-        i += 1
-    return sections
-
-
-def _extract_aces(text: str) -> list[SddlAce]:
-    """Extract ACEs from a parenthesized ACE list like (A;;GA;;;SID)(D;;GR;;;SID)."""
-    aces: list[SddlAce] = []
-    depth = 0
-    ace_start = -1
-    for i, ch in enumerate(text):
-        if ch == "(":
-            if depth == 0:
-                ace_start = i + 1
-            depth += 1
-        elif ch == ")":
-            depth -= 1
-            if depth == 0 and ace_start >= 0:
-                ace_str = text[ace_start:i]
-                ace = _parse_ace_string(ace_str)
-                if ace is not None:
-                    aces.append(ace)
-                ace_start = -1
-    return aces
-
-
-def parse_sddl(sddl: str) -> SddlAcl:
-    """Parse an SDDL string into owner, group, DACL, and SACL ACEs."""
-    if len(sddl) > 1_048_576:
-        warnings.warn(
-            f"SDDL exceeds 1MB cap ({len(sddl)} bytes); returning empty ACL",
-            stacklevel=1,
-        )
-        return SddlAcl(owner_sid=None, group_sid=None, dacl=(), sacl=())
-
-    owner_sid: str | None = None
-    group_sid: str | None = None
-    dacl: list[SddlAce] = []
-    sacl: list[SddlAce] = []
-
-    sections = _find_section_starts(sddl)
-
-    section_order = sorted(sections.items(), key=lambda kv: kv[1])
-
-    for idx, (sec_type, sec_start) in enumerate(section_order):
-        value_start = sec_start + 2
-        value_end = len(sddl)
-        if idx + 1 < len(section_order):
-            value_end = section_order[idx + 1][1]
-
-        raw = sddl[value_start:value_end]
-
-        if sec_type == "O":
-            owner_sid = raw.strip() or None
-        elif sec_type == "G":
-            group_sid = raw.strip() or None
-        elif sec_type == "D":
-            dacl = _extract_aces(raw)
-        elif sec_type == "S":
-            sacl = _extract_aces(raw)
-
-    return SddlAcl(
-        owner_sid=owner_sid,
-        group_sid=group_sid,
-        dacl=tuple(dacl),
-        sacl=tuple(sacl),
-    )
+    return any(r in _WRITE_RIGHTS for r in parse_sddl_rights(rights))
 
 
 def deny_aces(estate: Estate) -> list[DenyAce]:
@@ -948,7 +793,7 @@ def deny_aces(estate: Estate) -> list[DenyAce]:
             continue
         acl = parse_sddl(g.sddl)
         for ace in acl.dacl:
-            if ace.ace_type in ("deny", "object_deny"):
+            if is_deny_ace_type(ace.ace_type):
                 results.append(DenyAce(
                     gpo_id=g.id,
                     gpo_name=g.name,
@@ -958,7 +803,7 @@ def deny_aces(estate: Estate) -> list[DenyAce]:
                     acl_section="dacl",
                 ))
         for ace in acl.sacl:
-            if ace.ace_type in ("deny", "object_deny"):
+            if is_deny_ace_type(ace.ace_type):
                 results.append(DenyAce(
                     gpo_id=g.id,
                     gpo_name=g.name,
@@ -995,7 +840,7 @@ def excessive_writers(
                 continue
             entry = writer_map.setdefault(sid, {})
             gpo_entry = entry.setdefault(g.id, set())
-            for r in _parse_sddl_rights(ace.rights):
+            for r in parse_sddl_rights(ace.rights):
                 if r in _WRITE_RIGHTS:
                     gpo_entry.add(r)
 

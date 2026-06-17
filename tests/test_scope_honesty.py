@@ -800,6 +800,206 @@ class TestIsSecurityFilteredEmptyDelegation:
         assert is_security_filtered(gpo) is True
 
 
+class TestIsSecurityFilteredSddlFallback:
+    """When delegation is empty but SDDL is present, parse the SDDL DACL
+    to check for broad trustees. This catches GPOs whose report carries
+    SDDL but no Permissions sub-element."""
+
+    def test_sddl_with_au_ga_not_filtered(self) -> None:
+        from gpo_lens.topology import is_security_filtered
+
+        gpo = _make_gpo(
+            id="gpo-sddl-au",
+            sddl="O:SYG:SYD:(A;;GA;;;S-1-5-11)",
+            delegation=[],
+        )
+        assert is_security_filtered(gpo) is False
+
+    def test_sddl_with_au_gr_not_filtered(self) -> None:
+        from gpo_lens.topology import is_security_filtered
+
+        gpo = _make_gpo(
+            id="gpo-sddl-au-gr",
+            sddl="O:SYG:SYD:(A;;GR;;;S-1-5-11)",
+            delegation=[],
+        )
+        assert is_security_filtered(gpo) is False
+
+    def test_sddl_with_everyone_ga_not_filtered(self) -> None:
+        from gpo_lens.topology import is_security_filtered
+
+        gpo = _make_gpo(
+            id="gpo-sddl-everyone",
+            sddl="O:SYG:SYD:(A;;GA;;;S-1-1-0)",
+            delegation=[],
+        )
+        assert is_security_filtered(gpo) is False
+
+    def test_sddl_with_dc_gr_not_filtered(self) -> None:
+        from gpo_lens.topology import is_security_filtered
+
+        gpo = _make_gpo(
+            id="gpo-sddl-dc",
+            sddl="O:SYG:SYD:(A;;GR;;;S-1-5-21-111-222-515)",
+            delegation=[],
+        )
+        assert is_security_filtered(gpo) is False
+
+    def test_sddl_with_only_narrow_trustee_filtered(self) -> None:
+        from gpo_lens.topology import is_security_filtered
+
+        gpo = _make_gpo(
+            id="gpo-sddl-narrow",
+            sddl="O:SYG:SYD:(A;;GA;;;S-1-5-21-111-222-1234)",
+            delegation=[],
+        )
+        assert is_security_filtered(gpo) is True
+
+    def test_sddl_with_au_deny_filtered(self) -> None:
+        from gpo_lens.topology import is_security_filtered
+
+        gpo = _make_gpo(
+            id="gpo-sddl-deny",
+            sddl="O:SYG:SYD:(D;;GA;;;S-1-5-11)",
+            delegation=[],
+        )
+        assert is_security_filtered(gpo) is True
+
+    def test_sddl_au_allow_plus_au_deny_same_trustee(self) -> None:
+        from gpo_lens.topology import is_security_filtered
+
+        gpo = _make_gpo(
+            id="gpo-sddl-both",
+            sddl="O:SYG:SYD:(A;;GA;;;S-1-5-11)(D;;GA;;;S-1-5-11)",
+            delegation=[],
+        )
+        assert is_security_filtered(gpo) is True
+
+    def test_sddl_au_allow_plus_da_deny_different_trustee(self) -> None:
+        from gpo_lens.topology import is_security_filtered
+
+        gpo = _make_gpo(
+            id="gpo-sddl-cross",
+            sddl="O:SYG:SYD:(A;;GA;;;S-1-5-11)(D;;GA;;;S-1-5-21-111-222-512)",
+            delegation=[],
+        )
+        assert is_security_filtered(gpo) is False
+
+    def test_sddl_no_delegation_no_sddl_not_filtered(self) -> None:
+        from gpo_lens.topology import is_security_filtered
+
+        gpo = _make_gpo(id="gpo-none", sddl=None, delegation=[])
+        assert is_security_filtered(gpo) is False
+
+    def test_sddl_delegation_takes_precedence_over_sddl(self) -> None:
+        from gpo_lens.topology import is_security_filtered
+
+        gpo = _make_gpo(
+            id="gpo-both-paths",
+            sddl="O:SYG:SYD:(A;;GA;;;S-1-5-11)",
+            delegation=[
+                DelegationEntry(
+                    gpo_id="gpo-both-paths",
+                    trustee="Helpdesk",
+                    trustee_sid="S-1-5-21-999-1000",
+                    permission="Apply Group Policy",
+                    allowed=True,
+                ),
+            ],
+        )
+        assert is_security_filtered(gpo) is True
+
+    def test_sddl_detail_has_au_read(self) -> None:
+        from gpo_lens.topology import security_filtering_detail
+
+        gpo = _make_gpo(
+            id="gpo-sddl-detail-au",
+            sddl="O:SYG:SYD:(A;;GR;;;S-1-5-11)",
+            delegation=[],
+        )
+        detail = security_filtering_detail(gpo)
+        assert detail.has_au_read is True
+        assert detail.has_dc_read is False
+        assert detail.is_filtered is False
+
+    def test_sddl_detail_has_dc_read(self) -> None:
+        from gpo_lens.topology import security_filtering_detail
+
+        gpo = _make_gpo(
+            id="gpo-sddl-detail-dc",
+            sddl="O:SYG:SYD:(A;;GR;;;S-1-5-21-111-222-515)",
+            delegation=[],
+        )
+        detail = security_filtering_detail(gpo)
+        assert detail.has_au_read is False
+        assert detail.has_dc_read is True
+        assert detail.is_filtered is False
+
+    def test_sddl_default_dacl_concatenated_rights_not_filtered(self) -> None:
+        from gpo_lens.topology import is_security_filtered
+
+        gpo = _make_gpo(
+            id="gpo-sddl-default-dacl",
+            sddl="O:SYG:SYD:(A;;RPWPCCDCLCSWRCWDWOGA;;;S-1-5-11)",
+            delegation=[],
+        )
+        assert is_security_filtered(gpo) is False
+
+    def test_sddl_object_deny_treated_as_deny(self) -> None:
+        from gpo_lens.topology import is_security_filtered
+
+        gpo = _make_gpo(
+            id="gpo-sddl-oden",
+            sddl="O:SYG:SYD:(A;;GA;;;S-1-5-11)(OD;;GA;;;S-1-5-11)",
+            delegation=[],
+        )
+        assert is_security_filtered(gpo) is True
+
+    def test_sddl_object_allow_treated_as_allow(self) -> None:
+        from gpo_lens.topology import is_security_filtered
+
+        gpo = _make_gpo(
+            id="gpo-sddl-oallow",
+            sddl="O:SYG:SYD:(OA;;GA;;;S-1-5-11)",
+            delegation=[],
+        )
+        assert is_security_filtered(gpo) is False
+
+    def test_sddl_empty_string_not_filtered(self) -> None:
+        from gpo_lens.topology import is_security_filtered
+
+        gpo = _make_gpo(id="gpo-sddl-empty", sddl="", delegation=[])
+        assert is_security_filtered(gpo) is False
+
+    def test_sddl_malformed_not_filtered(self) -> None:
+        from gpo_lens.topology import is_security_filtered
+
+        gpo = _make_gpo(id="gpo-sddl-bad", sddl="not-an-sddl", delegation=[])
+        assert is_security_filtered(gpo) is False
+
+    def test_sddl_sacl_only_not_filtered(self) -> None:
+        from gpo_lens.topology import is_security_filtered
+
+        gpo = _make_gpo(
+            id="gpo-sddl-sacl",
+            sddl="O:SYG:SYS:(AU;SA;GA;;;S-1-5-11)",
+            delegation=[],
+        )
+        assert is_security_filtered(gpo) is False
+
+    def test_sddl_detail_default_dacl_has_au_read(self) -> None:
+        from gpo_lens.topology import security_filtering_detail
+
+        gpo = _make_gpo(
+            id="gpo-sddl-detail-default",
+            sddl="O:SYG:SYD:(A;;RPWPCCDCLCSWRCWDWOGA;;;S-1-5-11)",
+            delegation=[],
+        )
+        detail = security_filtering_detail(gpo)
+        assert detail.has_au_read is True
+        assert detail.is_filtered is False
+
+
 class TestIsSecurityFilteredMixed:
     """Mixed scenarios with multiple broad trustees and deny ACEs."""
 
@@ -881,3 +1081,186 @@ class TestIsSecurityFilteredMixed:
             ],
         )
         assert is_security_filtered(gpo) is False
+
+
+# ---------------------------------------------------------------------------
+# is_security_filtered — golden behavior-preservation matrix
+# ---------------------------------------------------------------------------
+
+
+class TestSecurityFilteringGolden:
+    """Synthetic cases that pin the current scope-honesty semantics.
+
+    These exist to detect behavior drift during the authz refactor; they must
+    pass both before and after the shared substrate is extracted.
+    """
+
+    def test_broad_read_not_filtered(self) -> None:
+        from gpo_lens.topology import is_security_filtered
+
+        gpo = _make_gpo(
+            id="gpo-au-read",
+            delegation=[
+                DelegationEntry(
+                    gpo_id="gpo-au-read",
+                    trustee="Authenticated Users",
+                    trustee_sid="S-1-5-11",
+                    permission="Read",
+                    allowed=True,
+                ),
+            ],
+        )
+        assert is_security_filtered(gpo) is False
+
+    def test_broad_apply_not_filtered(self) -> None:
+        from gpo_lens.topology import is_security_filtered
+
+        gpo = _make_gpo(
+            id="gpo-au-apply",
+            delegation=[
+                DelegationEntry(
+                    gpo_id="gpo-au-apply",
+                    trustee="Authenticated Users",
+                    trustee_sid="S-1-5-11",
+                    permission="Apply Group Policy",
+                    allowed=True,
+                ),
+            ],
+        )
+        assert is_security_filtered(gpo) is False
+
+    def test_everyone_not_filtered(self) -> None:
+        from gpo_lens.topology import is_security_filtered
+
+        gpo = _make_gpo(
+            id="gpo-everyone",
+            delegation=[
+                DelegationEntry(
+                    gpo_id="gpo-everyone",
+                    trustee="Everyone",
+                    trustee_sid="S-1-1-0",
+                    permission="Read",
+                    allowed=True,
+                ),
+            ],
+        )
+        assert is_security_filtered(gpo) is False
+
+    def test_edit_settings_is_filtered(self) -> None:
+        from gpo_lens.topology import is_security_filtered
+
+        gpo = _make_gpo(
+            id="gpo-edit",
+            delegation=[
+                DelegationEntry(
+                    gpo_id="gpo-edit",
+                    trustee="Authenticated Users",
+                    trustee_sid="S-1-5-11",
+                    permission="Edit settings",
+                    allowed=True,
+                ),
+            ],
+        )
+        assert is_security_filtered(gpo) is True
+
+    def test_sddl_only_with_object_allow_not_filtered(self) -> None:
+        from gpo_lens.topology import is_security_filtered
+
+        gpo = _make_gpo(
+            id="gpo-sddl-object-allow",
+            sddl="O:SYG:SYD:(OA;;GR;;;S-1-5-11)",
+            delegation=[],
+        )
+        assert is_security_filtered(gpo) is False
+
+    def test_sddl_only_with_object_deny_filtered(self) -> None:
+        from gpo_lens.topology import is_security_filtered
+
+        gpo = _make_gpo(
+            id="gpo-sddl-object-deny",
+            sddl="O:SYG:SYD:(OD;;GR;;;S-1-5-11)",
+            delegation=[],
+        )
+        assert is_security_filtered(gpo) is True
+
+    def test_sddl_concatenated_rights_not_filtered(self) -> None:
+        from gpo_lens.topology import is_security_filtered
+
+        gpo = _make_gpo(
+            id="gpo-sddl-concat",
+            sddl="O:SYG:SYD:(A;;RPWPCCDCLCSWRCWDWOGA;;;S-1-5-21-111-222-515)",
+            delegation=[],
+        )
+        assert is_security_filtered(gpo) is False
+
+    def test_sddl_malformed_is_filtered_false(self) -> None:
+        from gpo_lens.topology import is_security_filtered
+
+        gpo = _make_gpo(
+            id="gpo-sddl-bad",
+            sddl="ThisIsNotSDDL",
+            delegation=[],
+        )
+        assert is_security_filtered(gpo) is False
+
+    def test_delegation_with_deny_override_filtered(self) -> None:
+        from gpo_lens.topology import is_security_filtered
+
+        gpo = _make_gpo(
+            id="gpo-deny-overrides",
+            delegation=[
+                DelegationEntry(
+                    gpo_id="gpo-deny-overrides",
+                    trustee="Domain Computers",
+                    trustee_sid="S-1-5-21-999-515",
+                    permission="Read",
+                    allowed=True,
+                ),
+                DelegationEntry(
+                    gpo_id="gpo-deny-overrides",
+                    trustee="Domain Computers",
+                    trustee_sid="S-1-5-21-999-515",
+                    permission="Read",
+                    allowed=False,
+                ),
+            ],
+        )
+        assert is_security_filtered(gpo) is True
+
+    def test_narrow_trustee_with_apply_is_filtered(self) -> None:
+        from gpo_lens.topology import is_security_filtered
+
+        gpo = _make_gpo(
+            id="gpo-narrow",
+            delegation=[
+                DelegationEntry(
+                    gpo_id="gpo-narrow",
+                    trustee="Helpdesk Operators",
+                    trustee_sid="S-1-5-21-999-1000",
+                    permission="Apply Group Policy",
+                    allowed=True,
+                ),
+            ],
+        )
+        assert is_security_filtered(gpo) is True
+
+    def test_security_filtering_detail_au_apply_sets_read_and_apply(self) -> None:
+        from gpo_lens.topology import security_filtering_detail
+
+        gpo = _make_gpo(
+            id="gpo-detail-apply",
+            delegation=[
+                DelegationEntry(
+                    gpo_id="gpo-detail-apply",
+                    trustee="Authenticated Users",
+                    trustee_sid="S-1-5-11",
+                    permission="Apply Group Policy",
+                    allowed=True,
+                ),
+            ],
+        )
+        detail = security_filtering_detail(gpo)
+        # Apply Group Policy contributes to has_au_read in the detail view.
+        assert detail.has_au_read is True
+        assert detail.is_filtered is False
+        assert "Authenticated Users" in detail.apply_trustees

@@ -181,6 +181,11 @@ def create_app(db_path: str, *, root_path: str = "") -> FastAPI:
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "script-src 'self'; "
+            "style-src 'self' 'unsafe-inline'"
+        )
         return response
 
     @app.middleware("http")
@@ -333,6 +338,7 @@ def create_app(db_path: str, *, root_path: str = "") -> FastAPI:
         effective_gpos = queries.som_effective_gpos(estate, target_som.path, _som=target_som)
         settings = queries.settings_at_som(estate, target_som.path)
         conflicts = queries.som_conflicts(estate, target_som.path)
+        caveats = queries.scope_caveats(estate, target_som.path)
 
         loopback_gpo_ids = set(queries.loopback_awareness(estate).keys())
         loopback_warning = any(
@@ -347,6 +353,7 @@ def create_app(db_path: str, *, root_path: str = "") -> FastAPI:
                 "settings": settings,
                 "conflicts": conflicts,
                 "loopback_warning": loopback_warning,
+                "caveats": caveats,
             },
         )
 

@@ -1,11 +1,14 @@
 """CLI subcommand for launching the local web UI."""
 from __future__ import annotations
 
+import os
 import sys
 import webbrowser
 
 from gpo_lens.cli._helpers import DEFAULT_DB
 
+# Bind-time convenience guard. The canonical per-request loopback check lives
+# in gpo_lens.web.auth._is_loopback, which uses ipaddress resolution.
 _LOOPBACK_ADDRESSES = {"127.0.0.1", "::1", "localhost"}
 
 
@@ -19,7 +22,7 @@ def cmd_serve(args: object) -> int:
     open_browser = getattr(a, "open", False)
     root_path = getattr(a, "root_path", "")
 
-    if host not in _LOOPBACK_ADDRESSES:
+    if host not in _LOOPBACK_ADDRESSES and not os.environ.get("GPO_LENS_AUTH_TOKEN"):
         print(
             "Error: Binding to non-loopback address requires an auth provider "
             "(none configured). Use --host 127.0.0.1 for local access.",

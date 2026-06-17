@@ -4,14 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from gpo_lens import ingest, queries
-from gpo_lens.model import Estate
-
-
-def _load_baseline_from_zip(path: str) -> Estate:
-    """Load baseline GPOs from a zip into a minimal Estate."""
-    return Estate(domain="baseline", gpos=ingest.load_baseline_from_zip(path))
-
+from gpo_lens import queries
 
 _QUERY_DISPATCH: dict[str, Callable[..., Any]] = {
     "estate_summary": lambda **kw: queries.estate_summary(kw["estate"]),
@@ -27,10 +20,6 @@ _QUERY_DISPATCH: dict[str, Callable[..., Any]] = {
     "topology_crosscheck": lambda **kw: queries.topology_crosscheck(kw["estate"]),
     "disabled_but_populated": lambda **kw: queries.disabled_but_populated(kw["estate"]),
     "settings_at_som": lambda **kw: queries.settings_at_som(kw["estate"], kw["ou_path"]),
-    "baseline_diff": lambda **kw: queries.baseline_diff(
-        kw["estate"],
-        queries.load_baseline_from_estate(_load_baseline_from_zip(kw["baseline_path"])),
-    ),
     "effective_scope": lambda **kw: queries.effective_scope(kw["estate"], kw["gpo_id"]),
     "orphaned_wmi_filters": lambda **kw: queries.orphaned_wmi_filters(kw["estate"]),
     "broken_wmi_refs": lambda **kw: queries.broken_wmi_refs(kw["estate"]),
@@ -54,7 +43,6 @@ _QUERY_DESCRIPTIONS: dict[str, str] = {
     "topology_crosscheck": "Discrepancies between OU tree and SOM inheritance data",
     "disabled_but_populated": "GPO sides that are disabled but still contain settings",
     "settings_at_som": "Effective settings applied to a specific SOM (Scope of Management) path",
-    "baseline_diff": "Compare estate settings against a Microsoft Security Baseline zip",
     "effective_scope": (
         "Effective scoping for a single GPO: links, security filtering, "
         "WMI filter, loopback (requires param: \"gpo_id\")"
@@ -66,13 +54,11 @@ _QUERY_DESCRIPTIONS: dict[str, str] = {
 
 QUERY_REQUIRED_PARAMS: dict[str, list[str]] = {
     "settings_at_som": ["ou_path"],
-    "baseline_diff": ["baseline_path"],
     "effective_scope": ["gpo_id"],
 }
 
 _PARAM_VALIDATORS: dict[str, dict[str, type]] = {
     "settings_at_som": {"ou_path": str},
-    "baseline_diff": {"baseline_path": str},
     "effective_scope": {"gpo_id": str},
 }
 

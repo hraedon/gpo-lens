@@ -4,7 +4,6 @@ import argparse
 import io
 import json
 import os
-import re
 import sqlite3
 import sys
 import tempfile
@@ -13,6 +12,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from _arch import CORE_MODULES, forbidden_imports_in
 
 try:
     import fastapi  # noqa: F401
@@ -117,13 +117,20 @@ def fixture_db() -> str:
 
 
 @pytest.fixture()
-def client(fixture_db: str):
+def client(fixture_db: str, monkeypatch):
     from fastapi.testclient import TestClient
 
     from gpo_lens.web.app import create_app
 
+    monkeypatch.setenv("GPO_LENS_AUTH_TOKEN", "test-secret-token")
     app = create_app(fixture_db)
-    return TestClient(app, headers={"origin": "http://localhost"})
+    return TestClient(
+        app,
+        headers={
+            "origin": "http://localhost",
+            "Authorization": "Bearer test-secret-token",
+        },
+    )
 
 
 def _serve_args(**overrides: object) -> argparse.Namespace:
@@ -142,14 +149,19 @@ class TestCreateApp:
         assert isinstance(app, FastAPI)
 
     @pytest.mark.anyio
-    async def test_home_route_returns_200(self, tmp_db: str) -> None:
+    async def test_home_route_returns_200(self, tmp_db: str, monkeypatch) -> None:
         from httpx import ASGITransport, AsyncClient
 
         from gpo_lens.web.app import create_app
 
+        monkeypatch.setenv("GPO_LENS_AUTH_TOKEN", "test-secret-token")
         app = create_app(tmp_db)
         transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
+        async with AsyncClient(
+            transport=transport,
+            base_url="http://test",
+            headers={"Authorization": "Bearer test-secret-token"},
+        ) as client:
             resp = await client.get("/")
             assert resp.status_code == 200
             assert "gpo-lens" in resp.text
@@ -181,14 +193,21 @@ class TestCreateApp:
         assert app.root_path == "/prefix"
 
     @pytest.mark.anyio
-    async def test_pages_render_under_root_path(self, tmp_db: str) -> None:
+    async def test_pages_render_under_root_path(
+        self, tmp_db: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         from httpx import ASGITransport, AsyncClient
 
         from gpo_lens.web.app import create_app
 
+        monkeypatch.setenv("GPO_LENS_AUTH_TOKEN", "test-secret-token")
         app = create_app(tmp_db, root_path="/gpo")
         transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
+        async with AsyncClient(
+            transport=transport,
+            base_url="http://test",
+            headers={"Authorization": "Bearer test-secret-token"},
+        ) as client:
             resp = await client.get("/")
             assert resp.status_code == 200
             assert "gpo-lens" in resp.text
@@ -244,32 +263,11 @@ class TestMissingWebExtra:
 
 
 class TestArchitecture:
-    @pytest.mark.parametrize("module_name", [
-        "model",
-        "normalize",
-        "ingest",
-        "store",
-        "queries",
-        "topology",
-        "detection",
-        "admx_parser",
-        "display",
-        "report",
-        "events",
-        "sinks",
-        "query_dispatch",
-    ])
+    @pytest.mark.parametrize("module_name", list(CORE_MODULES))
     def test_core_modules_do_not_import_web(self, module_name: str) -> None:
-        import gpo_lens
-
-        pkg_dir = os.path.dirname(gpo_lens.__file__)
-        filepath = os.path.join(pkg_dir, f"{module_name}.py")
-        if not os.path.exists(filepath):
-            pytest.skip(f"{filepath} not found")
-        with open(filepath) as fh:
-            source = fh.read()
-        assert not re.search(r"import.*\bweb\b", source), (
-            f"{module_name}.py contains a web import"
+        violations = forbidden_imports_in(module_name, forbidden=("web",))
+        assert not violations, (
+            f"{module_name}.py imports forbidden package(s): {sorted(violations)}"
         )
 
     def test_query_dispatch_tables_consistent(self) -> None:
@@ -473,7 +471,7 @@ class TestAsk:
         assert resp.status_code == 200
 
     def test_ask_page_shows_not_configured_without_key(self, client) -> None:
-        with patch.dict(os.environ, {}, clear=True):
+        with patch.dict(os.environ, {"GPO_LENS_API_KEY": ""}, clear=False):
             resp = client.get("/ask")
         assert resp.status_code == 200
         assert "Narration is not configured" in resp.text
@@ -599,14 +597,21 @@ def changelog_db():
 
 
 @pytest.fixture()
-def changelog_client(changelog_db):
+def changelog_client(changelog_db, monkeypatch):
     from fastapi.testclient import TestClient
 
     from gpo_lens.web.app import create_app
 
+    monkeypatch.setenv("GPO_LENS_AUTH_TOKEN", "test-secret-token")
     db_path, _, _ = changelog_db
     app = create_app(db_path)
-    return TestClient(app)
+    return TestClient(
+        app,
+        headers={
+            "origin": "http://localhost",
+            "Authorization": "Bearer test-secret-token",
+        },
+    )
 
 
 class TestChangelog:
@@ -614,25 +619,39 @@ class TestChangelog:
         resp = changelog_client.get("/changelog")
         assert resp.status_code == 200
 
-    def test_changelog_with_two_snapshots_shows_entries(self, changelog_db) -> None:
+    def test_changelog_with_two_snapshots_shows_entries(self, changelog_db, monkeypatch) -> None:
         from fastapi.testclient import TestClient
 
         from gpo_lens.web.app import create_app
 
+        monkeypatch.setenv("GPO_LENS_AUTH_TOKEN", "test-secret-token")
         db_path, snap_a, snap_b = changelog_db
-        client = TestClient(create_app(db_path))
+        client = TestClient(
+            create_app(db_path),
+            headers={
+                "origin": "http://localhost",
+                "Authorization": "Bearer test-secret-token",
+            },
+        )
         resp = client.get(f"/changelog?snap_a={snap_a}&snap_b={snap_b}")
         assert resp.status_code == 200
         html = resp.text
         assert "changelog-entry" in html
 
-    def test_changelog_distinguishes_entry_types(self, changelog_db) -> None:
+    def test_changelog_distinguishes_entry_types(self, changelog_db, monkeypatch) -> None:
         from fastapi.testclient import TestClient
 
         from gpo_lens.web.app import create_app
 
+        monkeypatch.setenv("GPO_LENS_AUTH_TOKEN", "test-secret-token")
         db_path, snap_a, snap_b = changelog_db
-        client = TestClient(create_app(db_path))
+        client = TestClient(
+            create_app(db_path),
+            headers={
+                "origin": "http://localhost",
+                "Authorization": "Bearer test-secret-token",
+            },
+        )
         resp = client.get(f"/changelog?snap_a={snap_a}&snap_b={snap_b}")
         html = resp.text
         assert "metadata-only" in html
@@ -901,3 +920,36 @@ class TestStreamUploadToFile:
 
         exceeded = await _stream_upload_to_file(upload, dest, 100)
         assert exceeded is True
+
+
+class TestOuDetailScopeCaveats:
+    def test_ou_detail_renders_scope_caveats_section(self, client) -> None:
+        resp = client.get("/ou/dc=fakefixture,dc=local")
+        assert resp.status_code == 200
+        html = resp.text
+        assert "scope-caveats" in html
+        assert "Scope caveats" in html
+        assert "flagged, not simulated" in html
+
+    def test_ou_detail_lists_loopback_caveat(self, client) -> None:
+        resp = client.get("/ou/dc=fakefixture,dc=local")
+        assert resp.status_code == 200
+        html_lower = resp.text.lower()
+        assert "loopback" in html_lower
+
+
+class TestSecurityHeaders:
+    def test_csp_header_present(self, client) -> None:
+        resp = client.get("/")
+        assert resp.status_code == 200
+        csp = resp.headers.get("content-security-policy", "")
+        assert "default-src 'self'" in csp
+        assert "script-src 'self'" in csp
+        assert "style-src 'self' 'unsafe-inline'" in csp
+
+    def test_csp_forbids_inline_scripts(self, client) -> None:
+        resp = client.get("/")
+        csp = resp.headers.get("content-security-policy", "")
+        assert "script-src 'self'" in csp
+        assert "script-src 'unsafe-inline'" not in csp
+

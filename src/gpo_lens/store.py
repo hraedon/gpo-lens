@@ -21,6 +21,11 @@ from gpo_lens.model import (
     WmiFilter,
 )
 
+# Schema version stored in PRAGMA user_version by ``_migrate_schema``.
+# v1 = original ``init_db`` schema.
+# v2 = adds the nullable ``description`` column to the ``gpo`` table.
+CURRENT_SCHEMA_VERSION: int = 2
+
 
 def init_db(conn: sqlite3.Connection) -> None:
     """Create tables (idempotent, ``IF NOT EXISTS``)."""
@@ -200,19 +205,39 @@ def init_db(conn: sqlite3.Connection) -> None:
 
 def _column_exists(conn: sqlite3.Connection, table: str, column: str) -> bool:
     """True if ``column`` exists on ``table`` (used by additive migrations)."""
-    rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
+    if not table.isidentifier():
+        raise ValueError(f"unsafe table identifier: {table!r}")
+    rows = conn.execute(f'PRAGMA table_info("{table}")').fetchall()
     return any(r[1] == column for r in rows)
 
 
 def _migrate_schema(conn: sqlite3.Connection) -> None:
     """Additive column migrations for DBs created by older gpo-lens versions.
 
+    Migration state is tracked via ``PRAGMA user_version``. The version stamp
+    lets us fail fast when opening a DB written by a newer gpo-lens, while the
+    per-column ``_column_exists`` checks keep individual migrations idempotent in
+    case a partially-migrated DB is opened again.
+
     ``CREATE TABLE IF NOT EXISTS`` won't add columns to an existing table, so
     each additive column needs an ``ALTER TABLE`` here guarded by a column
     check. Only additive (NULLable) columns — never renames or drops.
     """
-    if not _column_exists(conn, "gpo", "description"):
-        conn.execute("ALTER TABLE gpo ADD COLUMN description TEXT")
+    user_version = conn.execute("PRAGMA user_version").fetchone()[0]
+
+    if user_version > CURRENT_SCHEMA_VERSION:
+        raise RuntimeError(
+            f"Database schema version {user_version} is newer than this "
+            f"gpo-lens release supports (version {CURRENT_SCHEMA_VERSION}). "
+            "Please upgrade gpo-lens to open this database."
+        )
+
+    if user_version < CURRENT_SCHEMA_VERSION:
+        # v1 -> v2: add nullable description column to the gpo table.
+        if not _column_exists(conn, "gpo", "description"):
+            conn.execute("ALTER TABLE gpo ADD COLUMN description TEXT")
+
+    conn.execute(f"PRAGMA user_version = {CURRENT_SCHEMA_VERSION}")
 
 
 def _restrict_db_permissions(conn: sqlite3.Connection) -> None:

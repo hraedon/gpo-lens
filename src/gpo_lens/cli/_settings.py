@@ -14,11 +14,13 @@ from gpo_lens.display import render_settings_diff
 def cmd_who_sets(args: argparse.Namespace) -> None:
     estate = _get_estate(args)
     result = queries.who_sets(estate, args.term)
+    name_map = {g.id: g.name for g in estate.gpos}
     if args.json:
         _render_json(
             [
                 {
                     "gpo_id": s.gpo_id,
+                    "gpo_name": name_map.get(s.gpo_id, ""),
                     "cse": s.cse,
                     "identity": s.identity,
                     "display_value": s.display_value,
@@ -28,8 +30,12 @@ def cmd_who_sets(args: argparse.Namespace) -> None:
         )
     else:
         _print_table(
-            ["gpo_id", "cse", "identity", "display_value"],
-            [[s.gpo_id, s.cse, s.identity, s.display_value] for s in result],
+            ["gpo_id", "gpo_name", "cse", "identity", "display_value"],
+            [
+                [s.gpo_id, name_map.get(s.gpo_id, ""), s.cse,
+                 s.identity, s.display_value]
+                for s in result
+            ],
         )
 
 
@@ -45,7 +51,7 @@ def cmd_conflicts(args: argparse.Namespace) -> None:
                     "identity": c.identity,
                     "display_name": c.display_name,
                     "entries": [
-                        {"gpo_id": gid, "value": val} for gid, val in c.entries
+                        {"gpo_id": gid, "display_value": val} for gid, val in c.entries
                     ],
                 }
                 for c in result

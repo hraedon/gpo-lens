@@ -5,11 +5,11 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import re
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from _arch import CORE_MODULES, forbidden_imports_in
 
 from gpo_lens.narration import (
     NarrationUnavailable,
@@ -180,60 +180,13 @@ class TestArchitecture:
             f"missing from query_dispatch: {_VALID_QUERIES - VALID_QUERIES}"
         )
 
-    @pytest.mark.parametrize("module_name", [
-        "model",
-        "normalize",
-        "ingest",
-        "store",
-        "queries",
-        "topology",
-        "detection",
-        "admx_parser",
-        "display",
-        "report",
-        "events",
-        "sinks",
-        "query_dispatch",
-    ])
-    def test_core_modules_do_not_import_narration(self, module_name: str) -> None:
-        import gpo_lens
-
-        pkg_dir = os.path.dirname(gpo_lens.__file__)
-        filepath = os.path.join(pkg_dir, f"{module_name}.py")
-        if not os.path.exists(filepath):
-            pytest.skip(f"{filepath} not found")
-        with open(filepath) as fh:
-            source = fh.read()
-        assert not re.search(r"import.*narration", source), (
-            f"{module_name}.py contains a narration import"
-        )
-
-    @pytest.mark.parametrize("module_name", [
-        "model",
-        "normalize",
-        "ingest",
-        "store",
-        "queries",
-        "topology",
-        "detection",
-        "admx_parser",
-        "display",
-        "report",
-        "events",
-        "sinks",
-        "query_dispatch",
-    ])
-    def test_core_modules_do_not_import_web(self, module_name: str) -> None:
-        import gpo_lens
-
-        pkg_dir = os.path.dirname(gpo_lens.__file__)
-        filepath = os.path.join(pkg_dir, f"{module_name}.py")
-        if not os.path.exists(filepath):
-            pytest.skip(f"{filepath} not found")
-        with open(filepath) as fh:
-            source = fh.read()
-        assert not re.search(r"import.*\bweb\b", source), (
-            f"{module_name}.py contains a web import"
+    @pytest.mark.parametrize("module_name", list(CORE_MODULES))
+    def test_core_modules_do_not_import_narration_or_web(
+        self, module_name: str
+    ) -> None:
+        violations = forbidden_imports_in(module_name)
+        assert not violations, (
+            f"{module_name}.py imports forbidden package(s): {sorted(violations)}"
         )
 
     def test_query_dispatch_keys_match_query_descriptions(self) -> None:
@@ -258,10 +211,10 @@ class TestRoutingPromptGeneration:
         assert "<question>" in prompt
         assert "only route based on the content inside those delimiters" in prompt.lower()
 
-    def test_build_routing_prompt_includes_baseline_diff(self) -> None:
+    def test_build_routing_prompt_excludes_baseline_diff(self) -> None:
         prompt = _build_routing_prompt()
-        assert "baseline_diff" in prompt
-        assert "baseline_path" in prompt
+        assert "baseline_diff" not in prompt
+        assert "baseline_path" not in prompt
 
     def test_build_routing_prompt_auto_includes_new_query(self, monkeypatch, tmp_path) -> None:
         import gpo_lens.query_dispatch as qd

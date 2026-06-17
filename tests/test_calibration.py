@@ -154,8 +154,10 @@ def test_work_enforced_links(work_estate):
 def test_loopback_detected(work_estate):
     from gpo_lens.queries import loopback_gpos
 
-    # Work domain has loopback (31 raw hits in calibration notes)
-    assert len(loopback_gpos(work_estate)) >= 28
+    # Work domain has loopback (31 raw hits in calibration notes).
+    # Tightened to >= 30 (allowing a 1-count tolerance for benign parser
+    # variance), so a regression from 31 to 20 cannot pass silently.
+    assert len(loopback_gpos(work_estate)) >= 30
 
 
 def test_work_no_precedence_conflicts_on_clean_soms(work_estate):

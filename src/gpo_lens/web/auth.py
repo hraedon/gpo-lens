@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import hmac
+import ipaddress
 import os
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
 from typing import Awaitable
 
-from fastapi import Depends, Header, HTTPException
+from fastapi import Depends, Header, HTTPException, Request
 
 
 class Permission(Enum):
@@ -40,17 +41,47 @@ LOCAL_PRINCIPAL = Principal(
     permissions=frozenset(Permission),
 )
 
+LOOPBACK_VIEWER = Principal(
+    name="loopback-viewer",
+    role="viewer",
+    permissions=frozenset(ROLE_PERMISSIONS["viewer"]),
+)
+
+
 def _get_auth_token() -> str:
     return os.environ.get("GPO_LENS_AUTH_TOKEN", "")
 
 
+def _is_loopback(host: str | None) -> bool:
+    if host is None:
+        return False
+    if host == "localhost":
+        return True
+    try:
+        addr = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    if addr.is_loopback:
+        return True
+    # IPv4-mapped IPv6 addresses (e.g. ::ffff:127.0.0.1)
+    if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped is not None:
+        return addr.ipv4_mapped.is_loopback
+    return False
+
+
 def get_principal(
+    request: Request,
     authorization: str | None = Header(default=None),
 ) -> Principal:
     auth_token = _get_auth_token()
-    # If no token configured, allow all (local dev mode)
+    # If no token configured, allow loopback only (local dev mode)
     if not auth_token:
-        return LOCAL_PRINCIPAL
+        if _is_loopback(request.client.host if request.client else None):
+            return LOOPBACK_VIEWER
+        raise HTTPException(
+            status_code=401,
+            detail="Unauthorized. Authentication required.",
+        )
     # Validate bearer token
     if not authorization:
         raise HTTPException(status_code=401, detail="Missing Authorization header")

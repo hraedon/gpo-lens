@@ -49,7 +49,7 @@ narrates facts the core computed. See `README.md` for the full charter.
   joins use it (see `normalize.canonical_guid`).
 - **BOM-tolerant JSON:** collector JSON may carry a UTF-8 BOM (PowerShell 5.1).
   Always load with `utf-8-sig`.
-- **Import boundary:** Core modules (`model`, `normalize`, `ingest`, `store`, `queries`, `detection`, `admx_parser`, `display`, `report`, `events`, `sinks`, `query_dispatch`) must never import `narration` or `web`. An architecture test enforces this.
+- **Import boundary:** Core modules (`model`, `normalize`, `ingest`, `store`, `queries`, `detection`, `admx_parser`, `display`, `report`, `events`, `sinks`, `query_dispatch`, `authz`, `topology`, `registry_pol`, `paths`) must never import `narration` or `web`. An architecture test enforces this.
 
 ## Build / test / lint
 

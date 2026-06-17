@@ -17,6 +17,21 @@
 </div>
 {% endif %}
 
+<div class="banner warning scope-caveats">
+    <strong>Scope caveats — flagged, not simulated.</strong>
+    <p>The effective settings below are resolved at the OU level. The following scoping mechanisms may change what actually applies to a given user or computer and are <em>not</em> evaluated by this tool:</p>
+    {% if caveats %}
+    <ul>
+        {% for c in caveats %}
+        <li>{{ c.strip() }}</li>
+        {% endfor %}
+    </ul>
+    <p>Effective settings may differ from the values shown below.</p>
+    {% else %}
+    <p>No scoping caveats detected for GPOs in scope here (no loopback, security filtering, WMI filters, item-level targeting, or site links).</p>
+    {% endif %}
+</div>
+
 <h2>Effective GPO Chain</h2>
 <table>
     <thead>

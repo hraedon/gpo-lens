@@ -187,6 +187,82 @@ def test_ms16_072_dc_sid_requires_domain_prefix():
     assert gpo in queries.ms16_072_vulnerable(estate)
 
 
+# ---- ms16_072 golden / behavior-preservation cases -------------------------
+
+
+def test_ms16_072_apply_only_is_vulnerable():
+    """Apply Group Policy does not imply Read — MS16-072 is a Read check."""
+    gpo = _make_gpo(
+        delegation=[
+            DelegationEntry(
+                gpo_id="x", trustee="Authenticated Users", trustee_sid=None,
+                permission="Apply Group Policy", allowed=True,
+            ),
+        ]
+    )
+    estate = Estate(gpos=[gpo])
+    assert queries.ms16_072_vulnerable(estate) == [gpo]
+
+
+def test_ms16_072_edit_settings_is_not_vulnerable():
+    """Edit settings is treated as Read-implying by the MS16-072 check."""
+    gpo = _make_gpo(
+        delegation=[
+            DelegationEntry(
+                gpo_id="x", trustee="Authenticated Users", trustee_sid=None,
+                permission="Edit settings", allowed=True,
+            ),
+        ]
+    )
+    estate = Estate(gpos=[gpo])
+    assert queries.ms16_072_vulnerable(estate) == []
+
+
+def test_ms16_072_narrow_trustee_with_read_is_vulnerable():
+    gpo = _make_gpo(
+        delegation=[
+            DelegationEntry(
+                gpo_id="x", trustee="Helpdesk Operators", trustee_sid="S-1-5-21-999-1000",
+                permission="Read", allowed=True,
+            ),
+        ]
+    )
+    estate = Estate(gpos=[gpo])
+    assert queries.ms16_072_vulnerable(estate) == [gpo]
+
+
+def test_ms16_072_allow_plus_deny_same_trustee_not_vulnerable():
+    """MS16-072 only examines allowed entries; a paired deny is ignored."""
+    gpo = _make_gpo(
+        delegation=[
+            DelegationEntry(
+                gpo_id="x", trustee="Authenticated Users", trustee_sid=None,
+                permission="Read", allowed=True,
+            ),
+            DelegationEntry(
+                gpo_id="x", trustee="Authenticated Users", trustee_sid=None,
+                permission="Read", allowed=False,
+            ),
+        ]
+    )
+    estate = Estate(gpos=[gpo])
+    # The allow entry is sufficient; the deny entry is not subtracted.
+    assert queries.ms16_072_vulnerable(estate) == []
+
+
+def test_ms16_072_bogus_515_sid_is_vulnerable():
+    gpo = _make_gpo(
+        delegation=[
+            DelegationEntry(
+                gpo_id="x", trustee="Builtin-515", trustee_sid="S-1-5-32-515",
+                permission="Read", allowed=True,
+            ),
+        ]
+    )
+    estate = Estate(gpos=[gpo])
+    assert queries.ms16_072_vulnerable(estate) == [gpo]
+
+
 # ---- delegation_deep_dive --------------------------------------------------
 
 
@@ -987,6 +1063,38 @@ def test_empty_gpos():
     gpo = _make_gpo(settings=[])
     estate = Estate(gpos=[gpo])
     assert queries.empty_gpos(estate) == [gpo]
+
+
+def test_empty_gpos_counts_only_blocked_as_empty():
+    from gpo_lens.model import Setting
+
+    truly_empty = _make_gpo(id="gpo-empty", name="Truly Empty", settings=[])
+    blocked_only = _make_gpo(
+        id="gpo-blocked", name="Blocked Only",
+        settings=[
+            Setting(
+                gpo_id="gpo-blocked", side="Computer", cse="Registry",
+                identity="Registry:blocked", display_name="(blocked extension)",
+                display_value="", raw={"blocked": True},
+                from_disabled_side=False, source_state="blocked",
+            ),
+        ],
+    )
+    normal = _make_gpo(
+        id="gpo-normal", name="Normal",
+        settings=[
+            Setting(
+                gpo_id="gpo-normal", side="Computer", cse="Security",
+                identity="X", display_name="X", display_value="1",
+                raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    estate = Estate(gpos=[truly_empty, blocked_only, normal])
+    result = queries.empty_gpos(estate)
+    assert truly_empty in result
+    assert blocked_only in result
+    assert normal not in result
 
 
 def test_unlinked_gpos():
