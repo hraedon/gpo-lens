@@ -41,10 +41,17 @@ LOCAL_PRINCIPAL = Principal(
     permissions=frozenset(Permission),
 )
 
-LOOPBACK_VIEWER = Principal(
-    name="loopback-viewer",
-    role="viewer",
-    permissions=frozenset(ROLE_PERMISSIONS["viewer"]),
+# The web server refuses to bind to a non-loopback address without an auth
+# token (see cli/_serve.py), so "no token configured" implies a single local
+# operator on their own machine. That operator gets the full local analyst
+# capability set (view + ingest + narrate) — withholding ADMIN keeps "admin"
+# meaning "explicitly authenticated via token".
+LOOPBACK_PRINCIPAL = Principal(
+    name="local-analyst",
+    role="local",
+    permissions=frozenset(
+        {Permission.VIEW, Permission.INGEST, Permission.NARRATE}
+    ),
 )
 
 
@@ -77,7 +84,7 @@ def get_principal(
     # If no token configured, allow loopback only (local dev mode)
     if not auth_token:
         if _is_loopback(request.client.host if request.client else None):
-            return LOOPBACK_VIEWER
+            return LOOPBACK_PRINCIPAL
         raise HTTPException(
             status_code=401,
             detail="Unauthorized. Authentication required.",

@@ -1,84 +1,85 @@
 {% extends "base.html" %}
 
-{% block title %}gpo-lens - Changelog{% endblock %}
+{% block title %}gpo-lens — Changelog{% endblock %}
 
 {% block content %}
-<h1>Snapshot Changelog</h1>
+<div class="gp-page-head">
+  <div>
+    <div class="gp-eyebrow">Snapshot comparison</div>
+    <h1>Changelog</h1>
+    <div class="sub">Pick two snapshots to see what changed between them.</div>
+  </div>
+</div>
 
-<form action="{{ url_for('changelog') }}" method="get">
-  <div style="margin-bottom:0.5rem;">
-    <label for="snap_a">Snapshot A (older):</label>
-    <select name="snap_a" id="snap_a">
-      <option value="">-- Select --</option>
-      {% for snap in snapshots %}
-      <option value="{{ snap[0] }}" {% if snap_a == snap[0] %}selected{% endif %}>
-        #{{ snap[0] }} — {{ snap[1] }} ({{ snap[2] }})
-      </option>
-      {% endfor %}
-    </select>
+<form action="{{ url_for('changelog') }}" method="get" class="gp-panel pad" style="margin-bottom:20px">
+  <div class="gp-form-row">
+    <div class="gp-field">
+      <label class="gp-label" for="snap_a">From (older)</label>
+      <select name="snap_a" id="snap_a" class="gp-select">
+        <option value="">Select…</option>
+        {% for snap in snapshots %}
+        <option value="{{ snap[0] }}" {% if snap_a == snap[0] %}selected{% endif %}>#{{ snap[0] }} — {{ snap[1] }} ({{ snap[2] }})</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="gp-field">
+      <label class="gp-label" for="snap_b">To (newer)</label>
+      <select name="snap_b" id="snap_b" class="gp-select">
+        <option value="">Select…</option>
+        {% for snap in snapshots %}
+        <option value="{{ snap[0] }}" {% if snap_b == snap[0] %}selected{% endif %}>#{{ snap[0] }} — {{ snap[1] }} ({{ snap[2] }})</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button type="submit" class="gp-btn primary">Compare</button>
   </div>
-  <div style="margin-bottom:0.5rem;">
-    <label for="snap_b">Snapshot B (newer):</label>
-    <select name="snap_b" id="snap_b">
-      <option value="">-- Select --</option>
-      {% for snap in snapshots %}
-      <option value="{{ snap[0] }}" {% if snap_b == snap[0] %}selected{% endif %}>
-        #{{ snap[0] }} — {{ snap[1] }} ({{ snap[2] }})
-      </option>
-      {% endfor %}
-    </select>
-  </div>
-  <button type="submit">Compare</button>
 </form>
 
 {% if entries %}
-<section>
-  <h2>Changes ({{ entries|length }} entries)</h2>
+<section class="gp-section">
+  <h2>Changes <span class="count">{{ entries|length }}</span></h2>
   {% for entry in entries %}
-  <div class="changelog-entry {% if entry.kind == 'metadata_only' %}metadata-only{% else %}settings-detail{% endif %}">
-    <h3>
-      <a href="{{ url_for('gpo_detail', gpo_id=entry.gpo_id) }}">{{ entry.gpo_name }}</a>
-      — {{ entry.side }}
+  <div class="gp-panel pad" style="margin-bottom:10px">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+      <div style="font-weight:600">
+        {% if entry.gpo_id %}<a href="{{ url_for('gpo_detail', gpo_id=entry.gpo_id) }}">{{ entry.gpo_name }}</a>{% else %}{{ entry.gpo_name }}{% endif %}
+        <span class="muted" style="font-weight:400">· {{ entry.side }}</span>
+      </div>
       {% if entry.kind == 'metadata_only' %}
-      <span class="badge badge-info">metadata only</span>
+      <span class="gp-chip muted">metadata only</span>
       {% else %}
-      <span class="badge badge-medium">settings detail</span>
+      <span class="gp-chip warn">settings detail</span>
       {% endif %}
-    </h3>
-    <p>{{ entry.summary }}</p>
+    </div>
+    <p style="margin:6px 0 0;color:var(--text-2);font-size:13px">{{ entry.summary }}</p>
     {% if entry.version_change %}
-    <p class="version-change">
-      Version: DS {{ entry.version_change.old_ds }}&rarr;{{ entry.version_change.new_ds }},
-      SYSVOL {{ entry.version_change.old_sysvol }}&rarr;{{ entry.version_change.new_sysvol }}
+    <p class="mono muted" style="font-size:11.5px;margin:6px 0 0">
+      DS {{ entry.version_change.old_ds }}→{{ entry.version_change.new_ds }} ·
+      SYSVOL {{ entry.version_change.old_sysvol }}→{{ entry.version_change.new_sysvol }}
     </p>
     {% endif %}
     {% if entry.setting_changes %}
-    <details>
-      <summary>{{ entry.setting_changes|length }} setting change(s)</summary>
-      <table>
-        <thead>
-          <tr><th>Identity</th><th>Type</th><th>Old</th><th>New</th></tr>
-        </thead>
-        <tbody>
-          {% for sc in entry.setting_changes %}
-          <tr>
-            <td>{{ sc.identity }}</td>
-            <td>{{ sc.change_type }}</td>
-            <td>{{ sc.old_value or '' }}</td>
-            <td>{{ sc.new_value or '' }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+    <details style="margin-top:8px">
+      <summary style="cursor:pointer;font-size:12.5px;color:var(--accent)">{{ entry.setting_changes|length }} setting change(s)</summary>
+      <div class="gp-table-wrap" style="margin-top:8px">
+        <table class="gp-table">
+          <thead><tr><th>Identity</th><th style="width:90px">Type</th><th>Old</th><th>New</th></tr></thead>
+          <tbody>
+            {% for sc in entry.setting_changes %}
+            <tr><td class="mono">{{ sc.identity }}</td><td>{{ sc.change_type }}</td><td class="muted">{{ sc.old_value or '—' }}</td><td>{{ sc.new_value or '—' }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
     </details>
     {% endif %}
   </div>
   {% endfor %}
 </section>
 {% elif snap_a is not none and snap_b is not none %}
-<section>
-  <h2>Changes</h2>
-  <p>No changes found between the selected snapshots.</p>
-</section>
+<div class="gp-empty">
+  <div class="title">No changes</div>
+  <div class="sub">These two snapshots are identical for the tracked fields.</div>
+</div>
 {% endif %}
 {% endblock %}

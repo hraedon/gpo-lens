@@ -1,27 +1,49 @@
 {% extends "base.html" %}
 
-{% block title %}gpo-lens - OUs{% endblock %}
+{% block title %}gpo-lens — Directory{% endblock %}
 
 {% block content %}
-<h1>Organizational Units</h1>
-<table>
+<div class="gp-page-head">
+  <div>
+    <div class="gp-eyebrow">Scopes of management</div>
+    <h1>Directory</h1>
+    <div class="sub">Domains, OUs and sites where Group Policy links. Open one to see effective precedence.</div>
+  </div>
+</div>
+
+{% if soms %}
+<div class="gp-table-wrap">
+  <table class="gp-table">
     <thead>
-        <tr>
-            <th>Name</th>
-            <th>Path</th>
-            <th>Links</th>
-            <th>Inheritance Blocked</th>
-        </tr>
+      <tr>
+        <th>Name</th>
+        <th>Distinguished name</th>
+        <th class="num" style="width:80px">Links</th>
+        <th style="width:130px">Inheritance</th>
+      </tr>
     </thead>
     <tbody>
-        {% for som in soms %}
-        <tr>
-            <td><a href="{{ url_for('ou_detail', path=som.path) }}">{{ som.name }}</a></td>
-            <td>{{ som.path }}</td>
-            <td>{{ som.links | length }}</td>
-            <td>{% if som.inheritance_blocked %}Yes{% else %}No{% endif %}</td>
-        </tr>
-        {% endfor %}
+      {% for som in soms %}
+      <tr>
+        <td><a href="{{ url_for('ou_detail', path=som.path) }}">{{ som.name }}</a></td>
+        <td class="mono muted">{{ som.path }}</td>
+        <td class="num">{{ som.links | length }}</td>
+        <td>
+          {% if som.inheritance_blocked %}
+          <span class="gp-pill high"><span class="dot"></span>Blocked</span>
+          {% else %}
+          <span class="muted">Inherited</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
     </tbody>
-</table>
+  </table>
+</div>
+{% else %}
+<div class="gp-empty">
+  <div class="title">No scopes of management</div>
+  <div class="sub">Ingest an estate export to populate the directory.</div>
+</div>
+{% endif %}
 {% endblock %}

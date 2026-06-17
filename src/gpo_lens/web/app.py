@@ -13,7 +13,7 @@ from collections import defaultdict
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from fastapi import Depends, FastAPI, File, Form, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -58,6 +58,28 @@ def _get_ro_conn(db_path: str) -> sqlite3.Connection:
 
 _MAX_UNCOMPRESSED_BYTES = 2 * 1024 * 1024 * 1024  # 2GB
 _MAX_QUESTION_LEN = 500
+
+# Health indicators for the dashboard posture grid, in display order. Each is
+# (EstateSummary attribute, human label, severity tone). Tone drives both the
+# colour and whether a fired indicator floats to the top of the grid.
+_POSTURE_SPEC: list[tuple[str, str, str]] = [
+    ("cpassword_hit_count", "cPassword secrets", "crit"),
+    ("ms16_072_vulnerable_count", "MS16-072 vulnerable", "crit"),
+    ("broken_ref_count", "Broken references", "warn"),
+    ("broken_wmi_ref_count", "Broken WMI references", "warn"),
+    ("version_skew_count", "Version skew", "warn"),
+    ("disabled_but_populated_count", "Disabled but populated", "warn"),
+    ("dangling_link_count", "Dangling links", "warn"),
+    ("conflict_count", "Setting conflicts", "warn"),
+    ("orphaned_wmi_filter_count", "Orphaned WMI filters", "warn"),
+    ("unlinked_count", "Unlinked GPOs", "info"),
+    ("empty_count", "Empty GPOs", "info"),
+    ("enforced_link_count", "Enforced links", "info"),
+    ("wmi_filtered_gpo_count", "WMI-filtered GPOs", "info"),
+    ("loopback_gpo_count", "Loopback GPOs", "info"),
+    ("ilt_gpo_count", "Item-level targeting", "info"),
+    ("stale_gpo_count", "Stale GPOs (>2y)", "info"),
+]
 
 
 def _safe_extract(zip_path: Path, dest: Path) -> None:
@@ -161,7 +183,10 @@ def create_app(db_path: str, *, root_path: str = "") -> FastAPI:
         _store.init_db(conn_init)
         conn_init.close()
 
+    from gpo_lens import __version__
+
     templates = Jinja2Templates(directory=str(_WEB_DIR / "templates"))
+    templates.env.globals["app_version"] = __version__
 
     app.mount("/static", StaticFiles(directory=str(_WEB_DIR / "static")), name="static")
 
@@ -174,6 +199,49 @@ def create_app(db_path: str, *, root_path: str = "") -> FastAPI:
             "localhost", "127.0.0.1", "::1",
             "localhost.localdomain",
         )
+
+    from starlette.exceptions import HTTPException as StarletteHTTPException
+
+    _ERROR_TITLES = {
+        401: "Authentication required",
+        403: "Forbidden",
+        404: "Not found",
+        409: "Conflict",
+        413: "Upload too large",
+    }
+
+    @app.exception_handler(StarletteHTTPException)
+    async def _http_exception_handler(  # type: ignore[no-untyped-def]
+        request: Request, exc: StarletteHTTPException
+    ):
+        # Render a styled page for browsers; keep JSON for API/programmatic use.
+        if "text/html" in request.headers.get("accept", ""):
+            return templates.TemplateResponse(
+                request,
+                "error.html",
+                {
+                    "request": request,
+                    "status_code": exc.status_code,
+                    "title": _ERROR_TITLES.get(exc.status_code, "Error"),
+                    "detail": exc.detail,
+                },
+                status_code=exc.status_code,
+            )
+        return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+
+    @app.middleware("http")
+    async def _forwarded_proto(request: Request, call_next):  # type: ignore[no-untyped-def]
+        # Behind a same-host, TLS-terminating reverse proxy (e.g. IIS), uvicorn
+        # runs with proxy_headers disabled so the loopback peer — not a forwarded
+        # client IP — drives loopback-trust auth (see cli/_serve.py). That leaves
+        # the request scheme as "http", so url_for() would emit http:// links
+        # that the https page blocks as mixed content (and nav to the wrong
+        # scheme). uvicorn binds 127.0.0.1, so X-Forwarded-Proto can only come
+        # from the local proxy; honor it for the scheme only, never the client.
+        proto = request.headers.get("x-forwarded-proto")
+        if proto in ("http", "https"):
+            request.scope["scheme"] = proto
+        return await call_next(request)
 
     @app.middleware("http")
     async def _security_headers(request: Request, call_next):  # type: ignore[no-untyped-def]
@@ -224,8 +292,13 @@ def create_app(db_path: str, *, root_path: str = "") -> FastAPI:
                 estate = load_estate(conn)
                 findings = estate_doctor(estate)
                 summary = estate_summary(estate)
+                # GPOs that exist as objects (so a detail page resolves). Some
+                # findings (e.g. coverage gaps for unreadable GPOs) carry an id
+                # with no backing GPO — those must not render as dead links.
+                resolvable_gpo_ids = {g.id for g in estate.gpos}
             except ValueError:
                 findings = []
+                resolvable_gpo_ids = set()
                 summary = EstateSummary(
                     domain="", gpo_count=0, som_count=0, linked_site_count=0,
                     coverage_gap_count=0,
@@ -243,10 +316,33 @@ def create_app(db_path: str, *, root_path: str = "") -> FastAPI:
         finally:
             conn.close()
 
+        # Split indicators: fired (count > 0, shown as toned cards, worst first)
+        # vs clear (count == 0, collapsed into one quiet "all clear" line).
+        tone_rank = {"crit": 0, "warn": 1, "info": 2}
+        fired = [
+            {"label": label, "value": getattr(summary, attr), "tone": tone}
+            for attr, label, tone in _POSTURE_SPEC
+            if getattr(summary, attr)
+        ]
+        fired.sort(key=lambda i: tone_rank[i["tone"]])
+        clear = [label for attr, label, _ in _POSTURE_SPEC if not getattr(summary, attr)]
+
+        sev_counts: dict[str, int] = defaultdict(int)
+        for f in findings:
+            sev_counts[f.severity] += 1
+
         return templates.TemplateResponse(
             request,
             "dashboard.html",
-            {"request": request, "findings": findings, "summary": summary},
+            {
+                "request": request,
+                "findings": findings,
+                "summary": summary,
+                "resolvable_gpo_ids": resolvable_gpo_ids,
+                "posture_fired": fired,
+                "posture_clear": clear,
+                "sev_counts": dict(sev_counts),
+            },
         )
 
     @app.get("/gpo/{gpo_id}", response_class=HTMLResponse, name="gpo_detail")
@@ -261,7 +357,7 @@ def create_app(db_path: str, *, root_path: str = "") -> FastAPI:
         try:
             gpo_id = canonical_guid(gpo_id)
         except ValueError:
-            return HTMLResponse(content="Invalid GPO ID", status_code=404)
+            raise HTTPException(status_code=404, detail="Invalid GPO ID")
 
         conn = _get_ro_conn(app.state.db_path)
         try:
@@ -271,7 +367,7 @@ def create_app(db_path: str, *, root_path: str = "") -> FastAPI:
 
         gpo = estate.gpo_by_id(gpo_id)
         if gpo is None:
-            return HTMLResponse(content="GPO not found", status_code=404)
+            raise HTTPException(status_code=404, detail="GPO not found")
 
         disabled_sides: set[str] = set()
         if not gpo.computer_enabled and any(
@@ -333,7 +429,7 @@ def create_app(db_path: str, *, root_path: str = "") -> FastAPI:
                 break
 
         if target_som is None:
-            return HTMLResponse(content="OU not found", status_code=404)
+            raise HTTPException(status_code=404, detail="OU not found")
 
         effective_gpos = queries.som_effective_gpos(estate, target_som.path, _som=target_som)
         settings = queries.settings_at_som(estate, target_som.path)

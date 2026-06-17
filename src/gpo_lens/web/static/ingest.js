@@ -7,22 +7,22 @@
         return;
     }
 
+    function browse() { fileInput.click(); }
+    dropZone.addEventListener('click', browse);
     if (browseBtn) {
-        browseBtn.addEventListener('click', function () {
-            fileInput.click();
-        });
+        browseBtn.addEventListener('click', function (e) { e.stopPropagation(); browse(); });
     }
     dropZone.addEventListener('dragover', function (e) {
         e.preventDefault();
-        dropZone.style.borderColor = '#666';
+        dropZone.classList.add('over');
     });
     dropZone.addEventListener('dragleave', function (e) {
         e.preventDefault();
-        dropZone.style.borderColor = '#ccc';
+        dropZone.classList.remove('over');
     });
     dropZone.addEventListener('drop', function (e) {
         e.preventDefault();
-        dropZone.style.borderColor = '#ccc';
+        dropZone.classList.remove('over');
         if (e.dataTransfer.files.length) {
             fileInput.files = e.dataTransfer.files;
             form.submit();

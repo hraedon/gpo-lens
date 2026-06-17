@@ -1,90 +1,114 @@
 {% extends "base.html" %}
 
-{% block title %}gpo-lens - Dashboard{% endblock %}
+{% block title %}gpo-lens — {{ summary.domain or "Dashboard" }}{% endblock %}
 
 {% block content %}
-<h1>Estate Dashboard</h1>
+{% set crit = sev_counts.get('critical', 0) %}
+{% set high = sev_counts.get('high', 0) %}
+{% set total_findings = findings|length %}
 
-<section class="summary-cards">
-  <div class="card">
-    <span class="card-value">{{ summary.gpo_count }}</span>
-    <span class="card-label">GPOs</span>
+<div class="gp-page-head">
+  <div>
+    <div class="gp-eyebrow">Group Policy estate</div>
+    <h1>{{ summary.domain or "No estate loaded" }}</h1>
   </div>
-  <div class="card">
-    <span class="card-value">{{ summary.som_count }}</span>
-    <span class="card-label">SOMs</span>
+  {% if summary.gpo_count %}
+  <div>
+    {% if crit %}
+      <span class="gp-pill critical"><span class="dot"></span>{{ crit }} critical</span>
+    {% elif high %}
+      <span class="gp-pill high"><span class="dot"></span>{{ high }} need attention</span>
+    {% elif total_findings %}
+      <span class="gp-pill medium"><span class="dot"></span>{{ total_findings }} finding{{ 's' if total_findings != 1 }}</span>
+    {% else %}
+      <span class="gp-pill ok"><span class="dot"></span>No findings</span>
+    {% endif %}
   </div>
-  <div class="card">
-    <span class="card-value">{{ summary.total_settings }}</span>
-    <span class="card-label">Settings</span>
-  </div>
-  <div class="card">
-    <span class="card-value">{{ summary.domain }}</span>
-    <span class="card-label">Domain</span>
-  </div>
-</section>
+  {% endif %}
+</div>
 
-<section class="health-indicators">
-  <h2>Health Indicators</h2>
-  <table>
-    <thead>
-      <tr><th>Indicator</th><th>Count</th></tr>
-    </thead>
-    <tbody>
-      <tr><td>Version Skew</td><td>{{ summary.version_skew_count }}</td></tr>
-      <tr><td>MS16-072 Vulnerable</td><td>{{ summary.ms16_072_vulnerable_count }}</td></tr>
-      <tr><td>cPassword Hits</td><td>{{ summary.cpassword_hit_count }}</td></tr>
-      <tr><td>Disabled but Populated</td><td>{{ summary.disabled_but_populated_count }}</td></tr>
-      <tr><td>Unlinked GPOs</td><td>{{ summary.unlinked_count }}</td></tr>
-      <tr><td>Empty GPOs</td><td>{{ summary.empty_count }}</td></tr>
-      <tr><td>Enforced Links</td><td>{{ summary.enforced_link_count }}</td></tr>
-      <tr><td>Dangling Links</td><td>{{ summary.dangling_link_count }}</td></tr>
-      <tr><td>Broken References</td><td>{{ summary.broken_ref_count }}</td></tr>
-      <tr><td>WMI Filtered GPOs</td><td>{{ summary.wmi_filtered_gpo_count }}</td></tr>
-      <tr><td>Loopback GPOs</td><td>{{ summary.loopback_gpo_count }}</td></tr>
-      <tr><td>Conflicts</td><td>{{ summary.conflict_count }}</td></tr>
-      <tr><td>Broken WMI References</td><td>{{ summary.broken_wmi_ref_count }}</td></tr>
-      <tr><td>Orphaned WMI Filters</td><td>{{ summary.orphaned_wmi_filter_count }}</td></tr>
-      <tr><td>Item-Level-Targeting GPOs</td><td>{{ summary.ilt_gpo_count }}</td></tr>
-      <tr><td>Stale GPOs (&gt;2y)</td><td>{{ summary.stale_gpo_count }}</td></tr>
-    </tbody>
-  </table>
-</section>
-
-{% if findings %}
-<section class="doctor-findings">
-  <h2>Doctor Findings ({{ findings|length }})</h2>
-  <table>
-    <thead>
-      <tr>
-        <th>Severity</th>
-        <th>Category</th>
-        <th>GPO</th>
-        <th>Summary</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for finding in findings %}
-      <tr>
-        <td><span class="badge badge-{{ finding.severity }}">{{ finding.severity }}</span></td>
-        <td>{{ finding.category }}</td>
-        <td>
-          {% if finding.gpo_id %}
-          <a href="{{ url_for('gpo_detail', gpo_id=finding.gpo_id) }}">{{ finding.gpo_name }}</a>
-          {% else %}
-          {{ finding.gpo_name }}
-          {% endif %}
-        </td>
-        <td>{{ finding.summary }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</section>
+{% if not summary.gpo_count %}
+<div class="gp-empty">
+  <div class="ico">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15V6a2 2 0 00-2-2h-7l-2-2H5a2 2 0 00-2 2v13a2 2 0 002 2h6"/><circle cx="17.5" cy="17.5" r="3"/><path d="M20 20l2 2"/></svg>
+  </div>
+  <div class="title">No estate loaded yet</div>
+  <div class="sub">Upload a collector export to begin. <a href="{{ url_for('ingest_get') }}">Go to Ingest →</a></div>
+</div>
 {% else %}
-<section class="doctor-findings">
-  <h2>Doctor Findings</h2>
-  <p>No findings.</p>
+
+<section class="gp-stats">
+  <div class="gp-stat">
+    <div class="gp-stat-label">GPOs</div>
+    <div class="gp-stat-val">{{ summary.gpo_count }}</div>
+  </div>
+  <div class="gp-stat">
+    <div class="gp-stat-label">OUs / sites</div>
+    <div class="gp-stat-val">{{ summary.som_count }}</div>
+  </div>
+  <div class="gp-stat">
+    <div class="gp-stat-label">Settings</div>
+    <div class="gp-stat-val">{{ summary.total_settings }}</div>
+  </div>
+  <div class="gp-stat">
+    <div class="gp-stat-label">Delegation entries</div>
+    <div class="gp-stat-val">{{ summary.total_delegation_entries }}</div>
+  </div>
+</section>
+
+<section class="gp-section">
+  <h2>Posture {% if posture_fired %}<span class="count">{{ posture_fired|length }} flagged</span>{% endif %}</h2>
+  {% if posture_fired %}
+  <div class="gp-posture">
+    {% for ind in posture_fired %}
+    <div class="gp-ind {{ ind.tone }}">
+      <span class="lab">{{ ind.label }}</span>
+      <span class="val">{{ ind.value }}</span>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+  {% if posture_clear %}
+  <p class="gp-allclear">
+    <b>Clear:</b>
+    <span class="names">{{ posture_clear|join(' · ') }}</span>
+  </p>
+  {% endif %}
+</section>
+
+<section class="gp-section">
+  <h2>Doctor findings {% if findings %}<span class="count">{{ findings|length }}</span>{% endif %}</h2>
+  {% if findings %}
+  <div class="gp-table-wrap">
+    <table class="gp-table">
+      <thead>
+        <tr><th style="width:130px">Severity</th><th>GPO</th><th>Finding</th></tr>
+      </thead>
+      <tbody>
+        {% for f in findings %}
+        <tr>
+          <td><span class="gp-pill {{ f.severity }}"><span class="dot"></span>{{ f.severity }}</span></td>
+          <td>
+            {% if f.gpo_id and f.gpo_id in resolvable_gpo_ids %}
+            <a href="{{ url_for('gpo_detail', gpo_id=f.gpo_id) }}">{{ f.gpo_name }}</a>
+            {% else %}
+            <span class="mono muted">{{ f.gpo_name }}</span>
+            {% endif %}
+          </td>
+          <td>{{ f.summary }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="gp-callout ok" style="border-color: color-mix(in srgb, var(--ok) 30%, transparent); background: var(--ok-soft);">
+    <span class="ico" style="color: var(--ok)">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+    </span>
+    <p>The estate doctor found nothing to flag in this snapshot.</p>
+  </div>
+  {% endif %}
 </section>
 {% endif %}
 {% endblock %}

@@ -1,38 +1,54 @@
 {% extends "base.html" %}
 
-{% block title %}gpo-lens - Ask{% endblock %}
+{% block title %}gpo-lens — Ask{% endblock %}
 
 {% block content %}
-<h1>Ask</h1>
+<div class="gp-page-head">
+  <div>
+    <div class="gp-eyebrow">Question the estate</div>
+    <h1>Ask</h1>
+    <div class="sub">Plain-language questions, answered from deterministic queries. Answers cite the facts they used.</div>
+  </div>
+</div>
 
 {% if not narration_available %}
-<div class="banner info">
-Narration is not configured. Set the GPO_LENS_LLM_ENDPOINT and
-GPO_LENS_API_KEY environment variables to enable AI-powered analysis.
+<div class="gp-callout info" style="margin-bottom:14px">
+  <span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg></span>
+  <div>
+    <h4>Narration is not configured</h4>
+    <p>Set <span class="mono">GPO_LENS_LLM_ENDPOINT</span> and <span class="mono">GPO_LENS_API_KEY</span> to enable AI-powered answers.</p>
+  </div>
 </div>
 {% endif %}
 
-<form action="{{ url_for('ask_post') }}" method="post">
-  <label for="question">Question</label>
-  <input type="text" id="question" name="question" required {% if not narration_available %}disabled{% endif %}>
-  <button type="submit" {% if not narration_available %}disabled{% endif %}>Ask</button>
+<form action="{{ url_for('ask_post') }}" method="post" class="gp-panel pad">
+  <div class="gp-field">
+    <label class="gp-label" for="question">Your question</label>
+    <input type="text" id="question" name="question" class="gp-input"
+           placeholder="e.g. Which GPOs are unlinked?"
+           value="{{ question or '' }}" required {% if not narration_available %}disabled{% endif %}>
+  </div>
+  <button type="submit" class="gp-btn primary" style="margin-top:12px" {% if not narration_available %}disabled{% endif %}>Ask</button>
 </form>
 
 {% if error %}
-<div class="banner error">{{ error }}</div>
+<div class="gp-callout crit" style="margin-top:14px">
+  <span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6M9 9l6 6"/></svg></span>
+  <p>{{ error }}</p>
+</div>
 {% endif %}
 
 {% if answer %}
-<section>
+<section class="gp-section">
   <h2>Answer</h2>
-  <pre>{{ answer }}</pre>
+  <div class="gp-panel pad" style="white-space:pre-wrap;line-height:1.6">{{ answer }}</div>
 </section>
 {% endif %}
 
 {% if facts %}
-<section>
+<section class="gp-section">
   <h2>Underlying Facts</h2>
-  <pre>{{ facts|tojson(indent=2) }}</pre>
+  <pre class="gp-pre">{{ facts|tojson(indent=2) }}</pre>
 </section>
 {% endif %}
 {% endblock %}

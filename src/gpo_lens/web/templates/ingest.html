@@ -1,46 +1,51 @@
 {% extends "base.html" %}
 
-{% block title %}gpo-lens - Ingest{% endblock %}
+{% block title %}gpo-lens — Ingest{% endblock %}
 
 {% block content %}
-<h1>Ingest Estate</h1>
+<div class="gp-page-head">
+  <div>
+    <div class="gp-eyebrow">Load an estate</div>
+    <h1>Ingest</h1>
+    <div class="sub">Upload a collector export (.zip). Ingesting replaces the current estate snapshot.</div>
+  </div>
+</div>
 
 {% if error %}
-<div class="banner error">{{ error }}</div>
+<div class="gp-callout crit" style="margin-bottom:14px">
+  <span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6M9 9l6 6"/></svg></span>
+  <p>{{ error }}</p>
+</div>
 {% endif %}
 
 <form id="ingest-form" action="{{ url_for('ingest_post') }}" method="post" enctype="multipart/form-data">
-    <div id="drop-zone" style="border:2px dashed #ccc;padding:2rem;text-align:center;">
-        <p>Drag and drop a zip file here, or click to browse</p>
-        <input type="file" name="file" accept=".zip" id="file-input" style="display:none;">
-        <button type="button" id="browse-btn">Browse</button>
-    </div>
-    <button type="submit" style="margin-top:1rem;">Upload</button>
+  <div id="drop-zone" class="gp-drop">
+    <div class="ico"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg></div>
+    <div>Drop a .zip export here, or <strong>browse</strong></div>
+    <div class="hint">Uploads up to 500&nbsp;MB</div>
+    <input type="file" name="file" accept=".zip" id="file-input" style="display:none">
+    <button type="button" id="browse-btn" class="gp-btn" style="margin-top:12px">Browse files</button>
+  </div>
 </form>
-
 <script src="{{ url_for('static', path='ingest.js') }}"></script>
 
-<h2>Current Snapshots</h2>
-{% if snapshots %}
-<table>
-    <thead>
-        <tr>
-            <th>ID</th>
-            <th>Domain</th>
-            <th>Taken At</th>
-        </tr>
-    </thead>
-    <tbody>
+<section class="gp-section">
+  <h2>Snapshots {% if snapshots %}<span class="count">{{ snapshots|length }}</span>{% endif %}</h2>
+  {% if snapshots %}
+  <div class="gp-table-wrap">
+    <table class="gp-table">
+      <thead>
+        <tr><th class="num" style="width:60px">#</th><th>Domain</th><th>Captured</th></tr>
+      </thead>
+      <tbody>
         {% for snap in snapshots %}
-        <tr>
-            <td>{{ snap[0] }}</td>
-            <td>{{ snap[1] }}</td>
-            <td>{{ snap[2] }}</td>
-        </tr>
+        <tr><td class="num">{{ snap[0] }}</td><td>{{ snap[1] }}</td><td class="mono muted">{{ snap[2] }}</td></tr>
         {% endfor %}
-    </tbody>
-</table>
-{% else %}
-<p>No snapshots yet.</p>
-{% endif %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="muted">No snapshots yet. Your first upload will appear here.</p>
+  {% endif %}
+</section>
 {% endblock %}
