@@ -496,21 +496,35 @@ def snapshot_changelog(
 
     results: list[ChangelogEntry] = []
 
-    _version_query = (
-        "SELECT computer_ver_ds, computer_ver_sysvol, user_ver_ds, user_ver_sysvol "
-        "FROM gpo WHERE snapshot_id = ? AND id = ?"
-    )
+    # Fetch version rows for all common GPOs in one query per snapshot instead
+    # of the previous per-GPO N+1 loop.
+    def _load_versions(
+        snapshot_id: int, gpo_ids: list[str]
+    ) -> dict[str, tuple[int | None, int | None, int | None, int | None]]:
+        if not gpo_ids:
+            return {}
+        placeholders = ",".join("?" * len(gpo_ids))
+        query = (
+            "SELECT id, computer_ver_ds, computer_ver_sysvol, user_ver_ds, user_ver_sysvol "
+            f"FROM gpo WHERE snapshot_id = ? AND id IN ({placeholders})"
+        )
+        return {
+            row[0]: row[1:]
+            for row in conn.execute(query, (snapshot_id, *gpo_ids))
+        }
+
+    versions_a = _load_versions(snap_a, common)
+    versions_b = _load_versions(snap_b, common)
 
     for gpo_id in common:
-        old_v = conn.execute(_version_query, (snap_a, gpo_id)).fetchone()
-        new_v = conn.execute(_version_query, (snap_b, gpo_id)).fetchone()
+        old_v = versions_a.get(gpo_id)
+        new_v = versions_b.get(gpo_id)
         if not old_v or not new_v:
             continue
 
         gpo_changes = settings_by_gpo.get(gpo_id, [])
         has_setting_changes = bool(gpo_changes)
 
-        sides: list[tuple[str, int, int, int, int]] = []
         for side, ds_idx, sv_idx in (
             ("Computer", 0, 1),
             ("User", 2, 3),
@@ -521,7 +535,6 @@ def snapshot_changelog(
                 edit_count = None
                 if isinstance(old_sv, int) and isinstance(new_sv, int):
                     edit_count = new_sv - old_sv
-                sides.append((side, old_ds, old_sv, new_ds, new_sv))
                 vcl = VersionChangeLog(
                     gpo_id=gpo_id,
                     gpo_name=name_map.get(gpo_id, gpo_id),

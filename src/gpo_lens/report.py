@@ -382,6 +382,13 @@ def _effective_settings_md(estate: Estate, soms_with_links: list[Som]) -> list[s
         block = " [BLOCKED INHERITANCE]" if som.inheritance_blocked else ""
         parts.append(f"### {som.name}{block}\n")
         parts.append(f"_Path:_ `{som.path}`\n")
+        caveats = queries.scope_caveats(estate, som.path)
+        if caveats:
+            parts.append("> **\u26a0 Scope caveats** (flagged, not simulated):")
+            for c in caveats:
+                parts.append(f"> - {c.strip()}")
+            parts.append(">")
+            parts.append("> Effective settings may differ \u2014 scoping not simulated.\n")
         for s in eff:
             parts.append(
                 f"- `[{s.cse}] {s.side}/{s.identity}`: "
@@ -547,6 +554,17 @@ def _effective_settings_html(estate: Estate, soms_with_links: list[Som]) -> list
         )
         parts.append(f"<h3>{_esc(som.name)}{block}</h3>")
         parts.append(f"<p><em>Path:</em> <code>{_esc(som.path)}</code></p>")
+        caveats = queries.scope_caveats(estate, som.path)
+        if caveats:
+            parts.append('<div class="caveats">')
+            parts.append("<strong>\u26a0 Scope caveats</strong> "
+                         "<em>(flagged, not simulated)</em>:<ul>")
+            for c in caveats:
+                parts.append(f"<li>{_esc(c.strip())}</li>")
+            parts.append("</ul>")
+            parts.append("<em>Effective settings may differ \u2014 "
+                         "scoping mechanisms not simulated.</em>")
+            parts.append("</div>")
         parts.append("<table>")
         parts.append(
             "<tr><th>CSE</th><th>Side</th><th>Identity</th>"
@@ -906,6 +924,12 @@ th { background: #f3f4f6; }
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: .02em;
+}
+.caveats {
+  background: #fff7ed;
+  border-left: 4px solid var(--medium);
+  padding: .5rem .75rem;
+  margin: .5rem 0 1rem;
 }
 code {
   background: #f3f4f6;

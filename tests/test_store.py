@@ -11,6 +11,8 @@ import os
 import sqlite3
 import stat
 
+import pytest
+
 from gpo_lens import store
 from gpo_lens.model import Estate, Gpo, Setting
 
@@ -162,3 +164,184 @@ def test_description_survives_migration_from_old_schema(tmp_path):
     cols = {r[1] for r in conn.execute("PRAGMA table_info(gpo)").fetchall()}
     assert "description" in cols
     conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Schema versioning
+# ---------------------------------------------------------------------------
+
+
+def test_init_db_stamps_new_database_with_current_schema_version(tmp_path):
+    """A freshly initialized DB must record the current schema version."""
+    db = tmp_path / "new-stamp.db"
+    conn = sqlite3.connect(str(db))
+    store.init_db(conn)
+
+    version = conn.execute("PRAGMA user_version").fetchone()[0]
+    assert version == store.CURRENT_SCHEMA_VERSION
+    conn.close()
+
+
+def test_migrate_schema_is_idempotent_for_old_database(tmp_path):
+    """An old DB without the description column gets stamped, and a second
+    open is a no-op (column not re-added, version unchanged)."""
+    db = tmp_path / "old-stamp.db"
+    conn = sqlite3.connect(str(db))
+
+    # Hand-build a pre-description schema with no user_version stamp.
+    conn.execute(
+        "CREATE TABLE snapshot (id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "domain TEXT NOT NULL, taken_at TEXT NOT NULL)"
+    )
+    conn.execute(
+        "CREATE TABLE gpo ("
+        "snapshot_id INTEGER NOT NULL, id TEXT NOT NULL, name TEXT NOT NULL, "
+        "domain TEXT NOT NULL, computer_enabled INTEGER NOT NULL, "
+        "user_enabled INTEGER NOT NULL, filter_data_available INTEGER NOT NULL, "
+        "PRIMARY KEY (snapshot_id, id))"
+    )
+    conn.commit()
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == 0
+    conn.close()
+
+    # First migration adds the column and stamps the version.
+    conn = sqlite3.connect(str(db))
+    store.init_db(conn)
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(gpo)").fetchall()}
+    assert "description" in cols
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == store.CURRENT_SCHEMA_VERSION
+    conn.close()
+
+    # Second migration leaves the DB unchanged and does not bump anything.
+    conn = sqlite3.connect(str(db))
+    store.init_db(conn)
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(gpo)").fetchall()}
+    assert "description" in cols
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == store.CURRENT_SCHEMA_VERSION
+    conn.close()
+
+
+def test_init_db_rejects_future_schema_version(tmp_path):
+    """A DB written by a newer gpo-lens must raise a clear error, not truncate
+    or silently ignore the future version."""
+    db = tmp_path / "future.db"
+    conn = sqlite3.connect(str(db))
+    store.init_db(conn)
+    conn.execute("PRAGMA user_version = 99")
+    conn.execute("ALTER TABLE gpo ADD COLUMN future_col TEXT")
+    conn.commit()
+    conn.close()
+
+    conn = sqlite3.connect(str(db))
+    with pytest.raises(
+        RuntimeError,
+        match=(
+            "schema version 99 is newer than this gpo-lens release supports "
+            "\\(version 2\\)"
+        ),
+    ):
+        store.init_db(conn)
+    conn.close()
+
+
+# ---------------------------------------------------------------------------
+# snapshot_changelog batching
+# ---------------------------------------------------------------------------
+
+
+def test_snapshot_changelog_batched_query_shape(tmp_path):
+    """snapshot_changelog must return the same shape/content after batching
+    the per-GPO version queries. This is the behavior-preservation check for
+    the N+1 → batched query refactor in queries.py.
+    """
+    from gpo_lens import queries
+    from gpo_lens.model import Setting
+
+    db = tmp_path / "changelog_batched.db"
+    conn = sqlite3.connect(str(db))
+    store.init_db(conn)
+
+    gpo_alpha_a = _make_gpo(
+        id="gpo-alpha", name="Alpha",
+        computer_ver_ds=1, computer_ver_sysvol=1,
+        user_ver_ds=1, user_ver_sysvol=1,
+        settings=[
+            Setting(
+                gpo_id="gpo-alpha", side="Computer", cse="Registry",
+                identity="HKLM\\Software\\Foo", display_name="Foo",
+                display_value="old", raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    gpo_beta_a = _make_gpo(
+        id="gpo-beta", name="Beta",
+        computer_ver_ds=1, computer_ver_sysvol=1,
+        user_ver_ds=1, user_ver_sysvol=1,
+    )
+    sid_a = store.save_estate(
+        conn, Estate(domain="test.local", gpos=[gpo_alpha_a, gpo_beta_a])
+    )
+
+    gpo_alpha_b = _make_gpo(
+        id="gpo-alpha", name="Alpha",
+        computer_ver_ds=2, computer_ver_sysvol=3,
+        user_ver_ds=1, user_ver_sysvol=1,
+        settings=[
+            Setting(
+                gpo_id="gpo-alpha", side="Computer", cse="Registry",
+                identity="HKLM\\Software\\Foo", display_name="Foo",
+                display_value="new", raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    gpo_beta_b = _make_gpo(
+        id="gpo-beta", name="Beta",
+        computer_ver_ds=1, computer_ver_sysvol=1,
+        user_ver_ds=2, user_ver_sysvol=2,
+    )
+    gpo_gamma_b = _make_gpo(
+        id="gpo-gamma", name="Gamma",
+        computer_ver_ds=1, computer_ver_sysvol=1,
+        user_ver_ds=1, user_ver_sysvol=1,
+    )
+    sid_b = store.save_estate(
+        conn, Estate(domain="test.local", gpos=[gpo_alpha_b, gpo_beta_b, gpo_gamma_b])
+    )
+
+    entries = queries.snapshot_changelog(conn, sid_a, sid_b)
+    conn.close()
+
+    # We expect exactly two changelog lines, one per changed side, in sorted
+    # GPO id order (alpha before beta). Gamma is new and not in the common
+    # set, so it is excluded from the version-aware log.
+    assert len(entries) == 2
+
+    e_alpha = entries[0]
+    assert e_alpha.gpo_id == "gpo-alpha"
+    assert e_alpha.gpo_name == "Alpha"
+    assert e_alpha.side == "Computer"
+    assert e_alpha.kind == "settings_detail"
+    assert e_alpha.version_change is not None
+    assert e_alpha.version_change.old_ds == 1
+    assert e_alpha.version_change.old_sysvol == 1
+    assert e_alpha.version_change.new_ds == 2
+    assert e_alpha.version_change.new_sysvol == 3
+    assert e_alpha.version_change.edit_count == 2
+    assert len(e_alpha.setting_changes) == 1
+    sc = e_alpha.setting_changes[0]
+    assert sc.change_type == "modified"
+    assert sc.old_value == "old"
+    assert sc.new_value == "new"
+
+    e_beta = entries[1]
+    assert e_beta.gpo_id == "gpo-beta"
+    assert e_beta.gpo_name == "Beta"
+    assert e_beta.side == "User"
+    assert e_beta.kind == "metadata_only"
+    assert e_beta.version_change is not None
+    assert e_beta.version_change.old_ds == 1
+    assert e_beta.version_change.old_sysvol == 1
+    assert e_beta.version_change.new_ds == 2
+    assert e_beta.version_change.new_sysvol == 2
+    assert e_beta.version_change.edit_count == 1
+    assert e_beta.setting_changes == []

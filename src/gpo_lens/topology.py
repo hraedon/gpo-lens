@@ -11,8 +11,17 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from gpo_lens.authz import (
+    SCOPE_BROAD_TRUSTEES,
+    applies_broadly,
+    broad_trustee_key,
+    is_allow_ace_type,
+    is_deny_ace_type,
+    parse_sddl,
+    parse_sddl_rights,
+)
 from gpo_lens.detection import scan_ilt
-from gpo_lens.model import Side
+from gpo_lens.model import SddlAce, Side
 
 if TYPE_CHECKING:
     from gpo_lens.model import Estate, Gpo, GpoLink, Setting, Som, SomLink
@@ -422,37 +431,43 @@ def settings_at_som(estate: Estate, som_path: str) -> list[EffectiveSetting]:
 # Scope honesty — effective scope, security filtering, WMI analysis, ILT
 # ---------------------------------------------------------------------------
 
-_BROAD_TRUSTEES = {"authenticated users", "domain computers", "everyone"}
-_AU_SID = "s-1-5-11"
-_EVERYONE_SID = "s-1-1-0"
 # Domain Computers = S-1-5-21-{domain}-515. Require the domain-SID prefix so
 # we don't match arbitrary SIDs whose RID happens to end in "515".
-_DOMAIN_SID_PREFIX = "s-1-5-21-"
-_DC_RID_SUFFIX = "-515"
-
-
-def _broad_key(trustee: str, sid: str | None) -> str | None:
-    """Canonical key for a broad-application trustee, or None.
-
-    Collapses name and SID forms of Authenticated Users, Domain Computers,
-    and Everyone to a single key so allow/deny ACEs on the same trustee can
-    be paired for deny-precedence evaluation.
-    """
-    t = trustee.lower().strip()
-    s = (sid or "").lower().strip()
-    if t == "authenticated users" or s == _AU_SID:
-        return "authenticated_users"
-    if t == "domain computers" or (s.startswith(_DOMAIN_SID_PREFIX) and s.endswith(_DC_RID_SUFFIX)):
-        return "domain_computers"
-    if t == "everyone" or s == _EVERYONE_SID:
-        return "everyone"
-    return None
+_SDDL_READ_OR_APPLY_RIGHTS = {"GA", "GR", "CC", "CR", "RP"}
 
 
 def _grants_read_or_apply(permission: str) -> bool:
     """True if the permission label conveys Read or Apply Group Policy."""
     p = permission.lower().strip()
     return "read" in p or "apply" in p
+
+
+def _broad_key(trustee: str, sid: str | None) -> str | None:
+    """Thin compatibility wrapper around :func:`gpo_lens.authz.broad_trustee_key`.
+
+    Preserves the historical topology helper used by tests that enumerate
+    broad-trustee name/SID matching.
+    """
+    return broad_trustee_key(trustee, sid, SCOPE_BROAD_TRUSTEES)
+
+
+def _sddl_read_or_apply_grants(
+    dacl: tuple[SddlAce, ...],
+) -> list[tuple[str | None, bool]]:
+    """Extract broad-trustee grants with read/apply rights from a DACL."""
+    grants: list[tuple[str | None, bool]] = []
+    for ace in dacl:
+        key = broad_trustee_key("", ace.trustee_sid, SCOPE_BROAD_TRUSTEES)
+        if key is None:
+            continue
+        rights = set(parse_sddl_rights(ace.rights))
+        if not (rights & _SDDL_READ_OR_APPLY_RIGHTS):
+            continue
+        if is_allow_ace_type(ace.ace_type):
+            grants.append((key, True))
+        elif is_deny_ace_type(ace.ace_type):
+            grants.append((key, False))
+    return grants
 
 
 @dataclass(frozen=True)
@@ -512,18 +527,28 @@ def is_security_filtered(gpo: Gpo) -> bool:
     Not modeled (deliberately): nested group membership, default/inherited
     ACEs not present on the GPO, and cross-trustee set relationships (e.g.
     that a deny on Everyone also blocks Authenticated Users).
+
+    SDDL fallback: when delegation entries are absent but an SDDL string is
+    present, the DACL is parsed to check for broad trustees with read/apply
+    rights. This catches GPOs whose report carries SDDL but no Permissions
+    sub-element.
     """
-    if not gpo.delegation:
-        return False
-    allowed: set[str] = set()
-    denied: set[str] = set()
-    for entry in gpo.delegation:
-        key = _broad_key(entry.trustee, entry.trustee_sid)
-        if key is None or not _grants_read_or_apply(entry.permission):
-            continue
-        (allowed if entry.allowed else denied).add(key)
-    applies_broadly = any(key not in denied for key in allowed)
-    return not applies_broadly
+    if gpo.delegation:
+        grants: list[tuple[str | None, bool]] = []
+        for entry in gpo.delegation:
+            key = _broad_key(entry.trustee, entry.trustee_sid)
+            if key is None or not _grants_read_or_apply(entry.permission):
+                continue
+            grants.append((key, entry.allowed))
+        return not applies_broadly(grants)
+
+    if gpo.sddl:
+        acl = parse_sddl(gpo.sddl)
+        if not acl.dacl:
+            return False
+        return not applies_broadly(_sddl_read_or_apply_grants(acl.dacl))
+
+    return False
 
 
 def security_filtering_detail(gpo: Gpo) -> SecurityFiltering:
@@ -534,23 +559,35 @@ def security_filtering_detail(gpo: Gpo) -> SecurityFiltering:
     for entry in gpo.delegation:
         if not entry.allowed:
             continue
-        trustee_lower = entry.trustee.lower().strip()
-        sid_lower = (entry.trustee_sid or "").lower().strip()
+        key = _broad_key(entry.trustee, entry.trustee_sid)
         perm_lower = entry.permission.lower().strip()
         if (
             "read" in perm_lower
             or "apply" in perm_lower
             or "grouppolicy" in perm_lower.replace(" ", "")
         ):
-            if trustee_lower == "authenticated users" or sid_lower == _AU_SID:
+            if key == "authenticated_users":
                 has_au_read = True
-            if trustee_lower == "domain computers" or (
-                sid_lower.startswith(_DOMAIN_SID_PREFIX) and sid_lower.endswith(_DC_RID_SUFFIX)
-            ):
+            if key == "domain_computers":
                 has_dc_read = True
         if "apply" in perm_lower or "grouppolicy" in perm_lower.replace(" ", ""):
             if entry.trustee not in apply_trustees:
                 apply_trustees.append(entry.trustee)
+    if not gpo.delegation and gpo.sddl:
+        acl = parse_sddl(gpo.sddl)
+        for ace in acl.dacl:
+            if not is_allow_ace_type(ace.ace_type):
+                continue
+            key = broad_trustee_key("", ace.trustee_sid, SCOPE_BROAD_TRUSTEES)
+            if key is None:
+                continue
+            rights = set(parse_sddl_rights(ace.rights))
+            if not (rights & _SDDL_READ_OR_APPLY_RIGHTS):
+                continue
+            if key == "authenticated_users":
+                has_au_read = True
+            if key == "domain_computers":
+                has_dc_read = True
     return SecurityFiltering(
         is_filtered=is_security_filtered(gpo),
         apply_trustees=apply_trustees,

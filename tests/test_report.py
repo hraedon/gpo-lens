@@ -350,3 +350,18 @@ def test_cli_report_html_output_file(tmp_path, fixture_estate):
     assert r.returncode == 0
     assert out.exists()
     assert "<!DOCTYPE html>" in out.read_text()
+
+
+def test_markdown_effective_settings_surface_scope_caveats(fixture_estate):
+    report = generate_markdown(fixture_estate)
+    assert "## Per-OU Effective Settings" in report
+    assert "Scope caveats" in report
+    assert "flagged, not simulated" in report
+
+
+def test_html_effective_settings_surface_scope_caveats(fixture_estate):
+    report = generate_html(fixture_estate)
+    assert "Per-OU Effective Settings" in report
+    assert "Scope caveats" in report
+    assert "flagged, not simulated" in report
+    assert 'class="caveats"' in report

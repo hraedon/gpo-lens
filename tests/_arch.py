@@ -1,0 +1,114 @@
+"""Shared helpers for the core import-boundary architecture tests.
+
+The authoritative list of "core" modules lives in ``AGENTS.md`` (the
+*Import boundary* hard rule): core modules must never import
+``gpo_lens.narration`` or ``gpo_lens.web``. This module is the single
+source of truth consumed by ``tests/test_narration.py`` and
+``tests/test_web.py``.
+
+The check is AST-based (``ast.parse`` + walk over ``Import`` /
+``ImportFrom``), not regex, so it cannot be fooled by mentions in string
+literals, comments, attribute access, or attribute-only references. Keep
+this list in sync with the *Import boundary* section of ``AGENTS.md``;
+widening the boundary requires editing ``AGENTS.md`` first.
+"""
+
+from __future__ import annotations
+
+import ast
+import importlib.util
+from collections.abc import Collection
+from pathlib import Path
+
+CORE_MODULES: tuple[str, ...] = (
+    "model",
+    "normalize",
+    "ingest",
+    "store",
+    "queries",
+    "detection",
+    "admx_parser",
+    "display",
+    "report",
+    "events",
+    "sinks",
+    "query_dispatch",
+    "authz",
+    "topology",
+    "registry_pol",
+    "paths",
+)
+
+FORBIDDEN_PACKAGES: tuple[str, ...] = ("narration", "web")
+
+
+def module_source_path(module_name: str) -> Path:
+    """Resolve the on-disk source path of ``gpo_lens.<module_name>``."""
+    spec = importlib.util.find_spec(f"gpo_lens.{module_name}")
+    if spec is None or spec.origin is None:
+        raise FileNotFoundError(f"gpo_lens.{module_name} has no source")
+    return Path(spec.origin)
+
+
+def imported_module_paths(module_name: str) -> set[str]:
+    """Return every absolute module path imported by ``gpo_lens.<module_name>``.
+
+    Walks the full AST (not just module level), so imports nested inside
+    functions or conditional blocks are caught too. Relative imports are
+    resolved against the ``gpo_lens`` package. Aliased imports
+    (``import a.b as c``) contribute their original dotted name (``a.b``).
+    """
+    path = module_source_path(module_name)
+    source = path.read_text(encoding="utf-8")
+    tree = ast.parse(source, filename=str(path))
+
+    base_parts = "gpo_lens".split(".")
+    out: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                out.add(alias.name)
+        elif isinstance(node, ast.ImportFrom):
+            if node.level == 0:
+                base = node.module or ""
+            else:
+                if node.level > len(base_parts):
+                    continue
+                resolved = base_parts[: len(base_parts) - node.level + 1]
+                if node.module:
+                    resolved.append(node.module)
+                base = ".".join(resolved)
+            if base:
+                out.add(base)
+            for alias in node.names:
+                joined = f"{base}.{alias.name}" if base else alias.name
+                out.add(joined)
+    return out
+
+
+def _is_forbidden(imported: str, forbidden: Collection[str]) -> bool:
+    top = imported.split(".", 1)[0]
+    if top in forbidden:
+        return True
+    for pkg in forbidden:
+        qualified = f"gpo_lens.{pkg}"
+        if imported == qualified or imported.startswith(qualified + "."):
+            return True
+    return False
+
+
+def forbidden_imports_in(
+    module_name: str,
+    forbidden: Collection[str] = FORBIDDEN_PACKAGES,
+) -> set[str]:
+    """Return the set of forbidden imports found in ``gpo_lens.<module_name>``.
+
+    Matches the bare packages (e.g. ``narration``, ``web``) and any subpath
+    of ``gpo_lens.narration`` / ``gpo_lens.web``. Intra-core imports
+    (e.g. ``queries`` importing ``model``) are allowed.
+    """
+    return {
+        imp
+        for imp in imported_module_paths(module_name)
+        if _is_forbidden(imp, forbidden)
+    }
