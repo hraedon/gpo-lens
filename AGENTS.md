@@ -49,7 +49,7 @@ narrates facts the core computed. See `README.md` for the full charter.
   joins use it (see `normalize.canonical_guid`).
 - **BOM-tolerant JSON:** collector JSON may carry a UTF-8 BOM (PowerShell 5.1).
   Always load with `utf-8-sig`.
-- **Import boundary:** Core modules (`model`, `normalize`, `ingest`, `store`, `queries`, `detection`, `admx_parser`, `display`, `report`, `events`, `sinks`, `query_dispatch`, `authz`, `topology`, `registry_pol`, `paths`) must never import `narration` or `web`. An architecture test enforces this.
+- **Import boundary:** Core modules (`model`, `normalize`, `ingest`, `store`, `queries`, `snapshot_diff`, `detection`, `admx_parser`, `display`, `report`, `events`, `sinks`, `query_dispatch`, `authz`, `topology`, `registry_pol`, `paths`) must never import `narration` or `web`. An architecture test enforces this.
 
 ## Build / test / lint
 
@@ -77,7 +77,8 @@ a DC/RSAT box). The tool consumes its output dir.
 | `normalize.py` | Pure helpers: `canonical_guid`, `load_json`, `parse_bool/int/dt` |
 | `ingest.py` | Parse collector outputs → `Estate`. Also `parse_report_xml` for raw bytes (UTF-8/16), `load_baseline_from_zip` for Microsoft baseline zips, `augment_blocked_registry_from_pol` to resolve `<Blocked/>` Registry extensions from `Registry.pol` |
 | `store.py` | SQLite persistence for snapshot history (additive schema migrations in `_migrate_schema`) |
-| `queries.py` | Query composition, Tier 2/2.5 queries, estate_doctor, baseline_diff, snapshot diffing, topology, conflicts |
+| `queries.py` | Query composition, Tier 2/2.5 queries, estate_doctor, baseline diff, topology, conflicts |
+| `snapshot_diff.py` | SQLite-bound snapshot diffing — `snapshot_changelog`, `snapshot_settings_diff`, `snapshot_diff` |
 | `detection.py` | Pure scanner functions — cpassword, MS16-072, version skew, broken refs, scheduled tasks, local-group mods, etc. Result types: `CpasswordHit`, `BrokenRef`, `AdmxGap`, `ScheduledTaskInfo`, `LocalGroupMod` |
 | `registry_pol.py` | PReg binary parser — decodes `Registry.pol` files into `PregRecord`s (resolves `<Blocked/>` settings) |
 | `admx_parser.py` | ADMX/ADML template parser — builds registry-path → policy-name crosswalk for baseline diff |

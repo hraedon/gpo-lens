@@ -6,14 +6,14 @@ import dataclasses
 import sqlite3
 import sys
 
-from gpo_lens import ingest, queries, store
+from gpo_lens import ingest, queries, snapshot_diff, store
 from gpo_lens.cli._helpers import _get_estate, _print_table, _render_json
 
 
 def cmd_diff(args: argparse.Namespace) -> None:
     conn = sqlite3.connect(args.db)
     try:
-        diff = queries.snapshot_diff(conn, args.snapshot_a, args.snapshot_b)
+        diff = snapshot_diff.snapshot_diff(conn, args.snapshot_a, args.snapshot_b)
     finally:
         conn.close()
     if args.json:
@@ -62,7 +62,7 @@ def cmd_diff(args: argparse.Namespace) -> None:
 def cmd_diff_settings(args: argparse.Namespace) -> None:
     conn = sqlite3.connect(args.db)
     try:
-        changes = queries.snapshot_settings_diff(
+        changes = snapshot_diff.snapshot_settings_diff(
             conn, args.snapshot_a, args.snapshot_b,
             gpo_id=args.gpo_id, side=args.side, cse=args.cse,
         )
@@ -89,7 +89,7 @@ def cmd_diff_settings(args: argparse.Namespace) -> None:
 
 def cmd_changelog(args: argparse.Namespace) -> None:
     conn = sqlite3.connect(args.db)
-    entries = queries.snapshot_changelog(conn, args.snapshot_a, args.snapshot_b)
+    entries = snapshot_diff.snapshot_changelog(conn, args.snapshot_a, args.snapshot_b)
     conn.close()
     if args.gpo_id:
         entries = [e for e in entries if e.gpo_id == args.gpo_id]
@@ -97,10 +97,10 @@ def cmd_changelog(args: argparse.Namespace) -> None:
         side_lower = args.side.lower()
         entries = [e for e in entries if e.side and e.side.lower() == side_lower]
     if args.json:
-        def _sc_asdict(sc: queries.SnapshotSettingChange) -> dict[str, object]:
+        def _sc_asdict(sc: snapshot_diff.SnapshotSettingChange) -> dict[str, object]:
             return dataclasses.asdict(sc)
 
-        def _vc_asdict(vc: queries.VersionChangeLog | None) -> dict[str, object] | None:
+        def _vc_asdict(vc: snapshot_diff.VersionChangeLog | None) -> dict[str, object] | None:
             if vc is None:
                 return None
             return dataclasses.asdict(vc)

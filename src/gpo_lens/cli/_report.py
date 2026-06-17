@@ -7,7 +7,7 @@ import sqlite3
 import sys
 from pathlib import Path
 
-from gpo_lens import queries, store
+from gpo_lens import snapshot_diff, store
 from gpo_lens.cli._helpers import _get_estate
 
 
@@ -77,7 +77,7 @@ def cmd_report(args: argparse.Namespace) -> int:
                 print("No snapshots found in database.", file=sys.stderr)
                 return 1
             latest = snapshots[0][0]
-            changelog_entries = queries.snapshot_changelog(
+            changelog_entries = snapshot_diff.snapshot_changelog(
                 conn, args.since, latest
             )
         finally:
