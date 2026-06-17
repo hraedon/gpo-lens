@@ -1,8 +1,9 @@
 ---
-status: open
+status: resolved
 priority: medium
 kind: defect
 created: 2026-06-17
+resolved: 2026-06-17
 ---
 
 # GPO detail page omits per-GPO scope caveats
