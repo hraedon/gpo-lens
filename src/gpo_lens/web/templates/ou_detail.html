@@ -2,6 +2,16 @@
 
 {% block title %}gpo-lens — {{ som.name }}{% endblock %}
 
+{% block breadcrumb %}
+<nav class="gp-breadcrumb" aria-label="Breadcrumb">
+  <a href="{{ url_for('home') }}">Dashboard</a>
+  <span class="sep">/</span>
+  <a href="{{ url_for('ou_list') }}">Directory</a>
+  <span class="sep">/</span>
+  <span class="current" aria-current="page">{{ som.name }}</span>
+</nav>
+{% endblock %}
+
 {% block content %}
 <div class="gp-page-head">
   <div>

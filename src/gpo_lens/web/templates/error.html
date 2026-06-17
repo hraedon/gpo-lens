@@ -7,14 +7,12 @@
   <div class="code">{{ status_code }}</div>
   <h1>{{ title }}</h1>
   <p>
-    {% if status_code == 404 %}
-      {{ detail or "That page isn’t in this estate." }}
-    {% elif status_code == 401 %}
+    {% if status_code == 401 %}
       This server is loopback-only. Open it from the machine it runs on, or set an auth token.
     {% elif status_code == 403 %}
       {{ detail or "You don’t have permission for that action." }}
     {% else %}
-      {{ detail or "Something went wrong." }}
+      {{ detail or "The requested resource was not found." }
     {% endif %}
   </p>
   <a class="gp-btn" href="{{ url_for('home') }}">Back to dashboard</a>

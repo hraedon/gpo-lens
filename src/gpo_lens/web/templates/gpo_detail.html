@@ -2,6 +2,14 @@
 
 {% block title %}gpo-lens — {{ gpo.name }}{% endblock %}
 
+{% block breadcrumb %}
+<nav class="gp-breadcrumb" aria-label="Breadcrumb">
+  <a href="{{ url_for('home') }}">Dashboard</a>
+  <span class="sep">/</span>
+  <span class="current" aria-current="page">{{ gpo.name }}</span>
+</nav>
+{% endblock %}
+
 {% block content %}
 <div class="gp-page-head">
   <div>

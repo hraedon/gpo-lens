@@ -286,6 +286,7 @@ a:hover { text-decoration: underline; }
 .gp-chip.warn     { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 32%, transparent); background: var(--warn-soft); }
 .gp-chip.crit     { color: var(--crit); border-color: color-mix(in srgb, var(--crit) 32%, transparent); background: var(--crit-soft); }
 .gp-chip.accent   { color: var(--accent); border-color: var(--accent-line); background: var(--accent-soft); }
+.gp-chip.info     { color: var(--info); border-color: color-mix(in srgb, var(--info) 32%, transparent); background: var(--info-soft); }
 .gp-chip.muted    { color: var(--text-3); }
 
 /* ---------- TABLE ---------- */
@@ -386,6 +387,7 @@ a:hover { text-decoration: underline; }
 
 /* ---------- DROP ZONE (ingest) ---------- */
 .gp-drop {
+  position: relative;
   border: 1.5px dashed var(--border-2); border-radius: var(--radius-lg); padding: 34px 20px;
   text-align: center; background: var(--inset); transition: border-color .14s, background .14s; cursor: pointer;
 }
@@ -437,3 +439,36 @@ a:hover { text-decoration: underline; }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
 }
+
+/* ---------- CONFIRM DIALOG (ingest) ---------- */
+.gp-confirm-overlay {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.5); z-index: 1000;
+  display: flex; align-items: center; justify-content: center;
+}
+.gp-confirm-dialog {
+  background: var(--panel); border: 1px solid var(--border-2); border-radius: var(--radius-lg);
+  padding: 24px; max-width: 420px; box-shadow: var(--shadow);
+}
+.gp-confirm-dialog h3 { margin: 0 0 8px; font-size: var(--fs-md); font-weight: 600; }
+.gp-confirm-dialog p { margin: 0; color: var(--text-2); font-size: var(--fs-sm); line-height: 1.5; }
+
+/* ---------- UPLOAD LOADING ---------- */
+.gp-drop.loading { pointer-events: none; opacity: 0.6; }
+.gp-drop.loading > *:not(.ico) { visibility: hidden; }
+.gp-drop.loading .ico svg { animation: spin 1s linear infinite; }
+.gp-drop.loading::after {
+  content: "Uploading…"; position: absolute; top: 50%; left: 50%;
+  transform: translate(-50%, -50%); font-size: var(--fs-base); color: var(--text-2);
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---------- BREADCRUMB ---------- */
+.gp-breadcrumb {
+  padding: 8px 26px; font-size: 12.5px; color: var(--text-3);
+  border-bottom: 1px solid var(--border); background: var(--bg-soft);
+}
+.gp-breadcrumb a { color: var(--text-2); }
+.gp-breadcrumb a:hover { color: var(--text); text-decoration: none; }
+.gp-breadcrumb .sep { margin: 0 7px; opacity: 0.5; }
+.gp-breadcrumb .current { color: var(--text-2); }

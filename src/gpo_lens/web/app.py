@@ -774,10 +774,4 @@ def create_app(db_path: str, *, root_path: str = "") -> FastAPI:
             },
         )
 
-    @app.post("/api/narrate", response_class=JSONResponse, name="narrate")
-    async def narrate(
-        _principal: Principal = Depends(requires(Permission.NARRATE)),
-    ) -> JSONResponse:
-        return JSONResponse({"status": "not implemented"}, status_code=501)
-
     return app

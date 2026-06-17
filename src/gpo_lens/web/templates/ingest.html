@@ -27,7 +27,17 @@
     <button type="button" id="browse-btn" class="gp-btn" style="margin-top:12px">Browse files</button>
   </div>
 </form>
-<script src="{{ url_for('static', path='ingest.js') }}"></script>
+<div id="confirm-overlay" class="gp-confirm-overlay" style="display:none" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+  <div class="gp-confirm-dialog">
+    <h3 id="confirm-title">Replace current estate?</h3>
+    <p>Ingesting a new export replaces the current estate snapshot. This cannot be undone.</p>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">
+      <button type="button" class="gp-btn" id="confirm-cancel">Cancel</button>
+      <button type="button" class="gp-btn primary" id="confirm-proceed">Replace estate</button>
+    </div>
+  </div>
+</div>
+<script src="{{ url_for('static', path='upload.js') }}"></script>
 
 <section class="gp-section">
   <h2>Snapshots {% if snapshots %}<span class="count">{{ snapshots|length }}</span>{% endif %}</h2>
