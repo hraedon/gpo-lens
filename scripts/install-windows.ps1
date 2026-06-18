@@ -17,7 +17,11 @@ chain operators (&& / ||). Use if/else and -or/-and instead.
     [web] extra) into it. When -ConfigureIIS is passed, the script also
     creates/updates the IIS site, app pool, web.config, and TLS binding on the
     chosen port. Re-running is safe: the estate database is kept and IIS steps
-    are idempotent.
+    are idempotent. On a re-run against an existing site, any IIS binding
+    parameter that is OMITTED (-Port, -HostName, -Sni, -TlsCertThumbprint) is
+    preserved from the live configuration, so an upgrade-in-place to refresh
+    the app does not force an SNI/port/certificate reconfigure. An explicitly
+    passed parameter still wins (e.g. -Port 443 changes the port).
 
     gpo-lens has no per-user login. Behind IIS every request appears to come
     from 127.0.0.1, so the app trusts all callers as the local analyst. Restrict
@@ -109,10 +113,9 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
     throw "Run from an elevated (Administrator) PowerShell."
 }
 
-# Validate flag combinations early (before any modifications).
-if ($Sni -and -not $HostName) {
-    throw "-Sni requires -HostName (SNI selects a certificate by hostname)."
-}
+# -Sni/-HostName consistency is validated AFTER existing-config detection below
+# (so an upgrade of an existing SNI site with no flags does not false-positive
+# when -HostName is omitted -- the host is preserved from the live binding).
 
 $repoRoot = (Resolve-Path "$PSScriptRoot\..").Path
 $venv     = Join-Path $InstallDir "venv"
@@ -492,107 +495,202 @@ if ($ConfigureIIS) {
         # ACLs that were skipped earlier if it was missing.
         Grant-AppPoolAcls
 
-        # 4. Create IIS site
+        # 4. Detect an existing installation so an upgrade-in-place PRESERVES the
+        # IIS binding/SNI/certificate instead of clobbering it with the parameter
+        # defaults. Operators re-running the installer to refresh the app
+        # typically omit -Port/-HostName/-Sni/-TlsCertThumbprint; without this,
+        # the script would rewrite the binding to *:8443: (catch-all, non-SNI,
+        # no cert) and force a full reconfigure. For any binding parameter the
+        # caller did NOT explicitly pass ($PSBoundParameters), fall back to the
+        # live IIS/http.sys value; an explicit argument still wins, so
+        # -Port 443 on an existing site still changes the port.
         $siteName = "gpo-lens"
         $sitePathIIS = "IIS:\Sites\$siteName"
         $existingSite = Get-Item $sitePathIIS -ErrorAction SilentlyContinue
-        $bindingInfo = "*:$($Port):$HostName"
+        $existing = $null
+        if ($existingSite) {
+            $httpsBind = $null
+            foreach ($b in (Get-WebBinding -Name $siteName -ErrorAction SilentlyContinue)) {
+                if ($b.protocol -eq "https") { $httpsBind = $b; break }
+            }
+            if ($httpsBind) {
+                # bindingInformation is "IP:Port:HostHeader". The IP part is "*",
+                # an IPv4 literal, or a bracketed "[ipv6]" literal. Parse port +
+                # host so a re-run preserves them instead of clobbering with the
+                # parameter defaults. Guard against a malformed value (a parse
+                # crash here would abort the whole install).
+                $bi = "$($httpsBind.bindingInformation)"
+                $exPort = ""; $exHost = ""
+                if ($bi.StartsWith("[")) {
+                    # Bracketed IPv6 IP: "[addr]:port:host"
+                    $close = $bi.IndexOf("]")
+                    if ($close -gt 0 -and ($close + 1) -lt $bi.Length -and $bi.Substring($close + 1, 1) -eq ":") {
+                        $rest = $bi.Substring($close + 2)
+                        $c = $rest.IndexOf(":")
+                        if ($c -ge 0) { $exPort = $rest.Substring(0, $c); $exHost = $rest.Substring($c + 1) }
+                    }
+                } else {
+                    $i1 = $bi.IndexOf(":")
+                    $i2 = if ($i1 -ge 0) { $bi.IndexOf(":", $i1 + 1) } else { -1 }
+                    if ($i1 -ge 0 -and $i2 -gt $i1) {
+                        $exPort = $bi.Substring($i1 + 1, $i2 - $i1 - 1)
+                        $exHost = $bi.Substring($i2 + 1)
+                    }
+                }
+                if ($exPort -ne "") {
+                    $exSni  = ("$($httpsBind.sslFlags)" -match "Sni")
+                    $existing = @{ Port = $exPort; Host = $exHost; Sni = $exSni; Cert = "" }
+                    # Read the currently bound cert hash from http.sys so an
+                    # omitted -TlsCertThumbprint preserves it. SNI/host bindings
+                    # use hostnameport; catch-all uses ipport.
+                    $show = ""
+                    if ($exSni -or $exHost) {
+                        $show = & netsh http show sslcert hostnameport="$exHost`:$exPort" 2>&1 | Out-String
+                    }
+                    if ($show -notmatch "(?m)^\s*Certificate Hash:\s*([0-9A-Fa-f]+)") {
+                        $show = & netsh http show sslcert ipport="0.0.0.0:$exPort" 2>&1 | Out-String
+                    }
+                    if ($show -match "(?m)^\s*Certificate Hash:\s*([0-9A-Fa-f]+)") {
+                        $existing.Cert = $Matches[1]
+                    }
+                }
+            }
+        }
+
+        # Resolve effective binding values: explicit parameter wins, else the
+        # existing installation's value (preservation), else the default.
+        $effPort = if ($PSBoundParameters.ContainsKey("Port")) { "$Port" } elseif ($existing) { "$($existing.Port)" } else { "$Port" }
+        $effHost = if ($PSBoundParameters.ContainsKey("HostName")) { $HostName } elseif ($existing) { $existing.Host } else { $HostName }
+        $effSni  = if ($PSBoundParameters.ContainsKey("Sni")) { [bool]$Sni } elseif ($existing) { [bool]$existing.Sni } else { [bool]$Sni }
+        $effCert = if ($PSBoundParameters.ContainsKey("TlsCertThumbprint")) { $TlsCertThumbprint } elseif ($existing -and $existing.Cert) { $existing.Cert } else { $TlsCertThumbprint }
+
+        # SNI requires a hostname (http.sys selects a cert by hostname). Checked
+        # after preservation so an existing SNI site upgraded with no flags
+        # (host preserved) does not false-positive.
+        if ($effSni -and -not $effHost) {
+            throw "-Sni requires -HostName (SNI selects a certificate by hostname). Pass -HostName, or omit -Sni to keep the existing binding."
+        }
+
+        # Expose effective values to the script epilogue (Browse: message).
+        $script:effPort = $effPort
+        $script:effHost = $effHost
+
+        if ($existing) {
+            Write-Host "  Existing IIS site detected -- preserving binding unless overridden:"
+            $certLabel = if ($effCert) { $effCert } else { "<none>" }
+            Write-Host "    port=$effPort host=`"$effHost`" sni=$effSni cert=$certLabel"
+        }
+
+        # 5. Create / update the IIS site.
+        $bindingInfo = "*:$($effPort):$effHost"
         if (-not $existingSite) {
-            Write-Host "  Creating IIS site `"$siteName`" on port $Port ..."
+            Write-Host "  Creating IIS site `"$siteName`" on port $effPort ..."
             New-Item $sitePathIIS -bindings @{protocol="https"; bindingInformation=$bindingInfo} -physicalPath $SitePath | Out-Null
             Set-ItemProperty $sitePathIIS -Name applicationPool -Value $AppPool
         } else {
             Write-Host "  IIS site `"$siteName`" already exists."
-            # Ensure pool, path, and binding are up to date
             Set-ItemProperty $sitePathIIS -Name applicationPool -Value $AppPool
             Set-ItemProperty $sitePathIIS -Name physicalPath -Value $SitePath
-            Set-ItemProperty $sitePathIIS -Name bindings -Value @{protocol="https"; bindingInformation=$bindingInfo}
-        }
-
-        # 5. SNI binding configuration (before TLS cert bind — sslFlags must
-        # be set on the IIS binding BEFORE the netsh hostnameport sslcert add,
-        # or http.sys rejects it with error 87 and the working binding dies).
-        if ($Sni) {
-            Write-Host "  Configuring SNI binding (sslFlags=1, host=$HostName) on port $Port ..."
-            # Replace the site's https binding with one carrying sslFlags=1 (SNI).
-            # Clear-WebBinding removes only THIS site's https bindings — the
-            # catch-all ipport binding on a shared port (e.g., cert-watch on 443)
-            # is untouched because it belongs to a different site.
-            Clear-WebBinding -Name $siteName -Protocol https -ErrorAction SilentlyContinue
-            New-WebBinding -Name $siteName -Protocol https -Port $Port -HostHeader $HostName -SslFlags 1 | Out-Null
-            Write-Host "    SNI binding installed."
-        }
-
-        # 6. TLS cert binding (idempotent: delete stale bindings, add, verify)
-        if ($TlsCertThumbprint) {
-            Write-Host "  Binding TLS certificate $TlsCertThumbprint to port $Port ..."
-            $bindPort = "$Port"
-            $appId = "{B2C3D4E5-F6A7-8901-BCDE-F23456789012}"
-
-            if ($Sni) {
-                # SNI: cert is bound per-hostname via hostnameport. We do NOT
-                # touch the catch-all ipport=0.0.0.0:Port binding — on a shared
-                # port it belongs to another site (e.g. cert-watch). Only this
-                # site's hostnameport binding is managed here.
-                $hostnameport = "$HostName`:$bindPort"
-                & netsh http delete sslcert hostnameport="$hostnameport" 2>$null | Out-Null
-                $addOut = & netsh http add sslcert hostnameport="$hostnameport" certhash="$TlsCertThumbprint" appid="$appId" certstorename=MY 2>&1
-                if ($LASTEXITCODE -ne 0) {
-                    Write-Host ($addOut | Out-String)
-                    throw "Failed to bind TLS certificate (netsh exit $LASTEXITCODE). HTTPS will not work. Verify the thumbprint exists in LocalMachine\My with a private key, and that sslFlags=1 (SNI) is set on the IIS binding (the netsh hostnameport add fails with error 87 otherwise)."
-                }
-                $show = & netsh http show sslcert hostnameport="$hostnameport" 2>&1 | Out-String
-                if ($show -notmatch [regex]::Escape($TlsCertThumbprint)) {
-                    throw "TLS certificate binding verification failed for $hostnameport (cert hash not present after add)."
-                }
-                Write-Host "    TLS certificate bound to $hostnameport (SNI, store: MY)."
+            # Only rewrite the binding when port/host actually change. The
+            # bindings collection carries no sslFlags, so an unconditional
+            # Set-ItemProperty would drop SNI on a no-op upgrade and churn a
+            # healthy endpoint.
+            if (-not $existing -or "$($existing.Port)" -ne "$effPort" -or "$($existing.Host)" -ne "$effHost") {
+                Write-Host "    Updating site binding to $bindingInfo ..."
+                Set-ItemProperty $sitePathIIS -Name bindings -Value @{protocol="https"; bindingInformation=$bindingInfo}
             } else {
-                # Non-SNI catch-all: bind the cert to ipport=0.0.0.0:Port for
-                # THIS port. The IIS site binding keeps its host header but
-                # stays non-SNI (sslFlags=0), so http.sys serves this cert for
-                # the whole port. gpo-lens runs on its own dedicated port
-                # (default 8443, alongside cert-watch on 443), so a catch-all
-                # cert on that port is correct. certstorename=MY is explicit
-                # (a common error-87 trigger when omitted).
-                $ipport = "0.0.0.0:$bindPort"
-                & netsh http delete sslcert ipport="$ipport" 2>$null | Out-Null
-                if ($HostName) {
-                    & netsh http delete sslcert hostnameport="$HostName`:$bindPort" 2>$null | Out-Null
+                Write-Host "    Site binding already matches (port $effPort, host `"$effHost`"); preserving."
+            }
+        }
+
+        # 6. SNI binding (sslFlags=1). Re-apply only when the live binding is
+        # not already SNI with the right host/port, so a no-op upgrade does not
+        # drop it. sslFlags must be set BEFORE the netsh hostnameport sslcert
+        # add or http.sys rejects it with error 87.
+        if ($effSni) {
+            if ($existing -and $existing.Sni -and "$($existing.Port)" -eq "$effPort" -and "$($existing.Host)" -eq "$effHost") {
+                Write-Host "  SNI binding already configured (host=$effHost, port=$effPort); preserving."
+            } else {
+                Write-Host "  Configuring SNI binding (sslFlags=1, host=$effHost) on port $effPort ..."
+                # Clear-WebBinding removes only THIS site's https bindings --
+                # the catch-all ipport binding on a shared port (e.g. cert-watch
+                # on 443) is untouched because it belongs to a different site.
+                Clear-WebBinding -Name $siteName -Protocol https -ErrorAction SilentlyContinue
+                New-WebBinding -Name $siteName -Protocol https -Port $effPort -HostHeader $effHost -SslFlags 1 | Out-Null
+                Write-Host "    SNI binding installed."
+            }
+        }
+
+        # 7. TLS cert binding. Rebind only when the cert changed (idempotent);
+        # an omitted -TlsCertThumbprint preserves the existing cert via $effCert.
+        if ($effCert) {
+            $curCert = if ($existing) { "$($existing.Cert)" } else { "" }
+            $same = ($curCert -and (($curCert -replace "\s","") -eq ("$effCert" -replace "\s","")))
+            if ($same) {
+                Write-Host "  TLS certificate already bound ($effCert); preserving."
+            } else {
+                Write-Host "  Binding TLS certificate $effCert to port $effPort ..."
+                $bindPort = "$effPort"
+                $appId = "{B2C3D4E5-F6A7-8901-BCDE-F23456789012}"
+
+                if ($effSni) {
+                    # SNI: cert is bound per-hostname via hostnameport. We do NOT
+                    # touch the catch-all ipport=0.0.0.0:Port binding -- on a
+                    # shared port it belongs to another site (e.g. cert-watch).
+                    $hostnameport = "$effHost`:$bindPort"
+                    & netsh http delete sslcert hostnameport="$hostnameport" 2>$null | Out-Null
+                    $addOut = & netsh http add sslcert hostnameport="$hostnameport" certhash="$effCert" appid="$appId" certstorename=MY 2>&1
+                    if ($LASTEXITCODE -ne 0) {
+                        Write-Host ($addOut | Out-String)
+                        throw "Failed to bind TLS certificate (netsh exit $LASTEXITCODE). HTTPS will not work. Verify the thumbprint exists in LocalMachine\My with a private key, and that sslFlags=1 (SNI) is set on the IIS binding (the netsh hostnameport add fails with error 87 otherwise)."
+                    }
+                    $show = & netsh http show sslcert hostnameport="$hostnameport" 2>&1 | Out-String
+                    if ($show -notmatch [regex]::Escape($effCert)) {
+                        throw "TLS certificate binding verification failed for $hostnameport (cert hash not present after add)."
+                    }
+                    Write-Host "    TLS certificate bound to $hostnameport (SNI, store: MY)."
+                } else {
+                    # Non-SNI catch-all: bind the cert to ipport=0.0.0.0:Port.
+                    # certstorename=MY is explicit (a common error-87 trigger).
+                    $ipport = "0.0.0.0:$bindPort"
+                    & netsh http delete sslcert ipport="$ipport" 2>$null | Out-Null
+                    if ($effHost) {
+                        & netsh http delete sslcert hostnameport="$effHost`:$bindPort" 2>$null | Out-Null
+                    }
+                    $addOut = & netsh http add sslcert ipport="$ipport" certhash="$effCert" appid="$appId" certstorename=MY 2>&1
+                    if ($LASTEXITCODE -ne 0) {
+                        Write-Host ($addOut | Out-String)
+                        throw "Failed to bind TLS certificate (netsh exit $LASTEXITCODE). HTTPS will not work. Verify the thumbprint exists in LocalMachine\My and has a private key."
+                    }
+                    $show = & netsh http show sslcert ipport="$ipport" 2>&1 | Out-String
+                    if ($show -notmatch [regex]::Escape($effCert)) {
+                        throw "TLS certificate binding verification failed for $ipport (cert hash not present after add)."
+                    }
+                    Write-Host "    TLS certificate bound to $ipport (store: MY)."
                 }
-                $addOut = & netsh http add sslcert ipport="$ipport" certhash="$TlsCertThumbprint" appid="$appId" certstorename=MY 2>&1
-                if ($LASTEXITCODE -ne 0) {
-                    Write-Host ($addOut | Out-String)
-                    throw "Failed to bind TLS certificate (netsh exit $LASTEXITCODE). HTTPS will not work. Verify the thumbprint exists in LocalMachine\My and has a private key."
-                }
-                # Verify the binding actually landed (-match is case-insensitive).
-                $show = & netsh http show sslcert ipport="$ipport" 2>&1 | Out-String
-                if ($show -notmatch [regex]::Escape($TlsCertThumbprint)) {
-                    throw "TLS certificate binding verification failed for $ipport (cert hash not present after add)."
-                }
-                Write-Host "    TLS certificate bound to $ipport (store: MY)."
             }
         } else {
-            Write-Host "  [warn] No -TlsCertThumbprint provided. HTTPS binding exists but no certificate is assigned."
-            Write-Host ('         Assign a certificate via IIS Manager or re-run with -TlsCertThumbprint ' + '.')
+            Write-Host "  [warn] No TLS certificate configured. HTTPS binding exists but no certificate is assigned."
+            Write-Host "         Assign one via IIS Manager or re-run with -TlsCertThumbprint."
         }
 
-        # 7. Open the firewall for the chosen port (idempotent). cert-watch's
+        # 8. Open the firewall for the chosen port (idempotent). cert-watch's
         # 443 is typically already open; gpo-lens runs on a non-standard port, so
         # add a rule unless one already exists.
-        $fwRule = "gpo-lens HTTPS $Port"
+        $fwRule = "gpo-lens HTTPS $effPort"
         if (Get-Command New-NetFirewallRule -ErrorAction SilentlyContinue) {
             if (-not (Get-NetFirewallRule -DisplayName $fwRule -ErrorAction SilentlyContinue)) {
-                Write-Host "  Opening firewall for TCP $Port ..."
+                Write-Host "  Opening firewall for TCP $effPort ..."
                 New-NetFirewallRule -DisplayName $fwRule -Direction Inbound -Action Allow `
-                    -Protocol TCP -LocalPort $Port -Profile Any | Out-Null
+                    -Protocol TCP -LocalPort $effPort -Profile Any | Out-Null
             } else {
                 Write-Host "  Firewall rule `"$fwRule`" already present."
             }
         } else {
-            Write-Host "  [warn] New-NetFirewallRule unavailable; open TCP $Port manually if blocked."
+            Write-Host "  [warn] New-NetFirewallRule unavailable; open TCP $effPort manually if blocked."
         }
 
-        # 8. Windows Authentication (optional - closes the access-control gap).
+        # 9. Windows Authentication (optional - closes the access-control gap).
         if ($WindowsAuth) {
             Write-Host "  Configuring Windows Authentication ..."
             $waFeature = Get-WindowsFeature Web-Windows-Auth -ErrorAction SilentlyContinue
@@ -613,11 +711,11 @@ if ($ConfigureIIS) {
             Write-Host "    Windows Auth enabled, anonymous disabled (domain users only)."
         }
 
-        # 9. Grant app pool identity read access to site path
+        # 10. Grant app pool identity read access to site path
         Write-Host "  Granting $identity read access to $SitePath ..."
         icacls $SitePath /grant "${identity}:(OI)(CI)R" | Out-Null
 
-        # 10. Start the app pool so the freshly installed code is the live code.
+        # 11. Start the app pool so the freshly installed code is the live code.
         # (It was stopped before pip install on a re-install; a fresh pool may
         # also be stopped depending on IIS state.) Verify it reaches Started so
         # a silent 503 does not slip through.
@@ -654,9 +752,13 @@ Write-Host ""
 Write-Host "Done. gpo-lens installed to $venv"
 Write-Host "Data dir: $InstallDir   DB: $InstallDir\gpo-lens.sqlite3"
 if ($script:iisActuallyConfigured) {
-    Write-Host "IIS site: $SitePath   App pool: $AppPool   Port: $Port"
-    $hn = if ($HostName) { $HostName } else { "<hostname>" }
-    Write-Host "Browse: https://$hn`:$Port/"
+    # Use the effective (possibly preserved) binding values so the printed
+    # URL matches what the operator actually hits after an upgrade-in-place.
+    $epPort = if ($script:effPort) { $script:effPort } else { $Port }
+    $epHost = if ($script:effHost) { $script:effHost } else { $HostName }
+    Write-Host "IIS site: $SitePath   App pool: $AppPool   Port: $epPort"
+    $hn = if ($epHost) { $epHost } else { "<hostname>" }
+    Write-Host "Browse: https://$hn`:$epPort/"
 }
 Write-Host ""
 Write-Host "The estate starts empty -- open the site and use Ingest to upload a"
