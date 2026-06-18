@@ -1,7 +1,7 @@
 # Plan 015 — Coverage reconciliation (accept + name the access limitation)
 
 **Status:** proposed 2026-06-14
-**Author:** Opus 4.8 (from live testing against LAB-DOMAIN)
+**Author:** Opus 4.8 (from live testing against WORK-DOMAIN.local)
 **Strategic role:** Make gpo-lens honest about a limit it cannot engineer away.
 
 ## The accepted limitation
