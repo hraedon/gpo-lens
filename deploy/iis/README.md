@@ -79,6 +79,34 @@ own port (default 8443) with a separate `netsh` SSL binding on
 `0.0.0.0:<Port>`, so the two never collide. Both can reuse the same machine
 certificate. Browse to `https://host.example.com:8443/`.
 
+### Sharing port 443 via SNI
+
+If you would rather not use a separate port, gpo-lens can share **443** with
+cert-watch via SNI (Server Name Indication). Add `-Sni` (and `-HostName`) to
+the installer:
+
+```powershell
+.\scripts\install-windows.ps1 -ConfigureIIS -Port 443 `
+    -HostName gpo-lens.example.com -TlsCertThumbprint "<thumb>" -Sni
+```
+
+With `-Sni` the installer:
+
+- Sets `sslFlags=1` (SNI) on the IIS binding so http.sys routes by hostname.
+- Binds the certificate via `netsh http add sslcert hostnameport=…` (per-host),
+  **not** the catch-all `ipport=0.0.0.0:443` — so cert-watch's binding is
+  untouched.
+- Requires IIS 8+ (Windows Server 2012+) and a `-HostName` (SNI selects a cert
+  by hostname; there is no SNI without one).
+
+The ordering matters: `sslFlags=1` must be on the IIS binding *before* the
+`hostnameport` sslcert add, or http.sys rejects it with error 87. The installer
+handles this; if you bind by hand, set the binding flags first.
+
+cert-watch keeps the catch-all `0.0.0.0:443` binding (non-SNI), so it serves
+any request whose SNI hostname does not match `gpo-lens.example.com`. This is
+the desired fallback. Browse to `https://gpo-lens.example.com/` (no port).
+
 ## Files
 
 | File | Purpose |
