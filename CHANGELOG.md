@@ -1,5 +1,70 @@
 # Changelog
 
+## v0.6.0 — 2026-06-18
+
+### Production-readiness: IIS deployment, observability, access control
+
+First **Windows smoke test** of `install-windows.ps1` on a real IIS host
+(`LAB-HOST-1`), closing the "untested on Windows" gap flagged in prior
+reflections. The installer ran end-to-end: Python 3.14.6 resolution, venv
+creation, idempotent upgrade, IIS site/pool management, TLS binding, and
+firewall — all clean. cert-watch (sharing the host on port 443) was not
+disrupted.
+
+- **`-Sni` switch (install-windows.ps1).** gpo-lens can now share port 443
+  with cert-watch (or any HTTPS site) via SNI, instead of requiring its own
+  port. Sets `sslFlags=1` on the IIS binding before the netsh
+  `hostnameport` sslcert add — the ordering that the prior error-87 failure
+  (cert-watch WI-047) got wrong. Non-SNI remains the default (dedicated port,
+  catch-all cert). The catch-all `ipport` binding is never touched in SNI
+  mode.
+- **`-WindowsAuth` switch (install-windows.ps1).** Installs the
+  `Web-Windows-Auth` role service if missing, enables Windows Authentication,
+  and disables anonymous access — so only authenticated domain users reach
+  the app. The smoke test found the role service was not installed by
+  default, leaving the site open; this switch makes the fix a one-liner.
+  Windows Auth is sticky: re-running without the flag does not re-enable
+  anonymous access (security-positive default).
+- **`GET /healthz`** (unauthenticated) — liveness probe for IIS/app-pool
+  supervisors. Returns `{"status":"ok"}`.
+- **`GET /api/version`** (unauthenticated) — version surface for ops.
+  Returns `{"version":"…","name":"gpo-lens"}`.
+- **Audit log (JSON-lines, best-effort).** Every ingest path (success,
+  malformed zip, invalid estate, size limit, concurrent 409) is appended to
+  `<db_dir>/audit.log` (or `GPO_LENS_AUDIT_LOG` override) with timestamp,
+  principal, outcome, detail, and request-id. Thread-safe via
+  double-checked locking. Never raises into the request path.
+- **Backup/restore runbook** added to `deploy/iis/README.md`: online SQLite
+  `.backup` (no downtime), offline copy, restore procedure, migration note.
+
+### CI gate: no work-domain identifiers in committed files (WI-022)
+
+Mechanically enforces the AGENTS.md hard rule. The checker reads forbidden
+identifiers from `GPO_LENS_FORBIDDEN_IDENTIFIERS` (CI secret) so the real
+identifiers never touch the repo. No-op locally when the env var is unset
+(warns on stderr, exits 0). UTF-16 aware (BOM detection), streaming binary
+sniff (no OOM), skips `samples/` and `.venv/`. 13 tests.
+
+### Web UI: dashboard filtering, pagination, export (WI-025/026/027)
+
+- **Dashboard findings table**: filter by severity, search by text, sort by
+  severity/GPO/finding, paginated (default 50, max 200, "all" supported).
+- **In-app CSV/JSON export** of findings and settings dump.
+- **OU list and GPO detail paginated** for large estates.
+- Shared `_pagination.html` partial with page/per_page controls.
+
+### Test quality (WI-024)
+
+OU-detail loopback caveat test tightened: was vacuously matching the word
+"loopback" in fallback text; now asserts `"loopback="` which only appears in
+rendered caveats.
+
+### Plan 016 — Splunk change attribution (proposed, shelved)
+
+Tracked but not started. Has a hard discovery dependency (confirm what
+Splunk holds re: AD event 5136 / SYSVOL 4663) before any code. Ingest model
+(not live query) keeps the deterministic core offline.
+
 ## v0.5.0 — 2026-06-15
 
 ### Windows deployment run-through fixes (first end-to-end run on real AD)
