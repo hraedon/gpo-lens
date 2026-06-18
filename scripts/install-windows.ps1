@@ -109,6 +109,11 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
     throw "Run from an elevated (Administrator) PowerShell."
 }
 
+# Validate flag combinations early (before any modifications).
+if ($Sni -and -not $HostName) {
+    throw "-Sni requires -HostName (SNI selects a certificate by hostname)."
+}
+
 $repoRoot = (Resolve-Path "$PSScriptRoot\..").Path
 $venv     = Join-Path $InstallDir "venv"
 $logs     = Join-Path $InstallDir "logs"
@@ -508,9 +513,6 @@ if ($ConfigureIIS) {
         # be set on the IIS binding BEFORE the netsh hostnameport sslcert add,
         # or http.sys rejects it with error 87 and the working binding dies).
         if ($Sni) {
-            if (-not $HostName) {
-                throw "-Sni requires -HostName (SNI selects a certificate by hostname)."
-            }
             Write-Host "  Configuring SNI binding (sslFlags=1, host=$HostName) on port $Port ..."
             # Replace the site's https binding with one carrying sslFlags=1 (SNI).
             # Clear-WebBinding removes only THIS site's https bindings — the
@@ -596,7 +598,13 @@ if ($ConfigureIIS) {
             $waFeature = Get-WindowsFeature Web-Windows-Auth -ErrorAction SilentlyContinue
             if ($waFeature -and -not $waFeature.Installed) {
                 Write-Host "    Installing Web-Windows-Auth role service ..."
-                Install-WindowsFeature Web-Windows-Auth | Out-Null
+                $waResult = Install-WindowsFeature Web-Windows-Auth
+                if (-not $waResult.Success) {
+                    throw "Install-WindowsFeature Web-Windows-Auth failed (exit $($waResult.ExitCode)). A reboot may be required."
+                }
+                if ($waResult.RestartNeeded -eq "Yes") {
+                    Write-Host "    [warn] Web-Windows-Auth installed but a reboot is required before Windows Auth will work."
+                }
             }
             Set-WebConfigurationProperty -Filter system.webServer/security/authentication/windowsAuthentication `
                 -PSPath "IIS:\" -Location $siteName -Name enabled -Value $true
