@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import '_pagination.html' as pg %}
 
 {% block title %}gpo-lens — {{ som.name }}{% endblock %}
 
@@ -82,7 +83,10 @@
 </section>
 
 <section class="gp-section">
-  <h2>Effective settings {% if settings %}<span class="count">{{ settings|length }}</span>{% endif %}</h2>
+  <h2>Effective settings
+    {% if settings_count %}<span class="count">{{ settings_count }}</span>{% endif %}
+    {% if settings_count %}<a class="gp-btn gp-export-btn" href="{{ url_for('export_ou', path=som.path) }}?format=csv">Export CSV</a>{% endif %}
+  </h2>
   {% if settings %}
   <div class="gp-table-wrap">
     <table class="gp-table">
@@ -103,6 +107,7 @@
       </tbody>
     </table>
   </div>
+  {{ pg.pagination(pag, base_qs) }}
   {% else %}
   <p class="muted">No effective settings resolved at this scope.</p>
   {% endif %}

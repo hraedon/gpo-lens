@@ -1,10 +1,20 @@
 ---
-status: open
+status: resolved
 priority: medium
+kind: feature
 created: 2026-06-17
+resolved: 2026-06-17
 ---
 
 # In-app export of findings and data
+
+Implemented three read-only export routes (all require VIEW permission):
+`GET /export/findings` (CSV/JSON), `GET /export/ou/{path}` (CSV/JSON), and
+`GET /export/gpo/{gpo_id}` (JSON only — a GPO is a nested object). CSV exports
+stream via `_csv_response` and sanitize formula-triggering cells (CSV injection
+/ CWE-1236 mitigation). Exports dump the complete dataset, independent of any
+dashboard filter/pagination state. Download links added to dashboard, OU
+detail, and GPO detail pages.
 
 The CLI has `gpo-lens report --output report.html` and `--json` output,
 but the web UI has no way to download data. An analyst who finds

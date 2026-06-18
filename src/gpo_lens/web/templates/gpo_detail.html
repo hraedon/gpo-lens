@@ -20,6 +20,7 @@
   <div style="display:flex;gap:8px;align-items:center">
     {% if gpo.computer_enabled %}<span class="gp-pill ok"><span class="dot"></span>Computer</span>{% else %}<span class="gp-pill low"><span class="dot"></span>Computer off</span>{% endif %}
     {% if gpo.user_enabled %}<span class="gp-pill ok"><span class="dot"></span>User</span>{% else %}<span class="gp-pill low"><span class="dot"></span>User off</span>{% endif %}
+    <a class="gp-btn gp-export-btn" href="{{ url_for('export_gpo', gpo_id=gpo.id) }}?format=json">Export JSON</a>
   </div>
 </div>
 

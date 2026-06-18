@@ -1,10 +1,19 @@
 ---
-status: open
+status: resolved
 priority: medium
+kind: feature
 created: 2026-06-17
+resolved: 2026-06-17
 ---
 
 # Pagination for large estates
+
+Implemented server-side pagination (`?page=&per_page=`, default 50, capped at
+200, `?per_page=all` to disable) on the dashboard findings table, OU list, and
+OU effective-settings table via `_parse_pagination`/`_paginate` helpers and the
+`_pagination.html` macro. GPO-detail pagination was deliberately deferred as
+low-value (a single GPO rarely has enough settings to warrant it, and CSE
+grouping is valuable navigation that pagination would disrupt).
 
 Several pages render every row with no pagination:
 

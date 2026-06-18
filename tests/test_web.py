@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import io
 import json
 import os
+import re
 import sqlite3
 import sys
 import tempfile
@@ -1022,4 +1024,241 @@ class TestUiEnhancements:
         resp = client.get("/gpo/00000000-0000-0000-0000-000000000000")
         assert resp.status_code == 404
         assert "GPO not found" in resp.text
+
+
+class TestDashboardFiltering:
+    """WI-025: filter / search / sort on the dashboard findings table.
+
+    Fixture estate has 23 findings (1 critical, 2 high, 2 medium, 12 low, 6 info).
+    """
+
+    # Findings-table rows render as <td><span class="gp-pill {sev}">; the header
+    # summary pills are NOT inside <td>, so this targets only finding rows.
+    @staticmethod
+    def _sev_sequence(html: str) -> list[str]:
+        return re.findall(r'<td><span class="gp-pill (\w+)">', html)
+
+    def test_filter_by_severity_shows_subset(self, client) -> None:
+        resp = client.get("/?severity=critical")
+        assert resp.status_code == 200
+        # critical filter → 1 of 23; the badge shows "N of total" only when filtered
+        assert "1 of 23" in resp.text
+        assert "gpo-cpassword" in resp.text
+
+    def test_unfiltered_shows_total_without_of(self, client) -> None:
+        resp = client.get("/")
+        assert "23" in resp.text
+        assert " of 23" not in resp.text
+
+    def test_search_filters_by_text(self, client) -> None:
+        resp = client.get("/?q=cpassword")
+        assert resp.status_code == 200
+        assert "1 of 23" in resp.text
+        assert "gpo-cpassword" in resp.text
+
+    def test_search_no_matches_shows_empty_state(self, client) -> None:
+        resp = client.get("/?q=zzzznomatch")
+        assert resp.status_code == 200
+        assert "No findings match" in resp.text
+
+    def test_sort_severity_desc_reverses_order(self, client) -> None:
+        rank = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+        default = self._sev_sequence(client.get("/").text)
+        desc = self._sev_sequence(client.get("/?sort=severity_desc").text)
+        assert default  # findings present
+        assert desc
+        # default ascending (worst first); desc reversed (least severe first)
+        assert default[0] == "critical"
+        assert desc[0] == "info"
+        assert [rank[s] for s in default] == sorted(rank[s] for s in default)
+        assert [rank[s] for s in desc] == sorted(
+            (rank[s] for s in desc), reverse=True
+        )
+
+    def test_sort_by_gpo_reflected_in_dropdown(self, client) -> None:
+        resp = client.get("/?sort=gpo")
+        assert resp.status_code == 200
+        assert 'value="gpo" selected' in resp.text
+
+    def test_invalid_sort_falls_back_to_severity(self, client) -> None:
+        resp = client.get("/?sort=nonsense")
+        assert resp.status_code == 200
+        assert 'value="severity" selected' in resp.text
+
+    def test_clear_link_visible_only_when_filtered(self, client) -> None:
+        filtered = client.get("/?severity=critical").text
+        default = client.get("/").text
+        assert ">Clear<" in filtered
+        assert ">Clear<" not in default
+
+
+class TestPagination:
+    """WI-026: server-side pagination of large tables."""
+
+    def test_dashboard_pagination_controls(self, client) -> None:
+        resp = client.get("/?per_page=5")
+        assert resp.status_code == 200
+        assert "gp-pagination" in resp.text
+        assert "page 1 of 5" in resp.text  # ceil(23/5) = 5
+
+    def test_dashboard_pagination_page2_has_prev(self, client) -> None:
+        resp = client.get("/?per_page=5&page=2")
+        assert "page 2 of 5" in resp.text
+        assert 'rel="prev"' in resp.text
+
+    def test_dashboard_per_page_all_no_controls(self, client) -> None:
+        resp = client.get("/?per_page=all")
+        assert resp.status_code == 200
+        assert "gp-pagination" not in resp.text
+
+    def test_dashboard_per_page_capped_at_max(self, client) -> None:
+        # per_page beyond MAX_PER_PAGE (200) is capped; 23 findings → 1 page
+        resp = client.get("/?per_page=99999")
+        assert resp.status_code == 200
+        assert "gp-pagination" not in resp.text
+
+    def test_dashboard_invalid_page_clamped_to_last(self, client) -> None:
+        resp = client.get("/?per_page=5&page=999")
+        assert resp.status_code == 200
+        assert "page 5 of 5" in resp.text
+
+    def test_dashboard_pagination_preserves_filters(self, client) -> None:
+        # 12 low-severity findings → 3 pages at per_page=5; page links must
+        # carry the severity filter so navigation doesn't drop it.
+        resp = client.get("/?severity=low&per_page=5")
+        assert resp.status_code == 200
+        assert "page 1 of 3" in resp.text
+        assert "severity=low" in resp.text  # present in pagination hrefs
+        # next link must include the filter
+        assert 'severity=low' in resp.text and 'page=2' in resp.text
+
+    def test_ou_list_pagination(self, client) -> None:
+        resp = client.get("/ou?per_page=2")
+        assert resp.status_code == 200
+        assert "gp-pagination" in resp.text
+        assert "page 1 of 2" in resp.text  # ceil(4/2) = 2
+
+    def test_ou_detail_settings_pagination(self, client) -> None:
+        resp = client.get("/ou/dc=fakefixture,dc=local?per_page=3")
+        assert resp.status_code == 200
+        assert "gp-pagination" in resp.text
+        assert "page 1 of 3" in resp.text  # ceil(8/3) = 3
+
+
+class TestExport:
+    """WI-027: in-app data export (CSV/JSON), requiring VIEW permission."""
+
+    def test_export_findings_csv(self, client) -> None:
+        resp = client.get("/export/findings?format=csv")
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].split(";")[0] == "text/csv"
+        assert "attachment" in resp.headers["content-disposition"]
+        assert "gpo-lens-findings.csv" in resp.headers["content-disposition"]
+        assert resp.text.startswith(
+            "severity,category,gpo_id,gpo_name,summary,detail"
+        )
+        assert "gpo-cpassword" in resp.text
+
+    def test_export_findings_csv_row_count(self, client) -> None:
+        resp = client.get("/export/findings?format=csv")
+        rows = list(csv.reader(io.StringIO(resp.text)))
+        assert len(rows) == 24  # header + 23 findings
+
+    def test_export_findings_csv_sanitizes_formula_cells(self, client) -> None:
+        # CSV injection (CWE-1236): cells starting with = + - @ trigger formula
+        # evaluation in spreadsheets. Verify the mitigation prefixes them.
+        from gpo_lens.web.app import _csv_sanitize_cell
+
+        assert _csv_sanitize_cell("=cmd|'/C calc'!A0") == "'=cmd|'/C calc'!A0"
+        assert _csv_sanitize_cell("+1+1") == "'+1+1"
+        assert _csv_sanitize_cell("@SUM(a1)") == "'@SUM(a1)"
+        assert _csv_sanitize_cell("-2+3") == "'-2+3"
+        # benign values pass through unchanged
+        assert _csv_sanitize_cell("normal value") == "normal value"
+        assert _csv_sanitize_cell("") == ""
+        assert _csv_sanitize_cell(42) == 42
+
+    def test_export_findings_ignores_dashboard_filters(self, client) -> None:
+        # Export is a complete data dump, independent of session filter state.
+        resp = client.get("/export/findings?format=json&severity=critical&q=x")
+        assert resp.status_code == 200
+        data = json.loads(resp.text)
+        assert len(data) == 23  # all findings, not the filtered subset
+
+    def test_export_findings_invalid_format_400(self, client) -> None:
+        resp = client.get("/export/findings?format=xlsx")
+        assert resp.status_code == 400
+
+    def test_export_ou_invalid_format_400(self, client) -> None:
+        resp = client.get("/export/ou/dc=fakefixture,dc=local?format=xml")
+        assert resp.status_code == 400
+
+    def test_export_findings_default_is_csv(self, client) -> None:
+        resp = client.get("/export/findings")
+        assert resp.headers["content-type"].split(";")[0] == "text/csv"
+
+    def test_export_findings_json(self, client) -> None:
+        resp = client.get("/export/findings?format=json")
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].split(";")[0] == "application/json"
+        assert "attachment" in resp.headers["content-disposition"]
+        data = json.loads(resp.text)
+        assert isinstance(data, list)
+        assert len(data) == 23
+        assert "critical" in {row["severity"] for row in data}
+
+    def test_export_gpo_json(self, client) -> None:
+        resp = client.get(
+            "/export/gpo/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa?format=json"
+        )
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].split(";")[0] == "application/json"
+        data = json.loads(resp.text)
+        assert data["name"] == "gpo-cpassword"
+        assert data["id"] == "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+
+    def test_export_gpo_unknown_404(self, client) -> None:
+        resp = client.get(
+            "/export/gpo/00000000-0000-0000-0000-000000000000?format=json"
+        )
+        assert resp.status_code == 404
+
+    def test_export_gpo_rejects_csv(self, client) -> None:
+        # GPO is a nested object — JSON only. CSV is explicitly unsupported.
+        resp = client.get(
+            "/export/gpo/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa?format=csv"
+        )
+        assert resp.status_code == 400
+
+    def test_export_ou_csv(self, client) -> None:
+        resp = client.get("/export/ou/dc=fakefixture,dc=local?format=csv")
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].split(";")[0] == "text/csv"
+        assert resp.text.startswith(
+            "cse,side,identity,display_name,display_value"
+        )
+        rows = list(csv.reader(io.StringIO(resp.text)))
+        assert len(rows) == 9  # header + 8 effective settings
+
+    def test_export_ou_json(self, client) -> None:
+        resp = client.get("/export/ou/dc=fakefixture,dc=local?format=json")
+        assert resp.status_code == 200
+        data = json.loads(resp.text)
+        assert isinstance(data, list)
+        assert len(data) == 8
+
+    def test_export_ou_unknown_404(self, client) -> None:
+        resp = client.get("/export/ou/dc=nonexistent,dc=local?format=csv")
+        assert resp.status_code == 404
+
+    def test_export_requires_auth(self, tmp_db, monkeypatch) -> None:
+        from fastapi.testclient import TestClient
+
+        from gpo_lens.web.app import create_app
+
+        monkeypatch.setenv("GPO_LENS_AUTH_TOKEN", "test-secret-token")
+        app = create_app(tmp_db)
+        unauthed = TestClient(app)  # no Authorization header
+        resp = unauthed.get("/export/findings?format=csv")
+        assert resp.status_code == 401
 
