@@ -64,6 +64,11 @@ access at the IIS layer:
   users reach gpo-lens. Unauthenticated requests get 401; browsers prompt for
   credentials automatically. The role service must be installed for the module
   to load; the installer handles this.
+  **Note:** Windows Auth is sticky — once enabled, re-running the installer
+  without `-WindowsAuth` does *not* re-enable anonymous access (a
+  security-positive default). To revert, re-enable anonymous auth in IIS
+  Manager or `Set-WebConfigurationProperty … anonymousAuthentication -Name
+  enabled -Value $true`.
 - An **IP allow-list** (IIS "IP Address and Domain Restrictions").
 - Or keep the site on an **isolated/management network**.
 
@@ -128,3 +133,46 @@ the desired fallback. Browse to `https://gpo-lens.example.com/` (no port).
   issues.
 - **Port blocked**: confirm the firewall rule `gpo-lens HTTPS <Port>` exists
   (the installer adds it).
+
+## Backup and restore
+
+The estate lives in `C:\ProgramData\gpo-lens\gpo-lens.sqlite3`. It holds the
+full ingested estate (GPOs, SOMs, settings, delegation), snapshot history,
+and the audit log (`audit.log` alongside it). Back it up regularly.
+
+### Online backup (preferred — no downtime)
+
+SQLite supports hot backups via the `.backup` command. The app pool can stay
+running — WAL mode handles concurrent readers:
+
+```powershell
+$py = "C:\ProgramData\gpo-lens\venv\Scripts\python.exe"
+& $py -c "import sqlite3; src=sqlite3.connect(r'C:\ProgramData\gpo-lens\gpo-lens.sqlite3'); dst=sqlite3.connect(r'C:\Backup\gpo-lens-$(Get-Date -Format yyyyMMdd).sqlite3'); src.backup(dst); dst.close(); src.close()"
+```
+
+Schedule this via Task Scheduler (daily or before each ingest). Copy the
+`audit.log` alongside it if you need the audit trail preserved.
+
+### Offline backup (simpler, brief downtime)
+
+Stop the app pool, copy the file, restart:
+
+```powershell
+Stop-WebAppPool gpo-lens
+Copy-Item C:\ProgramData\gpo-lens\gpo-lens.sqlite3 C:\Backup\gpo-lens-backup.sqlite3
+Start-WebAppPool gpo-lens
+```
+
+### Restore
+
+Stop the app pool, replace the file, restart:
+
+```powershell
+Stop-WebAppPool gpo-lens
+Copy-Item C:\Backup\gpo-lens-backup.sqlite3 C:\ProgramData\gpo-lens\gpo-lens.sqlite3 -Force
+Start-WebAppPool gpo-lens
+```
+
+The schema is additive-migrated on open (`_migrate_schema`), so a DB from an
+older gpo-lens version can be restored into a newer install without manual
+steps. The reverse (newer DB into older gpo-lens) is not guaranteed.
