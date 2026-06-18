@@ -10,6 +10,27 @@ permissions:
   contents: read
 
 jobs:
+  identifier-gate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.12"
+
+      # This gate is a no-op until the repository secret GPO_LENS_FORBIDDEN_IDENTIFIERS
+      # is configured; the script exits 0 when the environment variable is unset.
+      - name: Check for committed work-domain identifiers
+        env:
+          GPO_LENS_FORBIDDEN_IDENTIFIERS: ${{ secrets.GPO_LENS_FORBIDDEN_IDENTIFIERS }}
+        run: python scripts/check_committed_identifiers.py
+
   lint-typecheck-test:
     runs-on: ubuntu-latest
 
