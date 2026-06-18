@@ -64,22 +64,43 @@ def scan_text(text: str, identifiers: frozenset[str]) -> Iterator[Violation]:
                 start = offset + len(identifier)
 
 
-def _is_binary(path: Path) -> bool:
-    try:
-        chunk = path.read_bytes()[:_BINARY_SNIFF_LEN]
-    except OSError:
-        return True
+def _sniff_encoding(chunk: bytes) -> str | None:
+    """Return the text encoding if *chunk* starts with a known BOM, else None."""
+    if chunk.startswith(b"\xff\xfe"):
+        return "utf-16-le"
+    if chunk.startswith(b"\xfe\xff"):
+        return "utf-16-be"
+    if chunk.startswith(b"\xef\xbb\xbf"):
+        return "utf-8-sig"
+    return None
+
+
+def _is_binary(chunk: bytes) -> bool:
+    """Heuristic: null byte present without a recognized text BOM → binary."""
+    if _sniff_encoding(chunk) is not None:
+        return False
     return b"\x00" in chunk
 
 
 def scan_files(identifiers: frozenset[str], paths: list[Path]) -> list[Violation]:
-    """Scan every readable text file in *paths* for forbidden identifiers."""
+    """Scan every readable text file in *paths* for forbidden identifiers.
+
+    UTF-16 files (common in Windows tooling output) are detected via BOM and
+    decoded correctly rather than misclassified as binary by the null-byte
+    heuristic.
+    """
     violations: list[Violation] = []
     for path in paths:
-        if _is_binary(path):
-            continue
         try:
-            text = path.read_text(encoding="utf-8", errors="replace")
+            with path.open("rb") as f:
+                chunk = f.read(_BINARY_SNIFF_LEN)
+        except OSError:
+            continue
+        if _is_binary(chunk):
+            continue
+        encoding = _sniff_encoding(chunk) or "utf-8"
+        try:
+            text = path.read_text(encoding=encoding, errors="replace")
         except OSError:
             continue
         for violation in scan_text(text, identifiers):
