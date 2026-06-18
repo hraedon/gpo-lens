@@ -1,10 +1,17 @@
 ---
-status: open
+status: resolved
 priority: high
+kind: feature
 created: 2026-06-17
+resolved: 2026-06-17
 ---
 
 # Dashboard findings table: filtering, search, and sort
+
+Implemented as server-side query params (`?severity=`, `?q=`, `?sort=`) on the
+dashboard route, per the recommended option. Sort covers severity (asc/desc),
+GPO name, and finding text. Filter state round-trips through pagination links.
+Added `_filter_findings` helper + a filter form in `dashboard.html`.
 
 The dashboard findings table renders every finding in a single flat table
 with no client-side controls. For a 100+ GPO estate with hundreds of

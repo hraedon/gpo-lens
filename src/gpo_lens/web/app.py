@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import csv
 import dataclasses
+import io
 import json
 import logging
 import os
@@ -10,11 +12,20 @@ import stat
 import threading
 import zipfile
 from collections import defaultdict
+from collections.abc import Iterator
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import Any
+from urllib.parse import urlencode
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import (
+    HTMLResponse,
+    JSONResponse,
+    RedirectResponse,
+    Response,
+    StreamingResponse,
+)
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -58,6 +69,12 @@ def _get_ro_conn(db_path: str) -> sqlite3.Connection:
 
 _MAX_UNCOMPRESSED_BYTES = 2 * 1024 * 1024 * 1024  # 2GB
 _MAX_QUESTION_LEN = 500
+
+_DEFAULT_PER_PAGE = 50
+_MAX_PER_PAGE = 200
+_VALID_SEVERITIES = {"critical", "high", "medium", "low", "info"}
+_VALID_SORTS = {"severity", "severity_desc", "gpo", "finding"}
+_SEVERITY_RANK = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
 
 # Health indicators for the dashboard posture grid, in display order. Each is
 # (EstateSummary attribute, human label, severity tone). Tone drives both the
@@ -171,6 +188,150 @@ def _serialize_result(result: object) -> object:
     return result
 
 
+def _parse_pagination(
+    request: Request, page_key: str = "page", per_key: str = "per_page"
+) -> tuple[int, int, str]:
+    """Parse ``page``/``per_page`` from query params.
+
+    Returns ``(page, per_page_int, per_page_raw)`` where *per_page_int* is
+    ``0`` for ``all`` (no slicing) or ``1.._MAX_PER_PAGE``, and *per_page_raw*
+    is the original string for round-tripping in pagination links.
+    """
+    raw_page = request.query_params.get(page_key, "1")
+    raw_per = request.query_params.get(per_key, str(_DEFAULT_PER_PAGE))
+    try:
+        page = max(1, int(raw_page))
+    except (ValueError, TypeError):
+        page = 1
+    if raw_per.lower() == "all":
+        return page, 0, "all"
+    try:
+        per_page = max(1, min(int(raw_per), _MAX_PER_PAGE))
+    except (ValueError, TypeError):
+        per_page = _DEFAULT_PER_PAGE
+    return page, per_page, str(per_page)
+
+
+def _paginate(
+    items: list[Any], page: int, per_page: int, per_page_raw: str
+) -> tuple[list[Any], dict[str, Any] | None]:
+    """Slice *items* for the requested page.
+
+    Returns ``(page_items, pag)`` where *pag* is ``None`` when everything fits
+    on one page (no controls needed), otherwise a dict with pagination
+    metadata for the template macro.
+    """
+    total = len(items)
+    if per_page <= 0:
+        return items, None
+    total_pages = max(1, (total + per_page - 1) // per_page)
+    page = max(1, min(page, total_pages))
+    start = (page - 1) * per_page
+    page_items = items[start : start + per_page]
+    if total_pages <= 1:
+        return page_items, None
+    return page_items, {
+        "page": page,
+        "per_page_raw": per_page_raw,
+        "total": total,
+        "total_pages": total_pages,
+        "has_prev": page > 1,
+        "has_next": page < total_pages,
+    }
+
+
+def _base_qs(request: Request, *strip: str) -> str:
+    """Build a URL-encoded query string from current params, excluding *strip*."""
+    params = dict(request.query_params)
+    for key in strip:
+        params.pop(key, None)
+    return urlencode(params)
+
+
+def _filter_findings(
+    findings: list[Any], severity: str, q: str, sort: str
+) -> list[Any]:
+    """Apply severity filter, text search, and sort to a findings list."""
+    result = findings
+    if severity and severity != "all":
+        wanted = {s.strip() for s in severity.split(",") if s.strip()}
+        result = [f for f in result if f.severity in wanted]
+    if q:
+        needle = q.lower()
+        result = [
+            f for f in result
+            if needle in (f.gpo_name or "").lower() or needle in (f.summary or "").lower()
+        ]
+    if sort == "gpo":
+        result = sorted(
+            result,
+            key=lambda f: (f.gpo_name.lower(), _SEVERITY_RANK.get(f.severity, 9)),
+        )
+    elif sort == "finding":
+        result = sorted(
+            result,
+            key=lambda f: (f.summary.lower(), _SEVERITY_RANK.get(f.severity, 9)),
+        )
+    elif sort == "severity_desc":
+        result = sorted(result, key=lambda f: -_SEVERITY_RANK.get(f.severity, 9))
+    # "severity" (default) — estate_doctor already sorts by severity ascending
+    return result
+
+
+# Characters that make spreadsheet apps (Excel/LibreOffice/Sheets) evaluate a
+# CSV cell as a formula. Exported data derives from semi-attacker-controllable
+# GPO content (GPO names, registry values, finding detail), so an unsanitized
+# export can execute formulas in an analyst's spreadsheet (CSV injection /
+# CWE-1236). Prefixing such cells with a single quote forces text interpretation.
+_CSV_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _csv_sanitize_cell(value: Any) -> Any:
+    """Prefix cells that would trigger spreadsheet formula evaluation."""
+    if isinstance(value, str) and value and value[0] in _CSV_FORMULA_PREFIXES:
+        return f"'{value}"
+    return value
+
+
+def _csv_response(
+    rows: list[list[Any]], header: list[str], filename: str
+) -> StreamingResponse:
+    """Build a streaming CSV attachment from a list of row lists.
+
+    All cells are run through :func:`_csv_sanitize_cell` to neutralize CSV
+    injection (formula-triggering leading characters).
+    """
+
+    def _generate() -> Iterator[str]:
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow([_csv_sanitize_cell(h) for h in header])
+        yield buf.getvalue()
+        buf.seek(0)
+        buf.truncate(0)
+        for row in rows:
+            writer.writerow([_csv_sanitize_cell(c) for c in row])
+            yield buf.getvalue()
+            buf.seek(0)
+            buf.truncate(0)
+
+    return StreamingResponse(
+        _generate(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+def _json_attachment(payload: object, filename: str) -> Response:
+    """Build a JSON attachment response (download, not inline)."""
+    body = json.dumps(payload, indent=2, default=str)
+    return Response(
+        content=body,
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 def create_app(db_path: str, *, root_path: str = "") -> FastAPI:
     app = FastAPI(root_path=root_path, docs_url=None, redoc_url=None, openapi_url=None)
     app.state.db_path = db_path
@@ -281,6 +442,9 @@ def create_app(db_path: str, *, root_path: str = "") -> FastAPI:
     @app.get("/", response_class=HTMLResponse, name="home")
     async def home(
         request: Request,
+        severity: str = "",
+        q: str = "",
+        sort: str = "severity",
         _principal: Principal = Depends(requires(Permission.VIEW)),
     ) -> HTMLResponse:
         from gpo_lens.queries import EstateSummary, estate_doctor, estate_summary
@@ -290,14 +454,14 @@ def create_app(db_path: str, *, root_path: str = "") -> FastAPI:
         try:
             try:
                 estate = load_estate(conn)
-                findings = estate_doctor(estate)
+                all_findings = estate_doctor(estate)
                 summary = estate_summary(estate)
                 # GPOs that exist as objects (so a detail page resolves). Some
                 # findings (e.g. coverage gaps for unreadable GPOs) carry an id
                 # with no backing GPO — those must not render as dead links.
                 resolvable_gpo_ids = {g.id for g in estate.gpos}
             except ValueError:
-                findings = []
+                all_findings = []
                 resolvable_gpo_ids = set()
                 summary = EstateSummary(
                     domain="", gpo_count=0, som_count=0, linked_site_count=0,
@@ -316,6 +480,16 @@ def create_app(db_path: str, *, root_path: str = "") -> FastAPI:
         finally:
             conn.close()
 
+        # WI-025: filter / search / sort
+        if sort not in _VALID_SORTS:
+            sort = "severity"
+        findings = _filter_findings(all_findings, severity, q, sort)
+
+        # WI-026: pagination
+        page, per_page_int, per_page_raw = _parse_pagination(request)
+        page_findings, pag = _paginate(findings, page, per_page_int, per_page_raw)
+        findings_qs = _base_qs(request, "page", "per_page")
+
         # Split indicators: fired (count > 0, shown as toned cards, worst first)
         # vs clear (count == 0, collapsed into one quiet "all clear" line).
         tone_rank = {"crit": 0, "warn": 1, "info": 2}
@@ -328,7 +502,7 @@ def create_app(db_path: str, *, root_path: str = "") -> FastAPI:
         clear = [label for attr, label, _ in _POSTURE_SPEC if not getattr(summary, attr)]
 
         sev_counts: dict[str, int] = defaultdict(int)
-        for f in findings:
+        for f in all_findings:
             sev_counts[f.severity] += 1
 
         return templates.TemplateResponse(
@@ -336,12 +510,21 @@ def create_app(db_path: str, *, root_path: str = "") -> FastAPI:
             "dashboard.html",
             {
                 "request": request,
-                "findings": findings,
+                "findings": page_findings,
+                "all_findings_count": len(all_findings),
+                "filtered_findings_count": len(findings),
                 "summary": summary,
                 "resolvable_gpo_ids": resolvable_gpo_ids,
                 "posture_fired": fired,
                 "posture_clear": clear,
                 "sev_counts": dict(sev_counts),
+                # WI-025 filter state
+                "f_severity": severity,
+                "f_q": q,
+                "f_sort": sort,
+                "f_base_qs": findings_qs,
+                # WI-026 pagination
+                "pag": pag,
             },
         )
 
@@ -382,6 +565,11 @@ def create_app(db_path: str, *, root_path: str = "") -> FastAPI:
         ):
             disabled_sides.add("User")
 
+        # Group settings by side, then by CSE (Client Side Extension). The CSE
+        # grouping (Registry / Security / Scripts / ...) is valuable navigation
+        # context and a single GPO rarely has enough settings to warrant
+        # pagination, so this page is not paginated (unlike the dashboard / OU
+        # views). See WI-026 — GPO detail pagination deferred as low value.
         settings_by_side: dict[str, dict[str, list[object]]] = defaultdict(
             lambda: defaultdict(list)
         )
@@ -410,8 +598,12 @@ def create_app(db_path: str, *, root_path: str = "") -> FastAPI:
             estate = _store.load_estate(conn)
         finally:
             conn.close()
+        page, per_page_int, per_page_raw = _parse_pagination(request)
+        page_soms, pag = _paginate(list(estate.soms), page, per_page_int, per_page_raw)
+        ou_qs = _base_qs(request, "page", "per_page")
         return templates.TemplateResponse(
-            request, "ou_list.html", {"soms": estate.soms}
+            request, "ou_list.html",
+            {"soms": page_soms, "pag": pag, "base_qs": ou_qs},
         )
 
     @app.get("/ou/{path:path}", response_class=HTMLResponse, name="ou_detail")
@@ -445,16 +637,154 @@ def create_app(db_path: str, *, root_path: str = "") -> FastAPI:
             eg.gpo_id in loopback_gpo_ids for eg in effective_gpos
         )
 
+        page, per_page_int, per_page_raw = _parse_pagination(request)
+        page_settings, pag = _paginate(settings, page, per_page_int, per_page_raw)
+        settings_qs = _base_qs(request, "page", "per_page")
+
         return templates.TemplateResponse(
             request, "ou_detail.html",
             {
                 "som": target_som,
                 "effective_gpos": effective_gpos,
-                "settings": settings,
+                "settings": page_settings,
+                "settings_count": len(settings),
                 "conflicts": conflicts,
                 "loopback_warning": loopback_warning,
                 "caveats": caveats,
+                "pag": pag,
+                "base_qs": settings_qs,
             },
+        )
+
+    # ------------------------------------------------------------------
+    # Export (WI-027) — read-only data downloads for analysts who want the
+    # raw data without dropping to the CLI. All require VIEW permission, the
+    # same as the pages they mirror. Exports dump the *complete* dataset for
+    # the view (not the filtered/paginated slice) so the download is a stable,
+    # linkable artifact independent of session filter state.
+    # ------------------------------------------------------------------
+
+    @app.get("/export/findings", name="export_findings")
+    async def export_findings(
+        request: Request,
+        format: str = "csv",
+        _principal: Principal = Depends(requires(Permission.VIEW)),
+    ) -> Response:
+        from gpo_lens.queries import estate_doctor
+        from gpo_lens.store import load_estate
+
+        if format not in ("csv", "json"):
+            raise HTTPException(
+                status_code=400, detail="format must be 'csv' or 'json'"
+            )
+
+        conn = _get_ro_conn(app.state.db_path)
+        try:
+            try:
+                estate = load_estate(conn)
+                findings = estate_doctor(estate)
+            except ValueError:
+                findings = []
+        finally:
+            conn.close()
+
+        if format == "json":
+            payload = _serialize_result(findings)
+            return _json_attachment(payload, "gpo-lens-findings.json")
+        # default: csv
+        rows = [
+            [f.severity, f.category, f.gpo_id, f.gpo_name, f.summary, f.detail]
+            for f in findings
+        ]
+        return _csv_response(
+            rows,
+            ["severity", "category", "gpo_id", "gpo_name", "summary", "detail"],
+            "gpo-lens-findings.csv",
+        )
+
+    @app.get("/export/gpo/{gpo_id}", name="export_gpo")
+    async def export_gpo(
+        request: Request,
+        gpo_id: str,
+        format: str = "json",
+        _principal: Principal = Depends(requires(Permission.VIEW)),
+    ) -> Response:
+        from gpo_lens.normalize import canonical_guid
+        from gpo_lens.store import load_estate
+
+        # A GPO is a rich nested object (settings grouped by side/CSE, links,
+        # delegation) that does not flatten to CSV sensibly — JSON only.
+        if format != "json":
+            raise HTTPException(
+                status_code=400, detail="GPO export supports JSON format only"
+            )
+
+        try:
+            gpo_id = canonical_guid(gpo_id)
+        except ValueError:
+            raise HTTPException(status_code=404, detail="Invalid GPO ID")
+
+        conn = _get_ro_conn(app.state.db_path)
+        try:
+            estate = load_estate(conn)
+        finally:
+            conn.close()
+
+        gpo = estate.gpo_by_id(gpo_id)
+        if gpo is None:
+            raise HTTPException(status_code=404, detail="GPO not found")
+
+        payload = _serialize_result(gpo)
+        return _json_attachment(payload, f"gpo-lens-{gpo_id}.json")
+
+    @app.get("/export/ou/{path:path}", name="export_ou")
+    async def export_ou(
+        request: Request,
+        path: str,
+        format: str = "csv",
+        _principal: Principal = Depends(requires(Permission.VIEW)),
+    ) -> Response:
+        if format not in ("csv", "json"):
+            raise HTTPException(
+                status_code=400, detail="format must be 'csv' or 'json'"
+            )
+
+        conn = _get_ro_conn(app.state.db_path)
+        try:
+            estate = _store.load_estate(conn)
+        finally:
+            conn.close()
+
+        target_som = None
+        for som in estate.soms:
+            if som.path.lower() == path.lower():
+                target_som = som
+                break
+        if target_som is None:
+            raise HTTPException(status_code=404, detail="OU not found")
+
+        settings = queries.settings_at_som(estate, target_som.path)
+        if format == "json":
+            payload = _serialize_result(settings)
+            return _json_attachment(payload, "gpo-lens-ou-settings.json")
+        # default: csv
+        rows = [
+            [
+                s.cse, s.side, s.identity, s.display_name, s.display_value,
+                s.winner_gpo_id, s.winner_gpo_name, ", ".join(
+                    f"{name}={val}" for name, val in s.overridden_by
+                ),
+                "yes" if s.enforced else "no",
+            ]
+            for s in settings
+        ]
+        return _csv_response(
+            rows,
+            [
+                "cse", "side", "identity", "display_name", "display_value",
+                "winner_gpo_id", "winner_gpo_name", "overridden_by", "enforced",
+            ],
+            "gpo-lens-ou-settings.csv",
         )
 
     @app.get("/ingest", response_class=HTMLResponse, name="ingest_get")

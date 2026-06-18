@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import '_pagination.html' as pg %}
 
 {% block title %}gpo-lens — Directory{% endblock %}
 
@@ -50,6 +51,7 @@
     </tbody>
   </table>
 </div>
+{{ pg.pagination(pag, base_qs) }}
 {% else %}
 <div class="gp-empty">
   <div class="title">No scopes of management</div>

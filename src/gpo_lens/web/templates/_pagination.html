@@ -1,0 +1,32 @@
+{% macro pagination(pag, base_qs='', page_key='page', per_key='per_page') %}
+{% if pag and pag.total_pages > 1 %}
+{% set sep = '&' if base_qs else '' %}
+<nav class="gp-pagination" aria-label="Pagination">
+  <span class="gp-pagination-info">
+    {{ pag.total }} item{{ 's' if pag.total != 1 }}
+    · page {{ pag.page }} of {{ pag.total_pages }}
+  </span>
+  <div class="gp-pagination-controls">
+    {% if pag.has_prev %}
+    <a class="gp-btn gp-page-btn" href="?{{ base_qs }}{{ sep }}{{ per_key }}={{ pag.per_page_raw }}&{{ page_key }}={{ pag.page - 1 }}" rel="prev">‹ Prev</a>
+    {% else %}
+    <span class="gp-btn gp-page-btn" disabled>‹ Prev</span>
+    {% endif %}
+    {% for p in range(1, pag.total_pages + 1) %}
+      {% if p == pag.page %}
+      <span class="gp-pagination-current" aria-current="page">{{ p }}</span>
+      {% elif pag.total_pages <= 10 or p <= 2 or p > pag.total_pages - 2 or (p >= pag.page - 1 and p <= pag.page + 1) %}
+      <a class="gp-page-num" href="?{{ base_qs }}{{ sep }}{{ per_key }}={{ pag.per_page_raw }}&{{ page_key }}={{ p }}">{{ p }}</a>
+      {% elif p == 3 or p == pag.total_pages - 2 %}
+      <span class="gp-pagination-ellipsis">…</span>
+      {% endif %}
+    {% endfor %}
+    {% if pag.has_next %}
+    <a class="gp-btn gp-page-btn" href="?{{ base_qs }}{{ sep }}{{ per_key }}={{ pag.per_page_raw }}&{{ page_key }}={{ pag.page + 1 }}" rel="next">Next ›</a>
+    {% else %}
+    <span class="gp-btn gp-page-btn" disabled>Next ›</span>
+    {% endif %}
+  </div>
+</nav>
+{% endif %}
+{% endmacro %}

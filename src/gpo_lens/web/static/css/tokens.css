@@ -472,3 +472,36 @@ a:hover { text-decoration: underline; }
 .gp-breadcrumb a:hover { color: var(--text); text-decoration: none; }
 .gp-breadcrumb .sep { margin: 0 7px; opacity: 0.5; }
 .gp-breadcrumb .current { color: var(--text-2); }
+
+/* ---------- FILTER BAR (dashboard findings) ---------- */
+.gp-filter-bar {
+  display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.gp-filter-search { flex: 1 1 200px; min-width: 160px; }
+.gp-export-btn { font-size: 11.5px; padding: 5px 10px; margin-left: auto; }
+
+/* ---------- PAGINATION ---------- */
+.gp-pagination {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; margin-top: 14px; flex-wrap: wrap;
+}
+.gp-pagination-info {
+  font-family: var(--font-mono); font-size: 11.5px; color: var(--text-3);
+  white-space: nowrap;
+}
+.gp-pagination-controls { display: flex; align-items: center; gap: 5px; }
+.gp-page-btn { font-size: 12px; padding: 5px 11px; }
+.gp-page-btn:disabled { opacity: .35; cursor: not-allowed; }
+.gp-page-num {
+  font-family: var(--font-mono); font-size: 12px; font-weight: 500;
+  padding: 5px 9px; border-radius: var(--radius-sm); color: var(--text-2);
+  text-decoration: none; transition: background .1s, color .1s;
+}
+.gp-page-num:hover { background: var(--panel-2); color: var(--text); text-decoration: none; }
+.gp-pagination-current {
+  font-family: var(--font-mono); font-size: 12px; font-weight: 600;
+  padding: 5px 9px; border-radius: var(--radius-sm); color: var(--btn-strong-text);
+  background: var(--btn-strong-bg);
+}
+.gp-pagination-ellipsis { padding: 5px 4px; color: var(--text-3); }
