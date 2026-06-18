@@ -67,11 +67,21 @@ chain operators (&& / ||). Use if/else and -or/-and instead.
     cert-watch) keyed by hostname. The catch-all ipport binding is never
     touched in SNI mode, so a co-existing site's binding is safe.
 
+.PARAMETER WindowsAuth
+    Enable Windows Authentication on the IIS site and disable anonymous
+    access, so only authenticated domain users can reach gpo-lens (the
+    recommended access-control model behind IIS). Installs the
+    Web-Windows-Auth role service if it is missing. Requires the server to
+    be domain-joined (Kerberos/Negotiate does not work on a workgroup box).
+
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File .\scripts\install-windows.ps1 -ConfigureIIS -Port 8443 -HostName host.example.com -TlsCertThumbprint "ABCDEF123456..."
 
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File .\scripts\install-windows.ps1 -ConfigureIIS -Port 443 -HostName gpo-lens.example.com -TlsCertThumbprint "ABCDEF..." -Sni
+
+.EXAMPLE
+    powershell -ExecutionPolicy Bypass -File .\scripts\install-windows.ps1 -ConfigureIIS -Port 8443 -HostName host.example.com -TlsCertThumbprint "ABCDEF..." -WindowsAuth
 
 .NOTES
     This script is not signed. If your execution policy blocks unsigned scripts,
@@ -87,7 +97,8 @@ param(
     [int]$Port = 8443,
     [string]$HostName = "",
     [string]$TlsCertThumbprint = "",
-    [switch]$Sni
+    [switch]$Sni,
+    [switch]$WindowsAuth
 )
 
 $ErrorActionPreference = "Stop"
@@ -579,11 +590,26 @@ if ($ConfigureIIS) {
             Write-Host "  [warn] New-NetFirewallRule unavailable; open TCP $Port manually if blocked."
         }
 
-        # 8. Grant app pool identity read access to site path
+        # 8. Windows Authentication (optional - closes the access-control gap).
+        if ($WindowsAuth) {
+            Write-Host "  Configuring Windows Authentication ..."
+            $waFeature = Get-WindowsFeature Web-Windows-Auth -ErrorAction SilentlyContinue
+            if ($waFeature -and -not $waFeature.Installed) {
+                Write-Host "    Installing Web-Windows-Auth role service ..."
+                Install-WindowsFeature Web-Windows-Auth | Out-Null
+            }
+            Set-WebConfigurationProperty -Filter system.webServer/security/authentication/windowsAuthentication `
+                -PSPath "IIS:\" -Location $siteName -Name enabled -Value $true
+            Set-WebConfigurationProperty -Filter system.webServer/security/authentication/anonymousAuthentication `
+                -PSPath "IIS:\" -Location $siteName -Name enabled -Value $false
+            Write-Host "    Windows Auth enabled, anonymous disabled (domain users only)."
+        }
+
+        # 9. Grant app pool identity read access to site path
         Write-Host "  Granting $identity read access to $SitePath ..."
         icacls $SitePath /grant "${identity}:(OI)(CI)R" | Out-Null
 
-        # 9. Start the app pool so the freshly installed code is the live code.
+        # 10. Start the app pool so the freshly installed code is the live code.
         # (It was stopped before pip install on a re-install; a fresh pool may
         # also be stopped depending on IIS state.) Verify it reaches Started so
         # a silent 503 does not slip through.
