@@ -58,8 +58,20 @@ chain operators (&& / ||). Use if/else and -or/-and instead.
     When omitted, the binding is created without a certificate (a warning is
     written).
 
+.PARAMETER Sni
+    Use an SNI (Server Name Indication) TLS binding instead of a catch-all
+    ipport binding. Requires -HostName (SNI selects a cert by hostname) and
+    IIS 8+ (Windows Server 2012+). With -Sni the cert is bound via
+    netsh hostnameport=HostName:Port and the IIS binding gets sslFlags=1,
+    so multiple HTTPS sites can share a port (e.g. gpo-lens on 443 alongside
+    cert-watch) keyed by hostname. The catch-all ipport binding is never
+    touched in SNI mode, so a co-existing site's binding is safe.
+
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File .\scripts\install-windows.ps1 -ConfigureIIS -Port 8443 -HostName host.example.com -TlsCertThumbprint "ABCDEF123456..."
+
+.EXAMPLE
+    powershell -ExecutionPolicy Bypass -File .\scripts\install-windows.ps1 -ConfigureIIS -Port 443 -HostName gpo-lens.example.com -TlsCertThumbprint "ABCDEF..." -Sni
 
 .NOTES
     This script is not signed. If your execution policy blocks unsigned scripts,
@@ -74,7 +86,8 @@ param(
     [string]$SitePath = "C:\inetpub\gpo-lens",
     [int]$Port = 8443,
     [string]$HostName = "",
-    [string]$TlsCertThumbprint = ""
+    [string]$TlsCertThumbprint = "",
+    [switch]$Sni
 )
 
 $ErrorActionPreference = "Stop"
@@ -480,42 +493,77 @@ if ($ConfigureIIS) {
             Set-ItemProperty $sitePathIIS -Name bindings -Value @{protocol="https"; bindingInformation=$bindingInfo}
         }
 
-        # 5. TLS cert binding (idempotent: delete stale bindings, add, verify)
+        # 5. SNI binding configuration (before TLS cert bind — sslFlags must
+        # be set on the IIS binding BEFORE the netsh hostnameport sslcert add,
+        # or http.sys rejects it with error 87 and the working binding dies).
+        if ($Sni) {
+            if (-not $HostName) {
+                throw "-Sni requires -HostName (SNI selects a certificate by hostname)."
+            }
+            Write-Host "  Configuring SNI binding (sslFlags=1, host=$HostName) on port $Port ..."
+            # Replace the site's https binding with one carrying sslFlags=1 (SNI).
+            # Clear-WebBinding removes only THIS site's https bindings — the
+            # catch-all ipport binding on a shared port (e.g., cert-watch on 443)
+            # is untouched because it belongs to a different site.
+            Clear-WebBinding -Name $siteName -Protocol https -ErrorAction SilentlyContinue
+            New-WebBinding -Name $siteName -Protocol https -Port $Port -HostHeader $HostName -SslFlags 1 | Out-Null
+            Write-Host "    SNI binding installed."
+        }
+
+        # 6. TLS cert binding (idempotent: delete stale bindings, add, verify)
         if ($TlsCertThumbprint) {
             Write-Host "  Binding TLS certificate $TlsCertThumbprint to port $Port ..."
             $bindPort = "$Port"
             $appId = "{B2C3D4E5-F6A7-8901-BCDE-F23456789012}"
-            $ipport = "0.0.0.0:$bindPort"
-            # Bind the cert to the catch-all ipport for THIS port. The IIS site
-            # binding keeps its host header but stays non-SNI (sslFlags=0), so
-            # http.sys serves this cert for the port. We deliberately avoid the
-            # SNI hostnameport form: it requires sslFlags=1 on the binding and
-            # otherwise fails the netsh add with error 87, deleting the working
-            # binding and leaving HTTPS dead (cert-watch WI-047). gpo-lens runs
-            # on its own dedicated port (default 8443, alongside cert-watch on
-            # 443), so a catch-all cert on that port is correct. certstorename=MY
-            # is explicit (another common error-87 trigger when omitted).
-            & netsh http delete sslcert ipport="$ipport" 2>$null | Out-Null
-            if ($HostName) {
-                & netsh http delete sslcert hostnameport="$HostName`:$bindPort" 2>$null | Out-Null
+
+            if ($Sni) {
+                # SNI: cert is bound per-hostname via hostnameport. We do NOT
+                # touch the catch-all ipport=0.0.0.0:Port binding — on a shared
+                # port it belongs to another site (e.g. cert-watch). Only this
+                # site's hostnameport binding is managed here.
+                $hostnameport = "$HostName`:$bindPort"
+                & netsh http delete sslcert hostnameport="$hostnameport" 2>$null | Out-Null
+                $addOut = & netsh http add sslcert hostnameport="$hostnameport" certhash="$TlsCertThumbprint" appid="$appId" certstorename=MY 2>&1
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Host ($addOut | Out-String)
+                    throw "Failed to bind TLS certificate (netsh exit $LASTEXITCODE). HTTPS will not work. Verify the thumbprint exists in LocalMachine\My with a private key, and that sslFlags=1 (SNI) is set on the IIS binding (the netsh hostnameport add fails with error 87 otherwise)."
+                }
+                $show = & netsh http show sslcert hostnameport="$hostnameport" 2>&1 | Out-String
+                if ($show -notmatch [regex]::Escape($TlsCertThumbprint)) {
+                    throw "TLS certificate binding verification failed for $hostnameport (cert hash not present after add)."
+                }
+                Write-Host "    TLS certificate bound to $hostnameport (SNI, store: MY)."
+            } else {
+                # Non-SNI catch-all: bind the cert to ipport=0.0.0.0:Port for
+                # THIS port. The IIS site binding keeps its host header but
+                # stays non-SNI (sslFlags=0), so http.sys serves this cert for
+                # the whole port. gpo-lens runs on its own dedicated port
+                # (default 8443, alongside cert-watch on 443), so a catch-all
+                # cert on that port is correct. certstorename=MY is explicit
+                # (a common error-87 trigger when omitted).
+                $ipport = "0.0.0.0:$bindPort"
+                & netsh http delete sslcert ipport="$ipport" 2>$null | Out-Null
+                if ($HostName) {
+                    & netsh http delete sslcert hostnameport="$HostName`:$bindPort" 2>$null | Out-Null
+                }
+                $addOut = & netsh http add sslcert ipport="$ipport" certhash="$TlsCertThumbprint" appid="$appId" certstorename=MY 2>&1
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Host ($addOut | Out-String)
+                    throw "Failed to bind TLS certificate (netsh exit $LASTEXITCODE). HTTPS will not work. Verify the thumbprint exists in LocalMachine\My and has a private key."
+                }
+                # Verify the binding actually landed (-match is case-insensitive).
+                $show = & netsh http show sslcert ipport="$ipport" 2>&1 | Out-String
+                if ($show -notmatch [regex]::Escape($TlsCertThumbprint)) {
+                    throw "TLS certificate binding verification failed for $ipport (cert hash not present after add)."
+                }
+                Write-Host "    TLS certificate bound to $ipport (store: MY)."
             }
-            $addOut = & netsh http add sslcert ipport="$ipport" certhash="$TlsCertThumbprint" appid="$appId" certstorename=MY 2>&1
-            if ($LASTEXITCODE -ne 0) {
-                Write-Host ($addOut | Out-String)
-                throw "Failed to bind TLS certificate (netsh exit $LASTEXITCODE). HTTPS will not work. Verify the thumbprint exists in LocalMachine\My and has a private key."
-            }
-            # Verify the binding actually landed (-match is case-insensitive).
-            $show = & netsh http show sslcert ipport="$ipport" 2>&1 | Out-String
-            if ($show -notmatch [regex]::Escape($TlsCertThumbprint)) {
-                throw "TLS certificate binding verification failed for $ipport (cert hash not present after add)."
-            }
-            Write-Host "    TLS certificate bound to $ipport (store: MY)."
         } else {
             Write-Host "  [warn] No -TlsCertThumbprint provided. HTTPS binding exists but no certificate is assigned."
             Write-Host ('         Assign a certificate via IIS Manager or re-run with -TlsCertThumbprint ' + '.')
         }
 
-        # 6. Open the firewall for the chosen port (idempotent). cert-watch's
+        # 7. Open the firewall for the chosen port (idempotent). cert-watch's
         # 443 is typically already open; gpo-lens runs on a non-standard port, so
         # add a rule unless one already exists.
         $fwRule = "gpo-lens HTTPS $Port"
@@ -531,11 +579,11 @@ if ($ConfigureIIS) {
             Write-Host "  [warn] New-NetFirewallRule unavailable; open TCP $Port manually if blocked."
         }
 
-        # 7. Grant app pool identity read access to site path
+        # 8. Grant app pool identity read access to site path
         Write-Host "  Granting $identity read access to $SitePath ..."
         icacls $SitePath /grant "${identity}:(OI)(CI)R" | Out-Null
 
-        # 8. Start the app pool so the freshly installed code is the live code.
+        # 9. Start the app pool so the freshly installed code is the live code.
         # (It was stopped before pip install on a re-install; a fresh pool may
         # also be stopped depending on IIS state.) Verify it reaches Started so
         # a silent 503 does not slip through.
