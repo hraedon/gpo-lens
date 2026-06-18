@@ -58,9 +58,12 @@ Do **not** rely on `GPO_LENS_AUTH_TOKEN` to fix this: it requires a `Bearer`
 header that a browser cannot send, which only breaks the UI. Instead, restrict
 access at the IIS layer:
 
-- **IIS Windows Authentication** on the site (Negotiate/NTLM) so only
-  authenticated domain users reach the app — the closest parity with
-  cert-watch's app-level login.
+- **Pass `-WindowsAuth` to the installer** (recommended). It installs the
+  `Web-Windows-Auth` role service if missing, enables Windows Authentication
+  on the site, and disables anonymous access — so only authenticated domain
+  users reach gpo-lens. Unauthenticated requests get 401; browsers prompt for
+  credentials automatically. The role service must be installed for the module
+  to load; the installer handles this.
 - An **IP allow-list** (IIS "IP Address and Domain Restrictions").
 - Or keep the site on an **isolated/management network**.
 
