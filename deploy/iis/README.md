@@ -124,8 +124,24 @@ the desired fallback. Browse to `https://gpo-lens.example.com/` (no port).
 
 ## Troubleshooting
 
+- **HTTP 413 / "The page was not displayed because the request entity is too
+  large"**: IIS refused the upload before it reached uvicorn. The default
+  `maxAllowedContentLength` is 30 MB, which real collector exports exceed
+  (a medium estate is often 50–100+ MB). `web.config` raises it to 500 MB to
+  match the app's `_MAX_UPLOAD_BYTES`; if you hand-rolled the config or are
+  hitting a higher limit, set
+  `<requestFiltering><requestLimits maxAllowedContentLength="524288000" />`
+  (or raise it further). Also confirm the upload itself is under 500 MB —
+  beyond that the app returns its own 413.
 - **HTTP 503**: the app pool is stopped or the process failed to start. Check
   `C:\ProgramData\gpo-lens\logs\stdout*.log`.
+- **HTTP 403 `{"detail":"CSRF validation failed"}`** on a POST: the request's
+  `Origin` (or `Referer`, when `Origin` is absent) did not match the request's
+  own `Host`. Browser uploads through this IIS site are accepted automatically
+  (the browser's `Origin: https://<iis-host>` matches `Host: <iis-host>`), so a
+  403 here usually means either a reverse proxy that rewrites/strips the
+  `Host` header, or a non-browser client. `curl` and scripts must send an
+  `Origin` or `Referer` header whose host matches the URL they are POSTing to.
 - **HTTPS refused / cert errors**: verify the binding with
   `netsh http show sslcert ipport=0.0.0.0:8443` and that the thumbprint exists in
   `LocalMachine\My` with a private key. Verify reachability with an **external**

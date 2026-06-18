@@ -4,29 +4,33 @@ WI-005: The CSRF middleware was hardened but lacked dedicated test coverage.
 This file documents and verifies the exact behavior of the middleware.
 
 CSRF Middleware Logic (app.py::_csrf_check):
-  Only POST requests are checked. For POSTs:
-    1. Origin present, NOT localhost   → 403 (blocked)
-    2. No Origin, Referer NOT localhost → 403 (blocked)
-    3. No Origin AND no Referer         → 403 (blocked)
-    4. Otherwise                        → pass through
+  Only POST requests are checked. For POSTs, a request is same-origin
+  (and allowed) if Origin — or Referer when Origin is absent — is:
+    - loopback (direct browser access to uvicorn), OR
+    - same-host as the request's own Host header (reverse-proxy / IIS
+      deployment, where the browser's Origin carries the proxy hostname).
+  Otherwise the POST is blocked with 403:
+    - Origin present, neither loopback nor same-host      → 403
+    - No Origin, Referer neither loopback nor same-host   → 403
+    - No Origin AND no Referer                             → 403
 
-  Pass-through cases:
-    - Origin present AND is localhost (Referer is ignored)
-    - No Origin, Referer present AND is localhost
-    - Non-POST methods (GET, HEAD, etc.)
-
-  localhost = hostname in ("localhost", "127.0.0.1", "::1",
-                           "localhost.localdomain")
+  loopback host = ("localhost", "127.0.0.1", "::1",
+                   "localhost.localdomain")
+  same-host = Origin/Referer netloc (host:port) == request Host header
 
   NOTE: 0.0.0.0 is intentionally NOT allow-listed — it is the bind-any
   wildcard, not a legitimate client Origin. A cross-origin POST can spoof
   Origin: http://0.0.0.0, so allowing it would defeat the CSRF guard.
 
-Threat model: The web UI is designed for loopback-only deployment.
-If someone accidentally binds non-loopback, the CSRF check prevents
-cross-origin POSTs from external sites. The "no Origin, no Referer"
-rejection (case 3) means API-style tools (curl, etc.) must send
-an Origin or Referer header.
+Threat model: gpo-lens binds loopback and runs behind a same-host
+TLS-terminating reverse proxy (IIS/HttpPlatformHandler, often via SNI on
+:443). The browser's Origin therefore carries the proxy hostname (e.g.
+https://gpo-lens.example.com), not loopback, so a loopback-only allowlist
+would reject every legitimate POST. Same-host validation accepts those
+while still blocking cross-host CSRF: an attacker cannot make the victim's
+browser send an Origin whose host matches the target's Host header. The
+"no Origin, no Referer" rejection means API-style tools (curl, etc.) must
+send an Origin or Referer header.
 
 NOTE: The earlier reflection (2026-06-12-mimo-v2.5-pro.md) stated
 "POST requests with no Origin AND no Referer pass through" — this
@@ -314,4 +318,124 @@ class TestCsrfSpoofedExternalOrigin:
             "/ingest",
             headers={"referer": "https://evil.com/attack-form"},
         )
+        assert resp.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# 8. POST via reverse proxy (IIS + SNI) — same-host Origin
+# ---------------------------------------------------------------------------
+
+
+def _proxy_client(db_path: str, base_url: str) -> TestClient:
+    """Authenticated TestClient whose Host header is driven by *base_url*.
+
+    Mirrors a real browser at *base_url* (e.g. an IIS + SNI site on
+    https://gpo-lens.example.com/). TestClient uses an in-process ASGI
+    transport, so the https scheme never opens a socket — the scheme only
+    sets the Host header the way a proxied browser request would.
+    """
+    admin = Principal(
+        name="csrf-test-admin",
+        role="admin",
+        permissions=frozenset([Permission.VIEW, Permission.INGEST, Permission.NARRATE]),
+    )
+    app = create_app(db_path)
+    app.dependency_overrides[get_principal] = lambda authorization=None: admin
+    return TestClient(app, base_url=base_url)
+
+
+class TestCsrfSameHostOrigin:
+    """Same-origin POSTs through a TLS-terminating reverse proxy (IIS + SNI).
+
+    The browser browses https://gpo-lens.example.com/ (IIS terminates TLS,
+    HttpPlatformHandler proxies to loopback uvicorn). Its Origin carries the
+    proxy hostname, not loopback, so a loopback-only allowlist would reject
+    these. The guard must accept an Origin whose host:port matches the
+    request's own Host header.
+    """
+
+    @pytest.mark.parametrize(
+        ("base_url", "origin"),
+        [
+            # IIS + SNI on :443 (default port omitted by browser on both sides).
+            ("https://gpo-lens.example.com", "https://gpo-lens.example.com"),
+            # IIS on a dedicated port (non-default port carried on both sides).
+            ("https://gpo-lens.example.com:8443", "https://gpo-lens.example.com:8443"),
+        ],
+    )
+    def test_same_host_origin_passes(self, csrf_db, base_url, origin) -> None:
+        client = _proxy_client(csrf_db, base_url)
+        resp = client.post("/ingest", headers={"origin": origin})
+        assert resp.status_code != 403
+
+    def test_same_host_referer_no_origin_passes(self, csrf_db) -> None:
+        client = _proxy_client(csrf_db, "https://gpo-lens.example.com")
+        resp = client.post(
+            "/ingest",
+            headers={"referer": "https://gpo-lens.example.com/ingest"},
+        )
+        assert resp.status_code != 403
+
+    def test_mismatched_host_origin_rejected(self, csrf_db) -> None:
+        # Origin host != Host header (gpo-lens.example.com) -> CSRF blocked.
+        client = _proxy_client(csrf_db, "https://gpo-lens.example.com")
+        resp = client.post(
+            "/ingest", headers={"origin": "https://evil.example.com"}
+        )
+        assert resp.status_code == 403
+        assert "CSRF" in resp.json()["detail"]
+
+    def test_mismatched_host_referer_rejected(self, csrf_db) -> None:
+        client = _proxy_client(csrf_db, "https://gpo-lens.example.com")
+        resp = client.post(
+            "/ingest",
+            headers={"referer": "https://evil.example.com/attack"},
+        )
+        assert resp.status_code == 403
+
+
+class TestCsrfSameHostEdgeCases:
+    """Edge cases for the same-host check (default ports, casing, suffixes).
+
+    These lock in the normalization and guard against the empty-netloc bypass
+    surfaced by adversarial review.
+    """
+
+    def test_explicit_default_port_matches_bare_host(self, csrf_db) -> None:
+        # Origin carries :443 explicitly; Host (from base_url) omits it.
+        # Default-port stripping must make these match (curl/scripts send this).
+        client = _proxy_client(csrf_db, "https://gpo-lens.example.com")
+        resp = client.post(
+            "/ingest", headers={"origin": "https://gpo-lens.example.com:443"}
+        )
+        assert resp.status_code != 403
+
+    def test_case_insensitive_host_matches(self, csrf_db) -> None:
+        # Origin uppercased; Host lowercased by the browser/proxy.
+        client = _proxy_client(csrf_db, "https://gpo-lens.example.com")
+        resp = client.post(
+            "/ingest", headers={"origin": "https://GPO-LENS.EXAMPLE.COM"}
+        )
+        assert resp.status_code != 403
+
+    def test_subdomain_suffix_rejected(self, csrf_db) -> None:
+        # A name ending in the real host is NOT the real host.
+        client = _proxy_client(csrf_db, "https://gpo-lens.example.com")
+        resp = client.post(
+            "/ingest",
+            headers={"origin": "https://gpo-lens.example.com.evil.com"},
+        )
+        assert resp.status_code == 403
+
+    def test_null_origin_rejected(self, csrf_db) -> None:
+        # Browsers send "Origin: null" from sandboxed iframes / data: URIs.
+        client = _proxy_client(csrf_db, "https://gpo-lens.example.com")
+        resp = client.post("/ingest", headers={"origin": "null"})
+        assert resp.status_code == 403
+
+    def test_empty_netloc_origin_rejected(self, csrf_db) -> None:
+        # Origin with no host ("https://") must never match, even when the
+        # request carries a valid Host — guards the empty==empty bypass.
+        client = _proxy_client(csrf_db, "https://gpo-lens.example.com")
+        resp = client.post("/ingest", headers={"origin": "https://"})
         assert resp.status_code == 403
