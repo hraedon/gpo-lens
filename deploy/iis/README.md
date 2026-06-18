@@ -43,6 +43,29 @@ Re-running is safe and idempotent: the estate database and an existing
 `web.config` are preserved; use it for upgrades too (it stops the pool, refreshes
 the venv, restarts).
 
+## Upgrading an existing installation
+
+To refresh the app code on a site that's already configured, re-run the
+installer with **just `-ConfigureIIS`** and omit the binding flags:
+
+```powershell
+.\scripts\install-windows.ps1 -ConfigureIIS
+```
+
+The installer detects the existing IIS site and **preserves** the live binding
+configuration — port, hostname, SNI flag, and bound TLS certificate — for any
+flag you do not pass. So an upgrade-in-place leaves the HTTPS endpoint untouched
+and you do **not** have to re-specify `-Sni`/`-Port`/`-HostName`/
+`-TlsCertThumbprint`. (The script reads the live IIS/http.sys state via
+`Get-WebBinding` and `netsh http show sslcert`; an explicit flag still wins if
+you pass one — e.g. `-Port 443` changes the port, `-TlsCertThumbprint` rotates
+the certificate.)
+
+Windows Authentication is sticky: once enabled it is not disabled by an upgrade
+run without `-WindowsAuth` (a security-positive default). The `web.config` is
+also preserved (operator-set narration env vars are kept); delete it to reset to
+the template.
+
 The estate starts **empty**. Open the site and use **Ingest** to upload a
 collector export, or drop an existing `gpo-lens.sqlite3` into the data dir.
 
