@@ -456,6 +456,46 @@ def create_app(db_path: str, *, root_path: str = "") -> FastAPI:
             "localhost.localdomain",
         )
 
+    def _same_host_origin(url: str, host_header: str) -> bool:
+        """True if *url* (an Origin or Referer) is same-host as the request.
+
+        Behind a TLS-terminating reverse proxy (IIS/HttpPlatformHandler) the
+        browser's Origin carries the proxy hostname (e.g. ``https://host:8443``),
+        not loopback, so a loopback-only allowlist would reject legitimate
+        same-origin POSTs. A POST is treated as same-origin when the Origin/
+        Referer host:port matches the request's own ``Host`` header — the
+        CSRF-relevant signal, since a cross-host attacker cannot make the
+        victim's browser send an Origin whose host matches the target Host.
+
+        Comparison details:
+        - The scheme must be http or https (rejecting ``data:``, ``javascript:``,
+          ``null``, etc.); it is not compared against the request's own scheme,
+          which uvicorn sees as ``http`` even behind TLS termination.
+        - Only the host:port (netloc) is compared. A trailing default port
+          (``:443`` for https, ``:80`` for http) is stripped from both sides so
+          ``Origin: https://h:443`` matches ``Host: h`` — browsers omit default
+          ports, but curl/scripts may include them.
+        - An empty Origin or Host never matches (empty is not a hostname).
+        - uvicorn binds loopback and runs with ``proxy_headers=False``, so the
+          Host header reflects the proxy/browser rather than a spoofable
+          forwarded hop. This trusts the documented TLS+SNI reverse-proxy
+          deployment; plain-HTTP non-SNI hosting is out of scope (see
+          deploy/iis/README.md) — over plain HTTP a DNS-rebinding attacker could
+          align Origin and Host on a name they control.
+        """
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https"):
+            return False
+        default_suffix = ":443" if parsed.scheme == "https" else ":80"
+        origin_netloc = (parsed.netloc or "").lower()
+        host_netloc = (host_header or "").lower()
+        if origin_netloc.endswith(default_suffix):
+            origin_netloc = origin_netloc[: -len(default_suffix)]
+        if host_netloc.endswith(default_suffix):
+            host_netloc = host_netloc[: -len(default_suffix)]
+        return bool(origin_netloc) and origin_netloc == host_netloc
+
     from starlette.exceptions import HTTPException as StarletteHTTPException
 
     _ERROR_TITLES = {
@@ -517,17 +557,18 @@ def create_app(db_path: str, *, root_path: str = "") -> FastAPI:
         if request.method == "POST":
             origin = request.headers.get("origin", "")
             referer = request.headers.get("referer", "")
-            if origin and not _is_localhost_origin(origin):
-                return JSONResponse(
-                    {"detail": "CSRF validation failed"},
-                    status_code=403,
-                )
-            if not origin and referer and not _is_localhost_origin(referer):
-                return JSONResponse(
-                    {"detail": "CSRF validation failed"},
-                    status_code=403,
-                )
-            if not origin and not referer:
+            host = request.headers.get("host", "")
+            # A POST is same-origin if Origin/Referer is loopback (direct
+            # browser access to uvicorn) or matches the request's own Host
+            # (reverse-proxy/IIS deployment). Otherwise reject. With neither
+            # header, reject — browsers always send one on a same-origin POST.
+            if origin:
+                ok = _is_localhost_origin(origin) or _same_host_origin(origin, host)
+            elif referer:
+                ok = _is_localhost_origin(referer) or _same_host_origin(referer, host)
+            else:
+                ok = False
+            if not ok:
                 return JSONResponse(
                     {"detail": "CSRF validation failed"},
                     status_code=403,
