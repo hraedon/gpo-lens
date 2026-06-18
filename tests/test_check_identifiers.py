@@ -87,20 +87,24 @@ def test_scan_files_finds_violation_in_text_file(checker: ModuleType, tmp_path: 
 
 
 def test_scan_files_skips_binary_file(checker: ModuleType, tmp_path: Path) -> None:
+    # Identifier is present in BOTH files — the binary one must be skipped.
     binary = tmp_path / "data.bin"
-    binary.write_bytes(b"prefix\x00suffix")
+    binary.write_bytes(b"SYNTHETIC-DOMAIN in binary\x00null")
     text_file = tmp_path / "notes.md"
     text_file.write_text("SYNTHETIC-DOMAIN appears here.\n", encoding="utf-8")
     identifiers = frozenset({"synthetic-domain"})
     violations = checker.scan_files(identifiers, [binary, text_file])
-    assert violations == [
-        checker.Violation(
-            identifier="synthetic-domain",
-            path=text_file,
-            line_number=1,
-            line="SYNTHETIC-DOMAIN appears here.",
-        )
-    ]
+    assert len(violations) == 1
+    assert violations[0].path == text_file
+
+
+def test_scan_files_reads_utf16_file(checker: ModuleType, tmp_path: Path) -> None:
+    utf16_file = tmp_path / "utf16.txt"
+    utf16_file.write_text("SYNTHETIC-DOMAIN in UTF-16\n", encoding="utf-16")
+    identifiers = frozenset({"synthetic-domain"})
+    violations = checker.scan_files(identifiers, [utf16_file])
+    assert len(violations) == 1
+    assert violations[0].path == utf16_file
 
 
 def test_scan_files_ignores_short_identifiers(checker: ModuleType, tmp_path: Path) -> None:

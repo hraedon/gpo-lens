@@ -344,6 +344,7 @@ def _json_attachment(payload: object, filename: str) -> Response:
 
 _audit_logger: logging.Logger | None = None
 _audit_log_configured_path: Path | None = None
+_audit_lock = threading.Lock()
 
 
 def _audit_log_path(db_path: str) -> Path:
@@ -364,30 +365,34 @@ def _ensure_audit_logger(db_path: str) -> None:
     Reconfigures when the target path changes (e.g. an env-var override
     flipped between requests, as in tests). All failures are caught and
     logged via ``_logger``; the audit logger is left ``None`` so
-    :func:`_audit` becomes a no-op.
+    :func:`_audit` becomes a no-op. Guarded by ``_audit_lock`` so
+    concurrent first-call or path-change races cannot orphan file handles.
     """
     global _audit_logger, _audit_log_configured_path
     desired = _audit_log_path(db_path)
     if _audit_logger is not None and _audit_log_configured_path == desired:
         return
-    logger = logging.getLogger("gpo_lens.audit")
-    logger.setLevel(logging.INFO)
-    logger.propagate = False
-    for handler in list(logger.handlers):
-        logger.removeHandler(handler)
-        handler.close()
-    try:
-        desired.parent.mkdir(parents=True, exist_ok=True)
-        handler = logging.FileHandler(str(desired), mode="a", encoding="utf-8")
-        handler.setFormatter(logging.Formatter("%(message)s"))
-        logger.addHandler(handler)
-    except OSError as exc:
-        _logger.warning("Cannot open audit log at %s: %s", desired, exc)
-        _audit_logger = None
-        _audit_log_configured_path = None
-        return
-    _audit_logger = logger
-    _audit_log_configured_path = desired
+    with _audit_lock:
+        if _audit_logger is not None and _audit_log_configured_path == desired:
+            return
+        logger = logging.getLogger("gpo_lens.audit")
+        logger.setLevel(logging.INFO)
+        logger.propagate = False
+        for handler in list(logger.handlers):
+            logger.removeHandler(handler)
+            handler.close()
+        try:
+            desired.parent.mkdir(parents=True, exist_ok=True)
+            handler = logging.FileHandler(str(desired), mode="a", encoding="utf-8")
+            handler.setFormatter(logging.Formatter("%(message)s"))
+            logger.addHandler(handler)
+        except OSError as exc:
+            _logger.warning("Cannot open audit log at %s: %s", desired, exc)
+            _audit_logger = None
+            _audit_log_configured_path = None
+            return
+        _audit_logger = logger
+        _audit_log_configured_path = desired
 
 
 def _audit(
@@ -976,7 +981,7 @@ def create_app(db_path: str, *, root_path: str = "") -> FastAPI:
                 finally:
                     rw_conn.close()
 
-            filename = file.filename or "unknown"
+            filename = (file.filename or "unknown")[:256]
             _audit(
                 "ingest", principal, "success",
                 f"{filename} ({len(estate.gpos)} GPOs)", request,
