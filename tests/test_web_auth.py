@@ -90,10 +90,16 @@ class TestRequiresDecorator:
 
 
 class TestRoutePermissions:
+    # Intentionally unauthenticated routes — liveness/version probes that
+    # IIS/app-pool supervisors and ops must reach without credentials.
+    _UNAUTHED_ROUTES = {"/healthz", "/api/version"}
+
     def test_all_routes_declare_a_permission(self, tmp_db):
         app = create_app(tmp_db)
         for route in app.routes:
             if not hasattr(route, "dependant"):
+                continue
+            if route.path in self._UNAUTHED_ROUTES:
                 continue
             dependant = route.dependant
             has_perm_check = False

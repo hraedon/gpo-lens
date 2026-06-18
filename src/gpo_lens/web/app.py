@@ -10,9 +10,11 @@ import shutil
 import sqlite3
 import stat
 import threading
+import uuid
 import zipfile
 from collections import defaultdict
 from collections.abc import Iterator
+from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
@@ -332,6 +334,94 @@ def _json_attachment(payload: object, filename: str) -> Response:
     )
 
 
+# ------------------------------------------------------------------
+# Audit logging — best-effort, append-only JSON-lines audit trail for
+# privileged operations. A write failure must never break the audited
+# operation; it is logged via ``_logger`` and swallowed. The audit log
+# is not in the truth path: it records *that* an operator attempted a
+# privileged action, nothing more.
+# ------------------------------------------------------------------
+
+_audit_logger: logging.Logger | None = None
+_audit_log_configured_path: Path | None = None
+
+
+def _audit_log_path(db_path: str) -> Path:
+    """Resolve the audit log file path.
+
+    ``GPO_LENS_AUDIT_LOG`` overrides; otherwise the log sits beside the
+    estate database (``<db_dir>/audit.log``).
+    """
+    env = os.environ.get("GPO_LENS_AUDIT_LOG")
+    if env:
+        return Path(env)
+    return Path(db_path).resolve().parent / "audit.log"
+
+
+def _ensure_audit_logger(db_path: str) -> None:
+    """Lazily (re)configure the module-level audit logger for *db_path*.
+
+    Reconfigures when the target path changes (e.g. an env-var override
+    flipped between requests, as in tests). All failures are caught and
+    logged via ``_logger``; the audit logger is left ``None`` so
+    :func:`_audit` becomes a no-op.
+    """
+    global _audit_logger, _audit_log_configured_path
+    desired = _audit_log_path(db_path)
+    if _audit_logger is not None and _audit_log_configured_path == desired:
+        return
+    logger = logging.getLogger("gpo_lens.audit")
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+    for handler in list(logger.handlers):
+        logger.removeHandler(handler)
+        handler.close()
+    try:
+        desired.parent.mkdir(parents=True, exist_ok=True)
+        handler = logging.FileHandler(str(desired), mode="a", encoding="utf-8")
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        logger.addHandler(handler)
+    except OSError as exc:
+        _logger.warning("Cannot open audit log at %s: %s", desired, exc)
+        _audit_logger = None
+        _audit_log_configured_path = None
+        return
+    _audit_logger = logger
+    _audit_log_configured_path = desired
+
+
+def _audit(
+    action: str,
+    principal: Principal | None,
+    outcome: str,
+    detail: str,
+    request: Request,
+) -> None:
+    """Append a JSON-lines audit entry for a privileged operation.
+
+    Best-effort: any failure is swallowed and logged via ``_logger`` so
+    the audited operation is never affected.
+    """
+    db_path = getattr(request.app.state, "db_path", "")
+    if isinstance(db_path, str) and db_path:
+        _ensure_audit_logger(db_path)
+    if _audit_logger is None:
+        return
+    request_id: str | None = getattr(request.state, "request_id", None)
+    entry: dict[str, object] = {
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "action": action,
+        "principal": principal.name if principal else None,
+        "outcome": outcome,
+        "detail": detail,
+        "request_id": request_id,
+    }
+    try:
+        _audit_logger.info(json.dumps(entry, default=str))
+    except Exception as exc:
+        _logger.warning("Audit log write failed: %s", exc)
+
+
 def create_app(db_path: str, *, root_path: str = "") -> FastAPI:
     app = FastAPI(root_path=root_path, docs_url=None, redoc_url=None, openapi_url=None)
     app.state.db_path = db_path
@@ -438,6 +528,28 @@ def create_app(db_path: str, *, root_path: str = "") -> FastAPI:
                     status_code=403,
                 )
         return await call_next(request)
+
+    @app.middleware("http")
+    async def _request_id(request: Request, call_next):  # type: ignore[no-untyped-def]
+        # Stable per-request id so audit entries correlate with future request
+        # logging if added. Registered last so it is outermost (runs first).
+        request.state.request_id = uuid.uuid4().hex[:12]
+        return await call_next(request)
+
+    @app.get("/healthz", name="healthz")
+    async def healthz() -> JSONResponse:
+        # Unauthenticated liveness probe. Reveals nothing but liveness, so it
+        # is safe for IIS/app-pool supervisors to poll without credentials.
+        return JSONResponse({"status": "ok"})
+
+    @app.get("/api/version", name="api_version")
+    async def api_version() -> JSONResponse:
+        # Unauthenticated version surface. The version is already public via
+        # pyproject.toml and the ``--version`` CLI flag; ops needs to confirm
+        # the running build via curl without credentials.
+        from gpo_lens import __version__
+
+        return JSONResponse({"version": __version__, "name": "gpo-lens"})
 
     @app.get("/", response_class=HTMLResponse, name="home")
     async def home(
@@ -809,6 +921,7 @@ def create_app(db_path: str, *, root_path: str = "") -> FastAPI:
     ) -> HTMLResponse | RedirectResponse:
         lock: threading.Lock = app.state.ingest_lock
         if not lock.acquire(blocking=False):
+            _audit("ingest", principal, "failure", "another ingest in progress", request)
             return templates.TemplateResponse(
                 request, "ingest.html",
                 {"error": "Another ingest is in progress, please try again."},
@@ -819,6 +932,7 @@ def create_app(db_path: str, *, root_path: str = "") -> FastAPI:
             with TemporaryDirectory() as tmpdir:
                 zip_path = Path(tmpdir) / "upload.zip"
                 if await _stream_upload_to_file(file, zip_path, _MAX_UPLOAD_BYTES):
+                    _audit("ingest", principal, "failure", "upload exceeds size limit", request)
                     return templates.TemplateResponse(
                         request, "ingest.html",
                         {"error": "Upload exceeds 500MB limit."},
@@ -833,6 +947,7 @@ def create_app(db_path: str, *, root_path: str = "") -> FastAPI:
                     OSError, NotImplementedError, RuntimeError, MemoryError,
                 ) as exc:
                     _logger.warning("Malformed zip upload: %s", exc)
+                    _audit("ingest", principal, "failure", type(exc).__name__, request)
                     return templates.TemplateResponse(
                         request, "ingest.html",
                         {"error": "Malformed zip file. Please check the upload and try again."},
@@ -843,6 +958,7 @@ def create_app(db_path: str, *, root_path: str = "") -> FastAPI:
                     estate = _ingest.load_estate(extract_dir)
                 except (FileNotFoundError, ValueError, KeyError) as exc:
                     _logger.warning("Invalid estate data: %s", exc)
+                    _audit("ingest", principal, "failure", type(exc).__name__, request)
                     return templates.TemplateResponse(
                         request, "ingest.html",
                         {"error": "Invalid estate data in upload."},
@@ -860,6 +976,11 @@ def create_app(db_path: str, *, root_path: str = "") -> FastAPI:
                 finally:
                     rw_conn.close()
 
+            filename = file.filename or "unknown"
+            _audit(
+                "ingest", principal, "success",
+                f"{filename} ({len(estate.gpos)} GPOs)", request,
+            )
             return RedirectResponse(url=request.url_for("home"), status_code=303)
         finally:
             lock.release()

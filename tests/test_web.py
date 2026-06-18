@@ -938,8 +938,10 @@ class TestOuDetailScopeCaveats:
     def test_ou_detail_lists_loopback_caveat(self, client) -> None:
         resp = client.get("/ou/dc=fakefixture,dc=local")
         assert resp.status_code == 200
-        html_lower = resp.text.lower()
-        assert "loopback" in html_lower
+        # The caveat list uses "loopback=<mode>" (topology.scope_caveats),
+        # not the fallback text "no loopback, ..." — this assertion only
+        # passes when a real loopback caveat is actually rendered.
+        assert "loopback=" in resp.text.lower()
 
 
 class TestGpoDetailScopeCaveats:
@@ -1261,4 +1263,177 @@ class TestExport:
         unauthed = TestClient(app)  # no Authorization header
         resp = unauthed.get("/export/findings?format=csv")
         assert resp.status_code == 401
+
+
+class TestHealthAndVersion:
+    """Unauthenticated liveness/version probes for IIS supervision."""
+
+    def test_healthz_returns_200_without_auth_header(self, tmp_db, monkeypatch) -> None:
+        from fastapi.testclient import TestClient
+
+        from gpo_lens.web.app import create_app
+
+        monkeypatch.setenv("GPO_LENS_AUTH_TOKEN", "test-secret-token")
+        app = create_app(tmp_db)
+        unauthed = TestClient(app)  # no Authorization header
+        resp = unauthed.get("/healthz")
+        assert resp.status_code == 200
+        assert resp.json() == {"status": "ok"}
+
+    def test_api_version_returns_200_without_auth_header(
+        self, tmp_db, monkeypatch
+    ) -> None:
+        from fastapi.testclient import TestClient
+
+        from gpo_lens import __version__
+        from gpo_lens.web.app import create_app
+
+        monkeypatch.setenv("GPO_LENS_AUTH_TOKEN", "test-secret-token")
+        app = create_app(tmp_db)
+        unauthed = TestClient(app)
+        resp = unauthed.get("/api/version")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["version"] == __version__
+        assert body["name"] == "gpo-lens"
+
+    def test_healthz_reachable_with_no_token_configured(self, tmp_db, monkeypatch) -> None:
+        from fastapi.testclient import TestClient
+
+        from gpo_lens.web.app import create_app
+
+        monkeypatch.delenv("GPO_LENS_AUTH_TOKEN", raising=False)
+        app = create_app(tmp_db)
+        unauthed = TestClient(app)
+        resp = unauthed.get("/healthz")
+        assert resp.status_code == 200
+        assert resp.json() == {"status": "ok"}
+
+
+@pytest.fixture()
+def audit_client(fixture_db: str, tmp_path: Path, monkeypatch) -> object:
+    """A TestClient whose audit log writes to tmp_path/audit.log."""
+    from fastapi.testclient import TestClient
+
+    from gpo_lens.web import app as appmod
+    from gpo_lens.web.app import create_app
+
+    monkeypatch.setenv("GPO_LENS_AUDIT_LOG", str(tmp_path / "audit.log"))
+    monkeypatch.setattr(appmod, "_audit_logger", None)
+    monkeypatch.setattr(appmod, "_audit_log_configured_path", None)
+    monkeypatch.setenv("GPO_LENS_AUTH_TOKEN", "test-secret-token")
+    app = create_app(fixture_db)
+    return TestClient(
+        app,
+        headers={
+            "origin": "http://localhost",
+            "Authorization": "Bearer test-secret-token",
+        },
+    )
+
+
+class TestAuditLog:
+    """Best-effort JSON-lines audit trail for privileged operations (ingest)."""
+
+    @staticmethod
+    def _make_fixture_zip() -> bytes:
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            for path in FIXTURE_DIR.rglob("*"):
+                if path.is_file():
+                    arcname = path.relative_to(FIXTURE_DIR)
+                    zf.write(path, arcname)
+        return buf.getvalue()
+
+    @staticmethod
+    def _read_audit_log(path: Path) -> list[dict[str, object]]:
+        if not path.exists():
+            return []
+        entries: list[dict[str, object]] = []
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line:
+                entries.append(json.loads(line))
+        return entries
+
+    def test_audit_log_path_defaults_to_db_dir(self, tmp_path: Path) -> None:
+        from gpo_lens.web.app import _audit_log_path
+
+        db = tmp_path / "estate.sqlite3"
+        db.write_text("")
+        assert _audit_log_path(str(db)) == tmp_path / "audit.log"
+
+    def test_audit_log_path_env_override(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from gpo_lens.web.app import _audit_log_path
+
+        custom = tmp_path / "custom" / "audit.jsonl"
+        monkeypatch.setenv("GPO_LENS_AUDIT_LOG", str(custom))
+        assert _audit_log_path("/any/db.sqlite3") == custom
+
+    def test_ingest_success_writes_audit_entry(
+        self, audit_client: object, tmp_path: Path
+    ) -> None:
+        data = self._make_fixture_zip()
+        resp = audit_client.post(  # type: ignore[union-attr]
+            "/ingest",
+            files={"file": ("fixture.zip", data, "application/zip")},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+        entries = self._read_audit_log(tmp_path / "audit.log")
+        assert len(entries) == 1
+        entry = entries[0]
+        assert entry["action"] == "ingest"
+        assert entry["outcome"] == "success"
+        assert entry["principal"] == "local-analyst"
+        assert "fixture.zip" in str(entry["detail"])
+        assert entry["request_id"] is not None
+
+    def test_ingest_failure_writes_audit_entry(
+        self, audit_client: object, tmp_path: Path
+    ) -> None:
+        resp = audit_client.post(  # type: ignore[union-attr]
+            "/ingest",
+            files={"file": ("bad.zip", b"not a zip", "application/zip")},
+        )
+        assert resp.status_code == 400
+        entries = self._read_audit_log(tmp_path / "audit.log")
+        assert len(entries) == 1
+        entry = entries[0]
+        assert entry["action"] == "ingest"
+        assert entry["outcome"] == "failure"
+
+    def test_audit_log_write_failure_does_not_break_ingest(
+        self, fixture_db: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from fastapi.testclient import TestClient
+
+        from gpo_lens.web import app as appmod
+        from gpo_lens.web.app import create_app
+
+        # Point the audit log at a path whose parent is a file, not a
+        # directory, so the FileHandler open fails with OSError.
+        blocker = tmp_path / "blocker"
+        blocker.write_text("not a dir")
+        monkeypatch.setenv("GPO_LENS_AUDIT_LOG", str(blocker / "audit.log"))
+        monkeypatch.setattr(appmod, "_audit_logger", None)
+        monkeypatch.setattr(appmod, "_audit_log_configured_path", None)
+        monkeypatch.setenv("GPO_LENS_AUTH_TOKEN", "test-secret-token")
+        app = create_app(fixture_db)
+        client = TestClient(
+            app,
+            headers={
+                "origin": "http://localhost",
+                "Authorization": "Bearer test-secret-token",
+            },
+        )
+        data = self._make_fixture_zip()
+        resp = client.post(
+            "/ingest",
+            files={"file": ("fixture.zip", data, "application/zip")},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
 
