@@ -5,7 +5,7 @@
 **Strategic role:** gpo-lens's differentiator is its SDDL/delegation analysis —
 the attack-path view (who can write a GPO, who gets Apply, deny ACEs). But that
 analysis currently speaks in **bare SIDs** wherever it reads from SDDL, because
-`parse_sddl` yields SID-only ACEs. `S-1-5-21-1245719852-65425958-1846952604-1131`
+`parse_sddl` yields SID-only ACEs. `S-1-5-21-1234567890-1234567890-1234567890-1131`
 is not actionable to a human. This plan makes principals legible: resolve SIDs to
 names, then (later) to membership and population. Crucially it does this through
 **richer collection, not a live AD bind** — the new artifacts are point-in-time,
