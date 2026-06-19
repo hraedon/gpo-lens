@@ -21,7 +21,7 @@ import pytest
 SAMPLES = Path(__file__).resolve().parent.parent / "samples"
 _NEEDED = ("AllGPOs.xml", "gp-inheritance.json", "gpo-metadata.json")
 
-# Real exports are named by their domain (e.g. WORK-DOMAIN.local-*.zip), and samples/
+# Real exports are named by their domain (e.g. WORKDOMAIN.local-*.zip), and samples/
 # is gitignored precisely so those names never reach git. This conftest IS
 # committed, so it must not hard-code a real domain. An optional gitignored
 # manifest (samples/calibration.json: {"work": "<file>.zip", "lab": "<file>.zip"})
