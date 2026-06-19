@@ -1,5 +1,40 @@
 # Changelog
 
+## v0.6.3 — 2026-06-19
+
+### End-to-end validation of Plans 017–021 — four real-data-only bugs fixed
+
+The Plans 017–021 feature work passed unit/sample tests but had bugs that only
+surface against real collector output (the synthetic fixtures used canonical
+string values the live data never emits). End-to-end runs against the lab and
+work estates caught:
+
+- **Danger owner false positive (Plan 018):** real GPO SDDL names the owner with
+  the domain-relative alias `O:DA` (Domain Admins), not a raw `S-1-5-21-…-512`
+  SID. `resolve_well_known` didn't know `DA`/`EA`, so **every** GPO was flagged
+  "owned by a non-admin trustee." Added the domain-relative SDDL aliases to
+  `authz._SDDL_SID_ALIASES`.
+- **Danger Creator Owner false positive (Plan 018):** the `CO` (S-1-3-0)
+  full-control ACE present in every default GPO DACL was flagged as a hijack
+  primitive on every GPO. Creator Owner / Creator Group / Owner Rights are
+  non-actionable placeholders (no principal authenticates as them) — added them
+  to `detection._DEFAULT_WRITER_NAMES`. Clean lab now reports 0 findings; the
+  messy work estate still surfaces 35 real custom-group writers.
+- **Principals dropped on the `--db` path (Plans 020/021):** `store` persisted
+  everything except `principals` / `group_members`, so `danger` and `resultant`
+  run against a saved snapshot silently degraded to raw SIDs. Added schema v3
+  (`principal` + `group_member` tables) with a defensive read path for pre-v3
+  DBs.
+- **`container_type` never normalized (Plans 017/019/021):** `Get-GPInheritance`
+  serializes its `SomType` enum as an integer (Domain=1, OU=2), but the `/ou`
+  type filter and `merge`/`topology` site/domain logic compare against the
+  strings `"domain"`/`"ou"`/`"site"`. The type filter returned nothing on real
+  data. Normalized at ingest (`_normalize_container_type`).
+
+### Test coverage
+- 1338 passed, 6 skipped. Added regression tests for each fix. `ruff` and
+  `mypy` clean.
+
 ## v0.6.2 — 2026-06-19
 
 ### Work-item hygiene: close 4 resolved WIs

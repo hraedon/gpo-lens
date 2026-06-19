@@ -14,7 +14,9 @@ from gpo_lens.model import (
     Estate,
     Gpo,
     GpoLink,
+    GroupMembership,
     OuRecord,
+    ResolvedPrincipal,
     Setting,
     Som,
     SomLink,
@@ -24,7 +26,10 @@ from gpo_lens.model import (
 # Schema version stored in PRAGMA user_version by ``_migrate_schema``.
 # v1 = original ``init_db`` schema.
 # v2 = adds the nullable ``description`` column to the ``gpo`` table.
-CURRENT_SCHEMA_VERSION: int = 2
+# v3 = adds the ``principal`` + ``group_member`` tables (Plan 020/021), so the
+#      collected principal-resolution inputs survive a snapshot round-trip
+#      instead of being dropped on the ``--db`` read path.
+CURRENT_SCHEMA_VERSION: int = 3
 
 
 def init_db(conn: sqlite3.Connection) -> None:
@@ -198,6 +203,33 @@ def init_db(conn: sqlite3.Connection) -> None:
         )
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS principal (
+            snapshot_id INTEGER NOT NULL REFERENCES snapshot(id) ON DELETE CASCADE,
+            sid TEXT NOT NULL,
+            name TEXT NOT NULL,
+            sam TEXT NOT NULL,
+            principal_type TEXT NOT NULL,
+            domain TEXT NOT NULL,
+            resolved INTEGER NOT NULL,
+            PRIMARY KEY (snapshot_id, sid)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS group_member (
+            snapshot_id INTEGER NOT NULL REFERENCES snapshot(id) ON DELETE CASCADE,
+            sid TEXT NOT NULL,
+            name TEXT NOT NULL,
+            members TEXT NOT NULL,
+            member_count INTEGER NOT NULL,
+            implicit TEXT NOT NULL DEFAULT '',
+            PRIMARY KEY (snapshot_id, sid)
+        )
+        """
+    )
     init_events_table(conn)
     _migrate_schema(conn)
     conn.commit()
@@ -209,6 +241,15 @@ def _column_exists(conn: sqlite3.Connection, table: str, column: str) -> bool:
         raise ValueError(f"unsafe table identifier: {table!r}")
     rows = conn.execute(f'PRAGMA table_info("{table}")').fetchall()
     return any(r[1] == column for r in rows)
+
+
+def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
+    """True if ``table`` exists. Lets the read path tolerate pre-v3 DBs that
+    were written before the ``principal`` / ``group_member`` tables existed."""
+    row = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)
+    ).fetchone()
+    return row is not None
 
 
 def _migrate_schema(conn: sqlite3.Connection) -> None:
@@ -421,6 +462,24 @@ def save_estate(conn: sqlite3.Connection, estate: Estate, taken_at: datetime | N
             (snapshot_id, gap.gpo_id, gap.display_name, gap.kind, gap.detail),
         )
 
+    for p in estate.principals.values():
+        conn.execute(
+            "INSERT OR IGNORE INTO principal "
+            "(snapshot_id, sid, name, sam, principal_type, domain, resolved) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (snapshot_id, p.sid, p.name, p.sam, p.principal_type,
+             p.domain, int(p.resolved)),
+        )
+
+    for gm in estate.group_members.values():
+        conn.execute(
+            "INSERT OR IGNORE INTO group_member "
+            "(snapshot_id, sid, name, members, member_count, implicit) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (snapshot_id, gm.sid, gm.name, json.dumps(list(gm.members)),
+             gm.member_count, gm.implicit),
+        )
+
     conn.commit()
     return snapshot_id
 
@@ -610,6 +669,31 @@ def load_estate(conn: sqlite3.Connection, snapshot_id: int | None = None) -> Est
             CoverageGap(gpo_id=row[0], display_name=row[1], kind=row[2], detail=row[3])
         )
 
+    # principal / group_member tables arrived in schema v3; tolerate older DBs.
+    principals: dict[str, ResolvedPrincipal] = {}
+    if _table_exists(conn, "principal"):
+        for row in conn.execute(
+            "SELECT sid, name, sam, principal_type, domain, resolved FROM principal "
+            "WHERE snapshot_id = ? ORDER BY sid",
+            (snapshot_id,),
+        ):
+            principals[row[0]] = ResolvedPrincipal(
+                sid=row[0], name=row[1], sam=row[2], principal_type=row[3],
+                domain=row[4], resolved=bool(row[5]),
+            )
+
+    group_members: dict[str, GroupMembership] = {}
+    if _table_exists(conn, "group_member"):
+        for row in conn.execute(
+            "SELECT sid, name, members, member_count, implicit FROM group_member "
+            "WHERE snapshot_id = ? ORDER BY sid",
+            (snapshot_id,),
+        ):
+            group_members[row[0]] = GroupMembership(
+                sid=row[0], name=row[1], members=tuple(json.loads(row[2])),
+                member_count=row[3], implicit=row[4],
+            )
+
     return Estate(
         domain=domain,
         gpos=list(gpos.values()),
@@ -617,6 +701,8 @@ def load_estate(conn: sqlite3.Connection, snapshot_id: int | None = None) -> Est
         wmi_filters=wmi_filters,
         ou_tree=ou_tree,
         coverage_gaps=coverage_gaps,
+        principals=principals,
+        group_members=group_members,
     )
 
 

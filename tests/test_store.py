@@ -237,7 +237,7 @@ def test_init_db_rejects_future_schema_version(tmp_path):
         RuntimeError,
         match=(
             "schema version 99 is newer than this gpo-lens release supports "
-            "\\(version 2\\)"
+            rf"\(version {store.CURRENT_SCHEMA_VERSION}\)"
         ),
     ):
         store.init_db(conn)
@@ -345,3 +345,67 @@ def test_snapshot_changelog_batched_query_shape(tmp_path):
     assert e_beta.version_change.new_sysvol == 2
     assert e_beta.version_change.edit_count == 1
     assert e_beta.setting_changes == []
+
+
+# ---------------------------------------------------------------------------
+# principal / group_member persistence (schema v3) — Plan 020/021 inputs must
+# survive the snapshot round-trip, or the default --db path silently degrades
+# principal resolution to raw SIDs.
+# ---------------------------------------------------------------------------
+
+
+def test_principals_and_group_members_round_trip(tmp_path):
+    from gpo_lens.model import GroupMembership, ResolvedPrincipal
+
+    db = tmp_path / "principals.db"
+    conn = sqlite3.connect(str(db))
+    store.init_db(conn)
+
+    principals = {
+        "s-1-5-21-1-2-3-1000": ResolvedPrincipal(
+            sid="s-1-5-21-1-2-3-1000", name="TEST\\GPO-Admins", sam="GPO-Admins",
+            principal_type="Group", domain="TEST", resolved=True,
+        ),
+        "s-1-5-21-1-2-3-9999": ResolvedPrincipal(
+            sid="s-1-5-21-1-2-3-9999", name="s-1-5-21-1-2-3-9999", sam="",
+            principal_type="Unresolved", domain="", resolved=False,
+        ),
+    }
+    group_members = {
+        "s-1-5-21-1-2-3-1000": GroupMembership(
+            sid="s-1-5-21-1-2-3-1000", name="TEST\\GPO-Admins",
+            members=("s-1-5-21-1-2-3-1001", "s-1-5-21-1-2-3-1002"),
+            member_count=2, implicit="",
+        ),
+    }
+    estate_in = Estate(
+        domain="test.local", gpos=[_make_gpo()],
+        principals=principals, group_members=group_members,
+    )
+    sid = store.save_estate(conn, estate_in)
+    out = store.load_estate(conn, sid)
+
+    assert out.principals == principals
+    assert out.group_members == group_members
+    # the resolved name is what the danger/resultant surfaces depend on
+    assert out.principals["s-1-5-21-1-2-3-1000"].name == "TEST\\GPO-Admins"
+    assert out.group_members["s-1-5-21-1-2-3-1000"].members == (
+        "s-1-5-21-1-2-3-1001", "s-1-5-21-1-2-3-1002"
+    )
+
+
+def test_load_estate_tolerates_pre_v3_db_without_principal_tables(tmp_path):
+    """A DB written before schema v3 has no principal/group_member tables; the
+    read path must return empty maps, not raise."""
+    db = tmp_path / "legacy.db"
+    conn = sqlite3.connect(str(db))
+    store.init_db(conn)
+    sid = store.save_estate(conn, Estate(domain="test.local", gpos=[_make_gpo()]))
+    # Simulate a pre-v3 DB by dropping the new tables.
+    conn.execute("DROP TABLE principal")
+    conn.execute("DROP TABLE group_member")
+    conn.commit()
+
+    out = store.load_estate(conn, sid)
+    assert out.principals == {}
+    assert out.group_members == {}

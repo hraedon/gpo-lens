@@ -990,3 +990,48 @@ class TestStreamingBaselineZip:
         with unittest.mock.patch("gpo_lens.ingest._MAX_DECOMPRESSED_BYTES", 200):
             with pytest.raises(ValueError, match="exceeds limit"):
                 ingest.load_baseline_from_zip(zip_path)
+
+
+# ---------------------------------------------------------------------------
+# container_type normalization (Get-GPInheritance serializes the SomType enum
+# as an integer; the rest of gpo-lens expects the canonical lowercase string)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "raw, expected",
+    [
+        (1, "domain"),        # ConvertTo-Json serializes SomType.Domain as 1
+        (2, "ou"),            # SomType.OrganizationalUnit
+        (0, "site"),
+        ("1", "domain"),      # string-of-int form
+        ("2", "ou"),
+        ("Domain", "domain"), # -EnumsAsStrings form
+        ("OU", "ou"),
+        ("OrganizationalUnit", "ou"),
+        ("site", "site"),
+        (True, ""),           # bool must not be read as int 1
+        (None, ""),
+    ],
+)
+def test_normalize_container_type(raw: object, expected: str) -> None:
+    assert ingest._normalize_container_type(raw) == expected
+
+
+def test_parse_inheritance_normalizes_integer_container_type(tmp_path: Path) -> None:
+    """Real collector output carries integer ContainerType; parse_inheritance
+    must emit the canonical string so the /ou type filter and merge site/domain
+    logic match. Regression for the silently-broken type filter."""
+    import json
+
+    data = [
+        {"Path": "dc=test,dc=local", "Name": "test.local", "ContainerType": 1,
+         "GpoInheritanceBlocked": False, "InheritedGpoLinks": []},
+        {"Path": "ou=eng,dc=test,dc=local", "Name": "eng", "ContainerType": 2,
+         "GpoInheritanceBlocked": False, "InheritedGpoLinks": []},
+    ]
+    p = tmp_path / "gp-inheritance.json"
+    p.write_text(json.dumps(data))
+    soms = ingest.parse_inheritance(p)
+    by_type = {s.container_type for s in soms}
+    assert by_type == {"domain", "ou"}

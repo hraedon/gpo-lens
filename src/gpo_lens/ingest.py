@@ -537,6 +537,35 @@ def _parse_single_gpo(gpo_elem: Element) -> Gpo:
     return gpo
 
 
+# ``Get-GPInheritance`` returns a ``Microsoft.GroupPolicy.SomType`` enum for
+# ``ContainerType``. The console *displays* it as "Domain"/"OU", but
+# ``ConvertTo-Json`` (PowerShell 5.1) serializes the underlying integer
+# (observed: Domain=1, OU=2). The rest of gpo-lens treats ``container_type`` as
+# the canonical lowercase string ("domain"/"ou"/"site") — sites are appended
+# separately with that contract — so normalize here, tolerating both the int
+# and string forms (a future ``-EnumsAsStrings`` collector would emit names).
+_SOM_TYPE_INTS = {0: "site", 1: "domain", 2: "ou"}
+_SOM_TYPE_NAMES = {
+    "site": "site",
+    "domain": "domain",
+    "ou": "ou",
+    "organizationalunit": "ou",
+}
+
+
+def _normalize_container_type(raw: object) -> str:
+    if isinstance(raw, bool):  # guard: bool is an int subclass
+        return ""
+    if isinstance(raw, int):
+        return _SOM_TYPE_INTS.get(raw, "")
+    if isinstance(raw, str):
+        s = raw.strip()
+        if s.isdigit():
+            return _SOM_TYPE_INTS.get(int(s), "")
+        return _SOM_TYPE_NAMES.get(s.lower(), s.lower())
+    return ""
+
+
 def parse_inheritance(json_path: str | Path) -> list[Som]:
     """Parse GPInheritance dump into a list of ``Som``."""
     data = load_json(json_path)
@@ -546,7 +575,7 @@ def parse_inheritance(json_path: str | Path) -> list[Som]:
     for record in data:
         path = record.get("Path", "")
         name = record.get("Name", "")
-        container_type = record.get("ContainerType", "")
+        container_type = _normalize_container_type(record.get("ContainerType", ""))
         inheritance_blocked = record.get("GpoInheritanceBlocked", False)
         if isinstance(inheritance_blocked, str):
             inheritance_blocked = inheritance_blocked.strip().lower() == "true"

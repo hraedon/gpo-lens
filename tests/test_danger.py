@@ -138,6 +138,22 @@ class TestGpoWritableByNonadmin:
         writable = [f for f in findings if f.check_id == "gpo_writable_nonadmin"]
         assert len(writable) == 1
 
+    def test_ignores_real_default_gpo_dacl(self) -> None:
+        """Regression: real GPO SDDL uses the ``O:DA`` alias and a Creator Owner
+        (CO) full-control ACE. Neither is a hijack primitive — flagging them
+        produced a finding on *every* GPO and buried the real signal."""
+        sddl = (
+            "O:DAG:DAD:PAI"
+            "(A;CI;CCDCLCSWRPWPDTLOSDRCWDWO;;;DA)"   # Domain Admins full control
+            "(A;CI;CCDCLCSWRPWPDTLOSDRCWDWO;;;EA)"   # Enterprise Admins full control
+            "(A;CI;CCDCLCSWRPWPDTLOSDRCWDWO;;;CO)"   # Creator Owner full control
+            "(A;CI;CCDCLCSWRPWPDTLOSDRCWDWO;;;SY)"   # SYSTEM full control
+            "(A;CI;RPLCRC;;;AU)"                     # Authenticated Users read+apply
+        )
+        gpo = _make_gpo(sddl=sddl)
+        findings = gpo_writable_by_nonadmin(Estate(gpos=[gpo]))
+        assert findings == []
+
     def test_detail_shows_resolved_name_with_sid(self) -> None:
         """AC-1/AC-4: detail shows 'name (sid)' when principals.json is present."""
         from gpo_lens.model import ResolvedPrincipal

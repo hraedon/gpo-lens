@@ -149,6 +149,32 @@ def test_is_default_writer_sid_verdicts_unchanged(sid: str, expected: bool):
     assert _is_default_writer_sid(sid) is expected
 
 
+@pytest.mark.parametrize(
+    "alias, name",
+    [
+        ("DA", "Domain Admins"),
+        ("da", "Domain Admins"),
+        ("EA", "Enterprise Admins"),
+        ("CO", "Creator Owner"),
+        ("CG", "Creator Group"),
+        ("DC", "Domain Computers"),
+        ("DU", "Domain Users"),
+    ],
+)
+def test_resolve_well_known_domain_relative_sddl_aliases(alias: str, name: str):
+    # Real SDDL emits domain-relative aliases (O:DA, not a raw -512 SID). These
+    # must resolve, or every Domain-Admins-owned GPO is mis-flagged as
+    # non-admin-owned. Regression for the danger.py owner false positive.
+    assert resolve_well_known(alias) == name
+
+
+@pytest.mark.parametrize("sid", ["DA", "da", "EA", "CO", "S-1-3-0", "s-1-3-1"])
+def test_is_default_writer_recognizes_sddl_aliases(sid: str):
+    # DA/EA are the common GPO owner/writer; Creator Owner (CO / S-1-3-0) is a
+    # non-actionable placeholder in the default DACL. None is a hijack trustee.
+    assert _is_default_writer_sid(sid) is True
+
+
 # ---- resolve_principal (Plan 020 A.3) -------------------------------------
 
 
