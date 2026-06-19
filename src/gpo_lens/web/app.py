@@ -71,12 +71,15 @@ def _get_ro_conn(db_path: str) -> sqlite3.Connection:
 
 _MAX_UNCOMPRESSED_BYTES = 2 * 1024 * 1024 * 1024  # 2GB
 _MAX_QUESTION_LEN = 500
+_MAX_SEARCH_LEN = 200  # WI-033: cap q= on / and /ou to prevent unbounded substring scan
 
 _DEFAULT_PER_PAGE = 50
 _MAX_PER_PAGE = 200
 _VALID_SEVERITIES = {"critical", "high", "medium", "low", "info"}
 _VALID_SORTS = {"severity", "severity_desc", "gpo", "finding"}
 _SEVERITY_RANK = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+_VALID_OU_SORTS = {"name", "links", "type"}
+_VALID_OU_TYPES = {"domain", "ou", "site"}
 
 # Health indicators for the dashboard posture grid, in display order. Each is
 # (EstateSummary attribute, human label, severity tone). Tone drives both the
@@ -84,6 +87,7 @@ _SEVERITY_RANK = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
 _POSTURE_SPEC: list[tuple[str, str, str]] = [
     ("cpassword_hit_count", "cPassword secrets", "crit"),
     ("ms16_072_vulnerable_count", "MS16-072 vulnerable", "crit"),
+    ("danger_finding_count", "Dangerous configurations", "crit"),
     ("broken_ref_count", "Broken references", "warn"),
     ("broken_wmi_ref_count", "Broken WMI references", "warn"),
     ("version_skew_count", "Version skew", "warn"),
@@ -258,6 +262,7 @@ def _filter_findings(
     if severity and severity != "all":
         wanted = {s.strip() for s in severity.split(",") if s.strip()}
         result = [f for f in result if f.severity in wanted]
+    q = (q or "")[:_MAX_SEARCH_LEN]
     if q:
         needle = q.lower()
         result = [
@@ -277,6 +282,39 @@ def _filter_findings(
     elif sort == "severity_desc":
         result = sorted(result, key=lambda f: -_SEVERITY_RANK.get(f.severity, 9))
     # "severity" (default) — estate_doctor already sorts by severity ascending
+    return result
+
+
+def _filter_soms(
+    soms: list[Any], q: str, type_filter: str, sort: str
+) -> list[Any]:
+    """Apply type filter, text search, and sort to a SOM list.
+
+    Search is a case-insensitive substring match over both ``som.name`` and
+    ``som.path`` (the DN). Sort defaults to case-insensitive name order so the
+    unfiltered Directory is predictably alphabetical.
+    """
+    result = soms
+    if type_filter and type_filter in _VALID_OU_TYPES:
+        result = [s for s in result if s.container_type == type_filter]
+    q = (q or "")[:_MAX_SEARCH_LEN]
+    if q:
+        needle = q.lower()
+        result = [
+            s for s in result
+            if needle in (s.name or "").lower()
+            or needle in (s.path or "").lower()
+        ]
+    if sort == "links":
+        result = sorted(
+            result, key=lambda s: (-len(s.links), (s.name or "").lower())
+        )
+    elif sort == "type":
+        result = sorted(
+            result, key=lambda s: (s.container_type, (s.name or "").lower())
+        )
+    else:
+        result = sorted(result, key=lambda s: (s.name or "").lower())
     return result
 
 
@@ -332,6 +370,16 @@ def _json_attachment(payload: object, filename: str) -> Response:
         media_type="application/json",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+def _setting_label(s: object, admx: object) -> tuple[str, str]:
+    identity = getattr(s, "identity", "")
+    display_name = getattr(s, "display_name", identity) or identity
+    if admx is not None:
+        name = getattr(admx, "resolve_display_name", lambda _: None)(identity)
+        if name:
+            return name, identity
+    return display_name, identity
 
 
 # ------------------------------------------------------------------
@@ -427,10 +475,19 @@ def _audit(
         _logger.warning("Audit log write failed: %s", exc)
 
 
-def create_app(db_path: str, *, root_path: str = "") -> FastAPI:
+def create_app(
+    db_path: str, *, root_path: str = "", admx_dir: str | None = None
+) -> FastAPI:
     app = FastAPI(root_path=root_path, docs_url=None, redoc_url=None, openapi_url=None)
     app.state.db_path = db_path
     app.state.ingest_lock = threading.Lock()
+
+    admx_path = admx_dir or os.environ.get("GPO_LENS_ADMX_DIR")
+    app.state.admx = None
+    if admx_path and Path(admx_path).is_dir():
+        from gpo_lens.admx_parser import parse_admx_dir
+
+        app.state.admx = parse_admx_dir(admx_path)
 
     # Ensure the DB file exists on first run to prevent OperationalError
     db_file = Path(db_path)
@@ -443,6 +500,7 @@ def create_app(db_path: str, *, root_path: str = "") -> FastAPI:
 
     templates = Jinja2Templates(directory=str(_WEB_DIR / "templates"))
     templates.env.globals["app_version"] = __version__
+    templates.env.globals["setting_label"] = _setting_label
 
     app.mount("/static", StaticFiles(directory=str(_WEB_DIR / "static")), name="static")
 
@@ -605,6 +663,7 @@ def create_app(db_path: str, *, root_path: str = "") -> FastAPI:
         sort: str = "severity",
         _principal: Principal = Depends(requires(Permission.VIEW)),
     ) -> HTMLResponse:
+        from gpo_lens.danger import danger_findings
         from gpo_lens.queries import EstateSummary, estate_doctor, estate_summary
         from gpo_lens.store import load_estate
 
@@ -612,8 +671,11 @@ def create_app(db_path: str, *, root_path: str = "") -> FastAPI:
         try:
             try:
                 estate = load_estate(conn)
-                all_findings = estate_doctor(estate)
-                summary = estate_summary(estate)
+                # WI-031: compute danger findings once, pass to both
+                # estate_doctor and estate_summary (was 3x per render).
+                _danger = danger_findings(estate, admx=app.state.admx)
+                all_findings = estate_doctor(estate, admx=app.state.admx, danger=_danger)
+                summary = estate_summary(estate, danger_count=len(_danger))
                 # GPOs that exist as objects (so a detail page resolves). Some
                 # findings (e.g. coverage gaps for unreadable GPOs) carry an id
                 # with no backing GPO — those must not render as dead links.
@@ -633,6 +695,7 @@ def create_app(db_path: str, *, root_path: str = "") -> FastAPI:
                     broken_ref_count=0, admx_gap_count=0,
                     broken_wmi_ref_count=0, orphaned_wmi_filter_count=0,
                     ilt_gpo_count=0, stale_gpo_count=0,
+                    danger_finding_count=0,
                     total_settings=0, total_delegation_entries=0,
                 )
         finally:
@@ -743,12 +806,72 @@ def create_app(db_path: str, *, root_path: str = "") -> FastAPI:
                 "settings_by_side": dict(settings_by_side),
                 "disabled_sides": disabled_sides,
                 "caveats": caveats,
+                "admx": app.state.admx,
+            },
+        )
+
+    @app.get("/danger", response_class=HTMLResponse, name="danger_list")
+    async def danger_list(
+        request: Request,
+        severity: str = "",
+        q: str = "",
+        _principal: Principal = Depends(requires(Permission.VIEW)),
+    ) -> HTMLResponse:
+        from gpo_lens.danger import danger_findings
+        from gpo_lens.store import load_estate
+
+        conn = _get_ro_conn(app.state.db_path)
+        try:
+            try:
+                estate = load_estate(conn)
+                all_findings = danger_findings(estate, admx=app.state.admx)
+                resolvable_gpo_ids = {g.id for g in estate.gpos}
+            except ValueError:
+                all_findings = []
+                resolvable_gpo_ids = set()
+        finally:
+            conn.close()
+
+        filtered = all_findings
+        if severity and severity != "all":
+            wanted = {s.strip() for s in severity.split(",") if s.strip()}
+            filtered = [f for f in filtered if f.severity in wanted]
+        q = (q or "")[:_MAX_SEARCH_LEN]
+        if q:
+            needle = q.lower()
+            filtered = [
+                f for f in filtered
+                if needle in (f.gpo_name or "").lower()
+                or needle in (f.title or "").lower()
+                or needle in (f.check_id or "").lower()
+            ]
+
+        page, per_page_int, per_page_raw = _parse_pagination(request)
+        page_findings, pag = _paginate(filtered, page, per_page_int, per_page_raw)
+        base_qs = _base_qs(request, "page", "per_page")
+
+        return templates.TemplateResponse(
+            request,
+            "danger_list.html",
+            {
+                "request": request,
+                "findings": page_findings,
+                "all_findings_count": len(all_findings),
+                "filtered_findings_count": len(filtered),
+                "resolvable_gpo_ids": resolvable_gpo_ids,
+                "f_severity": severity,
+                "f_q": q,
+                "f_base_qs": base_qs,
+                "pag": pag,
             },
         )
 
     @app.get("/ou", response_class=HTMLResponse, name="ou_list")
     async def ou_list(
         request: Request,
+        q: str = "",
+        type: str = "",
+        sort: str = "name",
         _principal: Principal = Depends(requires(Permission.VIEW)),
     ) -> HTMLResponse:
         conn = _get_ro_conn(app.state.db_path)
@@ -756,12 +879,29 @@ def create_app(db_path: str, *, root_path: str = "") -> FastAPI:
             estate = _store.load_estate(conn)
         finally:
             conn.close()
+
+        if type and type not in _VALID_OU_TYPES:
+            type = ""
+        if sort not in _VALID_OU_SORTS:
+            sort = "name"
+        all_soms = list(estate.soms)
+        filtered = _filter_soms(all_soms, q, type, sort)
+
         page, per_page_int, per_page_raw = _parse_pagination(request)
-        page_soms, pag = _paginate(list(estate.soms), page, per_page_int, per_page_raw)
+        page_soms, pag = _paginate(filtered, page, per_page_int, per_page_raw)
         ou_qs = _base_qs(request, "page", "per_page")
         return templates.TemplateResponse(
             request, "ou_list.html",
-            {"soms": page_soms, "pag": pag, "base_qs": ou_qs},
+            {
+                "soms": page_soms,
+                "pag": pag,
+                "all_soms_count": len(all_soms),
+                "filtered_count": len(filtered),
+                "f_q": q,
+                "f_type": type,
+                "f_sort": sort,
+                "f_base_qs": ou_qs,
+            },
         )
 
     @app.get("/ou/{path:path}", response_class=HTMLResponse, name="ou_detail")
@@ -785,15 +925,14 @@ def create_app(db_path: str, *, root_path: str = "") -> FastAPI:
         if target_som is None:
             raise HTTPException(status_code=404, detail="OU not found")
 
-        effective_gpos = queries.som_effective_gpos(estate, target_som.path, _som=target_som)
         settings = queries.settings_at_som(estate, target_som.path)
         conflicts = queries.som_conflicts(estate, target_som.path)
         caveats = queries.scope_caveats(estate, target_som.path)
 
-        loopback_gpo_ids = set(queries.loopback_awareness(estate).keys())
-        loopback_warning = any(
-            eg.gpo_id in loopback_gpo_ids for eg in effective_gpos
-        )
+        gate_pairs = topology.gate_summaries(estate, target_som.path, _som=target_som)
+        effective_gpos = [eg for eg, _ in gate_pairs]
+
+        loopback_warning = any(gs.loopback_mode for _, gs in gate_pairs)
 
         page, per_page_int, per_page_raw = _parse_pagination(request)
         page_settings, pag = _paginate(settings, page, per_page_int, per_page_raw)
@@ -804,6 +943,7 @@ def create_app(db_path: str, *, root_path: str = "") -> FastAPI:
             {
                 "som": target_som,
                 "effective_gpos": effective_gpos,
+                "gate_summaries": gate_pairs,
                 "settings": page_settings,
                 "settings_count": len(settings),
                 "conflicts": conflicts,
@@ -811,6 +951,7 @@ def create_app(db_path: str, *, root_path: str = "") -> FastAPI:
                 "caveats": caveats,
                 "pag": pag,
                 "base_qs": settings_qs,
+                "admx": app.state.admx,
             },
         )
 
@@ -1198,6 +1339,7 @@ def create_app(db_path: str, *, root_path: str = "") -> FastAPI:
                 "snap_b": snap_b_id,
                 "entries": entries,
                 "settings_changes": settings_changes,
+                "admx": app.state.admx,
             },
         )
 
@@ -1245,7 +1387,9 @@ def create_app(db_path: str, *, root_path: str = "") -> FastAPI:
             finally:
                 conn.close()
 
-            diff_entries = queries.baseline_diff(estate, baseline_settings)
+            diff_entries = queries.baseline_diff(
+                estate, baseline_settings, admx=app.state.admx
+            )
             total_count = len(diff_entries)
             unresolved_count = sum(1 for e in diff_entries if not e.admx_name)
         except (
@@ -1269,6 +1413,70 @@ def create_app(db_path: str, *, root_path: str = "") -> FastAPI:
                 "unresolved_count": unresolved_count,
                 "error": None,
             },
+        )
+
+    # ------------------------------------------------------------------
+    # Principal resultant (Plan 021)
+    # ------------------------------------------------------------------
+
+    @app.get("/resultant", response_class=HTMLResponse, name="resultant_form")
+    async def resultant_form(
+        request: Request,
+        _principal: Principal = Depends(requires(Permission.VIEW)),
+    ) -> HTMLResponse:
+        return templates.TemplateResponse(
+            request,
+            "resultant.html",
+            {"request": request, "result": None, "error": None},
+        )
+
+    @app.post(
+        "/resultant",
+        response_class=HTMLResponse,
+        response_model=None,
+        name="resultant_compute",
+    )
+    async def resultant_compute(
+        request: Request,
+        principal_sid: str = Form(""),
+        computer_sid: str = Form(""),
+        dn: str = Form(""),
+        computer_dn: str = Form(""),
+        _principal_auth: Principal = Depends(requires(Permission.VIEW)),
+    ) -> HTMLResponse:
+        from gpo_lens.merge import principal_resultant
+
+        principal_sid = principal_sid.strip()
+        if not principal_sid:
+            return templates.TemplateResponse(
+                request,
+                "resultant.html",
+                {"request": request, "result": None, "error": "A principal SID is required."},
+            )
+        conn = _get_ro_conn(app.state.db_path)
+        try:
+            estate = _store.load_estate(conn)
+        finally:
+            conn.close()
+        try:
+            result = principal_resultant(
+                estate,
+                principal_sid,
+                computer_sid=computer_sid.strip() or None,
+                dn=dn.strip() or None,
+                computer_dn=computer_dn.strip() or None,
+            )
+        except Exception as exc:
+            _logger.warning("resultant computation failed: %s", exc)
+            return templates.TemplateResponse(
+                request,
+                "resultant.html",
+                {"request": request, "result": None, "error": str(exc)},
+            )
+        return templates.TemplateResponse(
+            request,
+            "resultant.html",
+            {"request": request, "result": result, "error": None},
         )
 
     return app

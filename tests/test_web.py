@@ -31,6 +31,45 @@ pytestmark = pytest.mark.skipif(
 FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures"
 
 
+def _make_admx_dir(tmp_path: Path) -> Path:
+    pd = tmp_path / "PolicyDefinitions"
+    pd.mkdir()
+    admx = """\
+<?xml version="1.0" encoding="utf-8"?>
+<policyDefinitions
+    xmlns="http://schemas.microsoft.com/GroupPolicy/2006/07/PolicyDefinitions"
+    revision="1.0" schemaVersion="1.0">
+  <policyNamespaces>
+    <target prefix="test" namespace="Microsoft.Policies.Test" />
+  </policyNamespaces>
+  <resources minRequiredRevision="1.0" />
+  <policies>
+    <policy name="FakeValue" class="Both"
+            displayName="$(string.FakeValue)"
+            key="HKLM\\Software\\Fake"
+            valueName="FakeValue" />
+  </policies>
+</policyDefinitions>
+"""
+    adml = """\
+<?xml version="1.0" encoding="utf-8"?>
+<policyDefinitionResources
+    xmlns="http://schemas.microsoft.com/GroupPolicy/2006/07/PolicyDefinitions"
+    revision="1.0" schemaVersion="1.0">
+  <resources>
+    <stringTable>
+      <string id="FakeValue">Prohibit Fake Value</string>
+    </stringTable>
+  </resources>
+</policyDefinitionResources>
+"""
+    (pd / "TestPolicies.admx").write_text(admx, encoding="utf-8")
+    en_us = pd / "en-US"
+    en_us.mkdir()
+    (en_us / "TestPolicies.adml").write_text(adml, encoding="utf-8")
+    return pd
+
+
 def _make_baseline_zip() -> bytes:
     gpreport = (
         '<?xml version="1.0" encoding="utf-8"?>\n'
@@ -944,6 +983,66 @@ class TestOuDetailScopeCaveats:
         assert "loopback=" in resp.text.lower()
 
 
+class TestOuDetailGateChips:
+    """Plan 019 Phase A — per-candidate gate attribution on the chain rows."""
+
+    def test_ou_detail_shows_security_filter_chip_with_trustees(self, client) -> None:
+        # AC-1: a security-filtered GPO shows its Apply-Group-Policy trustees
+        # on its own row, not only in the aggregate caveat list.
+        resp = client.get("/ou/dc=fakefixture,dc=local")
+        assert resp.status_code == 200
+        assert "filtered" in resp.text.lower()
+        assert "Helpdesk Operators" in resp.text
+
+    def test_ou_detail_shows_wmi_chip_and_marks_broken(self, client) -> None:
+        # AC-2: WMI filter name on its row; broken ref flagged.
+        resp = client.get("/ou/dc=fakefixture,dc=local")
+        assert resp.status_code == 200
+        assert "WMI:" in resp.text
+        assert "Fake WMI Filter" in resp.text
+        assert "Nonexistent WMI Filter" in resp.text
+        assert "broken" in resp.text.lower()
+
+    def test_ou_detail_shows_loopback_mode_chip(self, client) -> None:
+        # AC-3: loopback mode rendered per row (not a fabricated mode).
+        resp = client.get("/ou/dc=fakefixture,dc=local")
+        assert resp.status_code == 200
+        assert "loopback: replace" in resp.text.lower()
+        assert "loopback: merge" in resp.text.lower()
+
+    def test_ou_detail_shows_disabled_side_chip(self, client) -> None:
+        # AC-4: a disabled user/computer side shows on its row.
+        resp = client.get("/ou/dc=fakefixture,dc=local")
+        assert resp.status_code == 200
+        assert "computer side off" in resp.text.lower()
+        assert "user side off" in resp.text.lower()
+
+    def test_ou_detail_shows_applies_to_all_for_no_gate_gpo(self, client) -> None:
+        # AC-5: a no-gate GPO shows the quiet "applies to all in scope" affordance.
+        resp = client.get("/ou/dc=fakefixture,dc=local")
+        assert resp.status_code == 200
+        assert "applies to all in scope" in resp.text
+
+    def test_ou_detail_chain_renders_without_errors_and_keeps_existing_chips(
+        self, client
+    ) -> None:
+        # AC-7: strict superset — the chain still renders with the existing
+        # enforced/order/link-off chips alongside the new gate strip.
+        resp = client.get("/ou/dc=fakefixture,dc=local")
+        assert resp.status_code == 200
+        assert "gp-chain" in resp.text
+        assert "gpo-cpassword" in resp.text
+        assert "enforced" in resp.text  # GPO C (version_skew) has an enforced link
+        assert "#1" in resp.text  # order chip for the first chain entry
+
+    def test_ou_detail_gate_chip_carries_non_evaluation_tooltip(self, client) -> None:
+        # AC-6: every gate carries the "not evaluated" caveat via a title tooltip.
+        resp = client.get("/ou/dc=fakefixture,dc=local")
+        assert resp.status_code == 200
+        assert "not modeled" in resp.text  # security filtering tooltip
+        assert "not evaluated" in resp.text  # WMI / ILT tooltip
+
+
 class TestGpoDetailScopeCaveats:
     def test_gpo_detail_renders_scope_caveats_section(self, client) -> None:
         resp = client.get("/gpo/eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee")
@@ -1031,7 +1130,7 @@ class TestUiEnhancements:
 class TestDashboardFiltering:
     """WI-025: filter / search / sort on the dashboard findings table.
 
-    Fixture estate has 23 findings (1 critical, 2 high, 2 medium, 12 low, 6 info).
+    Fixture estate has 24 findings (1 critical, 3 high, 2 medium, 12 low, 6 info).
     """
 
     # Findings-table rows render as <td><span class="gp-pill {sev}">; the header
@@ -1043,19 +1142,21 @@ class TestDashboardFiltering:
     def test_filter_by_severity_shows_subset(self, client) -> None:
         resp = client.get("/?severity=critical")
         assert resp.status_code == 200
-        # critical filter → 1 of 23; the badge shows "N of total" only when filtered
-        assert "1 of 23" in resp.text
+        # critical filter → 1 of 24; the badge shows "N of total" only when filtered
+        assert "1 of 24" in resp.text
         assert "gpo-cpassword" in resp.text
 
     def test_unfiltered_shows_total_without_of(self, client) -> None:
         resp = client.get("/")
-        assert "23" in resp.text
-        assert " of 23" not in resp.text
+        assert "24" in resp.text
+        assert " of 24" not in resp.text
 
     def test_search_filters_by_text(self, client) -> None:
         resp = client.get("/?q=cpassword")
         assert resp.status_code == 200
-        assert "1 of 23" in resp.text
+        # "cpassword" matches the cpassword finding (summary) AND the
+        # local_admin_push finding (GPO name "gpo-cpassword") → 2 of 24.
+        assert "2 of 24" in resp.text
         assert "gpo-cpassword" in resp.text
 
     def test_search_no_matches_shows_empty_state(self, client) -> None:
@@ -1101,7 +1202,7 @@ class TestPagination:
         resp = client.get("/?per_page=5")
         assert resp.status_code == 200
         assert "gp-pagination" in resp.text
-        assert "page 1 of 5" in resp.text  # ceil(23/5) = 5
+        assert "page 1 of 5" in resp.text  # ceil(24/5) = 5
 
     def test_dashboard_pagination_page2_has_prev(self, client) -> None:
         resp = client.get("/?per_page=5&page=2")
@@ -1114,7 +1215,7 @@ class TestPagination:
         assert "gp-pagination" not in resp.text
 
     def test_dashboard_per_page_capped_at_max(self, client) -> None:
-        # per_page beyond MAX_PER_PAGE (200) is capped; 23 findings → 1 page
+        # per_page beyond MAX_PER_PAGE (200) is capped; 24 findings → 1 page
         resp = client.get("/?per_page=99999")
         assert resp.status_code == 200
         assert "gp-pagination" not in resp.text
@@ -1147,6 +1248,110 @@ class TestPagination:
         assert "page 1 of 3" in resp.text  # ceil(8/3) = 3
 
 
+class TestDirectorySearch:
+    """Plan 017 Phase A: search, type filter, sort on the Directory page."""
+
+    def test_search_filters_by_name(self, client) -> None:
+        resp = client.get("/ou?q=child")
+        assert resp.status_code == 200
+        assert "child" in resp.text
+        assert "fakefixture.local" not in resp.text
+
+    def test_search_filters_by_dn(self, client) -> None:
+        resp = client.get("/ou?q=ou=child")
+        assert resp.status_code == 200
+        assert "child" in resp.text
+
+    def test_search_no_matches_shows_empty_state(self, client) -> None:
+        resp = client.get("/ou?q=zzzznomatch")
+        assert resp.status_code == 200
+        assert "No scopes match" in resp.text
+
+    def test_type_filter_domain(self, client) -> None:
+        resp = client.get("/ou?type=domain")
+        assert resp.status_code == 200
+        assert "fakefixture.local" in resp.text
+        assert "Default-First-Site-Name" not in resp.text
+
+    def test_type_filter_ou(self, client) -> None:
+        resp = client.get("/ou?type=ou")
+        assert resp.status_code == 200
+        assert "child" in resp.text
+        assert "fakefixture.local" not in resp.text
+
+    def test_type_filter_site(self, client) -> None:
+        resp = client.get("/ou?type=site")
+        assert resp.status_code == 200
+        assert "Default-First-Site-Name" in resp.text
+        assert "Branch-Office" in resp.text
+        assert "fakefixture.local" not in resp.text
+
+    def test_sort_by_links_descending(self, client) -> None:
+        resp = client.get("/ou?sort=links")
+        assert resp.status_code == 200
+        html = resp.text
+        domain_pos = html.find("fakefixture.local")
+        child_pos = html.find(">child<")
+        assert domain_pos != -1
+        assert child_pos != -1
+        assert domain_pos < child_pos
+
+    def test_sort_by_name_default(self, client) -> None:
+        resp = client.get("/ou?sort=name")
+        assert resp.status_code == 200
+        html = resp.text
+        branch_pos = html.find("Branch-Office")
+        child_pos = html.find(">child<")
+        assert branch_pos != -1
+        assert child_pos != -1
+        assert branch_pos < child_pos
+
+    def test_sort_by_type(self, client) -> None:
+        resp = client.get("/ou?sort=type")
+        assert resp.status_code == 200
+        html = resp.text
+        domain_pos = html.find("fakefixture.local")
+        ou_pos = html.find(">child<")
+        site_pos = html.find("Default-First-Site-Name")
+        assert domain_pos < ou_pos
+        assert ou_pos < site_pos
+
+    def test_invalid_type_ignored(self, client) -> None:
+        resp = client.get("/ou?type=nonsense")
+        assert resp.status_code == 200
+        assert "fakefixture.local" in resp.text
+
+    def test_invalid_sort_falls_back_to_name(self, client) -> None:
+        resp = client.get("/ou?sort=nonsense")
+        assert resp.status_code == 200
+        assert 'value="name" selected' in resp.text
+
+    def test_pagination_preserves_filters(self, client) -> None:
+        resp = client.get("/ou?q=fixture&per_page=1")
+        assert resp.status_code == 200
+        assert "q=fixture" in resp.text
+        assert "page=2" in resp.text
+
+    def test_no_params_no_regression(self, client) -> None:
+        resp = client.get("/ou")
+        assert resp.status_code == 200
+        assert "fakefixture.local" in resp.text
+        assert "child" in resp.text
+        assert "Default-First-Site-Name" in resp.text
+        assert "Branch-Office" in resp.text
+
+    def test_clear_link_visible_when_filtered(self, client) -> None:
+        filtered = client.get("/ou?q=child").text
+        default = client.get("/ou").text
+        assert ">Clear<" in filtered
+        assert ">Clear<" not in default
+
+    def test_filtered_count_shown_when_filtered(self, client) -> None:
+        resp = client.get("/ou?type=site")
+        assert resp.status_code == 200
+        assert "2 of 4" in resp.text
+
+
 class TestExport:
     """WI-027: in-app data export (CSV/JSON), requiring VIEW permission."""
 
@@ -1164,7 +1369,7 @@ class TestExport:
     def test_export_findings_csv_row_count(self, client) -> None:
         resp = client.get("/export/findings?format=csv")
         rows = list(csv.reader(io.StringIO(resp.text)))
-        assert len(rows) == 24  # header + 23 findings
+        assert len(rows) == 25  # header + 24 findings
 
     def test_export_findings_csv_sanitizes_formula_cells(self, client) -> None:
         # CSV injection (CWE-1236): cells starting with = + - @ trigger formula
@@ -1185,7 +1390,7 @@ class TestExport:
         resp = client.get("/export/findings?format=json&severity=critical&q=x")
         assert resp.status_code == 200
         data = json.loads(resp.text)
-        assert len(data) == 23  # all findings, not the filtered subset
+        assert len(data) == 24  # all findings, not the filtered subset
 
     def test_export_findings_invalid_format_400(self, client) -> None:
         resp = client.get("/export/findings?format=xlsx")
@@ -1206,7 +1411,7 @@ class TestExport:
         assert "attachment" in resp.headers["content-disposition"]
         data = json.loads(resp.text)
         assert isinstance(data, list)
-        assert len(data) == 23
+        assert len(data) == 24
         assert "critical" in {row["severity"] for row in data}
 
     def test_export_gpo_json(self, client) -> None:
@@ -1436,4 +1641,109 @@ class TestAuditLog:
             follow_redirects=False,
         )
         assert resp.status_code == 303
+
+
+class TestAdmxWeb:
+    def test_gpo_detail_shows_admx_policy_name(
+        self, fixture_db: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from fastapi.testclient import TestClient
+
+        from gpo_lens.web.app import create_app
+
+        pd_dir = _make_admx_dir(tmp_path)
+        monkeypatch.setenv("GPO_LENS_AUTH_TOKEN", "test-secret-token")
+        app = create_app(fixture_db, admx_dir=str(pd_dir))
+        client = TestClient(
+            app,
+            headers={
+                "origin": "http://localhost",
+                "Authorization": "Bearer test-secret-token",
+            },
+        )
+        resp = client.get("/gpo/cccccccc-cccc-cccc-cccc-cccccccccccc")
+        assert resp.status_code == 200
+        html = resp.text
+        assert "Prohibit Fake Value" in html
+        assert "HKLM\\Software\\Fake:FakeValue" in html
+        assert "<th>Setting</th>" in html
+
+    def test_gpo_detail_without_admx_is_unchanged(self, client) -> None:
+        resp = client.get("/gpo/cccccccc-cccc-cccc-cccc-cccccccccccc")
+        assert resp.status_code == 200
+        html = resp.text
+        assert "<th>Identity</th>" in html
+        assert "<th>Name</th>" in html
+        assert "FakeValue" in html
+        assert "<th>Setting</th>" not in html
+        assert "Prohibit Fake Value" not in html
+
+    def test_gpo_detail_admx_fallback_to_display_name(
+        self, fixture_db: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from fastapi.testclient import TestClient
+
+        from gpo_lens.web.app import create_app
+
+        pd_dir = _make_admx_dir(tmp_path)
+        monkeypatch.setenv("GPO_LENS_AUTH_TOKEN", "test-secret-token")
+        app = create_app(fixture_db, admx_dir=str(pd_dir))
+        client = TestClient(
+            app,
+            headers={
+                "origin": "http://localhost",
+                "Authorization": "Bearer test-secret-token",
+            },
+        )
+        resp = client.get("/gpo/dddddddd-dddd-dddd-dddd-dddddddddddd")
+        assert resp.status_code == 200
+        html = resp.text
+        assert "BadValue" in html
+        assert "HKLM\\Software\\Fake:BadValue" in html
+        assert "Prohibit Fake Value" not in html
+
+    def test_admx_parsed_once(
+        self, fixture_db: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from fastapi.testclient import TestClient
+
+        from gpo_lens.web.app import create_app
+
+        pd_dir = _make_admx_dir(tmp_path)
+        monkeypatch.setenv("GPO_LENS_AUTH_TOKEN", "test-secret-token")
+        app = create_app(fixture_db, admx_dir=str(pd_dir))
+        client = TestClient(
+            app,
+            headers={
+                "origin": "http://localhost",
+                "Authorization": "Bearer test-secret-token",
+            },
+        )
+        admx = app.state.admx
+        assert admx is not None
+        client.get("/gpo/cccccccc-cccc-cccc-cccc-cccccccccccc")
+        client.get("/gpo/dddddddd-dddd-dddd-dddd-dddddddddddd")
+        assert app.state.admx is admx
+
+
+class TestServeAdmxFlag:
+    def test_serve_admx_dir_flag_passes_to_create_app(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from unittest.mock import patch
+
+        from gpo_lens.cli._serve import cmd_serve
+
+        pd_dir = _make_admx_dir(tmp_path)
+        monkeypatch.delenv("GPO_LENS_ADMX_DIR", raising=False)
+        args = _serve_args(admx_dir=str(pd_dir))
+        with patch("uvicorn.run") as mock_run, patch(
+            "gpo_lens.web.app.create_app"
+        ) as mock_create:
+            ret = cmd_serve(args)
+        assert ret == 0
+        mock_run.assert_called_once()
+        mock_create.assert_called_once_with(
+            args.db, root_path=args.root_path, admx_dir=str(pd_dir)
+        )
 

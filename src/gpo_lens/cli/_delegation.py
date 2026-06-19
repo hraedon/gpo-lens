@@ -51,6 +51,7 @@ def cmd_delegation(args: argparse.Namespace) -> None:
                     "gpo_id": d.gpo_id,
                     "gpo_name": d.gpo_name,
                     "trustee_sid": d.trustee_sid,
+                    "resolved_name": d.trustee_name,
                     "rights": d.rights,
                     "flags": d.flags,
                 }
@@ -59,6 +60,7 @@ def cmd_delegation(args: argparse.Namespace) -> None:
             "excessive_writers": [
                 {
                     "trustee_sid": w.trustee_sid,
+                    "resolved_name": w.trustee_name,
                     "gpo_count": w.gpo_count,
                     "gpo_names": w.gpo_names,
                     "rights": w.rights,
@@ -73,11 +75,15 @@ def cmd_delegation(args: argparse.Namespace) -> None:
             print("\n--- Deny ACEs ---")
             for d in audit.deny_aces:
                 flags_part = f" [{d.flags}]" if d.flags else ""
-                print(f"  {d.gpo_name}: {d.trustee_sid} ({d.rights}){flags_part}")
+                resolved = d.trustee_name and d.trustee_name != d.trustee_sid
+                name_part = f"{d.trustee_name} " if resolved else ""
+                print(f"  {d.gpo_name}: {name_part}{d.trustee_sid} ({d.rights}){flags_part}")
         if audit.excessive_writers:
             print("\n--- Excessive Write Access ---")
             for w in audit.excessive_writers:
-                print(f"  {w.trustee_sid}: {w.gpo_count} GPOs ({', '.join(w.rights)})")
+                resolved = w.trustee_name and w.trustee_name != w.trustee_sid
+                name_part = f"{w.trustee_name} " if resolved else ""
+                print(f"  {name_part}{w.trustee_sid}: {w.gpo_count} GPOs ({', '.join(w.rights)})")
                 for name in w.gpo_names[:5]:
                     print(f"    - {name}")
                 if len(w.gpo_names) > 5:

@@ -16,6 +16,8 @@ from gpo_lens.authz import (
     is_deny_ace_type,
     parse_sddl,
     parse_sddl_rights,
+    resolve_principal,
+    resolve_well_known,
 )
 from gpo_lens.model import (
     DenyAce,
@@ -268,19 +270,40 @@ def _scan_gpo_for_cpassword(gpo: Gpo) -> list[CpasswordHit]:
     return results
 
 
+# GPMC's grouped-permission labels (GPOGroupedAccessEnum / GPPermissionType).
+# Per Microsoft, every standard grouping except "Custom"/"None" includes the
+# READ access right:
+#   GpoRead                     -> "Read"
+#   GpoApply                    -> "Apply Group Policy"  (Read AND Apply)
+#   GpoEdit                     -> "Edit settings"
+#   GpoEditDeleteModifySecurity -> "Edit, delete, modify security"
+# "Apply Group Policy" in particular IS Read+Apply -- GPMC's Delegation tab shows
+# it as "Read (from Security Filtering)". Treating it as non-Read produced
+# MS16-072 false positives on every GPO with default Authenticated Users
+# filtering. (ref: gpmgmt.h GPMPermissionType, KB MS16-072.)
+#
+# GPMC display strings for the Edit* family vary across versions and locales
+# ("Edit settings" / "Edit Settings" / "Edit, delete, modify security" /
+# "Edit settings, delete, modify security"), so we match that family by prefix
+# rather than enumerating every spelling.
 _READ_IMPLYING_PERMISSIONS = frozenset({
     "read",
-    "edit settings",
-    "edit settings, delete, modify security",
+    "apply group policy",
     "full control",
 })
+
+
+def _permission_implies_read(permission: str) -> bool:
+    """True if a GPMC grouped-permission label confers the READ access right."""
+    p = permission.strip().lower()
+    return p in _READ_IMPLYING_PERMISSIONS or p.startswith("edit ") or p.startswith("edit,")
 
 
 def _has_ms16_072_read(delegation: list[DelegationEntry]) -> bool:
     return any(
         e.allowed
         and broad_trustee_key(e.trustee, e.trustee_sid, MS16_072_TRUSTEES) is not None
-        and e.permission.strip().lower() in _READ_IMPLYING_PERMISSIONS
+        and _permission_implies_read(e.permission)
         for e in delegation
     )
 
@@ -759,26 +782,23 @@ def broken_refs(estate: Estate) -> list[BrokenRef]:
 
 _WRITE_RIGHTS = {"GA", "GW", "WD", "WO", "SD", "DT", "WP", "DC", "CC"}
 
-
-def _is_domain_admins_sid(sid: str) -> bool:
-    sid_lower = sid.lower()
-    if sid_lower == "s-1-5-32-544":
-        return True
-    if not sid_lower.startswith("s-1-5-21-"):
-        return False
-    parts = sid_lower.split("-")
-    if len(parts) >= 5 and parts[-1] == "512":
-        return True
-    if len(parts) >= 5 and parts[-1] == "519":
-        return True
-    return False
+_DEFAULT_WRITER_NAMES = frozenset({
+    "BUILTIN\\Administrators",
+    "Domain Admins",
+    "Enterprise Admins",
+    "SYSTEM",
+})
+_DEFAULT_WRITER_DOMAIN_RID_SUFFIXES = frozenset({"-512", "-519"})
 
 
 def _is_default_writer_sid(sid: str) -> bool:
-    sid_lower = sid.lower()
-    if sid_lower == "s-1-5-18":
+    s = sid.strip().lower()
+    if resolve_well_known(s) in _DEFAULT_WRITER_NAMES:
         return True
-    return _is_domain_admins_sid(sid_lower)
+    return (
+        s.startswith("s-1-5-21-")
+        and any(s.endswith(suffix) for suffix in _DEFAULT_WRITER_DOMAIN_RID_SUFFIXES)
+    )
 
 
 def _has_write_right(rights: str) -> bool:
@@ -794,6 +814,7 @@ def deny_aces(estate: Estate) -> list[DenyAce]:
         acl = parse_sddl(g.sddl)
         for ace in acl.dacl:
             if is_deny_ace_type(ace.ace_type):
+                rp = resolve_principal(estate, ace.trustee_sid)
                 results.append(DenyAce(
                     gpo_id=g.id,
                     gpo_name=g.name,
@@ -801,9 +822,11 @@ def deny_aces(estate: Estate) -> list[DenyAce]:
                     rights=ace.rights,
                     flags=ace.flags,
                     acl_section="dacl",
+                    trustee_name=rp.name,
                 ))
         for ace in acl.sacl:
             if is_deny_ace_type(ace.ace_type):
+                rp = resolve_principal(estate, ace.trustee_sid)
                 results.append(DenyAce(
                     gpo_id=g.id,
                     gpo_name=g.name,
@@ -811,6 +834,7 @@ def deny_aces(estate: Estate) -> list[DenyAce]:
                     rights=ace.rights,
                     flags=ace.flags,
                     acl_section="sacl",
+                    trustee_name=rp.name,
                 ))
     return results
 
@@ -853,6 +877,7 @@ def excessive_writers(
         all_rights: set[str] = set()
         for rights_set in gpo_rights.values():
             all_rights |= rights_set
+        rp = resolve_principal(estate, sid)
         results.append(ExcessiveWriter(
             trustee_sid=sid,
             gpo_count=len(gpo_rights),
@@ -865,6 +890,7 @@ def excessive_writers(
                 )
             ),
             rights=tuple(sorted(all_rights)),
+            trustee_name=rp.name,
         ))
 
     results.sort(key=lambda w: w.gpo_count, reverse=True)

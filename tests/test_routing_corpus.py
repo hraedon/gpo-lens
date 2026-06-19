@@ -200,6 +200,16 @@ _CORPUS: list[tuple[str, str, dict[str, object] | None]] = [
         "stale_gpos",
         None,
     ),
+    (
+        "Which GPOs carry dangerous configurations?",
+        "danger_findings",
+        None,
+    ),
+    (
+        "What's the effective policy for user S-1-5-21-123-456-789-1001?",
+        "principal_resultant",
+        {"principal_sid": "S-1-5-21-123-456-789-1001"},
+    ),
 ]
 
 _UNROUTABLE: list[tuple[str, str]] = [

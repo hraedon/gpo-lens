@@ -19,6 +19,7 @@ from gpo_lens.authz import (
     is_deny_ace_type,
     parse_sddl,
     parse_sddl_rights,
+    resolve_principal,
 )
 from gpo_lens.detection import scan_ilt
 from gpo_lens.model import SddlAce, Side
@@ -30,10 +31,12 @@ __all__ = [
     "EffectiveGpo",
     "EffectiveScope",
     "EffectiveSetting",
+    "GateSummary",
     "SecurityFiltering",
     "SomConflict",
     "WmiFilterScope",
     "effective_scope",
+    "gate_summaries",
     "is_security_filtered",
     "loopback_awareness",
     "loopback_gpos",
@@ -119,11 +122,31 @@ def _extract_loopback_mode(setting: Setting) -> str | None:
     Returns None when the setting does not actually configure loopback
     (Disabled/Not Configured/empty).  Returns 'unknown' when loopback IS
     configured but the specific mode cannot be determined.
+
+    Handles three raw-dict shapes:
+
+    1. **Security CSE** (test fixtures): ``Security > SettingString/SettingBoolean``
+       with text "Replace"/"Merge"/"1"/"2".
+    2. **Registry CSE / Policy** (real-world exports): ``Policy > State`` ("Enabled"
+       or "Disabled") + ``Policy > DropDownList > Value > Name`` with text
+       "Merge"/"Replace".
+    3. **Fallback**: ``display_value`` containing "replace"/"merge"/"not configured".
     """
     raw = setting.raw
     if isinstance(raw, dict):
         children_raw = raw.get("children", [])
         if isinstance(children_raw, list):
+            # Check for Policy > State = "Disabled" first (not actually configured)
+            for child in children_raw:
+                if not isinstance(child, dict):
+                    continue
+                if str(child.get("tag", "")).lower() == "state":
+                    state_text = str(child.get("text") or "").strip().lower()
+                    if state_text == "disabled":
+                        return None
+                    break
+
+            # Security CSE: SettingBoolean/SettingString/SettingNumber children
             for child in children_raw:
                 if not isinstance(child, dict):
                     continue
@@ -134,9 +157,33 @@ def _extract_loopback_mode(setting: Setting) -> str | None:
                         return "replace"
                     if text in ("merge", "2"):
                         return "merge"
-                    # Numeric 0 = Not Configured
                     if text == "0":
                         return None
+
+            # Registry CSE / Policy: DropDownList > Value > Name
+            for child in children_raw:
+                if not isinstance(child, dict):
+                    continue
+                if str(child.get("tag", "")).lower() == "dropdownlist":
+                    dd_children = child.get("children")
+                    if not isinstance(dd_children, list):
+                        continue
+                    for vc in dd_children:
+                        if not isinstance(vc, dict):
+                            continue
+                        if str(vc.get("tag", "")).lower() == "value":
+                            v_children = vc.get("children")
+                            if not isinstance(v_children, list):
+                                continue
+                            for nc in v_children:
+                                if not isinstance(nc, dict):
+                                    continue
+                                if str(nc.get("tag", "")).lower() == "name":
+                                    text = str(nc.get("text") or "").strip().lower()
+                                    if text == "replace":
+                                        return "replace"
+                                    if text == "merge":
+                                        return "merge"
     val = setting.display_value.strip().lower()
     if "replace" in val:
         return "replace"
@@ -551,8 +598,16 @@ def is_security_filtered(gpo: Gpo) -> bool:
     return False
 
 
-def security_filtering_detail(gpo: Gpo) -> SecurityFiltering:
-    """Detailed security-filtering breakdown for a GPO."""
+def security_filtering_detail(
+    gpo: Gpo, estate: Estate | None = None,
+) -> SecurityFiltering:
+    """Detailed security-filtering breakdown for a GPO.
+
+    When *estate* is provided, bare-SID trustees in the SDDL fallback path are
+    resolved to names via :func:`gpo_lens.authz.resolve_principal` (Plan 020).
+    When *estate* is ``None`` (e.g. a GPO-only call), the SDDL fallback
+    degrades to well-known-SID resolution only — no collected principals.
+    """
     apply_trustees: list[str] = []
     has_au_read = False
     has_dc_read = False
@@ -588,6 +643,10 @@ def security_filtering_detail(gpo: Gpo) -> SecurityFiltering:
                 has_au_read = True
             if key == "domain_computers":
                 has_dc_read = True
+            if estate is not None:
+                rp = resolve_principal(estate, ace.trustee_sid)
+                if rp.name not in apply_trustees:
+                    apply_trustees.append(rp.name)
     return SecurityFiltering(
         is_filtered=is_security_filtered(gpo),
         apply_trustees=apply_trustees,
@@ -688,7 +747,7 @@ def effective_scope(estate: Estate, gpo_id_or_name: str) -> EffectiveScope | Non
         return None
 
     caveats: list[str] = []
-    sec = security_filtering_detail(target)
+    sec = security_filtering_detail(target, estate)
     if not target.delegation:
         caveats.append("No delegation entries — security filtering state unknown")
     elif sec.is_filtered:
@@ -731,3 +790,85 @@ def effective_scope(estate: Estate, gpo_id_or_name: str) -> EffectiveScope | Non
         loopback_mode=mode,
         caveats=caveats,
     )
+
+
+# ---------------------------------------------------------------------------
+# Per-candidate gate attribution (Plan 019 Phase A)
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class GateSummary:
+    """Per-GPO scoping gate facts, shown (never evaluated) on a chain row.
+
+    Mirrors the *components* of :func:`effective_scope` so the per-row gate
+    strip and the GPO-detail scope view describe the same facts. Gates are
+    *shown, not simulated* (charter: "Flag, don't simulate") — a populated
+    field is a reason a GPO *might* not reach an object, never a verdict that
+    it does or does not.
+    """
+
+    is_security_filtered: bool
+    apply_trustees: tuple[str, ...]      # explicit Apply-Group-Policy trustee names
+    wmi_filter_name: str | None          # None = no WMI filter attached
+    wmi_filter_broken: bool              # True if filter name not found in estate
+    loopback_mode: str | None            # 'merge'|'replace'|'mixed'|'unknown'|None
+    has_ilt: bool                        # item-level targeting present
+    side_disabled: str | None            # 'computer'|'user'|'both'|None
+    link_enabled: bool                   # whether this chain row's link is enabled
+
+
+def gate_summaries(
+    estate: Estate, som_path: str, *, _som: Som | None = None,
+) -> list[tuple[EffectiveGpo, GateSummary]]:
+    """Ordered chain with a per-GPO :class:`GateSummary`.
+
+    Reuses the same components as :func:`effective_scope`
+    (``security_filtering_detail``, ``_wmi_filter_scope``,
+    ``loopback_awareness``, ``scan_ilt``) so the per-row gates cannot drift
+    from the GPO-detail scope view (WI-029 lesson). The estate-wide
+    ``loopback_awareness`` and ``scan_ilt`` passes are computed once and
+    shared across all rows.
+    """
+    chain = som_effective_gpos(estate, som_path, _som=_som)
+    if not chain:
+        return []
+    gpo_by_id = {g.id: g for g in estate.gpos}
+    loopback_map = loopback_awareness(estate)
+    ilt_gpos = {hit.gpo_id for hit in scan_ilt(estate)}
+
+    out: list[tuple[EffectiveGpo, GateSummary]] = []
+    for eg in chain:
+        gpo = gpo_by_id.get(eg.gpo_id)
+        if gpo is None:
+            out.append((eg, GateSummary(
+                is_security_filtered=False,
+                apply_trustees=(),
+                wmi_filter_name=None,
+                wmi_filter_broken=False,
+                loopback_mode=None,
+                has_ilt=False,
+                side_disabled=None,
+                link_enabled=eg.enabled,
+            )))
+            continue
+        sec = security_filtering_detail(gpo, estate)
+        wmi = _wmi_filter_scope(gpo, estate)
+        if not gpo.computer_enabled and not gpo.user_enabled:
+            side_disabled: str | None = "both"
+        elif not gpo.computer_enabled:
+            side_disabled = "computer"
+        elif not gpo.user_enabled:
+            side_disabled = "user"
+        else:
+            side_disabled = None
+        out.append((eg, GateSummary(
+            is_security_filtered=sec.is_filtered,
+            apply_trustees=tuple(sec.apply_trustees),
+            wmi_filter_name=wmi.name if wmi else None,
+            wmi_filter_broken=wmi.is_broken if wmi else False,
+            loopback_mode=loopback_map.get(gpo.id),
+            has_ilt=gpo.id in ilt_gpos,
+            side_disabled=side_disabled,
+            link_enabled=eg.enabled,
+        )))
+    return out

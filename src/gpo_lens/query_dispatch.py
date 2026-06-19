@@ -24,6 +24,10 @@ _QUERY_DISPATCH: dict[str, Callable[..., Any]] = {
     "orphaned_wmi_filters": lambda **kw: queries.orphaned_wmi_filters(kw["estate"]),
     "broken_wmi_refs": lambda **kw: queries.broken_wmi_refs(kw["estate"]),
     "stale_gpos": lambda **kw: queries.stale_gpos(kw["estate"]),
+    "danger_findings": lambda **kw: queries.danger_findings(kw["estate"]),
+    "principal_resultant": lambda **kw: __import__(
+        "gpo_lens.merge", fromlist=["principal_resultant"]
+    ).principal_resultant(kw["estate"], kw["principal_sid"]),
 }
 
 _QUERY_DESCRIPTIONS: dict[str, str] = {
@@ -50,16 +54,26 @@ _QUERY_DESCRIPTIONS: dict[str, str] = {
     "orphaned_wmi_filters": "WMI filters defined but not referenced by any GPO",
     "broken_wmi_refs": "GPOs referencing a WMI filter that does not exist in the estate",
     "stale_gpos": "GPOs that are linked but have not been modified in over 2 years",
+    "danger_findings": (
+        "Curated, cited dangerous-configuration findings "
+        "(GPO hijack paths, local-admin push, over-broad scope, dangerous values)"
+    ),
+    "principal_resultant": (
+        "Principal resultant (RSoP) — effective policy for a given principal SID "
+        "from the static snapshot (requires param: \"principal_sid\")"
+    ),
 }
 
 QUERY_REQUIRED_PARAMS: dict[str, list[str]] = {
     "settings_at_som": ["ou_path"],
     "effective_scope": ["gpo_id"],
+    "principal_resultant": ["principal_sid"],
 }
 
 _PARAM_VALIDATORS: dict[str, dict[str, type]] = {
     "settings_at_som": {"ou_path": str},
     "effective_scope": {"gpo_id": str},
+    "principal_resultant": {"principal_sid": str},
 }
 
 

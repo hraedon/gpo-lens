@@ -10,7 +10,39 @@
     <h1>Directory</h1>
     <div class="sub">Domains, OUs and sites where Group Policy links. Open one to see effective precedence.</div>
   </div>
+  {% if all_soms_count and filtered_count is defined and filtered_count != all_soms_count %}
+  <div><span class="gp-pill medium"><span class="dot"></span>{{ filtered_count }} of {{ all_soms_count }}</span></div>
+  {% endif %}
 </div>
+
+{% if all_soms_count %}
+<form class="gp-filter-bar" method="get" action="{{ url_for('ou_list') }}">
+  <div class="gp-field gp-filter-search">
+    <label class="gp-label" for="f-q">Search</label>
+    <input class="gp-input" id="f-q" name="q" type="search" value="{{ f_q }}" placeholder="Scope name or DN" autocomplete="off">
+  </div>
+  <div class="gp-field">
+    <label class="gp-label" for="f-type">Type</label>
+    <select class="gp-select" id="f-type" name="type">
+      <option value="" {% if not f_type %}selected{% endif %}>All</option>
+      <option value="domain" {% if f_type == 'domain' %}selected{% endif %}>Domain</option>
+      <option value="ou" {% if f_type == 'ou' %}selected{% endif %}>OU</option>
+      <option value="site" {% if f_type == 'site' %}selected{% endif %}>Site</option>
+    </select>
+  </div>
+  <div class="gp-field">
+    <label class="gp-label" for="f-sort">Sort</label>
+    <select class="gp-select" id="f-sort" name="sort">
+      <option value="name" {% if f_sort == 'name' %}selected{% endif %}>Name</option>
+      <option value="links" {% if f_sort == 'links' %}selected{% endif %}>Links (busiest first)</option>
+      <option value="type" {% if f_sort == 'type' %}selected{% endif %}>Type</option>
+    </select>
+  </div>
+  <button type="submit" class="gp-btn primary">Apply</button>
+  {% if f_q or f_type or f_sort != 'name' %}
+  <a class="gp-btn" href="{{ url_for('ou_list') }}">Clear</a>
+  {% endif %}
+</form>
 
 {% if soms %}
 <div class="gp-table-wrap">
@@ -51,7 +83,15 @@
     </tbody>
   </table>
 </div>
-{{ pg.pagination(pag, base_qs) }}
+{{ pg.pagination(pag, f_base_qs) }}
+{% else %}
+<div class="gp-callout info" style="border-color: color-mix(in srgb, var(--info) 30%, transparent); background: var(--info-soft);">
+  <span class="ico" style="color: var(--info)">
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+  </span>
+  <p>{% if f_q %}No scopes match "{{ f_q }}".{% else %}No scopes match the current filter.{% endif %} <a href="{{ url_for('ou_list') }}">Clear filters</a></p>
+</div>
+{% endif %}
 {% else %}
 <div class="gp-empty">
   <div class="title">No scopes of management</div>

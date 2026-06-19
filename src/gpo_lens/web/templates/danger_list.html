@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% import '_pagination.html' as pg %}
+
+{% block title %}gpo-lens — Dangerous configurations{% endblock %}
+
+{% block content %}
+<div class="gp-page-head">
+  <div>
+    <div class="gp-eyebrow">Plan 018 — curated, cited checks</div>
+    <h1>Dangerous configurations</h1>
+    <div class="sub">
+      Known attack primitives and security-boundary weakeners. Each finding
+      carries an external citation. Findings are facts about the GPO, not
+      claims about effective RSoP (flag, don't simulate).
+    </div>
+  </div>
+  {% if all_findings_count %}
+  <div>
+    <span class="gp-pill critical"><span class="dot"></span>{{ all_findings_count }} finding{{ 's' if all_findings_count != 1 }}</span>
+  </div>
+  {% endif %}
+</div>
+
+{% if all_findings_count %}
+<form class="gp-filter-bar" method="get" action="{{ url_for('danger_list') }}">
+  <div class="gp-field">
+    <label class="gp-label" for="f-severity">Severity</label>
+    <select class="gp-select" id="f-severity" name="severity">
+      {% set sev_vals = f_severity.split(',') if f_severity else ['all'] %}
+      <option value="all" {% if 'all' in sev_vals or not f_severity %}selected{% endif %}>All</option>
+      <option value="critical" {% if 'critical' in sev_vals %}selected{% endif %}>Critical</option>
+      <option value="high" {% if 'high' in sev_vals %}selected{% endif %}>High</option>
+      <option value="medium" {% if 'medium' in sev_vals %}selected{% endif %}>Medium</option>
+      <option value="low" {% if 'low' in sev_vals %}selected{% endif %}>Low</option>
+    </select>
+  </div>
+  <div class="gp-field gp-filter-search">
+    <label class="gp-label" for="f-q">Search</label>
+    <input class="gp-input" id="f-q" name="q" type="search" value="{{ f_q }}" placeholder="GPO name, check id or title" autocomplete="off">
+  </div>
+  <button type="submit" class="gp-btn primary">Apply</button>
+  {% if f_severity or f_q %}
+  <a class="gp-btn" href="{{ url_for('danger_list') }}">Clear</a>
+  {% endif %}
+</form>
+{% endif %}
+
+{% if findings %}
+<div class="gp-table-wrap">
+  <table class="gp-table">
+    <thead>
+      <tr>
+        <th style="width:120px">Severity</th>
+        <th>GPO</th>
+        <th>Finding</th>
+        <th style="width:90px">Check</th>
+        <th>Reference</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for f in findings %}
+      <tr>
+        <td><span class="gp-pill {{ f.severity }}"><span class="dot"></span>{{ f.severity }}</span></td>
+        <td>
+          {% if f.gpo_id and f.gpo_id in resolvable_gpo_ids %}
+          <a href="{{ url_for('gpo_detail', gpo_id=f.gpo_id) }}">{{ f.gpo_name }}</a>
+          {% else %}
+          <span class="mono muted">{{ f.gpo_name or "—" }}</span>
+          {% endif %}
+        </td>
+        <td>
+          <div><b>{{ f.title }}</b></div>
+          <div class="mono muted" style="font-size:.85em">{{ f.detail }}</div>
+        </td>
+        <td><code>{{ f.check_id }}</code></td>
+        <td>
+          <a href="{{ f.reference }}" rel="noopener noreferrer" target="_blank">citation ↗</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{{ pg.pagination(pag, f_base_qs) }}
+{% elif all_findings_count %}
+<div class="gp-callout info" style="border-color: color-mix(in srgb, var(--info) 30%, transparent); background: var(--info-soft);">
+  <span class="ico" style="color: var(--info)">
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+  </span>
+  <p>No findings match the current filter. <a href="{{ url_for('danger_list') }}">Clear filters</a></p>
+</div>
+{% else %}
+<div class="gp-callout ok" style="border-color: color-mix(in srgb, var(--ok) 30%, transparent); background: var(--ok-soft);">
+  <span class="ico" style="color: var(--ok)">
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+  </span>
+  <p>No dangerous configurations were detected by the curated checks.</p>
+</div>
+{% endif %}
+{% endblock %}

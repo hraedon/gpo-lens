@@ -122,6 +122,25 @@
   <h3>{{ cse_name }}</h3>
   <div class="gp-table-wrap">
     <table class="gp-table">
+      {% if admx %}
+      <thead>
+        <tr><th>Setting</th><th>Value</th></tr>
+      </thead>
+      <tbody>
+        {% for s in cse_settings %}
+        {% set label, raw_id = setting_label(s, admx) %}
+        <tr class="{% if s.from_disabled_side %}dim{% endif %}">
+          <td>
+            {{ label }}
+            {% if raw_id != s.display_name and raw_id != label %}
+            <div class="mono muted" style="font-size:11px;margin-top:2px">{{ raw_id }}</div>
+            {% endif %}
+          </td>
+          <td>{{ s.display_value }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      {% else %}
       <thead>
         <tr><th>Identity</th><th>Name</th><th>Value</th></tr>
       </thead>
@@ -134,6 +153,7 @@
         </tr>
         {% endfor %}
       </tbody>
+      {% endif %}
     </table>
   </div>
   {% endfor %}

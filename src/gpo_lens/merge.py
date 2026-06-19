@@ -1,0 +1,982 @@
+"""Per-CSE merge-resolution model and principal resultant (Plan 021).
+
+This module encodes the merge-resolution table (Phase B) that makes the
+resultant correct rather than last-writer-approximate, plus the principal
+token + security-gate evaluation (Phase A). It is a core module — no
+``narration`` or ``web`` imports, no model calls.
+
+The merge model is a small per-CSE table, most of it deterministic from the
+snapshot. Unknown CSEs default to last-writer-wins **and are flagged
+approximate**, never silently assumed (B.1). WMI/ILT-gated contributors are
+excluded from the deterministic resultant and listed as conditional (decision 2)
+— never silently dropped. Output is labeled "resultant given collected inputs,"
+never unqualified "effective" (decision 4).
+"""
+
+from __future__ import annotations
+
+from collections import defaultdict, deque
+from dataclasses import dataclass
+from enum import Enum
+from typing import TYPE_CHECKING
+
+from gpo_lens.authz import (
+    AU_SID,
+    DOMAIN_SID_PREFIX,
+    EVERYONE_SID,
+    is_allow_ace_type,
+    is_deny_ace_type,
+    parse_sddl,
+    parse_sddl_rights,
+    resolve_principal,
+    resolve_well_known,
+)
+from gpo_lens.danger import danger_findings as _danger_findings
+from gpo_lens.detection import scan_ilt
+from gpo_lens.model import Side
+from gpo_lens.topology import EffectiveGpo, som_effective_gpos
+
+if TYPE_CHECKING:
+    from gpo_lens.danger import DangerFinding
+    from gpo_lens.model import Estate, Gpo, Setting
+
+__all__ = [
+    "ChainEntry",
+    "ConditionalDanger",
+    "CseMergeMode",
+    "ExcludedGpo",
+    "ExcludedSetting",
+    "MergeResult",
+    "MergedSetting",
+    "PrincipalResultant",
+    "PrincipalToken",
+    "build_token",
+    "cse_merge_mode",
+    "merge_settings",
+    "merge_settings_with_exclusions",
+    "principal_resultant",
+]
+
+
+# ---------------------------------------------------------------------------
+# B.1 — Per-CSE resolution mode
+# ---------------------------------------------------------------------------
+
+class CseMergeMode(Enum):
+    LAST_WRITER_WINS = "last_writer_wins"
+    UNION = "union"
+    AUTHORITATIVE_REPLACE = "authoritative_replace"
+    ADDITIVE = "additive"
+    ACCUMULATE = "accumulate"
+    SINGLE_WINNER = "single_winner"
+    MERGE_REPLACE_FLAG = "merge_replace_flag"
+    APPROXIMATE = "approximate"
+
+
+_REGISTRY_CSES = frozenset({"registry", "windows registry"})
+_SCRIPTS_CSES = frozenset({"scripts", "group policy scripts"})
+_SEC_RESTRICTED_GROUPS_TYPES = frozenset({
+    "restrictedgroups", "restricted groups",
+})
+_GPP_CSES = frozenset({
+    "group policy preferences", "gpp",
+    "gpp drive maps", "gpp registry", "gpp files",
+    "gpp local users and groups", "gpp scheduled tasks",
+    "drives", "files", "groups", "scheduledtasks",
+    "localusersandgroups", "datasources", "printers",
+    "folders", "services", "environment", "shortcuts",
+    "internetsettings", "regional", "poweroptions",
+    "networkshares", "eventlogs",
+})
+_IPSEC_WIRELESS_CSES = frozenset({
+    "ipsec", "ip security", "wireless", "wired",
+    "wireless network (ieee 802.11) policy", "wired network policy",
+})
+_FOLDER_REDIRECTION_CSES = frozenset({
+    "folder redirection", "folders redirection",
+})
+
+_APPLY_RIGHTS = frozenset({"GA", "GR", "CC", "CR", "RP"})
+_DOMAIN_RID_DOMAIN_USERS = "-513"
+_DOMAIN_RID_DOMAIN_COMPUTERS = "-515"
+
+_NAME_TO_WELLKNOWN_SID: dict[str, str] = {
+    "authenticated users": AU_SID,
+    "everyone": EVERYONE_SID,
+    "system": "s-1-5-18",
+    "anonymous": "s-1-5-7",
+    "domain users": _DOMAIN_RID_DOMAIN_USERS,
+    "domain computers": _DOMAIN_RID_DOMAIN_COMPUTERS,
+}
+
+
+def _restricted_groups_mode(setting: Setting) -> CseMergeMode:
+    """Members → AUTHORITATIVE_REPLACE, Member Of → ADDITIVE.
+
+    A Restricted Groups setting may carry both sections; Members dominates
+    (the authoritative membership list is the stronger semantic).
+    """
+    raw = setting.raw
+    if not isinstance(raw, dict):
+        return CseMergeMode.AUTHORITATIVE_REPLACE
+    children = raw.get("children")
+    if isinstance(children, list):
+        for child in children:
+            if isinstance(child, dict):
+                tag = str(child.get("tag", "")).lower()
+                if tag == "members":
+                    return CseMergeMode.AUTHORITATIVE_REPLACE
+                if tag == "memberof":
+                    return CseMergeMode.ADDITIVE
+    return CseMergeMode.AUTHORITATIVE_REPLACE
+
+
+def _folder_redirection_mode(setting: Setting) -> CseMergeMode:
+    """Folder Redirection: 'Replace' → AUTHORITATIVE_REPLACE, 'Merge' → ACCUMULATE."""
+    val = setting.display_value.strip().lower()
+    if "replace" in val:
+        return CseMergeMode.AUTHORITATIVE_REPLACE
+    if "merge" in val:
+        return CseMergeMode.ACCUMULATE
+    return CseMergeMode.MERGE_REPLACE_FLAG
+
+
+def cse_merge_mode(cse: str, setting: Setting | None = None) -> CseMergeMode:
+    """Map a CSE name to its merge-resolution mode (Plan 021 B.1).
+
+    Where the mode depends on a setting flag (Restricted Groups Members-vs-
+    MemberOf, Folder Redirection merge/replace), the *setting* is consulted.
+    Unknown CSEs default to APPROXIMATE — flagged, never silently assumed.
+    """
+    cse_lower = cse.strip().lower()
+    if cse_lower in _REGISTRY_CSES:
+        return CseMergeMode.LAST_WRITER_WINS
+    if cse_lower in _SCRIPTS_CSES:
+        return CseMergeMode.UNION
+    if cse_lower == "security":
+        if setting is not None:
+            id_lower = setting.identity.lower()
+            for rg_type in _SEC_RESTRICTED_GROUPS_TYPES:
+                if id_lower.startswith(rg_type + ":"):
+                    return _restricted_groups_mode(setting)
+        return CseMergeMode.LAST_WRITER_WINS
+    if cse_lower == "software installation":
+        return CseMergeMode.ACCUMULATE
+    if cse_lower in _GPP_CSES:
+        return CseMergeMode.ACCUMULATE
+    if cse_lower in _IPSEC_WIRELESS_CSES:
+        return CseMergeMode.SINGLE_WINNER
+    if cse_lower in _FOLDER_REDIRECTION_CSES:
+        if setting is not None:
+            return _folder_redirection_mode(setting)
+        return CseMergeMode.MERGE_REPLACE_FLAG
+    return CseMergeMode.APPROXIMATE
+
+
+def _is_gpp_cse(cse: str) -> bool:
+    return cse.strip().lower() in _GPP_CSES
+
+
+# ---------------------------------------------------------------------------
+# B.2 — GPP item action state machine
+# ---------------------------------------------------------------------------
+
+def _extract_gpp_action(setting: Setting) -> str:
+    """Extract the GPP action (C/R/U/D or CREATE/REPLACE/UPDATE/DELETE)."""
+    raw = setting.raw
+    if not isinstance(raw, dict):
+        return ""
+    attrs = raw.get("@attr")
+    if isinstance(attrs, dict):
+        action = attrs.get("action")
+        if isinstance(action, str) and action:
+            return action.strip().upper()
+    children = raw.get("children")
+    if isinstance(children, list):
+        for child in children:
+            if isinstance(child, dict) and str(child.get("tag", "")).lower() == "properties":
+                child_attrs = child.get("@attr")
+                if isinstance(child_attrs, dict):
+                    action = child_attrs.get("action")
+                    if isinstance(action, str) and action:
+                        return action.strip().upper()
+    return ""
+
+
+_ACTION_CREATE = frozenset({"C", "CREATE"})
+_ACTION_REPLACE = frozenset({"R", "REPLACE"})
+_ACTION_UPDATE = frozenset({"U", "UPDATE"})
+_ACTION_DELETE = frozenset({"D", "DELETE"})
+
+
+# ---------------------------------------------------------------------------
+# Chain entry + merged setting
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class ChainEntry:
+    """One GPO's contribution at a SOM, carrying its settings for merge."""
+
+    gpo_id: str
+    gpo_name: str
+    order: int
+    enforced: bool
+    settings: list[Setting]
+
+
+@dataclass(frozen=True)
+class MergedSetting:
+    """One setting after merge-resolution across the precedence chain."""
+
+    cse: str
+    side: Side
+    identity: str
+    display_name: str
+    winning_value: str
+    winning_gpo_id: str
+    winning_gpo_name: str
+    merge_mode: CseMergeMode
+    overridden_by: list[tuple[str, str]]
+    approximate: bool
+    conditional: bool
+
+
+@dataclass(frozen=True)
+class ExcludedSetting:
+    """A setting excluded from the deterministic resultant (e.g. ILT-gated GPP).
+
+    Per Plan 021 decision 2 / B.3, an ILT-gated GPP item is excluded from the
+    resultant and *listed* — never silently dropped. ``kind`` identifies the
+    exclusion reason; ``"ilt"`` is the only kind today (ILT-gated GPP item).
+    """
+
+    cse: str
+    side: Side
+    identity: str
+    display_name: str
+    value: str
+    gpo_id: str
+    gpo_name: str
+    kind: str
+
+
+@dataclass(frozen=True)
+class MergeResult:
+    """Outcome of merge-resolution: surviving settings + excluded (ILT) settings."""
+
+    settings: list[MergedSetting]
+    excluded_settings: list[ExcludedSetting]
+
+
+@dataclass(frozen=True)
+class _BucketItem:
+    """One setting occurrence in a merge bucket."""
+
+    gpo_id: str
+    gpo_name: str
+    value: str
+    display_name: str
+    order: int
+    enforced: bool
+    action: str
+    setting: Setting
+
+
+def _merge_bucket(
+    cse: str,
+    side: Side,
+    identity: str,
+    items: list[_BucketItem],
+) -> MergedSetting | None:
+    """Resolve one (cse, side, identity) bucket per its CSE merge mode.
+
+    ILT-gated GPP buckets never reach this function — they are excluded
+    upstream in :func:`merge_settings_with_exclusions` (decision 2 / B.3) so
+    the deterministic resultant never carries a conditional GPP item.
+    """
+    mode = cse_merge_mode(cse, items[0].setting)
+    approximate = mode is CseMergeMode.APPROXIMATE
+
+    if mode is CseMergeMode.ACCUMULATE:
+        survivor = _resolve_gpp_actions(items)
+        if survivor is None:
+            return None
+        winner = survivor
+    else:
+        winner = max(items, key=lambda it: it.order)
+
+    overridden: list[tuple[str, str]] = []
+    if mode in (CseMergeMode.LAST_WRITER_WINS, CseMergeMode.AUTHORITATIVE_REPLACE,
+                CseMergeMode.SINGLE_WINNER, CseMergeMode.APPROXIMATE):
+        overridden = [
+            (it.gpo_name, it.value)
+            for it in items
+            if it.order < winner.order
+        ]
+    else:
+        overridden = [
+            (it.gpo_name, it.value)
+            for it in items
+            if it.order != winner.order
+        ]
+
+    return MergedSetting(
+        cse=cse,
+        side=side,
+        identity=identity,
+        display_name=winner.display_name,
+        winning_value=winner.value,
+        winning_gpo_id=winner.gpo_id,
+        winning_gpo_name=winner.gpo_name,
+        merge_mode=mode,
+        overridden_by=overridden,
+        approximate=approximate,
+        conditional=False,
+    )
+
+
+def _resolve_gpp_actions(items: list[_BucketItem]) -> _BucketItem | None:
+    """Resolve GPP items through Create/Replace/Update/Delete (B.2).
+
+    Processed in precedence→order (lowest order first). A later Delete removes
+    the item; Replace supersedes; Update merges fields (the update's value is
+    the latest modification, so the winning entry is the updater); Create only
+    sets the item if none exists. Returns the surviving item, or None if a
+    later Delete removed it.
+    """
+    ordered = sorted(items, key=lambda it: it.order)
+    current: _BucketItem | None = None
+    deleted = False
+    for it in ordered:
+        action = it.action or "UPDATE"
+        if action in _ACTION_DELETE:
+            deleted = True
+            current = None
+        elif action in _ACTION_REPLACE:
+            deleted = False
+            current = it
+        elif action in _ACTION_UPDATE:
+            if not deleted:
+                current = it
+        elif action in _ACTION_CREATE:
+            if current is None and not deleted:
+                current = it
+    if deleted or current is None:
+        return None
+    return current
+
+
+def merge_settings(
+    chain_entries: list[ChainEntry],
+    *,
+    ilt_gpo_ids: frozenset[str] | None = None,
+) -> list[MergedSetting]:
+    """Resolve a precedence chain into merged settings per the CSE merge model.
+
+    Backward-compatible wrapper around :func:`merge_settings_with_exclusions`
+    that returns only the surviving settings. ILT-gated GPP items are excluded
+    (decision 2 / B.3) — use :func:`merge_settings_with_exclusions` to also
+    retrieve the excluded items.
+    """
+    return merge_settings_with_exclusions(
+        chain_entries, ilt_gpo_ids=ilt_gpo_ids,
+    ).settings
+
+
+def merge_settings_with_exclusions(
+    chain_entries: list[ChainEntry],
+    *,
+    ilt_gpo_ids: frozenset[str] | None = None,
+) -> MergeResult:
+    """Resolve a precedence chain, returning merged + ILT-excluded settings.
+
+    Buckets settings by ``(cse, side, identity)`` and resolves each bucket per
+    its CSE merge mode (B.1). GPP items resolve through the action state
+    machine (B.2). Per decision 2 / B.3, an ILT-gated GPP item is **excluded**
+    from the deterministic resultant and listed in ``excluded_settings`` —
+    never silently dropped, and never carried as a conditional survivor.
+    """
+    ilt = ilt_gpo_ids or frozenset()
+    buckets: dict[tuple[str, Side, str], list[_BucketItem]] = defaultdict(list)
+    for entry in chain_entries:
+        for s in entry.settings:
+            if s.from_disabled_side:
+                continue
+            key = (s.cse, s.side, s.identity)
+            action = _extract_gpp_action(s) if _is_gpp_cse(s.cse) else ""
+            buckets[key].append(_BucketItem(
+                gpo_id=entry.gpo_id,
+                gpo_name=entry.gpo_name,
+                value=s.display_value,
+                display_name=s.display_name,
+                order=entry.order,
+                enforced=entry.enforced,
+                action=action,
+                setting=s,
+            ))
+
+    results: list[MergedSetting] = []
+    excluded: list[ExcludedSetting] = []
+    for (cse, side, identity), items in buckets.items():
+        # ILT-gated GPP buckets are excluded entirely (decision 2 / B.3):
+        # the gate is unevaluated by design, so a conditional survivor would
+        # be an over-claim. The gated items are listed for visibility.
+        if _is_gpp_cse(cse) and any(it.gpo_id in ilt for it in items):
+            for it in items:
+                if it.gpo_id in ilt:
+                    excluded.append(ExcludedSetting(
+                        cse=cse,
+                        side=side,
+                        identity=identity,
+                        display_name=it.display_name,
+                        value=it.value,
+                        gpo_id=it.gpo_id,
+                        gpo_name=it.gpo_name,
+                        kind="ilt",
+                    ))
+            continue
+        merged = _merge_bucket(cse, side, identity, items)
+        if merged is not None:
+            results.append(merged)
+
+    results.sort(key=lambda m: (m.cse, m.side, m.identity.lower()))
+    excluded.sort(
+        key=lambda e: (e.cse, e.side, e.identity.lower(), e.gpo_id)
+    )
+    return MergeResult(settings=results, excluded_settings=excluded)
+
+
+# ---------------------------------------------------------------------------
+# Phase A — Principal token
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class PrincipalToken:
+    """A principal's security token (set of SIDs)."""
+
+    principal_sid: str
+    principal_name: str
+    token_sids: frozenset[str]
+    token_caveats: list[str]
+
+
+def _domain_sid_from(sid: str) -> str | None:
+    """Extract the domain SID (S-1-5-21-...) from a domain principal SID."""
+    s = sid.strip().lower()
+    if not s.startswith(DOMAIN_SID_PREFIX):
+        return None
+    parts = s.split("-")
+    if len(parts) < 7:
+        return None
+    return "-".join(parts[:-1])
+
+
+def _estate_domain_sid(estate: Estate) -> str | None:
+    """Derive the domain SID (s-1-5-21-...) from any collected domain principal.
+
+    Used to expand domain-relative RID suffixes (e.g. ``-513`` for Domain
+    Users) into the full SIDs that appear in a principal's token. Falls back
+    across ``estate.principals`` then ``estate.group_members``; returns
+    ``None`` if no domain principal was collected (empty/unresolved estate).
+    """
+    for sid in estate.principals:
+        ds = _domain_sid_from(sid)
+        if ds is not None:
+            return ds
+    for sid in estate.group_members:
+        ds = _domain_sid_from(sid)
+        if ds is not None:
+            return ds
+    return None
+
+
+def build_token(estate: Estate, principal_sid: str) -> PrincipalToken:
+    """Expand a principal's transitive group membership into a token SID set.
+
+    Adds well-known groups (Authenticated Users, Everyone; Domain Users or
+    Domain Computers based on principal type). Expands nested groups via
+    ``estate.group_members`` (Plan 020 B) in both directions: a group's
+    members (forward) and the groups a principal belongs to (reverse).
+    Records what could not be expanded (foreign SIDs, unresolved) as caveats.
+    """
+    sid = principal_sid.strip().lower()
+    rp = resolve_principal(estate, sid)
+    token: set[str] = {sid}
+    caveats: list[str] = []
+
+    token.add(AU_SID)
+    token.add(EVERYONE_SID)
+
+    domain_sid = _domain_sid_from(sid)
+    if domain_sid is not None:
+        is_computer = rp.principal_type.lower() == "computer"
+        if is_computer:
+            token.add(f"{domain_sid}{_DOMAIN_RID_DOMAIN_COMPUTERS}")
+        else:
+            token.add(f"{domain_sid}{_DOMAIN_RID_DOMAIN_USERS}")
+
+    member_to_groups: dict[str, list[str]] = defaultdict(list)
+    for g_sid, g_mem in estate.group_members.items():
+        for member in g_mem.members:
+            member_to_groups[member].append(g_sid)
+
+    queue: deque[str] = deque(token)
+    visited: set[str] = set()
+    while queue:
+        current = queue.popleft()
+        if current in visited:
+            continue
+        visited.add(current)
+        gm = estate.group_members.get(current)
+        if gm is not None:
+            for member_sid in gm.members:
+                member = member_sid.strip().lower()
+                if member and member not in token:
+                    token.add(member)
+                    queue.append(member)
+        for group_sid in member_to_groups.get(current, ()):
+            if group_sid not in token:
+                token.add(group_sid)
+                queue.append(group_sid)
+        if (current.startswith(DOMAIN_SID_PREFIX)
+                and not resolve_well_known(current)
+                and current != sid
+                and gm is None
+                and current not in estate.principals):
+            caveats.append(f"unresolved group SID: {current}")
+
+    return PrincipalToken(
+        principal_sid=sid,
+        principal_name=rp.name,
+        token_sids=frozenset(token),
+        token_caveats=caveats,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Phase A — Security-filter gate evaluation
+# ---------------------------------------------------------------------------
+
+def _build_name_to_sid_map(estate: Estate) -> dict[str, str]:
+    """Reverse name→SID map from collected principals and group memberships."""
+    out: dict[str, str] = dict(_NAME_TO_WELLKNOWN_SID)
+    for sid, rp in estate.principals.items():
+        if rp.name:
+            out.setdefault(rp.name.lower(), sid)
+        if rp.sam:
+            out.setdefault(rp.sam.lower(), sid)
+    for sid, gm in estate.group_members.items():
+        if gm.name:
+            out.setdefault(gm.name.lower(), sid)
+    return out
+
+
+def _gpo_apply_trustee_sids(
+    gpo: Gpo,
+    name_to_sid: dict[str, str],
+    domain_sid: str | None = None,
+) -> set[str]:
+    """Collect SIDs that hold Apply Group Policy (or Read) rights on the GPO.
+
+    Honors deny-ACE precedence in both the delegation and SDDL paths: a deny
+    on a trustee cancels its matching allow rights, mirroring the
+    ``applies_broadly`` pattern in :mod:`gpo_lens.authz`. A trustee that is
+    both allowed and denied Apply is therefore *not* included.
+
+    Domain-relative RID suffixes (e.g. ``-513`` for Domain Users, as carried
+    by the well-known name map) are expanded to full SIDs using
+    ``domain_sid`` so they match the full SIDs in a principal's token.
+    """
+    allow_sids: set[str] = set()
+    deny_sids: set[str] = set()
+    has_data = False
+
+    def _expand(sid: str) -> str:
+        # A well-known name may resolve to a domain-relative RID suffix
+        # (e.g. "-513"); expand it with the estate's domain SID so it can
+        # match the full SID in the token. Unresolvable → empty.
+        if sid.startswith("-"):
+            if domain_sid is None:
+                return ""
+            return f"{domain_sid}{sid}"
+        return sid
+
+    for entry in gpo.delegation:
+        has_data = True
+        perm = entry.permission.lower()
+        if not ("apply" in perm or "grouppolicy" in perm.replace(" ", "")
+                or "read" in perm or "full control" in perm):
+            continue
+        sid = (entry.trustee_sid or "").strip().lower()
+        if not sid and entry.trustee:
+            sid = name_to_sid.get(entry.trustee.lower(), "")
+        sid = _expand(sid)
+        if not sid:
+            continue
+        if entry.allowed:
+            allow_sids.add(sid)
+        else:
+            deny_sids.add(sid)
+
+    if not gpo.delegation and gpo.sddl:
+        has_data = True
+        acl = parse_sddl(gpo.sddl)
+        # Track allow vs deny rights per trustee so a deny ACE cancels the
+        # matching Apply/Read rights on that trustee (deny precedence).
+        allow_rights: dict[str, set[str]] = defaultdict(set)
+        deny_rights: dict[str, set[str]] = defaultdict(set)
+        for ace in acl.dacl:
+            sid = (ace.trustee_sid or "").strip().lower()
+            if not sid:
+                continue
+            rights = set(parse_sddl_rights(ace.rights))
+            if is_allow_ace_type(ace.ace_type):
+                allow_rights[sid] |= rights
+            elif is_deny_ace_type(ace.ace_type):
+                deny_rights[sid] |= rights
+        for sid, allowed in allow_rights.items():
+            net = allowed - deny_rights.get(sid, set())
+            if net & _APPLY_RIGHTS:
+                allow_sids.add(sid)
+
+    if not has_data:
+        return set()
+    # Deny precedence: a trustee that is both allowed and denied Apply is
+    # excluded from the resultant's Apply set.
+    return allow_sids - deny_sids
+
+
+# ---------------------------------------------------------------------------
+# Phase A — Principal resultant
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class ExcludedGpo:
+    """A GPO excluded from the deterministic resultant, with reason."""
+
+    gpo_id: str
+    gpo_name: str
+    reason: str
+    kind: str
+
+
+@dataclass(frozen=True)
+class ConditionalDanger:
+    """A dangerous config in a GPO that is gated (not silently dropped)."""
+
+    gpo_id: str
+    gpo_name: str
+    reason: str
+    finding_count: int
+
+
+@dataclass(frozen=True)
+class PrincipalResultant:
+    """The effective policy for a principal, given collected inputs."""
+
+    principal_sid: str
+    principal_name: str
+    computer_sid: str | None
+    settings: list[MergedSetting]
+    excluded: list[ExcludedGpo]
+    excluded_settings: list[ExcludedSetting]
+    conditional_dangers: list[ConditionalDanger]
+    token_caveats: list[str]
+    caveat_summary: str
+
+
+def _resolve_som_path_for_principal(estate: Estate, dn: str | None) -> str:
+    """Find the most specific SOM path for a principal's DN, or the domain root."""
+    if dn:
+        parts = [p.strip() for p in dn.split(",")]
+        for i in range(len(parts)):
+            candidate = ",".join(parts[i:])
+            for som in estate.soms:
+                if som.container_type == "site":
+                    continue
+                if som.path.lower() == candidate.lower():
+                    return som.path
+    for som in estate.soms:
+        if som.container_type == "domain":
+            return som.path
+    for som in estate.soms:
+        if som.container_type != "site":
+            return som.path
+    return ""
+
+
+def _evaluate_security_gate(
+    gpo: Gpo,
+    token_sids: frozenset[str],
+    name_to_sid: dict[str, str],
+    domain_sid: str | None = None,
+) -> tuple[bool, str]:
+    """Return (passes, reason). passes=True if the token can Read+Apply the GPO."""
+    apply_sids = _gpo_apply_trustee_sids(gpo, name_to_sid, domain_sid)
+    if not apply_sids:
+        if gpo.delegation or gpo.sddl:
+            return False, "security filter: no resolvable Apply trustee SIDs in token"
+        return True, "no delegation/SDDL data — security filtering state unknown"
+    if apply_sids & token_sids:
+        return True, ""
+    return False, "security filter: token does not intersect Apply trustees"
+
+
+def _side_for_principal(principal_type: str) -> Side:
+    if principal_type.lower() == "computer":
+        return "Computer"
+    return "User"
+
+
+def _build_conditional_dangers(
+    excluded: list[ExcludedGpo],
+    excluded_settings: list[ExcludedSetting],
+    danger_findings: list[DangerFinding],
+) -> list[ConditionalDanger]:
+    """Cross gated GPOs with danger findings (decision 3: never hide a danger).
+
+    A GPO is "gated" if it was excluded at the GPO level (security filter /
+    WMI) or had settings excluded at the item level (ILT-gated GPP). Any danger
+    in such a GPO surfaces here rather than being silently dropped.
+    """
+    gated: dict[str, str] = {}          # gpo_id -> reason
+    gpo_names: dict[str, str] = {}      # gpo_id -> gpo_name
+    for exc in excluded:
+        gated[exc.gpo_id] = exc.reason
+        gpo_names[exc.gpo_id] = exc.gpo_name
+    for es in excluded_settings:
+        gpo_names.setdefault(es.gpo_id, es.gpo_name)
+        if es.kind == "ilt" and es.gpo_id not in gated:
+            gated[es.gpo_id] = "ILT-gated GPP item excluded from resultant"
+
+    by_gpo: dict[str, list[DangerFinding]] = defaultdict(list)
+    for f in danger_findings:
+        if f.gpo_id in gated:
+            by_gpo[f.gpo_id].append(f)
+
+    out: list[ConditionalDanger] = []
+    for gpo_id, reason in gated.items():
+        findings = by_gpo.get(gpo_id, [])
+        if findings:
+            out.append(ConditionalDanger(
+                gpo_id=gpo_id,
+                gpo_name=gpo_names.get(gpo_id, gpo_id),
+                reason=reason,
+                finding_count=len(findings),
+            ))
+    out.sort(key=lambda c: (c.gpo_name.lower(), c.gpo_id))
+    return out
+
+
+def _build_caveat_summary(
+    settings: list[MergedSetting],
+    excluded: list[ExcludedGpo],
+    excluded_settings: list[ExcludedSetting],
+    conditional_dangers: list[ConditionalDanger],
+    token_caveats: list[str],
+    has_computer: bool,
+    label: str,
+) -> str:
+    parts: list[str] = ["Resultant given collected inputs"]
+    if label:
+        parts.append(f"({label})")
+    approx = sum(1 for s in settings if s.approximate)
+    cond = sum(1 for s in settings if s.conditional)
+    parts.append(f"{len(settings)} setting(s)")
+    if approx:
+        parts.append(f"{approx} approximate")
+    if cond:
+        parts.append(f"{cond} conditional")
+    if excluded:
+        parts.append(f"{len(excluded)} excluded")
+    if excluded_settings:
+        ilt = sum(1 for e in excluded_settings if e.kind == "ilt")
+        if ilt:
+            parts.append(f"{ilt} ILT-excluded setting(s)")
+    if conditional_dangers:
+        parts.append(f"{len(conditional_dangers)} conditional danger(s)")
+    if token_caveats:
+        parts.append(f"{len(token_caveats)} token caveat(s)")
+    if has_computer:
+        parts.append("computer pair")
+    return ". ".join(parts) + "."
+
+
+def _collect_chain_entries(
+    chain: list[EffectiveGpo],
+    target_side: Side,
+    gpo_by_id: dict[str, Gpo],
+    token_sids: frozenset[str],
+    name_to_sid: dict[str, str],
+    domain_sid: str | None,
+    excluded: list[ExcludedGpo],
+) -> list[ChainEntry]:
+    """Walk a precedence chain, evaluate gates, and collect one side's settings.
+
+    GPOs that fail the security gate or carry a WMI filter are appended to
+    ``excluded`` (never silently dropped — decision 2). Used for both the
+    user chain (User-side settings) and the computer chain (Computer-side
+    settings) so the two paths share one exclusion-recording code path.
+    """
+    entries: list[ChainEntry] = []
+    for eg in chain:
+        gpo = gpo_by_id.get(eg.gpo_id)
+        if gpo is None or not eg.enabled:
+            continue
+        passes, reason = _evaluate_security_gate(
+            gpo, token_sids, name_to_sid, domain_sid,
+        )
+        if not passes:
+            excluded.append(ExcludedGpo(
+                gpo_id=gpo.id, gpo_name=gpo.name,
+                reason=reason, kind="security_filter",
+            ))
+            continue
+        if gpo.wmi_filter:
+            excluded.append(ExcludedGpo(
+                gpo_id=gpo.id, gpo_name=gpo.name,
+                reason=f"WMI filter attached: {gpo.wmi_filter}",
+                kind="wmi_filter",
+            ))
+            continue
+        side_settings = [
+            s for s in gpo.settings
+            if s.side == target_side and not s.from_disabled_side
+        ]
+        if not side_settings:
+            continue
+        entries.append(ChainEntry(
+            gpo_id=gpo.id,
+            gpo_name=gpo.name,
+            order=eg.order,
+            enforced=eg.enforced,
+            settings=side_settings,
+        ))
+    return entries
+
+
+def principal_resultant(
+    estate: Estate,
+    principal_sid: str,
+    computer_sid: str | None = None,
+    *,
+    dn: str | None = None,
+    computer_dn: str | None = None,
+    danger: list[DangerFinding] | None = None,
+) -> PrincipalResultant:
+    """Compute the resultant policy for a principal given collected inputs.
+
+    Builds the principal's token (A.1), resolves the precedence chain (A.2),
+    evaluates the security-filter gate (A.3), applies the merge model (A.4),
+    and produces the resultant with explicit caveat lists (A.5).
+
+    Output is labeled "resultant given collected inputs," never unqualified
+    "effective" (decision 4). WMI/ILT-gated contributors are excluded and
+    listed, never silently dropped (decision 2). Dangerous configs in gated
+    GPOs surface in the conditional-dangers bucket (decision 3).
+
+    For a user+computer pair (decision 5), the user's chain (from ``dn``)
+    contributes User-side settings and the computer's chain (from
+    ``computer_dn``) contributes Computer-side settings; both are evaluated
+    against the combined user+computer token (post-MS16-072). Loopback is
+    deferred (WI-028) and surfaced as a caveat.
+
+    *danger* lets a caller that already computed ``danger_findings()`` pass
+    the list in, avoiding a redundant re-evaluation (WI-031).
+    """
+    sid = principal_sid.strip().lower()
+    rp = resolve_principal(estate, sid)
+    token = build_token(estate, sid)
+    token_sids = token.token_sids
+
+    if computer_sid:
+        comp_sid = computer_sid.strip().lower()
+        comp_token = build_token(estate, comp_sid)
+        token_sids = token_sids | comp_token.token_sids
+
+    name_to_sid = _build_name_to_sid_map(estate)
+    # Domain SID expands domain-relative RID suffixes (Domain Users/Computers)
+    # in the security-gate trustee resolution. Prefer collected principals;
+    # fall back to the principal's own SID (e.g. an unresolved/empty estate).
+    domain_sid = _estate_domain_sid(estate) or _domain_sid_from(sid)
+    ilt_hits = scan_ilt(estate)
+    ilt_gpo_ids = frozenset(h.gpo_id for h in ilt_hits)
+
+    som_path = _resolve_som_path_for_principal(estate, dn)
+    chain = som_effective_gpos(estate, som_path) if som_path else []
+    gpo_by_id = {g.id: g for g in estate.gpos}
+
+    side = _side_for_principal(rp.principal_type)
+    is_user_computer_pair = computer_sid is not None and side == "User"
+
+    excluded: list[ExcludedGpo] = []
+    if is_user_computer_pair:
+        # User-side settings come from the USER's chain (dn); Computer-side
+        # settings come from the COMPUTER's chain (computer_dn). Loopback
+        # (user-side from the computer's OU) is deferred — WI-028.
+        comp_som = _resolve_som_path_for_principal(
+            estate, computer_dn if computer_dn is not None else dn,
+        )
+        comp_chain = som_effective_gpos(estate, comp_som) if comp_som else []
+        chain_entries = _collect_chain_entries(
+            chain, "User", gpo_by_id, token_sids, name_to_sid, domain_sid,
+            excluded,
+        )
+        chain_entries += _collect_chain_entries(
+            comp_chain, "Computer", gpo_by_id, token_sids, name_to_sid,
+            domain_sid, excluded,
+        )
+    else:
+        chain_entries = _collect_chain_entries(
+            chain, side, gpo_by_id, token_sids, name_to_sid, domain_sid,
+            excluded,
+        )
+
+    # In a user+computer pair, a GPO linked at a shared ancestor (e.g. the
+    # domain root) appears in BOTH chains; if it is gated it would be recorded
+    # twice. Collapse to one entry per GPO (a GPO has one exclusion reason).
+    if is_user_computer_pair and excluded:
+        seen: set[str] = set()
+        deduped: list[ExcludedGpo] = []
+        for e in excluded:
+            if e.gpo_id in seen:
+                continue
+            seen.add(e.gpo_id)
+            deduped.append(e)
+        excluded = deduped
+
+    merge = merge_settings_with_exclusions(
+        chain_entries, ilt_gpo_ids=ilt_gpo_ids,
+    )
+    settings = merge.settings
+    excluded_settings = merge.excluded_settings
+
+    dangers = danger if danger is not None else _danger_findings(estate)
+    conditional_dangers = _build_conditional_dangers(
+        excluded, excluded_settings, dangers,
+    )
+
+    if is_user_computer_pair:
+        label = "user resultant with computer pair (no loopback; WI-028)"
+    elif side == "User":
+        label = "user in own OU, no loopback, no computer"
+    else:
+        label = "computer resultant"
+
+    caveat_summary = _build_caveat_summary(
+        settings, excluded, excluded_settings, conditional_dangers,
+        token.token_caveats,
+        has_computer=computer_sid is not None, label=label,
+    )
+
+    return PrincipalResultant(
+        principal_sid=sid,
+        principal_name=rp.name,
+        computer_sid=computer_sid.strip().lower() if computer_sid else None,
+        settings=settings,
+        excluded=excluded,
+        excluded_settings=excluded_settings,
+        conditional_dangers=conditional_dangers,
+        token_caveats=token.token_caveats,
+        caveat_summary=caveat_summary,
+    )

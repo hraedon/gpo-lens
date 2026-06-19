@@ -21,6 +21,7 @@ def cmd_serve(args: object) -> int:
     port = getattr(a, "port", 8000)
     open_browser = getattr(a, "open", False)
     root_path = getattr(a, "root_path", "")
+    admx_dir = getattr(a, "admx_dir", None) or os.environ.get("GPO_LENS_ADMX_DIR")
 
     if host not in _LOOPBACK_ADDRESSES and not os.environ.get("GPO_LENS_AUTH_TOKEN"):
         print(
@@ -38,7 +39,7 @@ def cmd_serve(args: object) -> int:
 
     import uvicorn
 
-    app = create_app(db, root_path=root_path)
+    app = create_app(db, root_path=root_path, admx_dir=admx_dir)
 
     if open_browser:
         bracketed = f"[{host}]" if ":" in host else host

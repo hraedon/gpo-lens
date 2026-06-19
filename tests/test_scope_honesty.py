@@ -1264,3 +1264,70 @@ class TestSecurityFilteringGolden:
         assert detail.has_au_read is True
         assert detail.is_filtered is False
         assert "Authenticated Users" in detail.apply_trustees
+
+
+# ---- principal resolution in SDDL fallback (Plan 020 A.4) ------------------
+
+
+class TestSddlFallbackPrincipalResolution:
+    def test_sddl_fallback_resolves_broad_trustee_to_name(self) -> None:
+        """SDDL fallback populates apply_trustees with resolved names."""
+        from gpo_lens.topology import security_filtering_detail
+
+        gpo = _make_gpo(
+            id="gpo-sddl-resolve",
+            sddl="O:SYG:SYD:(A;;GA;;;S-1-5-11)",
+            delegation=[],
+        )
+        estate = Estate(gpos=[gpo])
+        detail = security_filtering_detail(gpo, estate)
+        assert "Authenticated Users" in detail.apply_trustees
+
+    def test_sddl_fallback_without_estate_degrades_gracefully(self) -> None:
+        """Without estate, the SDDL fallback still resolves well-known SIDs."""
+        from gpo_lens.topology import security_filtering_detail
+
+        gpo = _make_gpo(
+            id="gpo-sddl-no-estate",
+            sddl="O:SYG:SYD:(A;;GA;;;S-1-5-11)",
+            delegation=[],
+        )
+        detail = security_filtering_detail(gpo)
+        assert detail.has_au_read is True
+        assert detail.is_filtered is False
+
+    def test_sddl_fallback_verdict_invariant_with_estate(self) -> None:
+        """AC-5: is_filtered is identical with/without estate."""
+        from gpo_lens.topology import security_filtering_detail
+
+        gpo = _make_gpo(
+            id="gpo-sddl-invariant",
+            sddl="O:SYG:SYD:(A;;GA;;;S-1-5-11)",
+            delegation=[],
+        )
+        estate = Estate(gpos=[gpo])
+        bare = security_filtering_detail(gpo)
+        resolved = security_filtering_detail(gpo, estate)
+        assert bare.is_filtered == resolved.is_filtered
+        assert bare.has_au_read == resolved.has_au_read
+        assert bare.has_dc_read == resolved.has_dc_read
+
+    def test_delegation_path_keeps_existing_names(self) -> None:
+        """Delegation already provides names — estate resolution is not needed."""
+        from gpo_lens.topology import security_filtering_detail
+
+        gpo = _make_gpo(
+            id="gpo-deleg-name",
+            delegation=[
+                DelegationEntry(
+                    gpo_id="gpo-deleg-name",
+                    trustee="Custom Filter Group",
+                    trustee_sid="S-1-5-21-100-200-300-9999",
+                    permission="Apply Group Policy",
+                    allowed=True,
+                ),
+            ],
+        )
+        estate = Estate(gpos=[gpo])
+        detail = security_filtering_detail(gpo, estate)
+        assert "Custom Filter Group" in detail.apply_trustees

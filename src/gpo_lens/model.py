@@ -51,6 +51,7 @@ class DenyAce:
     rights: str
     flags: str
     acl_section: str
+    trustee_name: str = ""
 
 
 @dataclass(frozen=True)
@@ -61,6 +62,7 @@ class ExcessiveWriter:
     gpo_count: int
     gpo_names: tuple[str, ...]
     rights: tuple[str, ...]
+    trustee_name: str = ""
 
 
 @dataclass(frozen=True)
@@ -199,6 +201,41 @@ class CoverageGap:
     detail: str
 
 
+@dataclass(frozen=True)
+class GroupMembership:
+    """One group's membership as collected by the Plan 020-B collector.
+
+    SIDs are canonical (lowercase). ``members`` is the direct membership list;
+    transitive expansion is performed by :func:`gpo_lens.merge.build_token`.
+    ``implicit`` is a note for well-known groups with no enumerable membership
+    (e.g. Authenticated Users).
+    """
+
+    sid: str
+    name: str
+    members: tuple[str, ...]
+    member_count: int
+    implicit: str = ""
+
+
+@dataclass(frozen=True)
+class ResolvedPrincipal:
+    """A SID resolved to a name, with the original SID always retained.
+
+    The SID is the source of truth; the name is a point-in-time annotation
+    (Plan 020, decision 2). ``resolved`` is ``False`` when no name could be
+    found — in that case ``name`` carries the raw SID so a display surface is
+    never blank (decision 3: unresolved is a result, not an error).
+    """
+
+    sid: str
+    name: str
+    sam: str
+    principal_type: str       # "Group"|"User"|"Computer"|"WellKnown"|"Unresolved"
+    domain: str               # NetBIOS/domain or ""
+    resolved: bool            # False if no name could be found
+
+
 @dataclass
 class Estate:
     """The whole normalized estate for one domain snapshot."""
@@ -209,6 +246,8 @@ class Estate:
     wmi_filters: list[WmiFilter] = field(default_factory=list)
     ou_tree: list[OuRecord] = field(default_factory=list)
     coverage_gaps: list[CoverageGap] = field(default_factory=list)
+    principals: dict[str, ResolvedPrincipal] = field(default_factory=dict)
+    group_members: dict[str, GroupMembership] = field(default_factory=dict)
 
     def gpo_by_id(self, gpo_id: str) -> Gpo | None:
         return next((g for g in self.gpos if g.id == gpo_id), None)

@@ -18,6 +18,8 @@ the parser reads. It is distinct from the JSON output contract
 ├── ou-tree.json             Raw OU tree (gPLink / gPOptions attributes)
 ├── sites.json               AD site GPO links (gPLink / gPOptions from Config NC)
 ├── wmi-filters.json         WMI filter definitions (name + query text)
+├── principals.json          SID -> name map for all SIDs in GPO SDDL (Plan 020)
+├── group-members.json       Group SID -> member SIDs, transitive expansion (Plan 020-B)
 ├── collection-errors.json   GPOs that could not be collected (always present; may be `[]`)
 ├── gpo-inventory.json       Authoritative GPO list from privileged enumeration
 ├── reports/                 Per-GPO XML reports (UTF-16)
@@ -110,6 +112,8 @@ canonical element names `<Computer>` and `<User>` regardless of SYSVOL casing.
 | `ou-tree.json` | JSON, UTF-8 (may have BOM) | `Get-ADOrganizationalUnit` with `gPLink`/`gPOptions` | Raw gPLink attribute for topology cross-check |
 | `sites.json` | JSON, UTF-8 (may have BOM) | `Get-ADObject` from Config NC | AD site GPO links (parallel scoping axis) |
 | `wmi-filters.json` | JSON, UTF-8 (may have BOM) | `Get-ADObject -Filter "objectClass -eq 'msWMI-Som'"` | WMI filter name + query text |
+| `principals.json` | JSON, UTF-8 (may have BOM) | SID resolution from SDDL + `Get-ADObject` | SID -> name/type/sam/domain map; optional (Plan 020) |
+| `group-members.json` | JSON, UTF-8 (may have BOM) | `Get-ADGroupMember -Recursive` | Group SID -> member SIDs (transitive); optional (Plan 020-B) |
 | `collection-errors.json` | JSON, UTF-8 (may have BOM) | Collector error accumulation | GPOs that could not be read; always present (may be `[]`) |
 | `gpo-inventory.json` | JSON, UTF-8 (may have BOM) | `Get-ADObject` from Policies container | Authoritative GPC GUID list; produced by privileged run |
 | `SYSVOL-Policies/` | Directory tree | `Copy-Item -Recurse` from `\\domain\SYSVOL\domain\Policies` | Raw policy files (Registry.pol, GPP XML, gpreport.xml) |
@@ -122,6 +126,76 @@ parser silently skips missing files and falls back to defaults (empty lists,
 no metadata, no SYSVOL augmentation). This allows partial exports (e.g. a
 SYSVOL-only copy, or an export from a machine without RSAT) to still produce
 useful results.
+
+### principals.json format (Plan 020)
+
+SID -> name resolution map. SIDs are canonical (lowercase). Produced by the
+collector's principals section (integrated in v0.6.2) or the standalone
+`Export-Principals.ps1`.
+
+```json
+{
+  "collected": "2026-06-19T15:30:00Z",
+  "domain": "workdomain.local",
+  "principals": {
+    "s-1-5-21-1234567890-1234567890-1234567890-1000": {
+      "name": "WORKDOMAIN\\GPO-Admins",
+      "sam": "GPO-Admins",
+      "type": "Group",
+      "domain": "WORKDOMAIN"
+    },
+    "s-1-5-11": {
+      "name": "Authenticated Users",
+      "sam": "Authenticated Users",
+      "type": "WellKnown",
+      "domain": ""
+    }
+  }
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `name` | Resolved display name (DOMAIN\sam or UPN). Raw SID if unresolved. |
+| `sam` | sAMAccountName (or name for well-known SIDs). |
+| `type` | `"Group"`, `"User"`, `"Computer"`, `"WellKnown"`, or `"Unresolved"`. |
+| `domain` | NetBIOS domain name (or empty for well-known SIDs). |
+
+### group-members.json format (Plan 020-B)
+
+Transitive group membership expansion. Produced by the collector's group
+membership section (integrated in v0.6.2) or the standalone
+`Export-GroupMembers.ps1`.
+
+```json
+{
+  "collected": "2026-06-19T15:30:00Z",
+  "domain": "workdomain.local",
+  "groups": {
+    "s-1-5-21-1234567890-1234567890-1234567890-1000": {
+      "name": "WORKDOMAIN\\GPO-Admins",
+      "members": [
+        "s-1-5-21-1234567890-1234567890-1234567890-1100",
+        "s-1-5-21-1234567890-1234567890-1234567890-1101"
+      ],
+      "member_count": 2
+    },
+    "s-1-5-11": {
+      "name": "Authenticated Users",
+      "members": [],
+      "member_count": 0,
+      "implicit": "All authenticated domain principals (users + computers)"
+    }
+  }
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `name` | Group display name. |
+| `members` | Array of member SIDs (transitive expansion, canonical lowercase). |
+| `member_count` | Count of transitive members. |
+| `implicit` | Present for well-known groups with no enumerable membership. |
 
 ## Encoding
 

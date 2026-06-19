@@ -9,9 +9,12 @@ and trustee/rights normalization so the two predicates stop drifting.
 from __future__ import annotations
 
 import warnings
-from typing import Iterable
+from typing import TYPE_CHECKING, Iterable
 
-from gpo_lens.model import SddlAce, SddlAcl
+from gpo_lens.model import ResolvedPrincipal, SddlAce, SddlAcl
+
+if TYPE_CHECKING:
+    from gpo_lens.model import Estate
 
 __all__ = [
     "ACE_TYPE_MAP",
@@ -27,12 +30,95 @@ __all__ = [
     "is_deny_ace_type",
     "parse_sddl",
     "parse_sddl_rights",
+    "resolve_principal",
+    "resolve_well_known",
 ]
 
 AU_SID = "s-1-5-11"
 EVERYONE_SID = "s-1-1-0"
 DOMAIN_SID_PREFIX = "s-1-5-21-"
 DOMAIN_COMPUTERS_RID_SUFFIX = "-515"
+_BUILTIN_PREFIX = "s-1-5-32-"
+_MANDATORY_PREFIX = "s-1-16-"
+
+_ABSOLUTE_WELL_KNOWN: dict[str, str] = {
+    "s-1-1-0": "Everyone",
+    "s-1-5-7": "Anonymous",
+    "s-1-5-9": "Enterprise Domain Controllers",
+    "s-1-5-10": "Self",
+    "s-1-5-11": "Authenticated Users",
+    "s-1-5-12": "Restricted Code",
+    "s-1-5-13": "Terminal Server Users",
+    "s-1-5-14": "Remote Interactive Logon",
+    "s-1-5-15": "This Organization",
+    "s-1-5-17": "IUSR",
+    "s-1-5-18": "SYSTEM",
+    "s-1-5-19": "Local Service",
+    "s-1-5-20": "Network Service",
+    "s-1-5-33": "Write Restricted",
+    "s-1-5-1000": "Other Organization",
+}
+
+_BUILTIN_WELL_KNOWN: dict[str, str] = {
+    "544": "BUILTIN\\Administrators",
+    "545": "BUILTIN\\Users",
+    "546": "BUILTIN\\Guests",
+    "547": "BUILTIN\\Power Users",
+    "548": "BUILTIN\\Account Operators",
+    "549": "BUILTIN\\Server Operators",
+    "550": "BUILTIN\\Print Operators",
+    "551": "BUILTIN\\Backup Operators",
+    "552": "BUILTIN\\Replicator",
+    "553": "BUILTIN\\All Users",
+    "554": "BUILTIN\\Pre-Windows 2000 Compatible Access",
+    "555": "BUILTIN\\Pre-Windows 2000 Compatible Access",
+    "556": "BUILTIN\\Remote Management Users",
+    "557": "BUILTIN\\Network Configuration Operators",
+    "558": "BUILTIN\\Incoming Forest Trust Builders",
+    "559": "BUILTIN\\Performance Monitor Users",
+    "560": "BUILTIN\\Performance Log Users",
+    "561": "BUILTIN\\Windows Authorization Access Group",
+    "562": "BUILTIN\\Terminal Server License Servers",
+    "568": "BUILTIN\\IIS_IUSRS",
+    "569": "BUILTIN\\Cryptographic Operators",
+    "573": "BUILTIN\\Event Log Readers",
+    "574": "BUILTIN\\Certificate Service DCOM Access",
+    "575": "BUILTIN\\RDS Remote Access Servers",
+    "576": "BUILTIN\\RDS Endpoint Servers",
+    "577": "BUILTIN\\RDS Management Servers",
+    "578": "BUILTIN\\Hyper-V Administrators",
+    "579": "BUILTIN\\Access Control Assistance Operators",
+    "580": "BUILTIN\\Remote Management Users",
+    "582": "BUILTIN\\Storage Replica Administrators",
+}
+
+_DOMAIN_RID_WELL_KNOWN: dict[str, str] = {
+    "512": "Domain Admins",
+    "513": "Domain Users",
+    "514": "Domain Guests",
+    "515": "Domain Computers",
+    "516": "Domain Controllers",
+    "517": "Cert Publishers",
+    "518": "Schema Admins",
+    "519": "Enterprise Admins",
+    "520": "Group Policy Creator Owners",
+    "521": "Read-only Domain Controllers",
+    "522": "Cloneable Domain Controllers",
+    "525": "Protected Users",
+    "526": "Key Admins",
+    "527": "Enterprise Key Admins",
+}
+
+_MANDATORY_LABEL_WELL_KNOWN: dict[str, str] = {
+    "s-1-16-0": "Untrusted Mandatory Level",
+    "s-1-16-4096": "Low Mandatory Level",
+    "s-1-16-8192": "Medium Mandatory Level",
+    "s-1-16-8448": "Medium Plus Mandatory Level",
+    "s-1-16-12288": "High Mandatory Level",
+    "s-1-16-16384": "System Mandatory Level",
+    "s-1-16-20480": "Protected Process Mandatory Level",
+    "s-1-16-28672": "Secure Process Mandatory Level",
+}
 
 MS16_072_TRUSTEES = frozenset({"authenticated users", "domain computers"})
 SCOPE_BROAD_TRUSTEES = frozenset({"authenticated users", "domain computers", "everyone"})
@@ -58,6 +144,74 @@ _VALID_SDDL_RIGHTS = {
     "CC", "DC", "LC", "LO", "DT", "CR", "FA", "FR", "FW", "FX",
     "KA", "KR", "KW", "KX",
 }
+
+_SDDL_SID_ALIASES: dict[str, str] = {
+    "wd": "Everyone",
+    "an": "Anonymous",
+    "au": "Authenticated Users",
+    "sy": "SYSTEM",
+    "ba": "BUILTIN\\Administrators",
+    "bu": "BUILTIN\\Users",
+    "bg": "BUILTIN\\Guests",
+    "bo": "BUILTIN\\Backup Operators",
+    "bf": "BUILTIN\\Server Operators",
+    "br": "BUILTIN\\Account Operators",
+    "bp": "BUILTIN\\Print Operators",
+    "ps": "BUILTIN\\Pre-Windows 2000 Compatible Access",
+    "ao": "BUILTIN\\Account Operators",
+    "so": "BUILTIN\\Server Operators",
+    "po": "BUILTIN\\Print Operators",
+}
+
+
+def resolve_well_known(sid: str) -> str | None:
+    s = sid.strip().lower()
+    if s in _SDDL_SID_ALIASES:
+        return _SDDL_SID_ALIASES[s]
+    if s in _ABSOLUTE_WELL_KNOWN:
+        return _ABSOLUTE_WELL_KNOWN[s]
+    if s.startswith(_MANDATORY_PREFIX):
+        return _MANDATORY_LABEL_WELL_KNOWN.get(s)
+    if s.startswith(_BUILTIN_PREFIX):
+        return _BUILTIN_WELL_KNOWN.get(s[len(_BUILTIN_PREFIX):])
+    if s.startswith(DOMAIN_SID_PREFIX):
+        parts = s.split("-")
+        if len(parts) >= 7:
+            return _DOMAIN_RID_WELL_KNOWN.get(parts[-1])
+    return None
+
+
+def resolve_principal(estate: Estate, sid: str) -> ResolvedPrincipal:
+    """Resolve a SID to a :class:`ResolvedPrincipal`.
+
+    Tries (1) the static well-known SID/RID table, then (2) the collected
+    ``estate.principals`` map, then (3) falls back to the raw SID with
+    ``resolved=False`` and ``principal_type="Unresolved"``. The SID is always
+    preserved on the returned object (Plan 020, decision 2). Pure — no side
+    effects, no model calls.
+    """
+    canonical = sid.strip().lower()
+    wk = resolve_well_known(canonical)
+    if wk is not None:
+        return ResolvedPrincipal(
+            sid=canonical,
+            name=wk,
+            sam=wk,
+            principal_type="WellKnown",
+            domain="",
+            resolved=True,
+        )
+    stored = estate.principals.get(canonical)
+    if stored is not None:
+        return stored
+    return ResolvedPrincipal(
+        sid=canonical,
+        name=canonical,
+        sam="",
+        principal_type="Unresolved",
+        domain="",
+        resolved=False,
+    )
 
 
 def broad_trustee_key(
