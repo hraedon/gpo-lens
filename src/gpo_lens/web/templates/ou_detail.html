@@ -58,15 +58,35 @@
   <h2>Effective precedence {% if effective_gpos %}<span class="count">{{ effective_gpos|length }} in chain · applied last wins</span>{% endif %}</h2>
   {% if effective_gpos %}
   <ol class="gp-chain">
-    {% for eg in effective_gpos %}
+    {% for eg, gs in gate_summaries %}
     <li class="{% if not eg.enabled %}disabled{% endif %} {% if eg.enforced %}enforced{% endif %}">
       <span class="node"></span><span class="spine"></span>
       <div class="gp-chain-card">
-        <div>
+        <div class="gp-chain-card-main">
           <div class="gp-chain-name">
             {% if eg.gpo_id %}<a href="{{ url_for('gpo_detail', gpo_id=eg.gpo_id) }}">{{ eg.gpo_name }}</a>{% else %}{{ eg.gpo_name }}{% endif %}
           </div>
           <div class="muted mono" style="font-size:11px;margin-top:2px">{{ eg.target }}</div>
+          <div class="gp-chain-gates">
+            {% if gs.is_security_filtered %}
+            <span class="gp-chip warn" title="Security filtering: group membership, nested groups, and inherited/default ACEs not modeled">filtered → {{ gs.apply_trustees|join(", ") }}</span>
+            {% endif %}
+            {% if gs.wmi_filter_name %}
+            <span class="gp-chip {% if gs.wmi_filter_broken %}warn{% else %}muted{% endif %}" title="WMI filter: query truth not evaluated against any target">WMI: {{ gs.wmi_filter_name }}{% if gs.wmi_filter_broken %} (broken){% endif %}</span>
+            {% endif %}
+            {% if gs.loopback_mode %}
+            <span class="gp-chip warn" title="Loopback: user-side delivery depends on the client OU; not simulated">loopback: {{ gs.loopback_mode }}</span>
+            {% endif %}
+            {% if gs.has_ilt %}
+            <span class="gp-chip muted" title="Item-level targeting: per-object delivery not evaluated">ILT</span>
+            {% endif %}
+            {% if gs.side_disabled %}
+            <span class="gp-chip muted" title="This GPO side is disabled; its settings do not apply">{{ gs.side_disabled }} side off</span>
+            {% endif %}
+            {% if gs.link_enabled and not gs.is_security_filtered and not gs.wmi_filter_name and not gs.loopback_mode and not gs.has_ilt and not gs.side_disabled %}
+            <span class="muted gp-applies-all" title="No scoping gates detected for this GPO in this chain">applies to all in scope</span>
+            {% endif %}
+          </div>
         </div>
         <div class="gp-chain-meta">
           {% if eg.enforced %}<span class="gp-chip warn">enforced</span>{% endif %}
@@ -91,14 +111,31 @@
   <div class="gp-table-wrap">
     <table class="gp-table">
       <thead>
-        <tr><th>CSE</th><th>Side</th><th>Identity</th><th>Value</th><th>Winner</th><th style="width:90px">Enforced</th></tr>
+        <tr>
+          <th>CSE</th>
+          <th>Side</th>
+          {% if admx %}<th>Setting</th>{% else %}<th>Identity</th>{% endif %}
+          <th>Value</th>
+          <th>Winner</th>
+          <th style="width:90px">Enforced</th>
+        </tr>
       </thead>
       <tbody>
         {% for s in settings %}
+        {% set label, raw_id = setting_label(s, admx) %}
         <tr>
           <td>{{ s.cse }}</td>
           <td>{{ s.side }}</td>
+          {% if admx %}
+          <td>
+            {{ label }}
+            {% if raw_id != s.display_name and raw_id != label %}
+            <div class="mono muted" style="font-size:11px;margin-top:2px">{{ raw_id }}</div>
+            {% endif %}
+          </td>
+          {% else %}
           <td class="mono">{{ s.identity }}</td>
+          {% endif %}
           <td>{{ s.display_value }}</td>
           <td>{{ s.winner_gpo_name }}</td>
           <td>{% if s.enforced %}<span class="gp-chip warn">yes</span>{% else %}<span class="muted">—</span>{% endif %}</td>
@@ -119,12 +156,26 @@
   <div class="gp-table-wrap">
     <table class="gp-table">
       <thead>
-        <tr><th>Identity</th><th>Contenders</th><th style="width:160px">Winner</th></tr>
+        <tr>
+          {% if admx %}<th>Setting</th>{% else %}<th>Identity</th>{% endif %}
+          <th>Contenders</th>
+          <th style="width:160px">Winner</th>
+        </tr>
       </thead>
       <tbody>
         {% for c in conflicts %}
+        {% set label, raw_id = setting_label(c, admx) %}
         <tr>
+          {% if admx %}
+          <td>
+            {{ label }}
+            {% if raw_id != c.display_name and raw_id != label %}
+            <div class="mono muted" style="font-size:11px;margin-top:2px">{{ raw_id }}</div>
+            {% endif %}
+          </td>
+          {% else %}
           <td class="mono">{{ c.identity }}</td>
+          {% endif %}
           <td>
             {% for gpo_name, value, status in c.entries %}
             <div>{{ gpo_name }} <span class="muted">({{ status }}: {{ value }})</span></div>

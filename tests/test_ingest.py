@@ -466,6 +466,239 @@ class TestParseOuTree:
         assert estate.ou_tree[0].name == "WS"
 
 
+class TestParsePrincipals:
+    def test_parse_principals_present(self, tmp_path: Path) -> None:
+        import json
+
+        payload = {
+            "collected": "2026-06-19T00:00:00Z",
+            "domain": "ad.test",
+            "principals": {
+                "S-1-5-21-100-200-300-1131": {
+                    "name": "TEST\\GPO-Admins", "sam": "GPO-Admins",
+                    "type": "Group", "domain": "TEST",
+                },
+                "S-1-5-11": {
+                    "name": "Authenticated Users", "sam": "Authenticated Users",
+                    "type": "WellKnown", "domain": "",
+                },
+            },
+        }
+        j = tmp_path / "principals.json"
+        j.write_text(json.dumps(payload), encoding="utf-8")
+        principals = ingest.parse_principals(j)
+        assert len(principals) == 2
+        rp = principals["s-1-5-21-100-200-300-1131"]
+        assert rp.name == "TEST\\GPO-Admins"
+        assert rp.sam == "GPO-Admins"
+        assert rp.principal_type == "Group"
+        assert rp.domain == "TEST"
+        assert rp.resolved is True
+        assert principals["s-1-5-11"].name == "Authenticated Users"
+
+    def test_parse_principals_bom_tolerant(self, tmp_path: Path) -> None:
+        import json
+
+        payload = {
+            "principals": {
+                "S-1-5-21-1-2-3-1000": {
+                    "name": "X\\Admins", "sam": "Admins",
+                    "type": "Group", "domain": "X",
+                },
+            },
+        }
+        j = tmp_path / "principals.json"
+        j.write_bytes(b"\xef\xbb\xbf" + json.dumps(payload).encode("utf-8"))
+        principals = ingest.parse_principals(j)
+        assert "s-1-5-21-1-2-3-1000" in principals
+        assert principals["s-1-5-21-1-2-3-1000"].name == "X\\Admins"
+
+    def test_parse_principals_partial_resolution(self, tmp_path: Path) -> None:
+        """Some SIDs resolved, some Unresolved (Phase B finding, not a crash)."""
+        import json
+
+        payload = {
+            "principals": {
+                "S-1-5-21-1-2-3-1000": {
+                    "name": "X\\Admins", "sam": "Admins",
+                    "type": "Group", "domain": "X",
+                },
+                "S-1-5-21-1-2-3-9999": {
+                    "name": "", "sam": "", "type": "Unresolved", "domain": "",
+                },
+            },
+        }
+        j = tmp_path / "principals.json"
+        j.write_text(json.dumps(payload), encoding="utf-8")
+        principals = ingest.parse_principals(j)
+        assert len(principals) == 2
+        assert principals["s-1-5-21-1-2-3-1000"].resolved is True
+        unresolved = principals["s-1-5-21-1-2-3-9999"]
+        assert unresolved.resolved is False
+        assert unresolved.principal_type == "Unresolved"
+
+    def test_parse_principals_empty_principals_key(self, tmp_path: Path) -> None:
+        j = tmp_path / "principals.json"
+        j.write_text('{"principals":{}}', encoding="utf-8")
+        principals = ingest.parse_principals(j)
+        assert principals == {}
+
+    def test_parse_principals_missing_principals_key(self, tmp_path: Path) -> None:
+        j = tmp_path / "principals.json"
+        j.write_text('{"collected":"2026-01-01","domain":"x"}', encoding="utf-8")
+        principals = ingest.parse_principals(j)
+        assert principals == {}
+
+    def test_parse_principals_skips_non_dict_entries(self, tmp_path: Path) -> None:
+        import json
+
+        payload = {
+            "principals": {
+                "S-1-5-11": "bad-string",
+                "S-1-5-21-1-2-3-1000": {
+                    "name": "X", "sam": "X", "type": "Group", "domain": "",
+                },
+            },
+        }
+        j = tmp_path / "principals.json"
+        j.write_text(json.dumps(payload), encoding="utf-8")
+        principals = ingest.parse_principals(j)
+        assert len(principals) == 1
+        assert "s-1-5-21-1-2-3-1000" in principals
+
+    def test_load_estate_without_principals_json(self, tmp_path: Path) -> None:
+        """AC-3: absent principals.json → empty dict, no crash."""
+        xml_path = tmp_path / "AllGPOs.xml"
+        xml_path.write_text(_min_gpo_xml(), encoding="utf-8")
+        estate = ingest.load_estate(tmp_path)
+        assert estate.principals == {}
+
+    def test_load_estate_with_principals_json(self, tmp_path: Path) -> None:
+        import json
+
+        xml_path = tmp_path / "AllGPOs.xml"
+        xml_path.write_text(_min_gpo_xml(), encoding="utf-8")
+        payload = {
+            "principals": {
+                "S-1-5-21-1-2-3-1131": {
+                    "name": "T\\Admins", "sam": "Admins",
+                    "type": "Group", "domain": "T",
+                },
+            },
+        }
+        (tmp_path / "principals.json").write_text(json.dumps(payload), encoding="utf-8")
+        estate = ingest.load_estate(tmp_path)
+        assert len(estate.principals) == 1
+        assert estate.principals["s-1-5-21-1-2-3-1131"].name == "T\\Admins"
+
+    def test_load_estate_with_malformed_principals_json_warns(self, tmp_path: Path) -> None:
+        """Malformed principals.json should warn, not crash; estate still loads."""
+        xml_path = tmp_path / "AllGPOs.xml"
+        xml_path.write_text(_min_gpo_xml(), encoding="utf-8")
+        pj = tmp_path / "principals.json"
+        pj.write_text("{not valid json", encoding="utf-8")
+        with pytest.warns(UserWarning, match="Skipping principals.json"):
+            estate = ingest.load_estate(tmp_path)
+        assert estate.principals == {}
+
+
+class TestParseGroupMembers:
+    def test_parse_group_members_present(self, tmp_path: Path) -> None:
+        import json
+
+        payload = {
+            "collected": "2026-06-19T00:00:00Z",
+            "domain": "ad.test",
+            "groups": {
+                "S-1-5-21-100-200-300-1131": {
+                    "name": "TEST\\GPO-Admins",
+                    "members": ["S-1-5-21-100-200-300-1001", "S-1-5-21-100-200-300-1002"],
+                    "member_count": 2,
+                },
+                "s-1-5-11": {
+                    "name": "Authenticated Users", "members": [],
+                    "member_count": 0,
+                    "implicit": "All authenticated domain principals",
+                },
+            },
+        }
+        j = tmp_path / "group-members.json"
+        j.write_text(json.dumps(payload), encoding="utf-8")
+        groups = ingest.parse_group_members(j)
+        assert len(groups) == 2
+        gm = groups["s-1-5-21-100-200-300-1131"]
+        assert gm.name == "TEST\\GPO-Admins"
+        assert gm.members == ("s-1-5-21-100-200-300-1001", "s-1-5-21-100-200-300-1002")
+        assert gm.member_count == 2
+        au = groups["s-1-5-11"]
+        assert au.implicit == "All authenticated domain principals"
+        assert au.members == ()
+
+    def test_parse_group_members_bom_tolerant(self, tmp_path: Path) -> None:
+        import json
+
+        payload = {
+            "groups": {
+                "S-1-5-21-1-2-3-1131": {
+                    "name": "X\\Admins", "members": ["S-1-5-21-1-2-3-1000"],
+                    "member_count": 1,
+                },
+            },
+        }
+        j = tmp_path / "group-members.json"
+        j.write_bytes(b"\xef\xbb\xbf" + json.dumps(payload).encode("utf-8"))
+        groups = ingest.parse_group_members(j)
+        assert "s-1-5-21-1-2-3-1131" in groups
+        assert groups["s-1-5-21-1-2-3-1131"].members == ("s-1-5-21-1-2-3-1000",)
+
+    def test_parse_group_members_missing_groups_key(self, tmp_path: Path) -> None:
+        j = tmp_path / "group-members.json"
+        j.write_text('{"collected":"2026-01-01","domain":"x"}', encoding="utf-8")
+        assert ingest.parse_group_members(j) == {}
+
+    def test_parse_group_members_skips_non_dict_entries(self, tmp_path: Path) -> None:
+        import json
+
+        payload = {
+            "groups": {
+                "S-1-5-11": "bad-string",
+                "S-1-5-21-1-2-3-1131": {
+                    "name": "X", "members": ["S-1-5-21-1-2-3-1000"],
+                    "member_count": 1,
+                },
+            },
+        }
+        j = tmp_path / "group-members.json"
+        j.write_text(json.dumps(payload), encoding="utf-8")
+        groups = ingest.parse_group_members(j)
+        assert len(groups) == 1
+        assert "s-1-5-21-1-2-3-1131" in groups
+
+    def test_load_estate_without_group_members_json(self, tmp_path: Path) -> None:
+        xml_path = tmp_path / "AllGPOs.xml"
+        xml_path.write_text(_min_gpo_xml(), encoding="utf-8")
+        estate = ingest.load_estate(tmp_path)
+        assert estate.group_members == {}
+
+    def test_load_estate_with_group_members_json(self, tmp_path: Path) -> None:
+        import json
+
+        xml_path = tmp_path / "AllGPOs.xml"
+        xml_path.write_text(_min_gpo_xml(), encoding="utf-8")
+        payload = {
+            "groups": {
+                "S-1-5-21-1-2-3-1131": {
+                    "name": "T\\Admins", "members": ["S-1-5-21-1-2-3-1000"],
+                    "member_count": 1,
+                },
+            },
+        }
+        (tmp_path / "group-members.json").write_text(json.dumps(payload), encoding="utf-8")
+        estate = ingest.load_estate(tmp_path)
+        assert len(estate.group_members) == 1
+        assert estate.group_members["s-1-5-21-1-2-3-1131"].name == "T\\Admins"
+
+
 # ---------------------------------------------------------------------------
 # WI-006: Streaming decompression size enforcement tests
 # ---------------------------------------------------------------------------

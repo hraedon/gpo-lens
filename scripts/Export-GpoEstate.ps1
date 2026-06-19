@@ -15,6 +15,8 @@
     - ou-tree.json           raw OU tree (gPLink/gPOptions) as a topology cross-check
     - sites.json             AD site GPO links (gPLink/gPOptions) from the Config partition
     - wmi-filters.json        WMI filter names + query text
+    - principals.json        SID -> name map for all SIDs found in GPO SDDL (Plan 020)
+    - group-members.json     group SID -> member SIDs (transitive expansion) (Plan 020-B)
     - SYSVOL-Policies\        raw SYSVOL policy files (settings + GPP XML)
   Then zips the lot for handoff.
 
@@ -106,7 +108,7 @@ Write-Host "Exporting $($dom.DNSRoot) -> $out"
 $successSections = [System.Collections.Generic.List[string]]::new()
 $failedSections  = [System.Collections.Generic.List[string]]::new()
 
-$totalSections = 7
+$totalSections = 9
 $sectionNum = 0
 
 function Set-SectionProgress {
@@ -260,6 +262,138 @@ try {
     $successSections.Add("WMI filters")
 } catch {
     $failedSections.Add("WMI filters: $($_.Exception.Message)")
+}
+
+$sectionNum++
+Set-SectionProgress -Activity "Principals (SID -> name)" -Section $sectionNum
+try {
+    # Collect all unique SIDs from GPO SDDL strings in the XML reports.
+    $allSids = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    $xmlFiles = @(Get-ChildItem -LiteralPath (Join-Path $out 'reports') -Filter '*.xml' -ErrorAction SilentlyContinue)
+    $allXmlPath = Join-Path $out 'AllGPOs.xml'
+    if (Test-Path -LiteralPath $allXmlPath) { $xmlFiles += Get-Item -LiteralPath $allXmlPath }
+    foreach ($f in $xmlFiles) {
+        try {
+            $content = Get-Content -LiteralPath $f.FullName -Raw -ErrorAction Stop
+            foreach ($m in [regex]::Matches($content, 'S-1-[0-9]+-[0-9-]+')) {
+                [void]$allSids.Add($m.Value)
+            }
+        } catch { }
+    }
+    # Also scan gpo-metadata.json for SDDL strings
+    $metaPath = Join-Path $out 'gpo-metadata.json'
+    if (Test-Path -LiteralPath $metaPath) {
+        try {
+            $content = Get-Content -LiteralPath $metaPath -Raw
+            foreach ($m in [regex]::Matches($content, 'S-1-[0-9]+-[0-9-]+')) {
+                [void]$allSids.Add($m.Value)
+            }
+        } catch { }
+    }
+    Write-Host "  Found $($allSids.Count) unique SIDs to resolve"
+
+    $principals = [ordered]@{}
+    $resolved = 0
+    $unresolved = 0
+    foreach ($sid in ($allSids | Sort-Object)) {
+        $name = ""
+        $type = "Unresolved"
+        $sam = ""
+        $dom = ""
+        try {
+            $sidObj = New-Object System.Security.Principal.SecurityIdentifier($sid)
+            $translated = $sidObj.Translate([System.Security.Principal.NTAccount]).Value
+            $name = $translated
+            if ($translated -match '^(.+?)\\(.+)$') {
+                $dom = $matches[1]; $sam = $matches[2]
+            } elseif ($translated -match '^(.+?)@(.+)$') {
+                $sam = $matches[1]; $dom = $matches[2]
+            } else {
+                $sam = $translated
+            }
+            if ($translated -match 'BUILTIN\\' -or $sid -match '^S-1-5-32-') {
+                $type = "WellKnown"
+            } elseif ($sid -match '^S-1-5-21-') {
+                $type = if ($sam -match '\$$') { "Computer" } else { "Group" }
+            } else {
+                $type = "WellKnown"
+            }
+            $resolved++
+        } catch {
+            $name = $sid; $type = "Unresolved"; $unresolved++
+        }
+        $principals[$sid] = [ordered]@{ name = $name; sam = $sam; type = $type; domain = $dom }
+    }
+    # Supplement unresolved domain SIDs via Get-ADObject
+    $domainSids = @($allSids | Where-Object { $_ -match '^S-1-5-21-' -and $principals[$_].type -eq 'Unresolved' })
+    if ($domainSids.Count -gt 0) {
+        Write-Host "  Resolving $($domainSids.Count) domain SIDs via Get-ADObject..."
+        foreach ($sid in $domainSids) {
+            try {
+                $obj = Get-ADObject -Filter "objectSid -eq '$sid'" -Properties objectClass, sAMAccountName, name -ErrorAction Stop
+                if ($obj) {
+                    $sam = if ($obj.sAMAccountName) { $obj.sAMAccountName } else { $obj.Name }
+                    $objClass = $obj.objectClass[-1]
+                    $ptype = switch ($objClass) { 'group' { 'Group' } 'computer' { 'Computer' } default { 'User' } }
+                    $principals[$sid] = [ordered]@{
+                        name = "$($dom.DNSRoot.Split('.')[0])\$sam"; sam = $sam; type = $ptype
+                        domain = $dom.DNSRoot.Split('.')[0]
+                    }
+                    $resolved++; $unresolved--
+                }
+            } catch { }
+        }
+    }
+    $principalsOut = [ordered]@{ collected = (Get-Date -Format 'o'); domain = $dom.DNSRoot; principals = $principals }
+    $principalsOut | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $out 'principals.json') -Encoding UTF8
+    Write-Host "  Resolved: $resolved, Unresolved: $unresolved"
+    $successSections.Add("Principals (SID -> name)")
+} catch {
+    $failedSections.Add("Principals (SID -> name): $($_.Exception.Message)")
+    Write-Warning "Principals collection failed: $($_.Exception.Message)"
+}
+
+$sectionNum++
+Set-SectionProgress -Activity "Group membership" -Section $sectionNum
+try {
+    $groupMembers = [ordered]@{}
+    $groupsExpanded = 0
+    $groupsFailed = 0
+    # Collect group SIDs from principals map
+    $groupSids = @($principals.Keys | Where-Object { $principals[$_].type -eq 'Group' })
+    Write-Host "  Expanding $($groupSids.Count) groups..."
+    foreach ($gSid in $groupSids) {
+        $gName = $principals[$gSid].name
+        try {
+            $members = Get-ADGroupMember -Identity $gSid -Recursive -ErrorAction Stop
+            $memberSids = @($members | ForEach-Object { $_.SID.Value })
+            $groupMembers[$gSid] = [ordered]@{
+                name = $gName; members = $memberSids; member_count = $memberSids.Count
+            }
+            $groupsExpanded++
+        } catch {
+            $groupMembers[$gSid] = [ordered]@{
+                name = $gName; members = @(); member_count = 0; error = $_.Exception.Message
+            }
+            $groupsFailed++
+        }
+    }
+    # Well-known implicit groups
+    $groupMembers['s-1-5-11'] = [ordered]@{
+        name = 'Authenticated Users'; members = @(); member_count = 0
+        implicit = 'All authenticated domain principals (users + computers)'
+    }
+    $groupMembers['s-1-1-0'] = [ordered]@{
+        name = 'Everyone'; members = @(); member_count = 0
+        implicit = 'All principals including anonymous'
+    }
+    $groupMembersOut = [ordered]@{ collected = (Get-Date -Format 'o'); domain = $dom.DNSRoot; groups = $groupMembers }
+    $groupMembersOut | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $out 'group-members.json') -Encoding UTF8
+    Write-Host "  Expanded: $groupsExpanded, Failed: $groupsFailed"
+    $successSections.Add("Group membership")
+} catch {
+    $failedSections.Add("Group membership: $($_.Exception.Message)")
+    Write-Warning "Group membership collection failed: $($_.Exception.Message)"
 }
 
 $sectionNum++

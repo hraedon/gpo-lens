@@ -73,10 +73,32 @@
       <summary style="cursor:pointer;font-size:12.5px;color:var(--accent)">{{ entry.setting_changes|length }} setting change(s)</summary>
       <div class="gp-table-wrap" style="margin-top:8px">
         <table class="gp-table">
-          <thead><tr><th>Identity</th><th style="width:90px">Type</th><th>Old</th><th>New</th></tr></thead>
+          <thead>
+            <tr>
+              {% if admx %}<th>Setting</th>{% else %}<th>Identity</th>{% endif %}
+              <th style="width:90px">Type</th>
+              <th>Old</th>
+              <th>New</th>
+            </tr>
+          </thead>
           <tbody>
             {% for sc in entry.setting_changes %}
-            <tr><td class="mono">{{ sc.identity }}</td><td>{{ sc.change_type }}</td><td class="muted">{{ sc.old_value or '—' }}</td><td>{{ sc.new_value or '—' }}</td></tr>
+            {% set label, raw_id = setting_label(sc, admx) %}
+            <tr>
+              {% if admx %}
+              <td>
+                {{ label }}
+                {% if raw_id != sc.identity and raw_id != label %}
+                <div class="mono muted" style="font-size:11px;margin-top:2px">{{ raw_id }}</div>
+                {% endif %}
+              </td>
+              {% else %}
+              <td class="mono">{{ sc.identity }}</td>
+              {% endif %}
+              <td>{{ sc.change_type }}</td>
+              <td class="muted">{{ sc.old_value or '—' }}</td>
+              <td>{{ sc.new_value or '—' }}</td>
+            </tr>
             {% endfor %}
           </tbody>
         </table>

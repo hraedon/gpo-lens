@@ -1,0 +1,63 @@
+# Cited danger rules — Plan 018 Phase B, Bucket 1 (setting-value dangers).
+#
+# Inclusion bar (B.0): each rule is a *known attack primitive* or a
+# configuration that *materially weakens a security boundary*, with a
+# concrete external citation. "Suboptimal but no concrete threat" does not
+# qualify — that is the deferred best-practices catalogue.
+#
+# Each rule matches a Registry CSE setting by raw registry identity
+# (key:valueName) and applies a predicate to the setting's display_value.
+# Identity comparison is case-insensitive (Windows registry is case-insensitive).
+# Rules may also match by ADMX policy display name when an ADMX source is
+# supplied (see danger.evaluate_danger_rules); with no ADMX source, name-keyed
+# rules degrade to identity-keyed only (no crash, no silent all-match — AC-9).
+
+[[rules]]
+id = "wdigest_creds"
+title = "WDigest plaintext credential caching"
+severity = "critical"
+applies = "Machine"
+identity = 'HKLM\SYSTEM\CurrentControlSet\Control\Lsa:UseLogonCredential'
+predicate = "equals"
+value = "1"
+reference = "https://attack.mitre.org/techniques/T1003/001/"
+
+[[rules]]
+id = "smb_signing_disabled"
+title = "SMB client signing disabled (relay risk)"
+severity = "high"
+applies = "Machine"
+identity = 'HKLM\SYSTEM\CurrentControlSet\Services\LanmanWorkstation\Parameters:RequireSecuritySignature'
+predicate = "equals"
+value = "0"
+reference = "https://attack.mitre.org/techniques/T1557/001/"
+
+[[rules]]
+id = "lm_hash_enabled"
+title = "LM hash storage enabled"
+severity = "high"
+applies = "Machine"
+identity = 'HKLM\SYSTEM\CurrentControlSet\Control\Lsa:NoLMHash'
+predicate = "equals"
+value = "0"
+reference = "https://attack.mitre.org/techniques/T1003/002/"
+
+[[rules]]
+id = "autoadmin_logon"
+title = "Automatic logon enabled (plaintext credential storage)"
+severity = "critical"
+applies = "Machine"
+identity = 'HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon:AutoAdminLogon'
+predicate = "equals"
+value = "1"
+reference = "https://attack.mitre.org/techniques/T1078/"
+
+[[rules]]
+id = "ntlmv1_allowed"
+title = "NTLMv1 allowed (weak authentication)"
+severity = "high"
+applies = "Machine"
+identity = 'HKLM\SYSTEM\CurrentControlSet\Control\Lsa:LmCompatibilityLevel'
+predicate = "in"
+value = "0,1"
+reference = "https://learn.microsoft.com/en-us/windows-server/security/ntlm/ntlm-authentication/"

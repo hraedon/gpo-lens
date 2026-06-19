@@ -8,7 +8,7 @@ from pathlib import Path
 
 from gpo_lens import queries
 from gpo_lens.admx_parser import AdmxPolicy, PolicyDefinitions
-from gpo_lens.model import DelegationEntry, Estate, Gpo, OuRecord, Setting
+from gpo_lens.model import DelegationEntry, Estate, Gpo, OuRecord, ResolvedPrincipal, Setting
 
 
 def _make_gpo(**kwargs) -> Gpo:
@@ -85,7 +85,7 @@ def test_ms16_072_empty_delegation():
 
 
 def test_ms16_072_has_au_read():
-    """AU with Read is sufficient — Apply Group Policy is irrelevant to MS16-072."""
+    """AU with Read is sufficient."""
     gpo = _make_gpo(
         delegation=[
             DelegationEntry(
@@ -99,7 +99,7 @@ def test_ms16_072_has_au_read():
 
 
 def test_ms16_072_has_dc_read():
-    """DC with Read is sufficient — Apply Group Policy is irrelevant to MS16-072."""
+    """DC with Read is sufficient."""
     gpo = _make_gpo(
         delegation=[
             DelegationEntry(
@@ -112,13 +112,17 @@ def test_ms16_072_has_dc_read():
     assert queries.ms16_072_vulnerable(estate) == []
 
 
-def test_ms16_072_missing_read():
-    """Apply Group Policy alone is not enough — MS16-072 needs Read for SYSVOL."""
+def test_ms16_072_custom_permission_is_vulnerable():
+    """A broad trustee with only "Custom" grouped access does not imply Read.
+
+    "Custom" is the one standard GPMC grouping that does not necessarily
+    include the READ access right, so it cannot satisfy MS16-072.
+    """
     gpo = _make_gpo(
         delegation=[
             DelegationEntry(
                 gpo_id="x", trustee="Authenticated Users", trustee_sid=None,
-                permission="Apply Group Policy", allowed=True,
+                permission="Custom", allowed=True,
             ),
         ]
     )
@@ -190,8 +194,14 @@ def test_ms16_072_dc_sid_requires_domain_prefix():
 # ---- ms16_072 golden / behavior-preservation cases -------------------------
 
 
-def test_ms16_072_apply_only_is_vulnerable():
-    """Apply Group Policy does not imply Read — MS16-072 is a Read check."""
+def test_ms16_072_apply_group_policy_is_not_vulnerable():
+    """"Apply Group Policy" IS Read+Apply (GpoApply) — it satisfies MS16-072.
+
+    Per Microsoft (gpmgmt.h GPMPermissionType / KB MS16-072), permGPOApply
+    "corresponds to the READ and APPLY Group Policy access rights"; GPMC shows
+    it on the Delegation tab as "Read (from Security Filtering)". Treating it as
+    non-Read flagged every default-filtered GPO as MS16-072 vulnerable.
+    """
     gpo = _make_gpo(
         delegation=[
             DelegationEntry(
@@ -201,7 +211,7 @@ def test_ms16_072_apply_only_is_vulnerable():
         ]
     )
     estate = Estate(gpos=[gpo])
-    assert queries.ms16_072_vulnerable(estate) == [gpo]
+    assert queries.ms16_072_vulnerable(estate) == []
 
 
 def test_ms16_072_edit_settings_is_not_vulnerable():
@@ -211,6 +221,20 @@ def test_ms16_072_edit_settings_is_not_vulnerable():
             DelegationEntry(
                 gpo_id="x", trustee="Authenticated Users", trustee_sid=None,
                 permission="Edit settings", allowed=True,
+            ),
+        ]
+    )
+    estate = Estate(gpos=[gpo])
+    assert queries.ms16_072_vulnerable(estate) == []
+
+
+def test_ms16_072_edit_delete_modify_security_variant_is_not_vulnerable():
+    """Real GPMC emits "Edit, delete, modify security" (no "settings") — Read-implying."""
+    gpo = _make_gpo(
+        delegation=[
+            DelegationEntry(
+                gpo_id="x", trustee="Authenticated Users", trustee_sid=None,
+                permission="Edit, delete, modify security", allowed=True,
             ),
         ]
     )
@@ -666,7 +690,149 @@ def test_loopback_awareness_raw_numeric_merge():
     assert awareness == {"gpo-1": "merge"}
 
 
-def test_loopback_awareness_colon_separated():
+def test_loopback_awareness_policy_dropdown_replace():
+    from gpo_lens.model import Setting
+
+    _name = "Configure user Group Policy loopback processing mode"
+    gpo = _make_gpo(
+        id="gpo-1",
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="Computer", cse="Registry",
+                identity="Registry:Policy:abc123",
+                display_name=_name,
+                display_value=_name,
+                raw={
+                    "tag": "Policy",
+                    "children": [
+                        {"tag": "Name", "text": _name},
+                        {"tag": "State", "text": "Enabled"},
+                        {"tag": "Explain", "text": "..."},
+                        {
+                            "tag": "DropDownList",
+                            "children": [
+                                {"tag": "Name", "text": "Mode:"},
+                                {"tag": "State", "text": "Enabled"},
+                                {
+                                    "tag": "Value",
+                                    "children": [
+                                        {"tag": "Name", "text": "Replace"},
+                                    ],
+                                },
+                            ],
+                        },
+                    ],
+                },
+                from_disabled_side=False,
+            ),
+        ],
+    )
+    estate = Estate(gpos=[gpo])
+    awareness = queries.loopback_awareness(estate)
+    assert awareness == {"gpo-1": "replace"}
+
+
+def test_loopback_awareness_policy_dropdown_merge():
+    from gpo_lens.model import Setting
+
+    _name = "Configure user Group Policy loopback processing mode"
+    gpo = _make_gpo(
+        id="gpo-1",
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="Computer", cse="Registry",
+                identity="Registry:Policy:abc123",
+                display_name=_name,
+                display_value=_name,
+                raw={
+                    "tag": "Policy",
+                    "children": [
+                        {"tag": "Name", "text": _name},
+                        {"tag": "State", "text": "Enabled"},
+                        {
+                            "tag": "DropDownList",
+                            "children": [
+                                {"tag": "Name", "text": "Mode:"},
+                                {
+                                    "tag": "Value",
+                                    "children": [
+                                        {"tag": "Name", "text": "Merge"},
+                                    ],
+                                },
+                            ],
+                        },
+                    ],
+                },
+                from_disabled_side=False,
+            ),
+        ],
+    )
+    estate = Estate(gpos=[gpo])
+    awareness = queries.loopback_awareness(estate)
+    assert awareness == {"gpo-1": "merge"}
+
+
+def test_loopback_awareness_policy_disabled_returns_none():
+    from gpo_lens.model import Setting
+
+    _name = "Configure user Group Policy loopback processing mode"
+    gpo = _make_gpo(
+        id="gpo-1",
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="Computer", cse="Registry",
+                identity="Registry:Policy:abc123",
+                display_name=_name,
+                display_value=_name,
+                raw={
+                    "tag": "Policy",
+                    "children": [
+                        {"tag": "Name", "text": _name},
+                        {"tag": "State", "text": "Disabled"},
+                        {
+                            "tag": "DropDownList",
+                            "children": [
+                                {"tag": "Value",
+                                 "children": [{"tag": "Name", "text": "Merge"}]},
+                            ],
+                        },
+                    ],
+                },
+                from_disabled_side=False,
+            ),
+        ],
+    )
+    estate = Estate(gpos=[gpo])
+    awareness = queries.loopback_awareness(estate)
+    assert awareness == {}
+
+
+def test_loopback_awareness_policy_enabled_no_dropdown_unknown():
+    from gpo_lens.model import Setting
+
+    _name = "Configure user Group Policy loopback processing mode"
+    gpo = _make_gpo(
+        id="gpo-1",
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="Computer", cse="Registry",
+                identity="Registry:Policy:abc123",
+                display_name=_name,
+                display_value=_name,
+                raw={
+                    "tag": "Policy",
+                    "children": [
+                        {"tag": "Name", "text": _name},
+                        {"tag": "State", "text": "Enabled"},
+                    ],
+                },
+                from_disabled_side=False,
+            ),
+        ],
+    )
+    estate = Estate(gpos=[gpo])
+    awareness = queries.loopback_awareness(estate)
+    assert awareness == {"gpo-1": "unknown"}
     from gpo_lens.model import Setting
 
     gpo = _make_gpo(
@@ -3572,6 +3738,158 @@ def test_delegation_deep_dive_with_excessive_writers():
     audit = queries.delegation_deep_dive(estate)
     assert len(audit.excessive_writers) == 1
     assert audit.excessive_writers[0].trustee_sid == "S-1-5-21-999-1111"
+
+
+# ---- principal resolution on deny_aces / excessive_writers (Plan 020 A.4) ---
+
+
+_COLLATED_SID = "s-1-5-21-100-200-300-1131"
+_WELL_KNOWN_SID = "S-1-5-32-545"  # BUILTIN\Users
+
+
+def _estate_with_principals(gpos, principals=None):
+    return Estate(gpos=gpos, principals=principals or {})
+
+
+def test_deny_aces_trustee_name_resolved_from_collected_map():
+    """AC-1: a deny ACE on a domain group renders the group name with SID retained."""
+    sddl = f"O:S-1-5-18D:(D;;GA;;;{_COLLATED_SID.upper()})"
+    gpo = _make_gpo(id="gpo-1", name="Test", sddl=sddl)
+    principals = {
+        _COLLATED_SID: ResolvedPrincipal(
+            sid=_COLLATED_SID, name="TEST\\GPO-Admins", sam="GPO-Admins",
+            principal_type="Group", domain="TEST", resolved=True,
+        ),
+    }
+    estate = _estate_with_principals([gpo], principals)
+    result = queries.deny_aces(estate)
+    assert len(result) == 1
+    row = result[0]
+    assert row.trustee_name == "TEST\\GPO-Admins"
+    # AC-4: SID is always present alongside the resolved name
+    assert row.trustee_sid == _COLLATED_SID.upper()
+
+
+def test_deny_aces_trustee_name_well_known_without_principals_json():
+    """AC-2: well-known SID resolves with no principals.json."""
+    sddl = f"O:S-1-5-18D:(D;;GA;;;{_WELL_KNOWN_SID})"
+    gpo = _make_gpo(id="gpo-1", sddl=sddl)
+    estate = _estate_with_principals([gpo])
+    result = queries.deny_aces(estate)
+    assert len(result) == 1
+    assert result[0].trustee_name == "BUILTIN\\Users"
+    assert result[0].trustee_sid == _WELL_KNOWN_SID
+
+
+def test_deny_aces_trustee_name_falls_back_to_sid_when_unresolved():
+    """AC-3: unknown SID → trustee_name is the SID (never blank)."""
+    sid = "S-1-5-21-999-999-999-99999"
+    sddl = f"O:S-1-5-18D:(D;;GA;;;{sid})"
+    gpo = _make_gpo(id="gpo-1", sddl=sddl)
+    estate = _estate_with_principals([gpo])
+    result = queries.deny_aces(estate)
+    assert len(result) == 1
+    assert result[0].trustee_name == sid.lower()
+    assert result[0].trustee_sid == sid
+
+
+def test_deny_aces_verdict_invariant_with_and_without_principals():
+    """AC-5: detector verdicts are byte-identical with/without resolution.
+
+    Only the trustee_name display field changes; the set/count of findings
+    and every other field is unchanged.
+    """
+    sid = "S-1-5-21-100-200-300-1131"
+    sddl = f"O:S-1-5-18D:(D;;GA;;;{sid})"
+    gpo = _make_gpo(id="gpo-1", name="Test", sddl=sddl)
+    estate_bare = _estate_with_principals([gpo])
+    estate_resolved = _estate_with_principals([gpo], {
+        sid.lower(): ResolvedPrincipal(
+            sid=sid.lower(), name="X\\Admins", sam="Admins",
+            principal_type="Group", domain="X", resolved=True,
+        ),
+    })
+    bare = queries.deny_aces(estate_bare)
+    resolved = queries.deny_aces(estate_resolved)
+    assert len(bare) == len(resolved) == 1
+    # Everything except trustee_name is identical
+    assert bare[0].gpo_id == resolved[0].gpo_id
+    assert bare[0].gpo_name == resolved[0].gpo_name
+    assert bare[0].trustee_sid == resolved[0].trustee_sid
+    assert bare[0].rights == resolved[0].rights
+    assert bare[0].flags == resolved[0].flags
+    assert bare[0].acl_section == resolved[0].acl_section
+    # Only the name differs
+    assert bare[0].trustee_name != resolved[0].trustee_name
+    assert resolved[0].trustee_name == "X\\Admins"
+
+
+def test_excessive_writers_trustee_name_resolved_from_collected_map():
+    """AC-1: an excessive writer on a domain group renders the group name."""
+    sid = "S-1-5-21-100-200-300-1131"
+    sddl = f"O:S-1-5-21-999-512D:(A;;GA;;;{sid})"
+    gpos = [_make_gpo(id=f"gpo-{i}", name=f"GPO {i}", sddl=sddl) for i in range(6)]
+    principals = {
+        sid.lower(): ResolvedPrincipal(
+            sid=sid.lower(), name="TEST\\GPO-Admins", sam="GPO-Admins",
+            principal_type="Group", domain="TEST", resolved=True,
+        ),
+    }
+    estate = _estate_with_principals(gpos, principals)
+    result = queries.excessive_writers(estate, threshold=5)
+    assert len(result) == 1
+    row = result[0]
+    assert row.trustee_name == "TEST\\GPO-Admins"
+    # AC-4: SID retained
+    assert row.trustee_sid == sid
+
+
+def test_excessive_writers_trustee_name_unresolved_falls_back_to_sid():
+    """AC-3: unknown SID → trustee_name is the SID."""
+    sid = "S-1-5-21-999-999-999-99999"
+    sddl = f"O:S-1-5-18D:(A;;GA;;;{sid})"
+    gpos = [_make_gpo(id=f"gpo-{i}", name=f"GPO {i}", sddl=sddl) for i in range(6)]
+    estate = _estate_with_principals(gpos)
+    result = queries.excessive_writers(estate, threshold=5)
+    assert len(result) == 1
+    assert result[0].trustee_name == sid.lower()
+    assert result[0].trustee_sid == sid
+
+
+def test_excessive_writers_verdict_invariant_with_and_without_principals():
+    """AC-5: the set of excessive-writer findings is unchanged by resolution."""
+    sid = "S-1-5-21-100-200-300-1131"
+    sddl = f"O:S-1-5-21-999-512D:(A;;GA;;;{sid})"
+    gpos = [_make_gpo(id=f"gpo-{i}", name=f"GPO {i}", sddl=sddl) for i in range(6)]
+    estate_bare = _estate_with_principals(gpos)
+    estate_resolved = _estate_with_principals(gpos, {
+        sid.lower(): ResolvedPrincipal(
+            sid=sid.lower(), name="X\\Admins", sam="Admins",
+            principal_type="Group", domain="X", resolved=True,
+        ),
+    })
+    bare = queries.excessive_writers(estate_bare, threshold=5)
+    resolved = queries.excessive_writers(estate_resolved, threshold=5)
+    assert len(bare) == len(resolved) == 1
+    assert bare[0].trustee_sid == resolved[0].trustee_sid
+    assert bare[0].gpo_count == resolved[0].gpo_count
+    assert bare[0].gpo_names == resolved[0].gpo_names
+    assert bare[0].rights == resolved[0].rights
+    assert bare[0].trustee_name != resolved[0].trustee_name
+    assert resolved[0].trustee_name == "X\\Admins"
+
+
+def test_deny_aces_sid_always_present_with_resolved_name():
+    """AC-4: every row that shows a resolved name also carries the SID."""
+    sid = "S-1-5-32-545"  # well-known BUILTIN\Users
+    sddl = f"O:S-1-5-18D:(D;;GA;;;{sid})"
+    gpo = _make_gpo(id="gpo-1", sddl=sddl)
+    estate = _estate_with_principals([gpo])
+    result = queries.deny_aces(estate)
+    assert len(result) == 1
+    row = result[0]
+    assert row.trustee_name  # non-empty (resolved)
+    assert row.trustee_sid == sid  # SID always present
 
 
 def test_settings_diff_side_in_join_key(tmp_path):

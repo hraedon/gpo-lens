@@ -20,7 +20,9 @@ from gpo_lens.model import (
     Estate,
     Gpo,
     GpoLink,
+    GroupMembership,
     OuRecord,
+    ResolvedPrincipal,
     Setting,
     Som,
     SomLink,
@@ -761,6 +763,102 @@ def parse_ou_tree(json_path: str | Path) -> list[OuRecord]:
     return records
 
 
+def parse_principals(json_path: str | Path) -> dict[str, ResolvedPrincipal]:
+    """Parse ``principals.json`` into a ``{sid: ResolvedPrincipal}`` map.
+
+    The file is optional (Plan 020 A.2); callers should only invoke this when
+    the file exists. SIDs are canonicalized to lowercase. Each entry carries
+    ``name``, ``sam``, ``type``, and ``domain`` from the collector's
+    point-in-time directory lookup.
+    """
+    data = load_json(json_path)
+    if not isinstance(data, dict):
+        return {}
+    raw_principals = data.get("principals")
+    if not isinstance(raw_principals, dict):
+        if isinstance(data, dict) and any(
+            k.lower().startswith("s-1-") for k in data
+        ):
+            warnings.warn(
+                "principals.json appears to be a flat SID map (no 'principals' "
+                "wrapper key); expected {\"principals\": {\"<sid>\": ...}} format",
+                stacklevel=2,
+            )
+        return {}
+    out: dict[str, ResolvedPrincipal] = {}
+    for sid_raw, entry in raw_principals.items():
+        if not isinstance(entry, dict):
+            continue
+        sid = sid_raw.strip().lower()
+        if not sid:
+            continue
+        name = entry.get("name") or sid
+        sam = entry.get("sam") or ""
+        ptype = entry.get("type") or "Unresolved"
+        domain = entry.get("domain") or ""
+        resolved = ptype != "Unresolved" and bool(name) and name != sid
+        out[sid] = ResolvedPrincipal(
+            sid=sid,
+            name=name,
+            sam=sam,
+            principal_type=ptype,
+            domain=domain,
+            resolved=resolved,
+        )
+    return out
+
+
+def parse_group_members(json_path: str | Path) -> dict[str, GroupMembership]:
+    """Parse ``group-members.json`` into a ``{sid: GroupMembership}`` map.
+
+    The file is optional (Plan 020 B); callers should only invoke this when
+    the file exists. SIDs are canonicalized to lowercase. Each entry carries
+    ``name``, ``members`` (a tuple of direct-member SIDs), and ``member_count``.
+    Well-known groups with no enumerable membership carry an ``implicit`` note.
+    """
+    data = load_json(json_path)
+    if not isinstance(data, dict):
+        return {}
+    raw_groups = data.get("groups")
+    if not isinstance(raw_groups, dict):
+        if isinstance(data, dict) and any(
+            k.lower().startswith("s-1-") for k in data
+        ):
+            warnings.warn(
+                "group-members.json appears to be a flat SID map (no 'groups' "
+                "wrapper key); expected {\"groups\": {\"<sid>\": ...}} format",
+                stacklevel=2,
+            )
+        return {}
+    out: dict[str, GroupMembership] = {}
+    for sid_raw, entry in raw_groups.items():
+        if not isinstance(entry, dict):
+            continue
+        sid = sid_raw.strip().lower()
+        if not sid:
+            continue
+        name = entry.get("name") or sid
+        members_raw = entry.get("members")
+        if not isinstance(members_raw, list):
+            members_raw = []
+        members = tuple(
+            m.strip().lower() for m in members_raw
+            if isinstance(m, str) and m.strip()
+        )
+        member_count = entry.get("member_count")
+        if not isinstance(member_count, int):
+            member_count = len(members)
+        implicit = entry.get("implicit") or ""
+        out[sid] = GroupMembership(
+            sid=sid,
+            name=name,
+            members=members,
+            member_count=member_count,
+            implicit=implicit,
+        )
+    return out
+
+
 # gPLink segment: ``[LDAP://CN={guid},...;flags]``. flags bit 0 = link
 # disabled, bit 1 = enforced (NoOverride).
 _GPLINK_RE = re.compile(r"\[LDAP://[Cc][Nn]=(\{[^}]+\}|[^,;]+),[^;]*;(\d+)\]")
@@ -997,8 +1095,26 @@ def load_estate(sample_dir: str | Path) -> Estate:
 
     coverage_gaps.extend(_scan_sysvol_coverage(gpos))
 
+    principals: dict[str, ResolvedPrincipal] = {}
+    principals_path = src / "principals.json"
+    if principals_path.exists():
+        try:
+            principals = parse_principals(principals_path)
+        except (OSError, ValueError) as exc:
+            warnings.warn(f"Skipping principals.json: {exc}", stacklevel=1)
+
+    group_members: dict[str, GroupMembership] = {}
+    group_members_path = src / "group-members.json"
+    if group_members_path.exists():
+        try:
+            group_members = parse_group_members(group_members_path)
+        except (OSError, ValueError) as exc:
+            warnings.warn(f"Skipping group-members.json: {exc}", stacklevel=1)
+
     return Estate(
         domain=domain, gpos=gpos, soms=soms,
         wmi_filters=wmi_filters, ou_tree=ou_tree,
         coverage_gaps=coverage_gaps,
+        principals=principals,
+        group_members=group_members,
     )

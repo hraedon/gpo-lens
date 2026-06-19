@@ -361,6 +361,8 @@ a:hover { text-decoration: underline; }
 .gp-chain li.disabled .gp-chain-card { opacity: .6; }
 .gp-chain-name { font-size: 13px; font-weight: 500; color: var(--text); }
 .gp-chain-meta { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+.gp-chain-gates { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; align-items: center; }
+.gp-applies-all { font-size: 11px; }
 .gp-chain-ord {
   font-family: var(--font-mono); font-size: 11px; color: var(--text-3);
   border: 1px solid var(--border); border-radius: 5px; padding: 1px 6px;

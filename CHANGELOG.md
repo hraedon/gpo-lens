@@ -1,5 +1,67 @@
 # Changelog
 
+## v0.6.2 — 2026-06-19
+
+### Work-item hygiene: close 4 resolved WIs
+
+Four work items had their fixes committed in prior sessions but were never
+transitioned in the tracking system:
+
+- **WI-022** (high): CI gate for work-domain identifiers — `check_committed_identifiers.py`
+  + `identifier-gate` job + secret configured. 14 tests. Caught real leak on first run.
+- **WI-024** (low): OU-detail scope-caveats test assertion tightened from vacuous
+  `"loopback"` to discriminating `"loopback="` (commit 46d9e46).
+- **WI-031** (medium): `danger_findings()` reduced from 3x to 1x per dashboard render
+  via parameter injection (`danger=` / `danger_count=`). ADMX propagation gap also closed.
+- **WI-033** (low): Search `q` parameter capped at 200 chars (`_MAX_SEARCH_LEN`) in
+  all three web endpoints to bound O(n*m) substring scan cost.
+
+### Remaining open WIs
+
+- **WI-032** (medium): Danger rules lack calibration tests against real estate (needs `samples/`).
+- **WI-030** (medium): `install-windows.ps1` IIS binding/SNI/cert logic has no automated test harness.
+- **WI-018** (low): Standing decision — re-evaluate web/snapshot/event-store cost vs value.
+
+### Test coverage
+- 1310 passed, 6 skipped. `ruff` and `mypy --strict` clean.
+
+## v0.6.1 — 2026-06-18
+
+### WI-028: Loopback mode parser now resolves real-world settings
+
+The `_extract_loopback_mode` parser in `topology.py` only handled the
+`Security` CSE shape (`SettingString`/`SettingBoolean` children). Real-world
+GPO exports configure loopback via the `Registry` CSE, where the raw dict
+has a `Policy > DropDownList > Value > Name` structure. Every real-world
+loopback setting was classified as "unknown" (merge/replace never resolved).
+
+Now handles three raw-dict shapes: Security CSE `SettingString`/`SettingBoolean`,
+Registry CSE `Policy > DropDownList > Value > Name`, and a display_value
+fallback. `Policy > State = "Disabled"` correctly returns None. Calibration
+test against the real work estate confirms zero "unknown" modes across all
+28 loopback GPOs.
+
+### Plans 017 & 018: Directory search, ADMX policy names, danger detectors
+
+- **Plan 017**: Directory page (`/ou`) gains search (`q`), type filter
+  (`type`), and sort (`sort`), mirroring the dashboard's filter UX. 15 tests.
+- **Plan 018 Phase A**: ADMX policy-name crosswalk wired into the web UI via
+  `GPO_LENS_ADMX_DIR` env var / `--admx-dir` CLI flag. Registry settings show
+  human policy names with raw identity as secondary detail. Strict superset
+  when unconfigured. Also fixed MS16-072 Read detection (Apply Group Policy
+  = Read+Apply per GPMC, was incorrectly treated as non-Read).
+- **Plan 018 Phase B**: New `danger.py` core module with curated, cited
+  dangerous-configuration detectors. Bucket 2 (structural): GPO writable by
+  non-admin (DACL + Owner SID), local admin push, over-broad apply scope.
+  Bucket 1 (setting-value): 5 cited TOML rules (WDigest, SMB signing, LM
+  hash, AutoAdminLogon, NTLMv1) + pure evaluator. New `/danger` web view,
+  `gpo-lens danger` CLI, dashboard posture indicator. 35+ tests.
+
+### WI-025/026/027: Dashboard filtering, pagination, export (resolved)
+
+Already implemented and resolved in v0.6.0. Breadcrumbs moved to resolved/.
+46 tests cover all three features.
+
 ## v0.6.0 — 2026-06-18
 
 ### Production-readiness: IIS deployment, observability, access control

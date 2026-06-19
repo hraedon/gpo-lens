@@ -1,0 +1,184 @@
+{% extends "base.html" %}
+
+{% block title %}gpo-lens — Principal Resultant{% endblock %}
+
+{% block breadcrumb %}
+<nav class="gp-breadcrumb" aria-label="Breadcrumb">
+  <a href="{{ url_for('home') }}">Dashboard</a>
+  <span class="sep">/</span>
+  <span class="current" aria-current="page">Principal Resultant</span>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="gp-page-head">
+  <div>
+    <div class="gp-eyebrow">Plan 021 — Snapshot RSoP</div>
+    <h1>Principal Resultant</h1>
+  </div>
+</div>
+
+<div class="gp-callout accent">
+  <span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg></span>
+  <div>
+    <h4>Resultant given collected inputs — not "effective" RSoP</h4>
+    <p>This view computes a principal's resultant policy from the static snapshot. Security filtering is <strong>evaluated</strong> via set intersection over collected group membership. WMI filters and item-level targeting are <strong>shown, not evaluated</strong> — gated GPOs are excluded from the deterministic resultant and listed as conditional.</p>
+  </div>
+</div>
+
+<section class="gp-section">
+  <h2>Principal input</h2>
+  <form method="post" action="{{ url_for('resultant_compute') }}">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;max-width:800px">
+      <div>
+        <label for="principal_sid">Principal SID *</label>
+        <input type="text" id="principal_sid" name="principal_sid" required
+               class="mono" style="width:100%;padding:6px 8px"
+               placeholder="S-1-5-21-...-1234">
+      </div>
+      <div>
+        <label for="computer_sid">Computer SID (optional)</label>
+        <input type="text" id="computer_sid" name="computer_sid"
+               class="mono" style="width:100%;padding:6px 8px"
+               placeholder="S-1-5-21-...-5678">
+      </div>
+      <div>
+        <label for="dn">Principal DN (optional)</label>
+        <input type="text" id="dn" name="dn"
+               class="mono" style="width:100%;padding:6px 8px"
+               placeholder="CN=user,OU=Users,DC=...">
+      </div>
+      <div>
+        <label for="computer_dn">Computer DN (optional)</label>
+        <input type="text" id="computer_dn" name="computer_dn"
+               class="mono" style="width:100%;padding:6px 8px"
+               placeholder="CN=computer,OU=Computers,DC=...">
+      </div>
+    </div>
+    <button type="submit" class="gp-btn" style="margin-top:12px">Compute resultant</button>
+  </form>
+</section>
+
+{% if error %}
+<div class="gp-callout warn">
+  <span class="ico"></span>
+  <div><h4>Error</h4><p>{{ error }}</p></div>
+</div>
+{% endif %}
+
+{% if result %}
+<section class="gp-section">
+  <h2>Resultant for {{ result.principal_name }} <span class="count">{{ result.settings|length }} settings</span></h2>
+  {% if result.computer_sid %}
+  <p class="muted">Computer: {{ result.computer_sid }}</p>
+  {% endif %}
+  <div class="gp-callout info" style="margin-bottom:14px">
+    <p>{{ result.caveat_summary }}</p>
+  </div>
+
+  {% if result.settings %}
+  <div class="gp-table-wrap">
+    <table class="gp-table">
+      <thead>
+        <tr>
+          <th>CSE</th>
+          <th>Side</th>
+          <th>Identity</th>
+          <th>Value</th>
+          <th>Winning GPO</th>
+          <th>Mode</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in result.settings %}
+        <tr class="{% if s.approximate %}warn{% endif %}">
+          <td>{{ s.cse }}</td>
+          <td>{{ s.side }}</td>
+          <td class="mono">{{ s.identity }}</td>
+          <td>{{ s.winning_value }}</td>
+          <td>{{ s.winning_gpo_name }}</td>
+          <td>{{ s.merge_mode.value }}{% if s.approximate %} <span class="gp-chip warn">approx</span>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="muted">No settings in the deterministic resultant.</p>
+  {% endif %}
+</section>
+
+{% if result.excluded %}
+<section class="gp-section">
+  <h2>Excluded GPOs <span class="count">{{ result.excluded|length }}</span></h2>
+  <div class="gp-table-wrap">
+    <table class="gp-table">
+      <thead><tr><th>GPO</th><th>Kind</th><th>Reason</th></tr></thead>
+      <tbody>
+        {% for e in result.excluded %}
+        <tr>
+          <td>{{ e.gpo_name }}</td>
+          <td><span class="gp-chip warn">{{ e.kind }}</span></td>
+          <td>{{ e.reason }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+
+{% if result.excluded_settings %}
+<section class="gp-section">
+  <h2>Excluded settings (ILT-gated) <span class="count">{{ result.excluded_settings|length }}</span></h2>
+  <div class="gp-table-wrap">
+    <table class="gp-table">
+      <thead><tr><th>CSE</th><th>Side</th><th>Identity</th><th>Reason</th></tr></thead>
+      <tbody>
+        {% for es in result.excluded_settings %}
+        <tr>
+          <td>{{ es.cse }}</td>
+          <td>{{ es.side }}</td>
+          <td class="mono">{{ es.identity }}</td>
+          <td>{{ es.kind }} ({{ es.gpo_name }})</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+
+{% if result.conditional_dangers %}
+<section class="gp-section">
+  <h2>Conditional dangers <span class="count">{{ result.conditional_dangers|length }}</span></h2>
+  <div class="gp-callout warn">
+    <p>These dangerous configurations are in GPOs that are gated (WMI/ILT). They may or may not be in force — verify the gate.</p>
+  </div>
+  <div class="gp-table-wrap">
+    <table class="gp-table">
+      <thead><tr><th>GPO</th><th>Reason</th><th>Findings</th></tr></thead>
+      <tbody>
+        {% for cd in result.conditional_dangers %}
+        <tr>
+          <td>{{ cd.gpo_name }}</td>
+          <td>{{ cd.reason }}</td>
+          <td>{{ cd.finding_count }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+
+{% if result.token_caveats %}
+<section class="gp-section">
+  <h2>Token caveats</h2>
+  <ul>
+    {% for c in result.token_caveats %}<li>{{ c }}</li>{% endfor %}
+  </ul>
+</section>
+{% endif %}
+{% endif %}
+{% endblock %}

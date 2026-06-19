@@ -95,15 +95,19 @@ def test_lab_version_skew(lab_estate):
 def test_ms16_072_work(work_estate):
     from gpo_lens.queries import ms16_072_vulnerable
 
-    # Work domain: 112 of 129 GPOs lack Read for AU or DC
-    assert len(ms16_072_vulnerable(work_estate)) == 112
+    # Work domain: 24 of 129 GPOs lack Read for AU or DC. These have had
+    # Authenticated Users replaced with a narrow security-filtering group and
+    # never had computer Read restored. The other 105 carry "Apply Group Policy"
+    # (= Read+Apply) for Authenticated Users, which satisfies MS16-072.
+    assert len(ms16_072_vulnerable(work_estate)) == 24
 
 
 def test_ms16_072_lab(lab_estate):
     from gpo_lens.queries import ms16_072_vulnerable
 
-    # Lab domain: 10 of 12 GPOs lack Read for AU or DC
-    assert len(ms16_072_vulnerable(lab_estate)) == 10
+    # Lab domain: 0 of 12 — every GPO retains default Authenticated Users
+    # filtering ("Apply Group Policy" = Read+Apply), so none are vulnerable.
+    assert len(ms16_072_vulnerable(lab_estate)) == 0
 
 
 # ---- cpassword (MS14-025) -----------------------------------------------------
@@ -154,10 +158,25 @@ def test_work_enforced_links(work_estate):
 def test_loopback_detected(work_estate):
     from gpo_lens.queries import loopback_gpos
 
-    # Work domain has loopback (31 raw hits in calibration notes).
-    # Tightened to >= 30 (allowing a 1-count tolerance for benign parser
-    # variance), so a regression from 31 to 20 cannot pass silently.
-    assert len(loopback_gpos(work_estate)) >= 30
+    # Work domain: 28 GPOs configure loopback. The "31" in the original note was
+    # a raw `grep loopback` count over the whole export; 3 of those hits are in
+    # unparsed text (ADML/comment), not parsed Settings. loopback_gpos returns
+    # one (Gpo, Setting) pair per parsed loopback setting — here 28 distinct
+    # GPOs, one setting each — an exact, measured fact like the other
+    # calibration numbers, not the raw-grep figure the function never measured.
+    assert len(loopback_gpos(work_estate)) == 28
+
+
+def test_loopback_modes_resolved(work_estate):
+    from gpo_lens.topology import loopback_awareness
+
+    # WI-028: before the fix, every real-world loopback setting was classified
+    # as "unknown" because the parser didn't handle the Policy > DropDownList >
+    # Value > Name structure. Now all modes must be resolved to merge/replace.
+    awareness = loopback_awareness(work_estate)
+    assert awareness  # non-empty — loopback is present
+    unknown = {gid for gid, mode in awareness.items() if mode == "unknown"}
+    assert not unknown, f"GPOs with unresolved loopback mode: {unknown}"
 
 
 def test_work_no_precedence_conflicts_on_clean_soms(work_estate):

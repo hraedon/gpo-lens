@@ -51,16 +51,19 @@ from gpo_lens.detection import (  # noqa: F401, I001
 )
 
 from gpo_lens.detection import has_ms16_072_read, mask_cpassword, scan_ilt
+from gpo_lens.danger import DangerFinding, danger_findings  # noqa: F401
 from gpo_lens.topology import (
     EffectiveGpo,
     EffectiveScope,
     EffectiveSetting,
+    GateSummary,
     SecurityFiltering,
     SiteGpoLink,
     SiteScope,
     SomConflict,
     WmiFilterScope,
     effective_scope,
+    gate_summaries,
     has_site_links,
     is_security_filtered,
     loopback_awareness,
@@ -97,6 +100,7 @@ __all__ = [
     "Conflict",
     "DelegationAudit",
     "DenyAce",
+    "DangerFinding",
     "DoctorFinding",
     "EffectiveGpo",
     "EffectiveScope",
@@ -104,6 +108,7 @@ __all__ = [
     "EstateSummary",
     "ExcessiveWriter",
     "GpoMetadataChange",
+    "GateSummary",
     "SearchResult",
     "SecurityFiltering",
     "SettingsDiffRow",
@@ -125,6 +130,7 @@ __all__ = [
     "broken_wmi_refs",
     "conflicts",
     "cpassword_scan",
+    "danger_findings",
     "dangling_links",
     "delegation_deep_dive",
     "deny_aces",
@@ -132,6 +138,7 @@ __all__ = [
     "effective_scope",
     "empty_gpos",
     "enforced_links",
+    "gate_summaries",
     "has_site_links",
     "estate_doctor",
     "estate_summary",
@@ -429,12 +436,23 @@ class EstateSummary:
     orphaned_wmi_filter_count: int
     ilt_gpo_count: int
     stale_gpo_count: int
+    danger_finding_count: int
     total_settings: int
     total_delegation_entries: int
 
 
-def estate_summary(estate: Estate) -> EstateSummary:
-    """One-command estate health overview."""
+def estate_summary(
+    estate: Estate, *, danger_count: int | None = None,
+) -> EstateSummary:
+    """One-command estate health overview.
+
+    *danger_count* lets a caller that already computed danger findings
+    (e.g. estate_doctor) pass the count in, avoiding a redundant
+    ``danger_findings()`` evaluation (WI-031).  When ``None`` the count
+    is computed here.
+    """
+    if danger_count is None:
+        danger_count = len(danger_findings(estate))
     return EstateSummary(
         domain=estate.domain,
         gpo_count=len(estate.gpos),
@@ -465,6 +483,7 @@ def estate_summary(estate: Estate) -> EstateSummary:
         orphaned_wmi_filter_count=len(orphaned_wmi_filters(estate)),
         ilt_gpo_count=len(scan_ilt(estate)),
         stale_gpo_count=len(stale_gpos(estate)),
+        danger_finding_count=danger_count,
         total_settings=sum(len(g.settings) for g in estate.gpos),
         total_delegation_entries=sum(len(g.delegation) for g in estate.gpos),
     )
@@ -850,12 +869,17 @@ def baseline_diff(
 
 
 def estate_doctor(
-    estate: Estate, *, now: datetime | None = None
+    estate: Estate, *, now: datetime | None = None,
+    admx: object | None = None,
+    danger: list[DangerFinding] | None = None,
 ) -> list[DoctorFinding]:
     """Run all hygiene checks and return prioritized findings.
 
     *now* is forwarded to the staleness check; tests pin it so the stale-GPO
     finding stays deterministic as wall-clock time advances.
+
+    *danger* lets a caller that already computed ``danger_findings()`` pass
+    the list in, avoiding a redundant re-evaluation (WI-031).
     """
     findings: list[DoctorFinding] = []
 
@@ -993,23 +1017,26 @@ def estate_doctor(
         ))
 
     for da in deny_aces(estate):
+        trustee_display = da.trustee_name or da.trustee_sid
         findings.append(DoctorFinding(
             severity="medium",
             category="deny_ace",
             gpo_id=da.gpo_id,
             gpo_name=da.gpo_name,
-            summary=f"Deny ACE: {da.trustee_sid} ({da.rights})",
-            detail=f"Flags: {da.flags}" if da.flags else "",
+            summary=f"Deny ACE: {trustee_display} ({da.rights})",
+            detail=f"Trustee SID: {da.trustee_sid}" + (f"; Flags: {da.flags}" if da.flags else ""),
         ))
 
     for w in excessive_writers(estate):
+        trustee_display = w.trustee_name or w.trustee_sid
         findings.append(DoctorFinding(
             severity="medium",
             category="excessive_writer",
             gpo_id="",
             gpo_name="",
-            summary=f"{w.trustee_sid} has write access to {w.gpo_count} GPOs",
-            detail=f"Rights: {', '.join(w.rights)}; GPOs: {', '.join(w.gpo_names[:10])}",
+            summary=f"{trustee_display} has write access to {w.gpo_count} GPOs",
+            detail=f"Trustee SID: {w.trustee_sid}; Rights: {', '.join(w.rights)}; "
+                   f"GPOs: {', '.join(w.gpo_names[:10])}",
         ))
 
     for wref in broken_wmi_refs(estate):
@@ -1050,6 +1077,16 @@ def estate_doctor(
             gpo_name=sg.name,
             summary=f"Stale: modified {years}+ years ago and still linked",
             detail=f"Last modified: {sg.modified.isoformat() if sg.modified else 'unknown'}",
+        ))
+
+    for df in (danger if danger is not None else danger_findings(estate, admx=admx)):
+        findings.append(DoctorFinding(
+            severity=df.severity,
+            category=f"danger:{df.check_id}",
+            gpo_id=df.gpo_id,
+            gpo_name=df.gpo_name,
+            summary=df.title,
+            detail=f"{df.detail} [ref: {df.reference}]",
         ))
 
     findings.sort(key=lambda f: (_SEVERITY_ORDER.get(f.severity, 99), f.category, f.gpo_id))

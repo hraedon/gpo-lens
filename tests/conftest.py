@@ -12,6 +12,7 @@ Sample identity: WORK-DOMAIN.local = work (the 129-GPO mess); lab.example.com = 
 
 from __future__ import annotations
 
+import json
 import zipfile
 from pathlib import Path
 
@@ -20,8 +21,32 @@ import pytest
 SAMPLES = Path(__file__).resolve().parent.parent / "samples"
 _NEEDED = ("AllGPOs.xml", "gp-inheritance.json", "gpo-metadata.json")
 
+# Real exports are named by their domain (e.g. WORK-DOMAIN.local-*.zip), and samples/
+# is gitignored precisely so those names never reach git. This conftest IS
+# committed, so it must not hard-code a real domain. An optional gitignored
+# manifest (samples/calibration.json: {"work": "<file>.zip", "lab": "<file>.zip"})
+# points the calibration fixtures at the local exports by name. Without it we
+# fall back to the sanitized-substring glob; if neither resolves the fixture
+# skips, so the suite still runs on a checkout that has no samples.
+_MANIFEST = SAMPLES / "calibration.json"
 
-def _find_zip(substr: str) -> Path | None:
+
+def _manifest() -> dict[str, str]:
+    if _MANIFEST.is_file():
+        try:
+            data = json.loads(_MANIFEST.read_text())
+            return data if isinstance(data, dict) else {}
+        except (OSError, ValueError):
+            return {}
+    return {}
+
+
+def _find_zip(key: str, substr: str) -> Path | None:
+    name = _manifest().get(key)
+    if name:
+        p = SAMPLES / name
+        if p.is_file():
+            return p
     hits = sorted(SAMPLES.glob(f"*{substr}*.zip"))
     return hits[0] if hits else None
 
@@ -35,8 +60,8 @@ def _extract(zip_path: Path, dest: Path) -> Path:
     return dest
 
 
-def _estate(substr: str, label: str, tmp_factory):
-    zip_path = _find_zip(substr)
+def _estate(key: str, substr: str, label: str, tmp_factory):
+    zip_path = _find_zip(key, substr)
     if zip_path is None:
         pytest.skip(f"{label} sample ({substr}) not present in samples/")
     src = _extract(zip_path, tmp_factory.mktemp(label))
@@ -48,10 +73,10 @@ def _estate(substr: str, label: str, tmp_factory):
 @pytest.fixture(scope="session")
 def work_estate(tmp_path_factory):
     """WORK-DOMAIN.local — the messy work domain."""
-    return _estate("WORKDOMAIN", "work", tmp_path_factory)
+    return _estate("work", "WORKDOMAIN", "work", tmp_path_factory)
 
 
 @pytest.fixture(scope="session")
 def lab_estate(tmp_path_factory):
     """lab.example.com — the clean lab domain."""
-    return _estate("LABDOMAIN", "lab", tmp_path_factory)
+    return _estate("lab", "LABDOMAIN", "lab", tmp_path_factory)

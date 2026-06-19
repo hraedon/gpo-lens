@@ -4,6 +4,7 @@ import argparse
 import sys
 
 from gpo_lens import __version__
+from gpo_lens.cli._danger import cmd_danger
 from gpo_lens.cli._delegation import cmd_delegation, cmd_perms, cmd_sddl
 from gpo_lens.cli._diff import (
     cmd_baseline_diff,
@@ -30,6 +31,7 @@ from gpo_lens.cli._hygiene import (
 )
 from gpo_lens.cli._narration import cmd_ask, cmd_explain_setting
 from gpo_lens.cli._report import cmd_report
+from gpo_lens.cli._resultant import cmd_resultant
 from gpo_lens.cli._serve import cmd_serve
 from gpo_lens.cli._settings import (
     cmd_admx_gaps,
@@ -400,13 +402,46 @@ def main(argv: list[str] | None = None) -> int:
     _add_src(p)
     p.set_defaults(func=cmd_repl)
 
+    # danger
+    p = sub.add_parser(
+        "danger",
+        help="Scan for dangerous GPO configurations (curated, cited checks)",
+    )
+    p.add_argument("--json", action="store_true", help="JSON output")
+    p.add_argument(
+        "--admx-dir",
+        help="PolicyDefinitions directory for policy-name-keyed rules",
+    )
+    _add_src(p)
+    p.set_defaults(func=cmd_danger)
+
     # serve
     p = sub.add_parser("serve", help="Launch the web UI")
     p.add_argument("--host", default="127.0.0.1", help="Bind host (default: 127.0.0.1)")
     p.add_argument("--port", type=int, default=8000, help="Bind port (default: 8000)")
     p.add_argument("--open", action="store_true", help="Open browser on start")
     p.add_argument("--root-path", default="", help="ASGI root_path for reverse-proxy mounting")
+    p.add_argument(
+        "--admx-dir",
+        help="PolicyDefinitions directory for registry-to-policy crosswalk",
+    )
     p.set_defaults(func=cmd_serve)
+
+    # resultant (Plan 021)
+    p = sub.add_parser(
+        "resultant",
+        help="Principal resultant (RSoP) — effective policy for a principal",
+    )
+    p.add_argument(
+        "principal_sid",
+        help="SID of the principal (user or computer) to compute resultant for",
+    )
+    p.add_argument("--computer-sid", default=None, help="Computer SID (for user+computer pair)")
+    p.add_argument("--dn", default=None, help="Distinguished name of the principal (for SOM chain)")
+    p.add_argument("--computer-dn", default=None, help="Computer DN (for user+computer SOM chain)")
+    p.add_argument("--json", action="store_true", help="JSON output")
+    _add_src(p)
+    p.set_defaults(func=cmd_resultant)
 
     args = parser.parse_args(argv)
     if not hasattr(args, "func"):
