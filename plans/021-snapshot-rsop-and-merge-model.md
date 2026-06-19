@@ -180,7 +180,7 @@ and on real demand.
 ## Validation — the lab is the shipping gate
 
 The over-claim risk (a wrong "does not apply" is a security blind spot) is real
-and high-stakes. `LAB-DOMAIN` is the oracle that converts this from plausible
+and high-stakes. the homelab (`LABDOMAIN`) is the oracle that converts this from plausible
 to defensible:
 
 - Build known scenarios (controlled membership, security filtering, GPP with

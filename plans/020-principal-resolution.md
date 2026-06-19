@@ -78,9 +78,9 @@ it encounters in any GPO SDDL or delegation entry, resolved once via the
 directory at collection time:
 
 ```
-{ "<sid>": { "name": "WORK-DOMAIN\\GPO-Admins", "sam": "GPO-Admins",
+{ "<sid>": { "name": "WORKDOMAIN\\GPO-Admins", "sam": "GPO-Admins",
              "type": "Group|User|Computer|WellKnown|Unresolved",
-             "domain": "WORK-DOMAIN" } }
+             "domain": "WORKDOMAIN" } }
 ```
 
 Collector resolves via `[SecurityIdentifier].Translate()` / a directory lookup;
@@ -167,7 +167,7 @@ resolution, so it is sequenced last and gated on demand.
   matching scattered across `authz`/`detection`.
 - **Phase A.2 needs a collector change** — additive, optional artifact; ingest
   degrades gracefully without it. Validate the new collection on the homelab
-  (`LAB-DOMAIN`) before the work estate.
+  (`LABDOMAIN`) before the work estate.
 - **Posture risk:** keep the collector's directory reads least-privilege and
   read-only; `principals.json`/`group-members.json` contain directory data, so
   they fall under the same `samples/`-is-gitignored, never-commit-real-domain
