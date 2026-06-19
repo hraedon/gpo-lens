@@ -42,6 +42,9 @@ _BUILTIN_PREFIX = "s-1-5-32-"
 _MANDATORY_PREFIX = "s-1-16-"
 
 _ABSOLUTE_WELL_KNOWN: dict[str, str] = {
+    "s-1-3-0": "Creator Owner",
+    "s-1-3-1": "Creator Group",
+    "s-1-3-4": "Owner Rights",
     "s-1-1-0": "Everyone",
     "s-1-5-7": "Anonymous",
     "s-1-5-9": "Enterprise Domain Controllers",
@@ -161,6 +164,35 @@ _SDDL_SID_ALIASES: dict[str, str] = {
     "ao": "BUILTIN\\Account Operators",
     "so": "BUILTIN\\Server Operators",
     "po": "BUILTIN\\Print Operators",
+    # Domain-relative aliases. SDDL emits these for the domain the object
+    # lives in (e.g. a GPO owner is almost always ``O:DA`` = Domain Admins,
+    # not a raw S-1-5-21-...-512 SID). They resolve to the same friendly
+    # names as the corresponding domain RIDs above, which is what
+    # ``detection._is_default_writer_sid`` matches on by name.
+    "da": "Domain Admins",
+    "dg": "Domain Guests",
+    "du": "Domain Users",
+    "dd": "Domain Controllers",
+    "dc": "Domain Computers",
+    "ea": "Enterprise Admins",
+    "sa": "Schema Admins",
+    "ca": "Cert Publishers",
+    "pa": "Group Policy Creator Owners",
+    "cg": "Creator Group",
+    "co": "Creator Owner",
+    "ow": "Owner Rights",
+    "ed": "Enterprise Domain Controllers",
+    "ro": "Enterprise Read-only Domain Controllers",
+    "la": "Administrator",
+    "lg": "Guest",
+    "ns": "Network Service",
+    "ls": "Local Service",
+    "iu": "Interactive",
+    "nu": "Network",
+    "su": "Service",
+    "wr": "Write Restricted",
+    "rc": "Restricted Code",
+    "rd": "BUILTIN\\Remote Desktop Users",
 }
 
 

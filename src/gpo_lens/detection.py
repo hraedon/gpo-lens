@@ -787,6 +787,13 @@ _DEFAULT_WRITER_NAMES = frozenset({
     "Domain Admins",
     "Enterprise Admins",
     "SYSTEM",
+    # Non-actionable placeholder identities present in the default GPO DACL.
+    # No security principal ever authenticates as Creator Owner / Creator
+    # Group / Owner Rights, so a write ACE for them is not a hijack primitive
+    # — flagging them buries the real findings under per-GPO noise.
+    "Creator Owner",
+    "Creator Group",
+    "Owner Rights",
 })
 _DEFAULT_WRITER_DOMAIN_RID_SUFFIXES = frozenset({"-512", "-519"})
 
