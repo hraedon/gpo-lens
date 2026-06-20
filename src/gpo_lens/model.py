@@ -14,9 +14,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Literal
+from typing import Literal, Protocol, runtime_checkable
 
 Side = Literal["Computer", "User"]
+
+SEVERITY_ORDER: dict[str, int] = {
+    "critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4,
+}
 
 
 @dataclass(frozen=True)
@@ -251,3 +255,15 @@ class Estate:
 
     def gpo_by_id(self, gpo_id: str) -> Gpo | None:
         return next((g for g in self.gpos if g.id == gpo_id), None)
+
+
+@runtime_checkable
+class AdmxResolver(Protocol):
+    """Contract for ADMX display-name resolution (duck-typed previously).
+
+    Any object with a ``resolve_display_name(identity: str) -> str | None``
+    method satisfies this protocol — structural subtyping, no inheritance
+    required. ``admx_parser.PolicyDefinitions`` is the canonical implementor.
+    """
+
+    def resolve_display_name(self, identity: str) -> str | None: ...

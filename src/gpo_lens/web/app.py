@@ -17,7 +17,7 @@ from collections.abc import Iterator
 from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
@@ -36,12 +36,16 @@ from gpo_lens import ingest as _ingest
 from gpo_lens import queries, topology
 from gpo_lens import store as _store
 from gpo_lens.display import serialize_result
+from gpo_lens.model import SEVERITY_ORDER
 from gpo_lens.query_dispatch import (
     VALID_QUERIES,
     dispatch_query,
     validate_params,
 )
 from gpo_lens.web.auth import Permission, Principal, requires
+
+if TYPE_CHECKING:
+    from gpo_lens.model import AdmxResolver
 
 _logger = logging.getLogger(__name__)
 
@@ -70,6 +74,14 @@ def _get_ro_conn(db_path: str) -> sqlite3.Connection:
     return sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
 
 
+def _get_rw_conn(db_path: str) -> sqlite3.Connection:
+    """Open a read-write connection with foreign keys and tightened permissions."""
+    conn = sqlite3.connect(db_path)
+    conn.execute("PRAGMA foreign_keys = ON")
+    _store._restrict_db_permissions(conn)
+    return conn
+
+
 _MAX_UNCOMPRESSED_BYTES = 2 * 1024 * 1024 * 1024  # 2GB
 _MAX_QUESTION_LEN = 500
 _MAX_SEARCH_LEN = 200  # WI-033: cap q= on / and /ou to prevent unbounded substring scan
@@ -78,7 +90,7 @@ _DEFAULT_PER_PAGE = 50
 _MAX_PER_PAGE = 200
 _VALID_SEVERITIES = {"critical", "high", "medium", "low", "info"}
 _VALID_SORTS = {"severity", "severity_desc", "gpo", "finding"}
-_SEVERITY_RANK = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+_SEVERITY_RANK = SEVERITY_ORDER
 _VALID_OU_SORTS = {"name", "links", "type"}
 _VALID_OU_TYPES = {"domain", "ou", "site"}
 
@@ -361,11 +373,11 @@ def _json_attachment(payload: object, filename: str) -> Response:
     )
 
 
-def _setting_label(s: object, admx: object) -> tuple[str, str]:
+def _setting_label(s: object, admx: AdmxResolver | None) -> tuple[str, str]:
     identity = getattr(s, "identity", "")
     display_name = getattr(s, "display_name", identity) or identity
     if admx is not None:
-        name = getattr(admx, "resolve_display_name", lambda _: None)(identity)
+        name = admx.resolve_display_name(identity)
         if name:
             return name, identity
     return display_name, identity
@@ -481,7 +493,7 @@ def create_app(
     # Ensure the DB file exists on first run to prevent OperationalError
     db_file = Path(db_path)
     if not db_file.exists():
-        conn_init = sqlite3.connect(str(db_file))
+        conn_init = _get_rw_conn(str(db_file))
         _store.init_db(conn_init)
         conn_init.close()
 
@@ -1141,7 +1153,7 @@ def create_app(
                         status_code=400,
                     )
 
-                rw_conn = sqlite3.connect(app.state.db_path)
+                rw_conn = _get_rw_conn(app.state.db_path)
                 try:
                     _store.init_db(rw_conn)
                     _store.save_estate(rw_conn, estate)
@@ -1279,7 +1291,7 @@ def create_app(
             "success" if answer
             else ("not_configured" if not narration_available else "error")
         )
-        rw_conn = sqlite3.connect(app.state.db_path)
+        rw_conn = _get_rw_conn(app.state.db_path)
         try:
             _events.append_event(
                 rw_conn, "audit.narrate",

@@ -8,6 +8,11 @@ from pathlib import Path
 from typing import Any
 
 
+def localname(tag: str) -> str:
+    """Strip XML namespace prefix from a tag: ``{ns}local`` → ``local``."""
+    return tag.split("}")[-1] if "}" in tag else tag
+
+
 def canonical_guid(raw: str) -> str:
     """Lowercase and strip surrounding braces and whitespace.
 

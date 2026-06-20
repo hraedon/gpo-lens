@@ -30,8 +30,8 @@ from gpo_lens.normalize import localname
 from gpo_lens.paths import ci_child, ci_path
 
 if TYPE_CHECKING:
-    from gpo_lens.admx_parser import PolicyDefinitions
     from gpo_lens.model import (
+        AdmxResolver,
         DelegationEntry,
         Estate,
         Gpo,
@@ -660,7 +660,7 @@ def enforced_links(estate: Estate) -> list[tuple[Som, SomLink]]:
 
 def admx_gaps(
     estate: Estate,
-    admx: PolicyDefinitions | None = None,
+    admx: AdmxResolver | None = None,
 ) -> list[AdmxGap]:
     """Flag Registry CSE settings where no ADMX policy name was resolved."""
     results: list[AdmxGap] = []

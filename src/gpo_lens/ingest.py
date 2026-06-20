@@ -28,7 +28,7 @@ from gpo_lens.model import (
     SomLink,
     WmiFilter,
 )
-from gpo_lens.normalize import canonical_guid, load_json, parse_bool, parse_dt, parse_int
+from gpo_lens.normalize import canonical_guid, load_json, localname, parse_bool, parse_dt, parse_int
 from gpo_lens.paths import ci_child, ci_path
 from gpo_lens.registry_pol import parse_registry_pol
 
@@ -116,9 +116,7 @@ def _streaming_zip_read(
     return buf.getvalue()
 
 
-def _localname(tag: str) -> str:
-    """Strip namespace prefix from an XML tag."""
-    return tag.split("}")[-1] if "}" in tag else tag
+_localname = localname
 
 
 def _child_by_localname(parent: Element, name: str) -> Element | None:

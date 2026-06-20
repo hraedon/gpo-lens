@@ -29,9 +29,10 @@ from gpo_lens.detection import (
     _is_default_writer_sid,
     scan_local_groups,
 )
+from gpo_lens.model import SEVERITY_ORDER
 
 if TYPE_CHECKING:
-    from gpo_lens.model import Estate
+    from gpo_lens.model import AdmxResolver, Estate
 
 __all__ = [
     "DangerFinding",
@@ -45,7 +46,7 @@ __all__ = [
 ]
 
 
-_SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+_SEVERITY_ORDER = SEVERITY_ORDER
 
 
 @dataclass(frozen=True)
@@ -265,16 +266,13 @@ def overbroad_apply_group_policy(estate: Estate) -> list[DangerFinding]:
 _REGISTRY_CSES = ("Registry", "Windows Registry")
 
 
-def _resolve_display_name(admx: object, identity: str) -> str | None:
-    """Resolve a setting identity to an ADMX policy display name (duck-typed).
+def _resolve_display_name(admx: AdmxResolver, identity: str) -> str | None:
+    """Resolve a setting identity to an ADMX policy display name.
 
-    Returns ``None`` when *admx* is ``None`` or lacks a resolver, so name-keyed
+    Returns ``None`` when the resolver has no match, so name-keyed
     rules degrade to identity-keyed only (AC-9 — no crash, no silent all-match).
     """
-    resolver = getattr(admx, "resolve_display_name", None)
-    if resolver is None:
-        return None
-    result = resolver(identity)
+    result = admx.resolve_display_name(identity)
     return result if isinstance(result, str) else None
 
 
@@ -310,7 +308,7 @@ def _side_matches(rule_applies: str, setting_side: str) -> bool:
 def _identity_matches(
     rule: DangerRule,
     setting_identity: str,
-    admx: object | None,
+    admx: AdmxResolver | None,
 ) -> bool:
     if setting_identity.lower() == rule.identity.lower():
         return True
@@ -321,7 +319,7 @@ def _identity_matches(
 
 
 def evaluate_danger_rules(
-    estate: Estate, rules: list[DangerRule], admx: object | None = None
+    estate: Estate, rules: list[DangerRule], admx: AdmxResolver | None = None
 ) -> list[DangerFinding]:
     """Evaluate setting-value danger rules against estate Registry settings.
 
@@ -449,7 +447,7 @@ def load_danger_rules(rules_path: Path | None = None) -> list[DangerRule]:
 # ---------------------------------------------------------------------------
 
 def danger_findings(
-    estate: Estate, *, admx: object | None = None, rules: list[DangerRule] | None = None
+    estate: Estate, *, admx: AdmxResolver | None = None, rules: list[DangerRule] | None = None
 ) -> list[DangerFinding]:
     """Run all danger detectors (Bucket 1 + Bucket 2) and return sorted findings."""
     if rules is None:

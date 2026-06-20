@@ -11,6 +11,7 @@ dependencies = ["defusedxml>=0.7"]
 [project.optional-dependencies]
 dev = [
     "pytest>=8.3",
+    "pytest-cov>=5.0",
     "ruff>=0.7",
     "mypy>=1.13",
     "httpx>=0.28",
@@ -35,7 +36,7 @@ packages = ["src/gpo_lens"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+addopts = "-q --cov=src --cov-report=term-missing --cov-fail-under=85"
 markers = [
     "samples: requires real GPO export samples in samples/",
 ]
