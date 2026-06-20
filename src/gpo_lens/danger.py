@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import os
 import tomllib
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -388,6 +389,10 @@ _VALID_PREDICATES = frozenset({
     "equals", "in", "min", "max", "present", "absent",
 })
 
+_REQUIRED_RULE_FIELDS = frozenset({
+    "id", "title", "severity", "applies", "identity", "reference",
+})
+
 
 def _load_rules_file(path: Path) -> list[DangerRule]:
     try:
@@ -395,10 +400,30 @@ def _load_rules_file(path: Path) -> list[DangerRule]:
             data = tomllib.load(f)
     except (OSError, tomllib.TOMLDecodeError):
         return []
+    raw_rules = data.get("rules", [])
+    if not isinstance(raw_rules, list):
+        warnings.warn(
+            f"Skipping danger rules in {path.name} ('rules' must be an array)",
+            stacklevel=1,
+        )
+        return []
     rules: list[DangerRule] = []
-    for entry in data.get("rules", []):
+    for entry in raw_rules:
+        if not isinstance(entry, dict):
+            warnings.warn(
+                f"Skipping non-table entry in {path.name} (got {type(entry).__name__})",
+                stacklevel=1,
+            )
+            continue
         predicate = entry.get("predicate", "")
         if predicate not in _VALID_PREDICATES:
+            continue
+        missing = _REQUIRED_RULE_FIELDS - entry.keys()
+        if missing:
+            warnings.warn(
+                f"Skipping danger rule in {path.name} (missing: {sorted(missing)})",
+                stacklevel=1,
+            )
             continue
         rules.append(DangerRule(
             id=entry["id"],

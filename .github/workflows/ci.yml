@@ -61,5 +61,5 @@ jobs:
       - name: Mypy typecheck
         run: .venv/bin/mypy src
 
-      - name: Run tests
+      - name: Run tests with coverage
         run: .venv/bin/pytest -q
