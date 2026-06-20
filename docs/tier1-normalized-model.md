@@ -43,6 +43,7 @@ One per `GPO` element. Carries everything later features need.
 |-------|--------|
 | `id` (canonical) | `Identifier/Identifier` → normalized |
 | `name` | `Name` |
+| `description` | `Description` (added v0.5.0; often empty) |
 | `domain` | `Identifier/Domain` |
 | `created`, `modified`, `read` | `CreatedTime`, `ModifiedTime`, `ReadTime` |
 | `computer_enabled`, `user_enabled` | `Computer/Enabled`, `User/Enabled` (bool) |

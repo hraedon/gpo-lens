@@ -26,6 +26,7 @@ from gpo_lens.model import (
     SddlAcl,
     Side,
 )
+from gpo_lens.normalize import localname
 from gpo_lens.paths import ci_child, ci_path
 
 if TYPE_CHECKING:
@@ -410,8 +411,7 @@ _TASK_ELEMENT_NAMES = frozenset({
 })
 
 
-def _localname(tag: str) -> str:
-    return tag.split("}", 1)[-1] if "}" in tag else tag
+_localname = localname
 
 
 def _props(elem: Element) -> Element | None:
@@ -924,11 +924,6 @@ class IltHit:
     filter_types: tuple[str, ...]
 
 
-def _local_tag(elem: Element) -> str:
-    """Strip XML namespace prefix from an element tag."""
-    return elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
-
-
 def scan_ilt(estate: Estate) -> list[IltHit]:
     """Scan SYSVOL GPP XML for ``<Filters>`` elements (item-level targeting).
 
@@ -944,10 +939,10 @@ def scan_ilt(estate: Estate) -> list[IltHit]:
                 continue
             file_has_filters = False
             for elem in root.iter():
-                if _local_tag(elem) == "Filters":
+                if _localname(elem.tag) == "Filters":
                     file_has_filters = True
                     for child in elem:
-                        gpo_filter_types.add(_local_tag(child))
+                        gpo_filter_types.add(_localname(child.tag))
             if file_has_filters:
                 gpo_files.add(walk.rel_file.as_posix())
         if gpo_filter_types:

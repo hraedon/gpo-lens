@@ -35,6 +35,7 @@ from gpo_lens import events as _events
 from gpo_lens import ingest as _ingest
 from gpo_lens import queries, topology
 from gpo_lens import store as _store
+from gpo_lens.display import serialize_result
 from gpo_lens.query_dispatch import (
     VALID_QUERIES,
     dispatch_query,
@@ -180,18 +181,6 @@ def _sanitize_question(raw: str) -> str:
         ch for ch in raw if (ord(ch) >= 32 or ch == "\t") and ch not in ("\n", "\r")
     )
     return cleaned[:_MAX_QUESTION_LEN]
-
-
-def _serialize_result(result: object) -> object:
-    if dataclasses.is_dataclass(result) and not isinstance(result, type):
-        return dataclasses.asdict(result)
-    if isinstance(result, list):
-        return [_serialize_result(item) for item in result]
-    if isinstance(result, dict):
-        return {k: _serialize_result(v) for k, v in result.items()}
-    if isinstance(result, tuple):
-        return [_serialize_result(item) for item in result]
-    return result
 
 
 def _parse_pagination(
@@ -988,7 +977,7 @@ def create_app(
             conn.close()
 
         if format == "json":
-            payload = _serialize_result(findings)
+            payload = serialize_result(findings)
             return _json_attachment(payload, "gpo-lens-findings.json")
         # default: csv
         rows = [
@@ -1033,7 +1022,7 @@ def create_app(
         if gpo is None:
             raise HTTPException(status_code=404, detail="GPO not found")
 
-        payload = _serialize_result(gpo)
+        payload = serialize_result(gpo)
         return _json_attachment(payload, f"gpo-lens-{gpo_id}.json")
 
     @app.get("/export/ou/{path:path}", name="export_ou")
@@ -1064,7 +1053,7 @@ def create_app(
 
         settings = queries.settings_at_som(estate, target_som.path)
         if format == "json":
-            payload = _serialize_result(settings)
+            payload = serialize_result(settings)
             return _json_attachment(payload, "gpo-lens-ou-settings.json")
         # default: csv
         rows = [
@@ -1256,7 +1245,7 @@ def create_app(
                                 )
                                 for hit in hits
                             ]
-                        serialized = _serialize_result(query_result)
+                        serialized = serialize_result(query_result)
                         system = (
                             "You are a Group Policy analyst. The user asked a "
                             "question about their GPO estate. Below are the raw "
@@ -1286,15 +1275,18 @@ def create_app(
                 else:
                     error = f"Query '{query_name}' not implemented"
 
-        if narration_available:
-            rw_conn = sqlite3.connect(app.state.db_path)
-            try:
-                _events.append_event(
-                    rw_conn, "audit.narrate",
-                    {"principal": principal.name, "question": sanitized},
-                )
-            finally:
-                rw_conn.close()
+        outcome = (
+            "success" if answer
+            else ("not_configured" if not narration_available else "error")
+        )
+        rw_conn = sqlite3.connect(app.state.db_path)
+        try:
+            _events.append_event(
+                rw_conn, "audit.narrate",
+                {"principal": principal.name, "question": sanitized, "outcome": outcome},
+            )
+        finally:
+            rw_conn.close()
 
         return templates.TemplateResponse(
             request,

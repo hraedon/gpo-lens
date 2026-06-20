@@ -1,6 +1,6 @@
 # Plan 021 — Snapshot RSoP for a principal (with an explicit merge-resolution model)
 
-**Status:** proposed 2026-06-18
+**Status:** shipped (v0.6.3) 2026-06-18
 **Author:** Claude (Opus 4.8), from the "snapshot RSoP / merge-semantics" thread
 **Strategic role:** The end state people actually want: **take a principal and
 see its Resultant Set of Policy** — computed offline from a snapshot, at scale,

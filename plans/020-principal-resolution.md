@@ -1,6 +1,6 @@
 # Plan 020 — Principal resolution (SIDs → names, membership, population)
 
-**Status:** proposed 2026-06-18
+**Status:** shipped (v0.6.3) 2026-06-18
 **Author:** Claude (Opus 4.8), from a "what would live AD buy us" review
 **Strategic role:** gpo-lens's differentiator is its SDDL/delegation analysis —
 the attack-path view (who can write a GPO, who gets Apply, deny ACEs). But that

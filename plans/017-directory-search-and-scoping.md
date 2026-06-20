@@ -1,6 +1,6 @@
 # Plan 017 — Directory search & scoping
 
-**Status:** proposed 2026-06-18
+**Status:** shipped (v0.6.1) 2026-06-18
 **Author:** GLM 5.2 (from live IIS-deployment feedback)
 **Strategic role:** The Directory page (`/ou`, `ou_list.html`) is the entry
 point to topology — every OU/domain/site a GPO can link to. Today it is a flat,
