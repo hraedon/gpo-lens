@@ -605,6 +605,116 @@ class TestDangerRules:
         rules = _load_rules_file(toml_file)
         assert rules == []
 
+    def test_missing_required_fields_skipped_with_warning(self, tmp_path: Path) -> None:
+        import warnings as _warnings
+
+        toml_file = tmp_path / "rules.toml"
+        toml_file.write_text(
+            '[[rules]]\n'
+            'id = "missing_fields"\n'
+            'title = "Has most fields"\n'
+            'predicate = "equals"\n'
+            'value = "1"\n'
+            '[[rules]]\n'
+            'id = "complete"\n'
+            'title = "Complete"\n'
+            'severity = "high"\n'
+            'applies = "Machine"\n'
+            'identity = "HKLM\\\\Key:Val"\n'
+            'predicate = "equals"\n'
+            'value = "1"\n'
+            'reference = "ref"\n',
+            encoding="utf-8",
+        )
+        from gpo_lens.danger import _load_rules_file
+        with _warnings.catch_warnings(record=True) as caught:
+            _warnings.simplefilter("always")
+            rules = _load_rules_file(toml_file)
+        assert len(rules) == 1
+        assert rules[0].id == "complete"
+        skips = [str(w.message) for w in caught if "missing" in str(w.message).lower()]
+        assert len(skips) == 1
+        assert "severity" in skips[0] and "applies" in skips[0]
+        assert "identity" in skips[0] and "reference" in skips[0]
+
+    def test_missing_field_only_severity(self, tmp_path: Path) -> None:
+        """A rule missing exactly one required field still loads others in the file."""
+        import warnings as _warnings
+
+        toml_file = tmp_path / "rules.toml"
+        toml_file.write_text(
+            '[[rules]]\n'
+            'id = "no_severity"\n'
+            'title = "No severity"\n'
+            'applies = "Machine"\n'
+            'identity = "HKLM\\\\Key:Val"\n'
+            'predicate = "equals"\n'
+            'value = "1"\n'
+            'reference = "ref"\n',
+            encoding="utf-8",
+        )
+        from gpo_lens.danger import _load_rules_file
+        with _warnings.catch_warnings(record=True) as caught:
+            _warnings.simplefilter("always")
+            rules = _load_rules_file(toml_file)
+        assert rules == []
+        assert any("severity" in str(w.message) for w in caught)
+
+    def test_extra_fields_ignored(self, tmp_path: Path) -> None:
+        """Unknown fields must not break the loader (forward-compatible)."""
+        toml_file = tmp_path / "rules.toml"
+        toml_file.write_text(
+            '[[rules]]\n'
+            'id = "with_extra"\n'
+            'title = "Extra fields"\n'
+            'severity = "high"\n'
+            'applies = "Machine"\n'
+            'identity = "HKLM\\\\Key:Val"\n'
+            'predicate = "equals"\n'
+            'value = "1"\n'
+            'reference = "ref"\n'
+            'future_field = "ignored"\n',
+            encoding="utf-8",
+        )
+        from gpo_lens.danger import _load_rules_file
+        rules = _load_rules_file(toml_file)
+        assert len(rules) == 1
+        assert rules[0].id == "with_extra"
+
+    def test_rules_not_a_list_returns_empty(self, tmp_path: Path) -> None:
+        """A scalar 'rules' must not crash the loader."""
+        import warnings as _warnings
+
+        toml_file = tmp_path / "rules.toml"
+        toml_file.write_text("rules = 42\n", encoding="utf-8")
+        from gpo_lens.danger import _load_rules_file
+        with _warnings.catch_warnings(record=True) as caught:
+            _warnings.simplefilter("always")
+            rules = _load_rules_file(toml_file)
+        assert rules == []
+        assert any("must be an array" in str(w.message) for w in caught)
+
+    def test_non_dict_entry_skipped(self, tmp_path: Path) -> None:
+        """An entry that is not a table (int/str) must not crash the loader."""
+        import warnings as _warnings
+
+        toml_file = tmp_path / "rules.toml"
+        toml_file.write_text(
+            'rules = ['
+            '{id = "ok", title = "Ok", severity = "high", '
+            'applies = "Machine", identity = "HKLM\\\\K:V", '
+            'predicate = "equals", value = "1", reference = "ref"}, 42'
+            ']\n',
+            encoding="utf-8",
+        )
+        from gpo_lens.danger import _load_rules_file
+        with _warnings.catch_warnings(record=True) as caught:
+            _warnings.simplefilter("always")
+            rules = _load_rules_file(toml_file)
+        assert len(rules) == 1
+        assert rules[0].id == "ok"
+        assert any("non-table" in str(w.message) for w in caught)
+
 
 # ---------------------------------------------------------------------------
 # Aggregate

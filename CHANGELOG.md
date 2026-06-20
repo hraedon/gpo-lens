@@ -1,5 +1,45 @@
 # Changelog
 
+## v0.6.4 — 2026-06-20
+
+### Coverage CI gate, danger loader resilience, merge spec (WI-032, WI-034, WI-035)
+
+- **WI-034 (medium, ci):** Coverage is now enforced in CI. `pyproject.toml`
+  `addopts` carries `--cov=src --cov-report=term-missing --cov-fail-under=85`
+  (single source of truth), and the CI workflow step is renamed to
+  `Run tests with coverage`. Local and CI both pass the 85% floor (current:
+  86.71% with samples, 86.55% without). The dual-flag drift the first
+  review caught was fixed by removing the explicit flags from CI and
+  relying on `addopts`.
+- **Danger TOML loader hardening (active breadcrumb):** `_load_rules_file`
+  no longer crashes on a malformed user-supplied TOML via
+  `GPO_LENS_DANGER_RULES_DIR`. Three categories of malformed input are now
+  handled with a `warnings.warn` and a `continue`:
+  - `rules` is not an array (scalar/bool/table).
+  - A `[[rules]]` entry is not a dict (e.g. int/str).
+  - Required fields are missing (`id`, `title`, `severity`, `applies`,
+    `identity`, `reference`).
+  5 new tests in `tests/test_danger.py` pin the behavior
+  (skips, warning content, valid peers still load).
+- **WI-032 (medium):** Closed. The 5 calibrated TOML danger rules have
+  known measurement against both sample estates (work + lab): 0 Bucket 1
+  findings (estates use ADMX-managed `Registry:Policy:*` identities, not
+  raw HKLM preferences), 35 Bucket 2 on the work estate, 0 on the lab
+  estate. Calibration tests in `tests/test_calibration.py` document the
+  observed behavior.
+- **WI-035 (low, docs):** Added `docs/spec/wi_merge.md` — the formal
+  work-item spec for `merge.py` (Plan 021). 20 ACs cover the CSE merge
+  taxonomy, merge mode dispatch (UNION/ADDITIVE/ACCUMULATE/LAST_WRITER_WINS/
+  AUTHORITATIVE_REPLACE/SINGLE_WINNER/MERGE_REPLACE_FLAG/APPROXIMATE),
+  ILT exclusion (decision 2), token expansion, security-gate evaluation,
+  principal resultant composition, and caveat summary format. Two rounds
+  of adversarial review found and fixed 12 spec/code mismatches before
+  the spec was committed.
+
+### Test coverage
+- 1352 passed, 6 skipped. `ruff` and `mypy --strict` clean. Coverage
+  86.71% (with samples), 86.55% (CI scenario, no samples).
+
 ## v0.6.3 — 2026-06-19
 
 ### End-to-end validation of Plans 017–021 — four real-data-only bugs fixed
