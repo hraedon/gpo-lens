@@ -765,3 +765,56 @@ class TestDangerCli:
             "gpo_name", "detail", "reference",
         }
         assert expected <= set(data[0])
+
+
+# ---------------------------------------------------------------------------
+# Shipped TOML validation
+# ---------------------------------------------------------------------------
+
+class TestDangerRulesToml:
+    def test_shipped_rules_parse(self) -> None:
+        """The shipped danger_rules.toml must parse to a non-empty, valid rule set."""
+        rules = load_danger_rules()
+        assert len(rules) >= 5, f"Expected >= 5 rules, got {len(rules)}"
+        for r in rules:
+            assert r.id, f"Rule missing id: {r}"
+            assert r.severity in ("critical", "high", "medium", "low", "info"), (
+                f"Rule {r.id}: invalid severity {r.severity!r}"
+            )
+            assert r.applies in ("Machine", "User", "Both"), (
+                f"Rule {r.id}: invalid applies {r.applies!r}"
+            )
+            assert r.predicate in (
+                "equals", "in", "min", "max", "present", "absent",
+            ), f"Rule {r.id}: invalid predicate {r.predicate!r}"
+            assert r.reference.startswith("http"), (
+                f"Rule {r.id}: reference must be a URL, got {r.reference!r}"
+            )
+
+    def test_shipped_rule_ids_unique(self) -> None:
+        rules = load_danger_rules()
+        ids = [r.id for r in rules]
+        assert len(ids) == len(set(ids)), (
+            f"Duplicate rule ids: {[x for x in ids if ids.count(x) > 1]}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# AdmxResolver Protocol conformance
+# ---------------------------------------------------------------------------
+
+class TestAdmxResolverProtocol:
+    def test_policy_definitions_satisfies_protocol(self) -> None:
+        from gpo_lens.admx_parser import PolicyDefinitions
+        from gpo_lens.model import AdmxResolver
+
+        assert isinstance(PolicyDefinitions(), AdmxResolver)
+
+    def test_duck_typed_resolver_satisfies_protocol(self) -> None:
+        from gpo_lens.model import AdmxResolver
+
+        class Duck:
+            def resolve_display_name(self, identity: str) -> str | None:
+                return None
+
+        assert isinstance(Duck(), AdmxResolver)

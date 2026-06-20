@@ -248,3 +248,67 @@ def test_settings_at_som_work_domain(work_estate):
         key = (es.cse, es.side, es.identity)
         assert key not in seen, f"Duplicate identity {key} in settings_at_som"
         seen.add(key)
+
+
+# ---- Plan 018 Phase B: danger rules calibration (WI-032) --------------------
+
+def test_danger_bucket1_work(work_estate):
+    from gpo_lens.danger import evaluate_danger_rules, load_danger_rules
+
+    rules = load_danger_rules()
+    assert len(rules) >= 5
+    findings = evaluate_danger_rules(work_estate, rules)
+    # Both sample estates use ADMX-managed registry settings (Registry:Policy:*
+    # identities), not raw HKLM\... registry preferences. The 5 TOML rules
+    # target HKLM-format identities, so they produce zero Bucket 1 findings
+    # against these estates — an expected, measured fact, not a rule defect.
+    assert len(findings) == 0
+
+
+def test_danger_bucket1_lab(lab_estate):
+    from gpo_lens.danger import evaluate_danger_rules, load_danger_rules
+
+    rules = load_danger_rules()
+    findings = evaluate_danger_rules(lab_estate, rules)
+    assert len(findings) == 0
+
+
+def test_danger_bucket2_work(work_estate):
+    from gpo_lens.danger import danger_findings, load_danger_rules
+
+    rules = load_danger_rules()
+    findings = danger_findings(work_estate, rules=rules)
+    # Bucket 2 structural checks: gpo_writable_by_nonadmin, local_admin_push,
+    # overbroad_apply_group_policy. The work estate has 35 findings (all from
+    # gpo_writable_by_nonadmin + gpo_owner_nonadmin).
+    assert len(findings) == 35
+    check_ids = {f.check_id for f in findings}
+    assert "gpo_writable_nonadmin" in check_ids
+    assert "gpo_owner_nonadmin" in check_ids
+
+
+def test_danger_bucket2_lab(lab_estate):
+    from gpo_lens.danger import danger_findings, load_danger_rules
+
+    rules = load_danger_rules()
+    findings = danger_findings(lab_estate, rules=rules)
+    # Lab estate is clean — no structural danger findings.
+    assert len(findings) == 0
+
+
+def test_danger_rules_loaded():
+    from gpo_lens.danger import load_danger_rules
+
+    rules = load_danger_rules()
+    assert len(rules) >= 5
+    ids = {r.id for r in rules}
+    assert ids == {
+        "wdigest_creds",
+        "smb_signing_disabled",
+        "lm_hash_enabled",
+        "autoadmin_logon",
+        "ntlmv1_allowed",
+    }
+    # Every rule must have a reference (B.3: cited findings only)
+    for r in rules:
+        assert r.reference, f"Rule {r.id} missing reference"

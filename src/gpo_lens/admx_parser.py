@@ -28,11 +28,11 @@ from pathlib import Path
 
 import defusedxml.ElementTree as ET
 
+from gpo_lens.normalize import localname
+
 _ADMX_NS = "http://schemas.microsoft.com/GroupPolicy/2006/07/PolicyDefinitions"
 
-
-def _localname(tag: str) -> str:
-    return tag.split("}")[-1] if "}" in tag else tag
+_localname = localname
 
 
 @dataclass(frozen=True)

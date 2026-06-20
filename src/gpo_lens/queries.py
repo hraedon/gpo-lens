@@ -14,11 +14,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
-from gpo_lens.model import Side
+from gpo_lens.model import SEVERITY_ORDER, Side
 
 if TYPE_CHECKING:
-    from gpo_lens.admx_parser import PolicyDefinitions
     from gpo_lens.model import (
+        AdmxResolver,
         DelegationEntry,
         Estate,
         Gpo,
@@ -489,7 +489,6 @@ def estate_summary(
     )
 
 
-
 # ---------------------------------------------------------------------------
 # Simple WMI / freshness helpers
 # ---------------------------------------------------------------------------
@@ -575,7 +574,7 @@ class DoctorFinding:
     detail: str
 
 
-_SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+_SEVERITY_ORDER = SEVERITY_ORDER
 
 
 @dataclass(frozen=True)
@@ -783,7 +782,7 @@ def load_baseline_from_estate(estate: Estate) -> list[BaselineSetting]:
 def baseline_diff(
     estate: Estate,
     baseline: list[BaselineSetting],
-    admx: PolicyDefinitions | None = None,
+    admx: AdmxResolver | None = None,
 ) -> list[BaselineDiffEntry]:
     """Compare estate settings against a baseline."""
     from gpo_lens.admx_parser import PolicyDefinitions as _PD
@@ -870,7 +869,7 @@ def baseline_diff(
 
 def estate_doctor(
     estate: Estate, *, now: datetime | None = None,
-    admx: object | None = None,
+    admx: AdmxResolver | None = None,
     danger: list[DangerFinding] | None = None,
 ) -> list[DoctorFinding]:
     """Run all hygiene checks and return prioritized findings.
