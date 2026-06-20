@@ -6,10 +6,24 @@ format strings every time.
 
 from __future__ import annotations
 
+import dataclasses
 from typing import TYPE_CHECKING, Sequence
 
 if TYPE_CHECKING:
     from gpo_lens.queries import SettingsDiffRow
+
+
+def serialize_result(result: object) -> object:
+    """Recursively convert dataclass instances to plain dicts for JSON serialization."""
+    if dataclasses.is_dataclass(result) and not isinstance(result, type):
+        return dataclasses.asdict(result)
+    if isinstance(result, list):
+        return [serialize_result(item) for item in result]
+    if isinstance(result, dict):
+        return {k: serialize_result(v) for k, v in result.items()}
+    if isinstance(result, tuple):
+        return [serialize_result(item) for item in result]
+    return result
 
 
 def render_table(

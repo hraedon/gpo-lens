@@ -11,23 +11,12 @@ from pathlib import Path
 from gpo_lens import queries
 from gpo_lens.cli._helpers import _get_estate, _render_json
 from gpo_lens.detection import mask_cpassword
+from gpo_lens.display import serialize_result
 from gpo_lens.query_dispatch import (
     VALID_QUERIES,
     dispatch_query,
     validate_params,
 )
-
-
-def _serialize_result(result: object) -> object:
-    if dataclasses.is_dataclass(result) and not isinstance(result, type):
-        return dataclasses.asdict(result)
-    if isinstance(result, list):
-        return [_serialize_result(item) for item in result]
-    if isinstance(result, dict):
-        return {k: _serialize_result(v) for k, v in result.items()}
-    if isinstance(result, tuple):
-        return [_serialize_result(item) for item in result]
-    return result
 
 
 def cmd_ask(args: argparse.Namespace) -> int:
@@ -84,7 +73,7 @@ def cmd_ask(args: argparse.Namespace) -> int:
             for hit in hits
         ]
 
-    serialized_result = _serialize_result(query_result)
+    serialized_result = serialize_result(query_result)
 
     if raw_json:
         _render_json(serialized_result)

@@ -1,6 +1,6 @@
 # Plan 019 — Scope-resultant view: per-candidate gate attribution
 
-**Status:** proposed 2026-06-18
+**Status:** shipped (v0.6.3) 2026-06-18
 **Author:** Claude (Opus 4.8), from an RSoP feasibility review
 **Strategic role:** People keep asking for "an RSoP view." The honest answer is
 that *most* of what they want already exists, the genuinely-hard part (true

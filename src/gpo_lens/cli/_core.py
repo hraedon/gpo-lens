@@ -30,6 +30,7 @@ from gpo_lens.cli._hygiene import (
     cmd_version_skew,
 )
 from gpo_lens.cli._narration import cmd_ask, cmd_explain_setting
+from gpo_lens.cli._repl import cmd_repl
 from gpo_lens.cli._report import cmd_report
 from gpo_lens.cli._resultant import cmd_resultant
 from gpo_lens.cli._serve import cmd_serve
@@ -56,7 +57,6 @@ from gpo_lens.cli._topology import (
     cmd_wmi,
     cmd_wmi_filters,
 )
-from gpo_lens.cli._util import cmd_repl
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -257,7 +257,6 @@ def main(argv: list[str] | None = None) -> int:
     _add_src(p)
     p.set_defaults(func=cmd_admx_gaps)
 
-    # new Plan 009 command
     p = sub.add_parser(
         "settings-at",
         help="Show effective settings at a SOM path",
@@ -266,7 +265,6 @@ def main(argv: list[str] | None = None) -> int:
     _add_src(p)
     p.set_defaults(func=cmd_settings_at)
 
-    # new Plan 007 commands
     p = sub.add_parser(
         "som-conflicts",
         help="Settings that conflict in the SOM chain",

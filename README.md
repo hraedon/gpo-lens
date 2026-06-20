@@ -68,6 +68,8 @@ pip install -e .
 | `gpp-groups` | Local-group membership changes deployed by GPO |
 | `topology-check` | Cross-check OU tree against inheritance |
 | `delegation` | Delegation deep-dive audit |
+| `danger` | Dangerous-configuration detectors |
+| `resultant` | Per-principal resultant view |
 
 ## Machine-readable output
 

@@ -1,6 +1,6 @@
 # Plan 018 — ADMX policy names in the UI + dangerous-configuration detectors
 
-**Status:** proposed 2026-06-18
+**Status:** shipped (v0.6.1) 2026-06-18
 **Author:** GLM 5.2 (from live IIS-deployment feedback)
 **Strategic role:** Two related gaps, one plan with a hard prerequisite.
 Today the GPO detail "Registry" section shows a column called **Identity** whose
