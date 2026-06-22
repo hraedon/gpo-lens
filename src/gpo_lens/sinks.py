@@ -77,6 +77,8 @@ class HecSink:
         timeout: int = 30,
     ) -> None:
         parsed = urllib.parse.urlparse(url)
+        if not parsed.scheme:
+            raise ValueError("HEC URL must include http:// or https:// scheme")
         if parsed.scheme not in ("https", "http"):
             raise ValueError(f"HEC URL must be http(s)://, got {parsed.scheme}://")
         self.url = url.rstrip("/")
@@ -91,7 +93,12 @@ class HecSink:
         if not hec_url or not hec_token:
             return None
         verify = os.environ.get("GPO_LENS_HEC_VERIFY_TLS", "true").lower() != "false"
-        return cls(url=hec_url, token=hec_token, verify_tls=verify)
+        try:
+            return cls(url=hec_url, token=hec_token, verify_tls=verify)
+        except ValueError as exc:
+            import warnings
+            warnings.warn(f"Invalid HEC URL configuration: {exc}", stacklevel=1)
+            return None
 
     def _post(self, payload: str) -> bool:
         endpoint = f"{self.url}/services/collector/event"
