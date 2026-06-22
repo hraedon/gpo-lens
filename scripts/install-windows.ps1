@@ -455,7 +455,8 @@ if ($ConfigureIIS) {
             $defaultDir = "C:\ProgramData\gpo-lens"
             $wcContent = Get-Content $webConfigDst -Raw
             if ($InstallDir -ne $defaultDir) {
-                $wcContent = $wcContent.Replace($defaultDir, $InstallDir)
+                $escapedInstallDir = [System.Security.SecurityElement]::Escape($InstallDir)
+                $wcContent = $wcContent.Replace($defaultDir, $escapedInstallDir)
             }
             # Validate the result is well-formed XML before writing
             try {
