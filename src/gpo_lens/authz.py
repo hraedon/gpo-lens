@@ -381,6 +381,8 @@ def _extract_aces(text: str) -> list["SddlAce"]:
             depth += 1
         elif ch == ")":
             depth -= 1
+            if depth < 0:
+                depth = 0
             if depth == 0 and ace_start >= 0:
                 ace_str = text[ace_start:i]
                 ace = _parse_ace_string(ace_str)

@@ -439,3 +439,19 @@ class TestCsrfSameHostEdgeCases:
         client = _proxy_client(csrf_db, "https://gpo-lens.example.com")
         resp = client.post("/ingest", headers={"origin": "https://"})
         assert resp.status_code == 403
+
+
+class TestCsrfStateChangingMethods:
+    @pytest.mark.parametrize("method", ["PUT", "PATCH", "DELETE"])
+    def test_state_changing_method_without_origin_blocked(self, csrf_client, method: str) -> None:
+        resp = csrf_client.request(method, "/ingest", headers={"origin": "https://evil.com"})
+        assert resp.status_code == 403
+        assert "CSRF" in resp.json()["detail"]
+
+    @pytest.mark.parametrize("method", ["PUT", "PATCH", "DELETE"])
+    def test_state_changing_method_no_headers_blocked(
+        self, csrf_client, method: str
+    ) -> None:
+        resp = csrf_client.request(method, "/ingest")
+        assert resp.status_code == 403
+        assert "CSRF" in resp.json()["detail"]

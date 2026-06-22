@@ -36,6 +36,8 @@ from gpo_lens.detection import scan_ilt
 from gpo_lens.model import Side
 from gpo_lens.topology import EffectiveGpo, som_effective_gpos
 
+ANONYMOUS_SID = "s-1-5-7"
+
 if TYPE_CHECKING:
     from gpo_lens.danger import DangerFinding
     from gpo_lens.model import Estate, Gpo, Setting
@@ -359,7 +361,8 @@ def _resolve_gpp_actions(items: list[_BucketItem]) -> _BucketItem | None:
             if not deleted:
                 current = it
         elif action in _ACTION_CREATE:
-            if current is None and not deleted:
+            if current is None:
+                deleted = False
                 current = it
     if deleted or current is None:
         return None
@@ -504,7 +507,8 @@ def build_token(estate: Estate, principal_sid: str) -> PrincipalToken:
     token: set[str] = {sid}
     caveats: list[str] = []
 
-    token.add(AU_SID)
+    if sid != ANONYMOUS_SID:
+        token.add(AU_SID)
     token.add(EVERYONE_SID)
 
     domain_sid = _domain_sid_from(sid)

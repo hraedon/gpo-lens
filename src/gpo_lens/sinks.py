@@ -8,6 +8,7 @@ import ssl
 import sys
 import threading
 import urllib.error
+import urllib.parse
 import urllib.request
 from typing import Any
 
@@ -75,6 +76,9 @@ class HecSink:
         verify_tls: bool = True,
         timeout: int = 30,
     ) -> None:
+        parsed = urllib.parse.urlparse(url)
+        if parsed.scheme not in ("https", "http"):
+            raise ValueError(f"HEC URL must be http(s)://, got {parsed.scheme}://")
         self.url = url.rstrip("/")
         self.token = token
         self.verify_tls = verify_tls

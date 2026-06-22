@@ -433,14 +433,17 @@ def load_baseline_from_zip(zip_path: str | Path) -> list[Gpo]:
     with zipfile.ZipFile(str(zip_path)) as outer:
         for name in outer.namelist():
             if name.endswith(".zip"):
-                inner_data = _streaming_zip_read(outer, name, total_bytes)
-                with zipfile.ZipFile(io.BytesIO(inner_data)) as inner:
-                    gpos.extend(_extract_gpos_from_zip(inner, total_bytes))
+                try:
+                    inner_data = _streaming_zip_read(outer, name, total_bytes)
+                    with zipfile.ZipFile(io.BytesIO(inner_data)) as inner:
+                        gpos.extend(_extract_gpos_from_zip(inner, total_bytes))
+                except (ValueError, zipfile.BadZipFile, KeyError) as exc:
+                    warnings.warn(f"Skipping inner zip {name}: {exc}", stacklevel=1)
             elif name.endswith("gpreport.xml"):
                 try:
                     raw = _streaming_zip_read(outer, name, total_bytes)
                     gpos.extend(parse_report_xml(raw))
-                except (ET.ParseError, KeyError, UnicodeDecodeError) as exc:
+                except (ET.ParseError, KeyError, ValueError, UnicodeDecodeError) as exc:
                     warnings.warn(f"Skipping entry in zip: {exc}", stacklevel=1)
 
         if not gpos:
@@ -571,6 +574,9 @@ def parse_inheritance(json_path: str | Path) -> list[Som]:
         data = [data]
     soms: list[Som] = []
     for record in data:
+        if not isinstance(record, dict):
+            warnings.warn(f"Skipping non-dict entry in {json_path}", stacklevel=1)
+            continue
         path = record.get("Path", "")
         name = record.get("Name", "")
         container_type = _normalize_container_type(record.get("ContainerType", ""))
@@ -591,7 +597,12 @@ def parse_inheritance(json_path: str | Path) -> list[Som]:
             if not gpo_id_raw:
                 continue
             raw_order = link.get("Order", 0)
-            order_val = parse_int(str(raw_order)) if raw_order is not None else 0
+            if isinstance(raw_order, (int, float)):
+                order_val = int(raw_order)
+            elif raw_order is not None:
+                order_val = parse_int(str(raw_order)) or 0
+            else:
+                order_val = 0
             raw_enabled = link.get("Enabled", True)
             raw_enforced = link.get("Enforced", False)
             enabled_val = (
@@ -762,6 +773,9 @@ def parse_wmi_filters(json_path: str | Path) -> list[WmiFilter]:
         data = [data]
     filters: list[WmiFilter] = []
     for record in data:
+        if not isinstance(record, dict):
+            warnings.warn(f"Skipping non-dict entry in {json_path}", stacklevel=1)
+            continue
         name = record.get("Name", "")
         query = record.get("Query", "")
         if name:
@@ -776,6 +790,9 @@ def parse_ou_tree(json_path: str | Path) -> list[OuRecord]:
         data = [data]
     records: list[OuRecord] = []
     for record in data:
+        if not isinstance(record, dict):
+            warnings.warn(f"Skipping non-dict entry in {json_path}", stacklevel=1)
+            continue
         dn = record.get("DistinguishedName", "")
         name = record.get("Name", "")
         gp_link = record.get("gPLink")
@@ -932,6 +949,9 @@ def parse_sites(json_path: str | Path) -> list[Som]:
         data = [data]
     sites: list[Som] = []
     for record in data:
+        if not isinstance(record, dict):
+            warnings.warn(f"Skipping non-dict entry in {json_path}", stacklevel=1)
+            continue
         dn = record.get("DistinguishedName", "")
         name = record.get("Name", "")
         som = Som(
@@ -965,6 +985,9 @@ def parse_coverage_gaps(
         if not isinstance(inv, list):
             inv = [inv]
         for rec in inv:
+            if not isinstance(rec, dict):
+                warnings.warn(f"Skipping non-dict entry in {inventory_path}", stacklevel=1)
+                continue
             raw = rec.get("Id") or rec.get("id") or ""
             try:
                 gid = canonical_guid(raw)
@@ -986,6 +1009,9 @@ def parse_coverage_gaps(
         if not isinstance(errs, list):
             errs = [errs]
         for rec in errs:
+            if not isinstance(rec, dict):
+                warnings.warn(f"Skipping non-dict entry in {errors_path}", stacklevel=1)
+                continue
             raw = rec.get("GpoId") or rec.get("gpo_id") or ""
             if not raw:
                 continue

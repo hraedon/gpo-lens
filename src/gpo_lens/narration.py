@@ -6,6 +6,7 @@ import json
 import os
 import re
 import urllib.error
+import urllib.parse
 import urllib.request
 
 from gpo_lens.query_dispatch import (
@@ -41,6 +42,11 @@ def call_llm(
         "GPO_LENS_LLM_ENDPOINT",
         "https://api.anthropic.com/v1/messages",
     )
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in ("https", "http"):
+        raise NarrationUnavailable(
+            f"LLM endpoint must be http(s)://, got {parsed.scheme}://"
+        )
     model_name = model or os.environ.get(
         "GPO_LENS_LLM_MODEL",
         "claude-sonnet-4-20250514",
