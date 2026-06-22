@@ -39,7 +39,8 @@ def _safe_json_loads(raw: str | None, default: Any) -> Any:
         return default
     try:
         return json.loads(raw)
-    except (json.JSONDecodeError, TypeError):
+    except (json.JSONDecodeError, TypeError) as exc:
+        warnings.warn(f"Corrupt JSON in DB column, using default: {exc}", stacklevel=1)
         return default
 
 
@@ -700,9 +701,10 @@ def load_estate(conn: sqlite3.Connection, snapshot_id: int | None = None) -> Est
             "WHERE snapshot_id = ? ORDER BY sid",
             (snapshot_id,),
         ):
+            raw_members = _safe_json_loads(row[2], [])
             group_members[row[0]] = GroupMembership(
                 sid=row[0], name=row[1],
-                members=tuple(_safe_json_loads(row[2], [])),
+                members=tuple(raw_members) if isinstance(raw_members, list) else (),
                 member_count=row[3], implicit=row[4],
             )
 

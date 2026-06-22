@@ -597,7 +597,9 @@ def parse_inheritance(json_path: str | Path) -> list[Som]:
             if not gpo_id_raw:
                 continue
             raw_order = link.get("Order", 0)
-            if isinstance(raw_order, (int, float)):
+            if isinstance(raw_order, bool):
+                order_val = 0
+            elif isinstance(raw_order, (int, float)):
                 order_val = int(raw_order)
             elif raw_order is not None:
                 order_val = parse_int(str(raw_order)) or 0
@@ -635,6 +637,9 @@ def merge_metadata(json_path: str | Path, gpos: list[Gpo]) -> None:
     if not isinstance(data, list):
         data = [data]
     for record in data:
+        if not isinstance(record, dict):
+            warnings.warn(f"Skipping non-dict entry in {json_path}", stacklevel=1)
+            continue
         raw_id = record.get("Id", "")
         if not raw_id:
             continue

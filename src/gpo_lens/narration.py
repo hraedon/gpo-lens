@@ -43,6 +43,10 @@ def call_llm(
         "https://api.anthropic.com/v1/messages",
     )
     parsed = urllib.parse.urlparse(url)
+    if not parsed.scheme:
+        raise NarrationUnavailable(
+            "LLM endpoint URL must include http:// or https:// scheme"
+        )
     if parsed.scheme not in ("https", "http"):
         raise NarrationUnavailable(
             f"LLM endpoint must be http(s)://, got {parsed.scheme}://"
