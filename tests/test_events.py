@@ -371,7 +371,7 @@ class TestAppendOnly:
                     continue
                 if stripped_upper.startswith("SELECT"):
                     continue
-                assert False, (
+                raise AssertionError(
                     f"Possible UPDATE/DELETE on events table at {py_file}:{line_no}: {stripped!r}"
                 )
 

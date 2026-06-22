@@ -6,7 +6,7 @@ import json
 import os
 import sqlite3
 import warnings
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from gpo_lens.events import init_events_table
@@ -327,7 +327,7 @@ def _iso_to_dt(text: str | None) -> datetime | None:
 def save_estate(conn: sqlite3.Connection, estate: Estate, taken_at: datetime | None = None) -> int:
     """Save an estate as a new snapshot; returns the new ``snapshot_id``."""
     if taken_at is None:
-        taken_at = datetime.now(timezone.utc)
+        taken_at = datetime.now(UTC)
     cursor = conn.execute(
         "INSERT INTO snapshot (domain, taken_at) VALUES (?, ?)",
         (estate.domain, taken_at.isoformat()),

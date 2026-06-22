@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import sqlite3
 from collections import defaultdict
+from collections.abc import Iterator
 from dataclasses import dataclass
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # Snapshot diff
@@ -294,15 +296,20 @@ def snapshot_settings_diff(
 def snapshot_diff(
     conn: sqlite3.Connection, snap_a: int, snap_b: int
 ) -> SnapshotDiff:
-    """Compute the diff between two snapshots."""
+    """Compute the diff between two snapshots.
+
+    All per-GPO queries are batched into 8 total queries (2 per table:
+    metadata, settings, links, delegation) using ``IN (...)`` clauses,
+    eliminating the N+1 pattern of the previous per-GPO loop.
+    """
 
     def _load_gpo_ids(snap_id: int) -> set[str]:
-        return set(
+        return {
             row[0] for row in
             conn.execute(
                 "SELECT id FROM gpo WHERE snapshot_id = ?", (snap_id,)
             ).fetchall()
-        )
+        }
 
     a_ids = _load_gpo_ids(snap_a)
     b_ids = _load_gpo_ids(snap_b)
@@ -319,16 +326,79 @@ def snapshot_diff(
     wmi_filter_changes: list[GpoMetadataChange] = []
     enabled_flips: list[GpoMetadataChange] = []
 
-    _meta_query = (
-        "SELECT name, domain, sddl, owner, computer_enabled, user_enabled, "
+    if not common:
+        return SnapshotDiff(
+            gpos_added=added,
+            gpos_removed=removed,
+            settings_changed=settings_changed,
+            links_changed=links_changed,
+            delegation_changed=delegation_changed,
+            version_skew_changed=version_skew_changed,
+            metadata_changes=metadata_changes,
+            wmi_filter_changes=wmi_filter_changes,
+            enabled_flips=enabled_flips,
+        )
+
+    common_list = sorted(common)
+    _CHUNK_SIZE = 500
+
+    def _chunked_ids() -> Iterator[list[str]]:
+        for i in range(0, len(common_list), _CHUNK_SIZE):
+            yield common_list[i:i + _CHUNK_SIZE]
+
+    # --- Batch-load metadata for all common GPOs (2 queries per chunk) ---
+    _meta_cols = (
+        "id, name, domain, sddl, owner, computer_enabled, user_enabled, "
         "wmi_filter, computer_ver_ds, computer_ver_sysvol, "
-        "user_ver_ds, user_ver_sysvol "
-        "FROM gpo WHERE snapshot_id = ? AND id = ?"
+        "user_ver_ds, user_ver_sysvol"
+    )
+    meta_a: dict[str, tuple[Any, ...]] = {}
+    meta_b: dict[str, tuple[Any, ...]] = {}
+    for chunk in _chunked_ids():
+        ph = ",".join("?" * len(chunk))
+        q = f"SELECT {_meta_cols} FROM gpo WHERE snapshot_id = ? AND id IN ({ph})"
+        for row in conn.execute(q, (snap_a, *chunk)):
+            meta_a[row[0]] = row[1:]
+        for row in conn.execute(q, (snap_b, *chunk)):
+            meta_b[row[0]] = row[1:]
+
+    # --- Batch-load settings, links, delegation (2 queries per chunk per table) ---
+    def _load_row_sets(
+        table: str, cols: str, snap_id: int,
+    ) -> dict[str, set[tuple[Any, ...]]]:
+        result: dict[str, set[tuple[Any, ...]]] = defaultdict(set)
+        for chunk in _chunked_ids():
+            ph = ",".join("?" * len(chunk))
+            query = (
+                f"SELECT gpo_id, {cols} FROM {table} "
+                f"WHERE snapshot_id = ? AND gpo_id IN ({ph})"
+            )
+            for row in conn.execute(query, (snap_id, *chunk)):
+                result[row[0]].add(tuple(row[1:]))
+        return result
+
+    settings_a = _load_row_sets(
+        "setting", "side, cse, identity, display_value", snap_a,
+    )
+    settings_b = _load_row_sets(
+        "setting", "side, cse, identity, display_value", snap_b,
+    )
+    links_a = _load_row_sets(
+        "gpo_link", "som_path, link_enabled, enforced", snap_a,
+    )
+    links_b = _load_row_sets(
+        "gpo_link", "som_path, link_enabled, enforced", snap_b,
+    )
+    deleg_a = _load_row_sets(
+        "delegation", "trustee, permission, allowed", snap_a,
+    )
+    deleg_b = _load_row_sets(
+        "delegation", "trustee, permission, allowed", snap_b,
     )
 
-    for gpo_id in sorted(common):
-        old_row = conn.execute(_meta_query, (snap_a, gpo_id)).fetchone()
-        new_row = conn.execute(_meta_query, (snap_b, gpo_id)).fetchone()
+    for gpo_id in common_list:
+        old_row = meta_a.get(gpo_id)
+        new_row = meta_b.get(gpo_id)
         if not old_row or not new_row:
             continue
 
@@ -370,55 +440,13 @@ def snapshot_diff(
         if old_skew != new_skew:
             version_skew_changed.append(gpo_id)
 
-        old_s = set(
-            conn.execute(
-                "SELECT side, cse, identity, display_value FROM setting "
-                "WHERE snapshot_id = ? AND gpo_id = ?",
-                (snap_a, gpo_id),
-            ).fetchall()
-        )
-        new_s = set(
-            conn.execute(
-                "SELECT side, cse, identity, display_value FROM setting "
-                "WHERE snapshot_id = ? AND gpo_id = ?",
-                (snap_b, gpo_id),
-            ).fetchall()
-        )
-        if old_s != new_s:
+        if settings_a.get(gpo_id, set()) != settings_b.get(gpo_id, set()):
             settings_changed.append(gpo_id)
 
-        old_l = set(
-            conn.execute(
-                "SELECT som_path, link_enabled, enforced FROM gpo_link "
-                "WHERE snapshot_id = ? AND gpo_id = ?",
-                (snap_a, gpo_id),
-            ).fetchall()
-        )
-        new_l = set(
-            conn.execute(
-                "SELECT som_path, link_enabled, enforced FROM gpo_link "
-                "WHERE snapshot_id = ? AND gpo_id = ?",
-                (snap_b, gpo_id),
-            ).fetchall()
-        )
-        if old_l != new_l:
+        if links_a.get(gpo_id, set()) != links_b.get(gpo_id, set()):
             links_changed.append(gpo_id)
 
-        old_d = set(
-            conn.execute(
-                "SELECT trustee, permission, allowed FROM delegation "
-                "WHERE snapshot_id = ? AND gpo_id = ?",
-                (snap_a, gpo_id),
-            ).fetchall()
-        )
-        new_d = set(
-            conn.execute(
-                "SELECT trustee, permission, allowed FROM delegation "
-                "WHERE snapshot_id = ? AND gpo_id = ?",
-                (snap_b, gpo_id),
-            ).fetchall()
-        )
-        if old_d != new_d:
+        if deleg_a.get(gpo_id, set()) != deleg_b.get(gpo_id, set()):
             delegation_changed.append(gpo_id)
 
     return SnapshotDiff(

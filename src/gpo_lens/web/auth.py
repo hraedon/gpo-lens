@@ -3,10 +3,9 @@ from __future__ import annotations
 import hmac
 import ipaddress
 import os
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from enum import Enum
-from typing import Awaitable
 
 from fastapi import Depends, Header, HTTPException, Request
 

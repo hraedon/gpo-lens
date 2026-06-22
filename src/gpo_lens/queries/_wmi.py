@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -55,9 +55,9 @@ def stale_gpos(
     """
     results: list[tuple[Gpo, int]] = []
     if now is None:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
     elif now.tzinfo is None:
-        now = now.replace(tzinfo=timezone.utc)
+        now = now.replace(tzinfo=UTC)
     for g in estate.gpos:
         if not g.links:
             continue
@@ -65,7 +65,7 @@ def stale_gpos(
             continue
         mod = g.modified
         if mod.tzinfo is None:
-            mod = mod.replace(tzinfo=timezone.utc)
+            mod = mod.replace(tzinfo=UTC)
         # 365.25 accounts for leap years so a GPO just under the threshold is
         # not rounded up across a leap day (e.g. 730 days != a full 2 years).
         delta_years = int((now - mod).days / 365.25)
