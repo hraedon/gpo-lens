@@ -12,7 +12,7 @@
     {% elif status_code == 403 %}
       {{ detail or "You don’t have permission for that action." }}
     {% else %}
-      {{ detail or "The requested resource was not found." }
+      {{ detail or "The requested resource was not found." }}
     {% endif %}
   </p>
   <a class="gp-btn" href="{{ url_for('home') }}">Back to dashboard</a>
