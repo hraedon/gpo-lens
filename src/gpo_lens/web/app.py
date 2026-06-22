@@ -1362,7 +1362,7 @@ def create_app(
     async def baseline_post(
         request: Request,
         file: UploadFile = File(...),
-        _principal: Principal = Depends(requires(Permission.VIEW)),
+        _principal: Principal = Depends(requires(Permission.INGEST)),
     ) -> HTMLResponse:
         from gpo_lens.model import Estate as _Estate
 
@@ -1396,11 +1396,13 @@ def create_app(
             )
             total_count = len(diff_entries)
             unresolved_count = sum(1 for e in diff_entries if not e.admx_name)
+            _audit("baseline_diff", _principal, "success", f"{total_count} entries", request)
         except (
             ValueError, zipfile.BadZipFile, FileNotFoundError,
             OSError, NotImplementedError, RuntimeError, MemoryError,
         ) as exc:
             _logger.warning("Invalid baseline zip: %s", exc)
+            _audit("baseline_diff", _principal, "failure", type(exc).__name__, request)
             return templates.TemplateResponse(
                 request,
                 "baseline_diff.html",

@@ -91,16 +91,16 @@ foreach ($sid in $allSids | Sort-Object) {
     $name = ""
     $type = "Unresolved"
     $sam = ""
-    $dom = ""
+    $domPart = ""
 
     try {
         $sidObj = New-Object System.Security.Principal.SecurityIdentifier($sid)
         $translated = $sidObj.Translate([System.Security.Principal.NTAccount]).Value
         $name = $translated
         if ($translated -match '^(.+?)\\(.+)$') {
-            $dom = $matches[1]; $sam = $matches[2]
+            $domPart = $matches[1]; $sam = $matches[2]
         } elseif ($translated -match '^(.+?)@(.+)$') {
-            $sam = $matches[1]; $dom = $matches[2]
+            $sam = $matches[1]; $domPart = $matches[2]
         } else {
             $sam = $translated
         }
@@ -118,7 +118,7 @@ foreach ($sid in $allSids | Sort-Object) {
         $name = $sid; $type = "Unresolved"; $unresolved++
         Write-Host "  $sid -> (unresolved)"
     }
-    $principals[$sid] = [ordered]@{ name = $name; sam = $sam; type = $type; domain = $dom }
+    $principals[$sid] = [ordered]@{ name = $name; sam = $sam; type = $type; domain = $domPart }
 }
 
 # Supplement unresolved domain SIDs via Get-ADObject
@@ -127,6 +127,9 @@ if ($domainSids.Count -gt 0) {
     Write-Host "Resolving $($domainSids.Count) domain SIDs via Get-ADObject..."
     $adParams = @{}
     if ($Credential) { $adParams.Credential = $Credential }
+    if (-not $dom) {
+        try { $dom = Get-ADDomain @adParams } catch { $dom = $null }
+    }
     foreach ($sid in $domainSids) {
         if ($principals[$sid].type -ne "Unresolved") { continue }
         try {
@@ -135,8 +138,9 @@ if ($domainSids.Count -gt 0) {
                 $sam = if ($obj.sAMAccountName) { $obj.sAMAccountName } else { $obj.Name }
                 $objClass = $obj.objectClass[-1]
                 $ptype = switch ($objClass) { 'group' { 'Group' } 'computer' { 'Computer' } default { 'User' } }
+                $domName = if ($dom) { $dom.NetBIOSName } else { "" }
                 $principals[$sid] = [ordered]@{
-                    name = "$($dom.NetBIOSName)\$sam"; sam = $sam; type = $ptype; domain = $dom.NetBIOSName
+                    name = "$domName\$sam"; sam = $sam; type = $ptype; domain = $domName
                 }
                 Write-Host "  AD: $sid -> $sam ($ptype)"
             }
@@ -146,6 +150,7 @@ if ($domainSids.Count -gt 0) {
     }
 }
 
-$out = [ordered]@{ collected = (Get-Date -Format "o"); domain = $dom.DNSRoot; principals = $principals }
+$domainDns = if ($dom) { $dom.DNSRoot } else { "" }
+$out = [ordered]@{ collected = (Get-Date -Format "o"); domain = $domainDns; principals = $principals }
 $out | ConvertTo-Json -Depth 5 | Set-Content $OutputPath -Encoding UTF8
 Write-Host "Done: $resolved resolved, $unresolved unresolved -> $OutputPath"

@@ -251,10 +251,16 @@ class TestRouteQuestionInjectionHardening:
             route_question(malicious)
             user_prompt = mock_call.call_args[0][1]
 
-        assert user_prompt.startswith("<question>\n")
-        assert user_prompt.endswith("\n</question>")
-        assert user_prompt.count("<question>") == 1
-        assert user_prompt.count("</question>") == 1
+        import re as _re
+        tags = _re.findall(r"<(q-[a-f0-9]+)>", user_prompt)
+        assert len(tags) == 1
+        tag = tags[0]
+        assert user_prompt.startswith(f"<{tag}>\n")
+        assert user_prompt.endswith(f"\n</{tag}>")
+        assert user_prompt.count(f"<{tag}>") == 1
+        assert user_prompt.count(f"</{tag}>") == 1
+        assert "<question>" not in user_prompt
+        assert "</question>" not in user_prompt
         assert "ignore this" in user_prompt
 
     def test_sanitize_strips_question_tags_case_and_whitespace_variants(self) -> None:
@@ -308,8 +314,10 @@ class TestRouteQuestionInjectionHardening:
             route_question(long_question)
             user_prompt = mock_call.call_args[0][1]
 
-        inner = user_prompt.removeprefix("<question>\n").removesuffix("\n</question>")
-        assert len(inner) <= 500
+        import re as _re
+        m = _re.search(r"<q-[a-f0-9]+>\n(.*)\n</q-[a-f0-9]+>", user_prompt, _re.DOTALL)
+        assert m is not None
+        assert len(m.group(1)) <= 500
 
 
 class TestExplainSettingCommand:

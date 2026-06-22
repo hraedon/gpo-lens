@@ -25,6 +25,19 @@ htmlcov/
 .env.*.local
 *.pem
 *.key
+.envrc
+.direnv/
+
+# local store / generated (WAL/SHM sidecars)
+*.sqlite3-wal
+*.sqlite3-shm
+
+# editor / IDE / OS
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
 
 # editor / tooling
 .claude/
