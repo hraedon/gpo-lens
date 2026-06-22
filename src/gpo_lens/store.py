@@ -35,7 +35,7 @@ CURRENT_SCHEMA_VERSION: int = 3
 def init_db(conn: sqlite3.Connection) -> None:
     """Create tables (idempotent, ``IF NOT EXISTS``)."""
     conn.execute("PRAGMA foreign_keys = ON")
-    _restrict_db_permissions(conn)
+    restrict_db_permissions(conn)
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS snapshot (
@@ -281,7 +281,7 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
     conn.execute(f"PRAGMA user_version = {CURRENT_SCHEMA_VERSION}")
 
 
-def _restrict_db_permissions(conn: sqlite3.Connection) -> None:
+def restrict_db_permissions(conn: sqlite3.Connection) -> None:
     """Tighten the DB file to owner-only (0600).
 
     The snapshot DB holds the full estate (GPO names, delegation, settings,
