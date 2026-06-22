@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import argparse
 import sys
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence
 
 from gpo_lens import queries
 from gpo_lens.cli._helpers import _get_estate, _print_table, _render_json

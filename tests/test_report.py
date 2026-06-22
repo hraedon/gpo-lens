@@ -130,6 +130,66 @@ def test_generate_html_escaping():
     assert "&lt;val&gt;" in report
 
 
+def test_generate_markdown_escaping():
+    """Markdown report must escape HTML in user-controlled values to prevent
+    XSS when the Markdown is rendered to HTML."""
+    gpo = model.Gpo(
+        id="test-id", name="GPO <script>alert(1)</script>",
+        domain="<b>evil</b>.local",
+        created=None, modified=None, read=None,
+        computer_enabled=True, user_enabled=True,
+        computer_ver_ds=None, computer_ver_sysvol=None,
+        user_ver_ds=None, user_ver_sysvol=None,
+        sddl=None, owner="Owner <img src=x onerror=alert(1)>",
+        filter_data_available=False,
+        wmi_filter=None, sysvol_path=None,
+        description="Desc <iframe src=evil>",
+        settings=[
+            model.Setting(
+                gpo_id="test-id", side="Computer", cse="Registry",
+                identity="HKLM\\Software\\Foo & Bar",
+                display_name="Foo & Bar",
+                display_value="<val>", raw={},
+                from_disabled_side=False,
+            ),
+        ],
+        delegation=[
+            model.DelegationEntry(
+                gpo_id="test-id", trustee="TRUSTEE<script>",
+                trustee_sid=None, permission="READ", allowed=True,
+            ),
+        ],
+    )
+    estate = model.Estate(domain="<b>evil</b>.local", gpos=[gpo])
+    report = generate_markdown(estate)
+    assert "<script>" not in report
+    assert "<script>alert" not in report
+    assert "<img src=x" not in report
+    assert "<b>evil</b>" not in report
+    assert "<iframe" not in report
+    assert "&lt;script&gt;" in report
+    assert "&lt;val&gt;" in report
+    assert "&amp;" in report
+
+
+def test_generate_markdown_pipe_escaping():
+    """Markdown table cells must escape pipe characters."""
+    gpo = model.Gpo(
+        id="test-id", name="GPO|Name",
+        domain="test|local",
+        created=None, modified=None, read=None,
+        computer_enabled=True, user_enabled=True,
+        computer_ver_ds=None, computer_ver_sysvol=None,
+        user_ver_ds=None, user_ver_sysvol=None,
+        sddl=None, owner=None, filter_data_available=False,
+        wmi_filter=None, sysvol_path=None,
+    )
+    estate = model.Estate(domain="test|local", gpos=[gpo])
+    report = generate_markdown(estate)
+    # The summary table should have escaped pipes in the domain value
+    assert "test\\|local" in report
+
+
 def test_generate_html_precedence_conflicts(fixture_estate):
     report = generate_html(fixture_estate)
     prec = queries.precedence_conflicts(fixture_estate)

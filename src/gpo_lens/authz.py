@@ -9,7 +9,8 @@ and trustee/rights normalization so the two predicates stop drifting.
 from __future__ import annotations
 
 import warnings
-from typing import TYPE_CHECKING, Iterable
+from collections.abc import Iterable
+from typing import TYPE_CHECKING
 
 from gpo_lens.model import ResolvedPrincipal, SddlAce, SddlAcl
 
@@ -369,7 +370,7 @@ def _find_section_starts(sddl: str) -> dict[str, int]:
     return sections
 
 
-def _extract_aces(text: str) -> list["SddlAce"]:
+def _extract_aces(text: str) -> list[SddlAce]:
     """Extract ACEs from a parenthesized ACE list like (A;;GA;;;SID)(D;;GR;;;SID)."""
     aces: list[SddlAce] = []
     depth = 0

@@ -92,7 +92,7 @@ def baseline_diff(
             ))
         else:
             values = {v for _, v in actuals}
-            gpo_ids = ",".join(sorted(set(gid for gid, _ in actuals)))
+            gpo_ids = ",".join(sorted({gid for gid, _ in actuals}))
             if bs.expected_value in values:
                 results.append(BaselineDiffEntry(
                     status="compliant", side=bs.side, cse=bs.cse,
@@ -123,7 +123,7 @@ def baseline_diff(
                         break
                 if display_name:
                     break
-            gpo_ids = ",".join(sorted(set(gid for gid, _ in entries)))
+            gpo_ids = ",".join(sorted({gid for gid, _ in entries}))
             admx_name = admx.resolve_display_name(ident) or ""
             results.append(BaselineDiffEntry(
                 status="extra", side=side, cse=cse,

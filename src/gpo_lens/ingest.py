@@ -145,7 +145,7 @@ def element_to_dict(elem: Element) -> dict[str, Any]:
     if elem.text and elem.text.strip():
         result["text"] = elem.text.strip()
     if elem.attrib:
-        result["@attr"] = {k: v for k, v in elem.attrib.items()}
+        result["@attr"] = dict(elem.attrib)
     children = [element_to_dict(child) for child in elem]
     if children:
         result["children"] = children

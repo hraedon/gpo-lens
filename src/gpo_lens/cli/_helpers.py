@@ -4,9 +4,9 @@ from __future__ import annotations
 import argparse
 import json
 import sqlite3
-from datetime import datetime, timezone
+from collections.abc import Sequence
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Sequence
 
 from gpo_lens import __version__, ingest, store
 from gpo_lens.display import render_table
@@ -58,7 +58,7 @@ def _render_json(obj: object) -> None:
         "schema_version": JSON_CONTRACT_VERSION,
         "kind": _json_kind,
         "tool_version": __version__,
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "data": obj,
     }
     print(json.dumps(envelope, indent=2, default=str))

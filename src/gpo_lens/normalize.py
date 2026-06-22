@@ -29,7 +29,7 @@ def canonical_guid(raw: str) -> str:
 
 def load_json(path: str | Path) -> Any:
     """Read JSON using ``encoding="utf-8-sig"`` so a PowerShell 5.1 UTF-8 BOM is tolerated."""
-    with open(path, "r", encoding="utf-8-sig") as f:
+    with open(path, encoding="utf-8-sig") as f:
         return json.load(f)
 
 

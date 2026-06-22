@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 
@@ -48,7 +48,7 @@ def append_event(
     *,
     commit: bool = True,
 ) -> int:
-    ts = datetime.now(timezone.utc).isoformat()
+    ts = datetime.now(UTC).isoformat()
     cursor = conn.execute(
         "INSERT INTO events (timestamp, event_type, schema_version, payload) "
         "VALUES (?, ?, ?, ?)",
@@ -65,7 +65,7 @@ def append_events(
     *,
     commit: bool = True,
 ) -> list[int]:
-    ts = datetime.now(timezone.utc).isoformat()
+    ts = datetime.now(UTC).isoformat()
     ids: list[int] = []
     for event_type, payload in events:
         cursor = conn.execute(

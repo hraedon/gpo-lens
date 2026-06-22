@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import html as html_lib
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -163,12 +163,12 @@ def _gpo_sections(
 
 def _gpo_md(gpo: Gpo, *, max_settings: int = 50) -> str:
     parts: list[str] = []
-    parts.append(f"### {gpo.name}\n")
+    parts.append(f"### {_md_esc(gpo.name)}\n")
 
     properties, links, delegation, settings = _gpo_sections(gpo)
 
     for p in properties:
-        parts.append(f"- **{p.label}:** {p.value}")
+        parts.append(f"- **{_md_esc(p.label)}:** {_md_esc(p.value)}")
 
     if links:
         parts.append("")
@@ -176,22 +176,22 @@ def _gpo_md(gpo: Gpo, *, max_settings: int = 50) -> str:
         for link in links:
             enabled = "enabled" if link.enabled else "disabled"
             enforced = " [ENFORCED]" if link.enforced else ""
-            parts.append(f"- `{link.som_path}` ({enabled}{enforced})")
+            parts.append(f"- `{_md_code(link.som_path)}` ({enabled}{enforced})")
 
     if delegation:
         parts.append("")
         parts.append("**Delegation:**\n")
         for d in delegation:
             allowed = "Allow" if d.allowed else "Deny"
-            parts.append(f"- {d.trustee}: {d.permission} ({allowed})")
+            parts.append(f"- {_md_esc(d.trustee)}: {_md_esc(d.permission)} ({allowed})")
 
     if settings:
         parts.append("")
         parts.append(f"**Settings** ({len(gpo.settings)}):\n")
         for s in settings[:max_settings]:
             parts.append(
-                f"- `[{s.cse}] {s.side}/{s.identity}`: "
-                f"{s.display_value}{s.flags}"
+                f"- `[{_md_code(s.cse)}] {_md_code(s.side)}/{_md_code(s.identity)}`: "
+                f"{_md_esc(s.display_value)}{_md_esc(s.flags)}"
             )
         remaining = len(gpo.settings) - max_settings
         if remaining > 0:
@@ -204,6 +204,34 @@ def _gpo_md(gpo: Gpo, *, max_settings: int = 50) -> str:
 
 def _esc(text: str) -> str:
     return html_lib.escape(str(text))
+
+
+def _md_esc(text: str | object) -> str:
+    """Escape user-controlled text for safe inclusion in Markdown output.
+
+    Prevents XSS when Markdown is rendered to HTML (most renderers pass
+    raw HTML tags through).  Also escapes ampersands so entities are
+    displayed literally rather than interpreted.
+    """
+    return html_lib.escape(str(text), quote=False)
+
+
+def _md_code(text: str | object) -> str:
+    """Escape text for use inside Markdown inline code (backtick) spans.
+
+    Escapes HTML entities (prevents XSS) and backticks (prevents breaking
+    out of the code span).
+    """
+    return _md_esc(str(text).replace("`", "&#96;"))
+
+
+def _md_table(text: str | object) -> str:
+    """Escape text for use in Markdown table cells.
+
+    Escapes HTML entities, pipe characters (column separators), and
+    newlines (which would break table rows).
+    """
+    return _md_esc(str(text).replace("|", "\\|").replace("\n", " "))
 
 
 def _gpo_html(gpo: Gpo, *, max_settings: int = 50) -> list[str]:
@@ -312,7 +340,7 @@ def _summary_table_md(summary: EstateSummary) -> str:
         "|--------|-------|",
     ]
     for label, value in _summary_lines(summary):
-        lines.append(f"| {label} | {value} |")
+        lines.append(f"| {_md_table(label)} | {_md_table(value)} |")
     return "\n".join(lines)
 
 
@@ -330,11 +358,12 @@ def _findings_md(findings: list[DoctorFinding]) -> list[str]:
         parts.append(f"### {sev.upper()}\n")
         for f in group:
             parts.append(
-                f"- **{f.category}** — "
-                f"{f.gpo_name or f.gpo_id or 'N/A'}: {f.summary}"
+                f"- **{_md_esc(f.category)}** — "
+                f"{_md_esc(f.gpo_name or f.gpo_id or 'N/A')}: "
+                f"{_md_esc(f.summary)}"
             )
             if f.detail:
-                parts.append(f"  _{f.detail}_")
+                parts.append(f"  _{_md_esc(f.detail)}_")
         parts.append("")
     return parts
 
@@ -349,8 +378,8 @@ def _topology_md(estate: Estate, soms_with_links: list[Som]) -> list[str]:
 
     for som in soms_with_links:
         block = " [BLOCKED INHERITANCE]" if som.inheritance_blocked else ""
-        parts.append(f"### {som.name}{block}\n")
-        parts.append(f"_Path:_ `{som.path}`\n")
+        parts.append(f"### {_md_esc(som.name)}{block}\n")
+        parts.append(f"_Path:_ `{_md_code(som.path)}`\n")
         gpos = queries.som_effective_gpos(estate, som.path, _som=som)
         if not gpos:
             parts.append("- No linked GPOs\n")
@@ -359,8 +388,8 @@ def _topology_md(estate: Estate, soms_with_links: list[Som]) -> list[str]:
                 enforced = " **[ENFORCED]**" if g.enforced else ""
                 en = "enabled" if g.enabled else "disabled"
                 parts.append(
-                    f"- {g.order}. {g.gpo_name} ({g.gpo_id}) {en}{enforced} "
-                    f"— target: `{g.target}`"
+                    f"- {g.order}. {_md_esc(g.gpo_name)} ({_md_esc(g.gpo_id)}) "
+                    f"{en}{enforced} — target: `{_md_code(g.target)}`"
                 )
             parts.append("")
         parts.append("")
@@ -380,23 +409,23 @@ def _effective_settings_md(estate: Estate, soms_with_links: list[Som]) -> list[s
         if not eff:
             continue
         block = " [BLOCKED INHERITANCE]" if som.inheritance_blocked else ""
-        parts.append(f"### {som.name}{block}\n")
-        parts.append(f"_Path:_ `{som.path}`\n")
+        parts.append(f"### {_md_esc(som.name)}{block}\n")
+        parts.append(f"_Path:_ `{_md_code(som.path)}`\n")
         caveats = queries.scope_caveats(estate, som.path)
         if caveats:
             parts.append("> **\u26a0 Scope caveats** (flagged, not simulated):")
             for c in caveats:
-                parts.append(f"> - {c.strip()}")
+                parts.append(f"> - {_md_esc(c.strip())}")
             parts.append(">")
             parts.append("> Effective settings may differ \u2014 scoping not simulated.\n")
         for s in eff:
             parts.append(
-                f"- `[{s.cse}] {s.side}/{s.identity}`: "
-                f"{s.display_value} (winner: {s.winner_gpo_name})"
+                f"- `[{_md_code(s.cse)}] {_md_code(s.side)}/{_md_code(s.identity)}`: "
+                f"{_md_esc(s.display_value)} (winner: {_md_esc(s.winner_gpo_name)})"
             )
             if s.overridden_by:
                 for o_name, o_val in s.overridden_by:
-                    parts.append(f"  - overridden: {o_name} = {o_val}")
+                    parts.append(f"  - overridden: {_md_esc(o_name)} = {_md_esc(o_val)}")
         parts.append("")
     return parts
 
@@ -411,14 +440,20 @@ def _baseline_md(baseline: list[BaselineDiffEntry]) -> list[str]:
             parts.append(f"### {title}\n")
             for r in items:
                 name = r.admx_name or r.display_name or r.identity
-                parts.append(f"- `[{r.cse}] {r.side}/{name}`")
+                parts.append(f"- `[{_md_code(r.cse)}] {_md_code(r.side)}/{_md_code(name)}`")
                 if r.status == "drift":
-                    parts.append(f"  - Expected: `{r.expected_value}`")
-                    parts.append(f"  - Actual: `{r.actual_value}` (GPO: {r.gpo_id})")
+                    parts.append(f"  - Expected: `{_md_code(r.expected_value)}`")
+                    parts.append(
+                        f"  - Actual: `{_md_code(r.actual_value)}` "
+                        f"(GPO: {_md_esc(r.gpo_id)})"
+                    )
                 elif r.status == "missing":
-                    parts.append(f"  - Expected: `{r.expected_value}`")
+                    parts.append(f"  - Expected: `{_md_code(r.expected_value)}`")
                 else:
-                    parts.append(f"  - Actual: `{r.actual_value}` (GPO: {r.gpo_id})")
+                    parts.append(
+                        f"  - Actual: `{_md_code(r.actual_value)}` "
+                        f"(GPO: {_md_esc(r.gpo_id)})"
+                    )
             parts.append("")
     return parts
 
@@ -431,8 +466,8 @@ def _changelog_md(changelog_entries: list[ChangelogEntry]) -> list[str]:
 
     for e in changelog_entries:
         prefix = "[DETAIL]" if e.kind == "settings_detail" else "[META]"
-        parts.append(f"### {prefix} {e.gpo_name} ({e.gpo_id})\n")
-        parts.append(f"*{e.summary}*\n")
+        parts.append(f"### {prefix} {_md_esc(e.gpo_name)} ({_md_esc(e.gpo_id)})\n")
+        parts.append(f"*{_md_esc(e.summary)}*\n")
         if e.version_change:
             vc = e.version_change
             parts.append(
@@ -441,9 +476,15 @@ def _changelog_md(changelog_entries: list[ChangelogEntry]) -> list[str]:
                 f"(edits: {vc.edit_count})\n"
             )
         for sc in e.setting_changes:
-            parts.append(f"- `[{sc.side}/{sc.cse}] {sc.identity}` — {sc.change_type}")
+            parts.append(
+                f"- `[{_md_code(sc.side)}/{_md_code(sc.cse)}] "
+                f"{_md_code(sc.identity)}` — {_md_esc(sc.change_type)}"
+            )
             if sc.old_value or sc.new_value:
-                parts.append(f"  - `{sc.old_value or ''}` -> `{sc.new_value or ''}`")
+                parts.append(
+                    f"  - `{_md_code(sc.old_value or '')}` -> "
+                    f"`{_md_code(sc.new_value or '')}`"
+                )
         parts.append("")
     return parts
 
@@ -753,7 +794,7 @@ def _generate_md(
     ]
 
     parts: list[str] = []
-    parts.append(f"# Estate Report: {summary.domain}\n")
+    parts.append(f"# Estate Report: {_md_esc(summary.domain)}\n")
 
     parts.append("## Executive Summary\n")
     parts.append(_summary_table_md(summary))
@@ -764,8 +805,8 @@ def _generate_md(
         parts.append(f"**Top {top_n} findings:**")
         for f in findings[:top_n]:
             parts.append(
-                f"- [{f.severity.upper()}] {f.category}: "
-                f"{f.gpo_name or f.gpo_id or 'N/A'} - {f.summary}"
+                f"- [{f.severity.upper()}] {_md_esc(f.category)}: "
+                f"{_md_esc(f.gpo_name or f.gpo_id or 'N/A')} - {_md_esc(f.summary)}"
             )
         parts.append("")
 
@@ -780,14 +821,15 @@ def _generate_md(
     if prec_conflicts:
         parts.append("## Precedence Conflicts\n")
         for som, conflicts in prec_conflicts:
-            parts.append(f"### {som.name} (`{som.path}`)\n")
+            parts.append(f"### {_md_esc(som.name)} (`{_md_code(som.path)}`)\n")
             for c in conflicts:
                 label = c.display_name or c.identity
                 parts.append(
-                    f"- **{label}** [{c.cse} {c.side}]: winner={c.winner}"
+                    f"- **{_md_esc(label)}** [{_md_esc(c.cse)} {_md_esc(c.side)}]: "
+                    f"winner={_md_esc(c.winner)}"
                 )
                 for name, value, status in c.entries:
-                    parts.append(f"  - {name}: {value} ({status})")
+                    parts.append(f"  - {_md_esc(name)}: {_md_esc(value)} ({_md_esc(status)})")
             parts.append("")
 
     parts.append("## Topology\n")
@@ -824,7 +866,7 @@ def _generate_html(
 
     body_parts: list[str] = []
 
-    ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    ts = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
     body_parts.append(f"<h1>Estate Report: {_esc(summary.domain)}</h1>")
     body_parts.append(f"<p><small>Generated: {_esc(ts)}</small></p>")
 

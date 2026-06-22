@@ -5,7 +5,7 @@ These run without the real (gitignored) samples/ directory, so they can gate CI.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -427,7 +427,7 @@ def test_fixture_scope_caveats(fixture_estate):
 # Pinned reference clock so staleness assertions stay deterministic as real
 # time advances past the fixture's fixed timestamps (stale GPO: 2022-01-01,
 # recent GPO: 2025-06-01). See stale_gpos(now=...).
-_STALE_REF_NOW = datetime(2026, 6, 13, tzinfo=timezone.utc)
+_STALE_REF_NOW = datetime(2026, 6, 13, tzinfo=UTC)
 
 
 def test_fixture_stale_gpos(fixture_estate):

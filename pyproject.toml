@@ -46,7 +46,19 @@ line-length = 100
 target-version = "py312"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "W"]
+select = ["E", "F", "I", "W", "B", "C4", "UP", "S"]
+ignore = [
+    "B008",   # function call in default argument (FastAPI Depends pattern)
+    "B007",   # unused loop variable (false positives in enumerate)
+    "S101",   # assert in tests
+    "S310",   # urllib.urlopen (URLs are configured, not user-controlled)
+    "S603",   # subprocess call (collector scripts are intentional)
+    "S607",   # partial path in subprocess (collector scripts)
+    "S608",   # SQL string construction (uses ? placeholders, no user input)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101", "S104", "S105", "S106"]
 
 [tool.mypy]
 python_version = "3.12"

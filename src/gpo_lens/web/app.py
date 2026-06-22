@@ -9,12 +9,13 @@ import os
 import shutil
 import sqlite3
 import stat
+import sys
 import threading
 import uuid
 import zipfile
 from collections import defaultdict
 from collections.abc import Iterator
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Any
@@ -463,7 +464,7 @@ def _audit(
         return
     request_id: str | None = getattr(request.state, "request_id", None)
     entry: dict[str, object] = {
-        "ts": datetime.now(timezone.utc).isoformat(),
+        "ts": datetime.now(UTC).isoformat(),
         "action": action,
         "principal": principal.name if principal else None,
         "outcome": outcome,
@@ -476,12 +477,87 @@ def _audit(
         _logger.warning("Audit log write failed: %s", exc)
 
 
+class _FileLock:
+    """Cross-process file-based lock for serializing ingest operations.
+
+    Uses ``fcntl.flock`` on Unix and ``msvcrt.locking`` on Windows.
+    A ``threading.Lock`` provides a fast-path for same-process contention
+    (the common case in single-worker IIS or uvicorn deployments).
+    """
+
+    def __init__(self, lock_path: str) -> None:
+        self._lock_path = lock_path
+        self._fd: int | None = None
+        self._thread_lock = threading.Lock()
+        self._acquired = False
+
+    def acquire(self, *, blocking: bool = False) -> bool:
+        if not self._thread_lock.acquire(blocking=blocking):
+            return False
+        try:
+            self._fd = os.open(
+                self._lock_path, os.O_CREAT | os.O_RDWR, 0o600
+            )
+        except OSError as exc:
+            self._thread_lock.release()
+            _logger.warning("Ingest lock file unavailable: %s", exc)
+            return False
+
+        try:
+            if sys.platform == "win32":
+                import msvcrt
+
+                mode = msvcrt.LK_LOCK if blocking else msvcrt.LK_NBLCK
+                msvcrt.locking(self._fd, mode, 1)
+            else:
+                import fcntl
+
+                flags = fcntl.LOCK_EX
+                if not blocking:
+                    flags |= fcntl.LOCK_NB
+                fcntl.flock(self._fd, flags)
+            self._acquired = True
+            return True
+        except BaseException:
+            os.close(self._fd)
+            self._fd = None
+            self._thread_lock.release()
+            return False
+
+    def release(self) -> None:
+        if not self._acquired or self._fd is None:
+            return
+        fd = self._fd
+        try:
+            if sys.platform == "win32":
+                import msvcrt
+
+                msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(fd, fcntl.LOCK_UN)
+        except OSError:
+            pass
+        finally:
+            os.close(fd)
+            self._fd = None
+            self._acquired = False
+            self._thread_lock.release()
+
+
 def create_app(
     db_path: str, *, root_path: str = "", admx_dir: str | None = None
 ) -> FastAPI:
     app = FastAPI(root_path=root_path, docs_url=None, redoc_url=None, openapi_url=None)
     app.state.db_path = db_path
-    app.state.ingest_lock = threading.Lock()
+    if db_path == ":memory:":
+        import tempfile
+
+        lock_path = str(Path(tempfile.gettempdir()) / "gpo-lens-memory.ingest.lock")
+    else:
+        lock_path = str(Path(db_path).resolve()) + ".ingest.lock"
+    app.state.ingest_lock = _FileLock(lock_path)
 
     admx_path = admx_dir or os.environ.get("GPO_LENS_ADMX_DIR")
     app.state.admx = None
@@ -762,7 +838,7 @@ def create_app(
         try:
             gpo_id = canonical_guid(gpo_id)
         except ValueError:
-            raise HTTPException(status_code=404, detail="Invalid GPO ID")
+            raise HTTPException(status_code=404, detail="Invalid GPO ID") from None
 
         conn = _get_ro_conn(app.state.db_path)
         try:
@@ -1022,7 +1098,7 @@ def create_app(
         try:
             gpo_id = canonical_guid(gpo_id)
         except ValueError:
-            raise HTTPException(status_code=404, detail="Invalid GPO ID")
+            raise HTTPException(status_code=404, detail="Invalid GPO ID") from None
 
         conn = _get_ro_conn(app.state.db_path)
         try:
@@ -1107,7 +1183,7 @@ def create_app(
         file: UploadFile = File(...),
         principal: Principal = Depends(requires(Permission.INGEST)),
     ) -> HTMLResponse | RedirectResponse:
-        lock: threading.Lock = app.state.ingest_lock
+        lock: _FileLock = app.state.ingest_lock
         if not lock.acquire(blocking=False):
             _audit("ingest", principal, "failure", "another ingest in progress", request)
             return templates.TemplateResponse(
