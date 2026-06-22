@@ -77,7 +77,7 @@ a DC/RSAT box). The tool consumes its output dir.
 | `normalize.py` | Pure helpers: `canonical_guid`, `load_json`, `parse_bool/int/dt` |
 | `ingest.py` | Parse collector outputs → `Estate`. Also `parse_report_xml` for raw bytes (UTF-8/16), `load_baseline_from_zip` for Microsoft baseline zips, `augment_blocked_registry_from_pol` to resolve `<Blocked/>` Registry extensions from `Registry.pol` |
 | `store.py` | SQLite persistence for snapshot history (additive schema migrations in `_migrate_schema`) |
-| `queries.py` | Query composition, Tier 2/2.5 queries, estate_doctor, baseline diff, topology, conflicts |
+| `queries/` (package) | Query composition, Tier 2/2.5 queries, estate_doctor, baseline diff, topology, conflicts. `__init__.py` is the re-export facade (backward-compatible `__all__`); composition logic lives in `_search`, `_delegation`, `_topology`, `_wmi`, `_settings`, `_baseline`, `_summary`, `_doctor` |
 | `snapshot_diff.py` | SQLite-bound snapshot diffing — `snapshot_changelog`, `snapshot_settings_diff`, `snapshot_diff` |
 | `detection.py` | Pure scanner functions — cpassword, MS16-072, version skew, broken refs, scheduled tasks, local-group mods, etc. Result types: `CpasswordHit`, `BrokenRef`, `AdmxGap`, `ScheduledTaskInfo`, `LocalGroupMod` |
 | `registry_pol.py` | PReg binary parser — decodes `Registry.pol` files into `PregRecord`s (resolves `<Blocked/>` settings) |

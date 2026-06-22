@@ -45,12 +45,24 @@ CORE_MODULES: tuple[str, ...] = (
 FORBIDDEN_PACKAGES: tuple[str, ...] = ("narration", "web")
 
 
-def module_source_path(module_name: str) -> Path:
-    """Resolve the on-disk source path of ``gpo_lens.<module_name>``."""
+def module_source_paths(module_name: str) -> list[Path]:
+    """Resolve the on-disk source path(s) of ``gpo_lens.<module_name>``.
+
+    For a plain module, returns a single-element list (the ``.py`` file).
+    For a package, returns every ``.py`` file in the package directory
+    (including ``__init__.py``), so the import-boundary check covers every
+    submodule — a package's boundary is only as clean as its weakest file.
+    """
     spec = importlib.util.find_spec(f"gpo_lens.{module_name}")
     if spec is None or spec.origin is None:
         raise FileNotFoundError(f"gpo_lens.{module_name} has no source")
-    return Path(spec.origin)
+    init_path = Path(spec.origin)
+    if spec.submodule_search_locations is None:
+        # Plain module.
+        return [init_path]
+    # Package: walk every .py file under the package directory.
+    pkg_dir = Path(next(iter(spec.submodule_search_locations)))
+    return sorted(pkg_dir.rglob("*.py"))
 
 
 def imported_module_paths(module_name: str) -> set[str]:
@@ -60,32 +72,34 @@ def imported_module_paths(module_name: str) -> set[str]:
     functions or conditional blocks are caught too. Relative imports are
     resolved against the ``gpo_lens`` package. Aliased imports
     (``import a.b as c``) contribute their original dotted name (``a.b``).
-    """
-    path = module_source_path(module_name)
-    source = path.read_text(encoding="utf-8")
-    tree = ast.parse(source, filename=str(path))
 
-    base_parts = "gpo_lens".split(".")
+    When the module is a package, every ``.py`` file in the package is
+    walked and the results unioned.
+    """
     out: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                out.add(alias.name)
-        elif isinstance(node, ast.ImportFrom):
-            if node.level == 0:
-                base = node.module or ""
-            else:
-                if node.level > len(base_parts):
-                    continue
-                resolved = base_parts[: len(base_parts) - node.level + 1]
-                if node.module:
-                    resolved.append(node.module)
-                base = ".".join(resolved)
-            if base:
-                out.add(base)
-            for alias in node.names:
-                joined = f"{base}.{alias.name}" if base else alias.name
-                out.add(joined)
+    base_parts = "gpo_lens".split(".")
+    for path in module_source_paths(module_name):
+        source = path.read_text(encoding="utf-8")
+        tree = ast.parse(source, filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    out.add(alias.name)
+            elif isinstance(node, ast.ImportFrom):
+                if node.level == 0:
+                    base = node.module or ""
+                else:
+                    if node.level > len(base_parts):
+                        continue
+                    resolved = base_parts[: len(base_parts) - node.level + 1]
+                    if node.module:
+                        resolved.append(node.module)
+                    base = ".".join(resolved)
+                if base:
+                    out.add(base)
+                for alias in node.names:
+                    joined = f"{base}.{alias.name}" if base else alias.name
+                    out.add(joined)
     return out
 
 
