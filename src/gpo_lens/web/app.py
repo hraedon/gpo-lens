@@ -613,7 +613,7 @@ def create_app(
 
     @app.middleware("http")
     async def _csrf_check(request: Request, call_next):  # type: ignore[no-untyped-def]
-        if request.method == "POST":
+        if request.method in ("POST", "PUT", "PATCH", "DELETE"):
             origin = request.headers.get("origin", "")
             referer = request.headers.get("referer", "")
             host = request.headers.get("host", "")

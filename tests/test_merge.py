@@ -8,13 +8,17 @@ No samples required — all fixtures are synthetic.
 from __future__ import annotations
 
 from gpo_lens.merge import (
+    ANONYMOUS_SID,
+    AU_SID,
+    EVERYONE_SID,
     ChainEntry,
     CseMergeMode,
+    build_token,
     cse_merge_mode,
     merge_settings,
     merge_settings_with_exclusions,
 )
-from gpo_lens.model import Setting
+from gpo_lens.model import Estate, Setting
 
 
 def _setting(
@@ -444,3 +448,44 @@ class TestMergeSettingsMultipleIdentities:
 
     def test_empty_chain_returns_empty(self) -> None:
         assert merge_settings([]) == []
+
+
+class TestCreateAfterDelete:
+    def test_create_after_delete_recreates_item(self) -> None:
+        raw_create = {"@attr": {"action": "C"}}
+        raw_delete = {"@attr": {"action": "D"}}
+        raw_recreate = {"@attr": {"action": "C"}}
+        entries = [
+            _entry("g1", "GPO A", 1, [
+                _setting("g1", "GPP Drive Maps", "Drive:H:", "H:\\share1",
+                         raw=raw_create),
+            ]),
+            _entry("g2", "GPO B", 2, [
+                _setting("g2", "GPP Drive Maps", "Drive:H:", "",
+                         raw=raw_delete),
+            ]),
+            _entry("g3", "GPO C", 3, [
+                _setting("g3", "GPP Drive Maps", "Drive:H:", "H:\\share2",
+                         raw=raw_recreate),
+            ]),
+        ]
+        result = merge_settings(entries)
+        assert len(result) == 1
+        m = result[0]
+        assert m.winning_value == "H:\\share2"
+        assert m.winning_gpo_name == "GPO C"
+
+
+class TestAnonymousTokenExclusion:
+    def test_anonymous_not_in_authenticated_users(self) -> None:
+        estate = Estate()
+        token = build_token(estate, ANONYMOUS_SID)
+        assert AU_SID not in token.token_sids
+        assert EVERYONE_SID in token.token_sids
+        assert ANONYMOUS_SID in token.token_sids
+
+    def test_normal_principal_has_au_sid(self) -> None:
+        estate = Estate()
+        token = build_token(estate, "s-1-5-21-1-2-3-1000")
+        assert AU_SID in token.token_sids
+        assert EVERYONE_SID in token.token_sids

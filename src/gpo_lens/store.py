@@ -5,7 +5,9 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import warnings
 from datetime import datetime, timezone
+from typing import Any
 
 from gpo_lens.events import init_events_table
 from gpo_lens.model import (
@@ -30,6 +32,15 @@ from gpo_lens.model import (
 #      collected principal-resolution inputs survive a snapshot round-trip
 #      instead of being dropped on the ``--db`` read path.
 CURRENT_SCHEMA_VERSION: int = 3
+
+
+def _safe_json_loads(raw: str | None, default: Any) -> Any:
+    if raw is None:
+        return default
+    try:
+        return json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return default
 
 
 def init_db(conn: sqlite3.Connection) -> None:
@@ -296,8 +307,8 @@ def restrict_db_permissions(conn: sqlite3.Connection) -> None:
     path = row[2]
     try:
         os.chmod(path, 0o600)
-    except (OSError, ValueError):
-        pass
+    except (OSError, ValueError) as exc:
+        warnings.warn(f"Could not restrict DB permissions on {path}: {exc}", stacklevel=1)
 
 
 def _dt_to_iso(dt: datetime | None) -> str | None:
@@ -580,7 +591,7 @@ def load_estate(conn: sqlite3.Connection, snapshot_id: int | None = None) -> Est
                 identity=row[3],
                 display_name=row[4],
                 display_value=row[5],
-                raw=json.loads(row[6]),
+                raw=_safe_json_loads(row[6], {}),
                 from_disabled_side=bool(row[7]),
                 source_state=row[8],
             )
@@ -690,7 +701,8 @@ def load_estate(conn: sqlite3.Connection, snapshot_id: int | None = None) -> Est
             (snapshot_id,),
         ):
             group_members[row[0]] = GroupMembership(
-                sid=row[0], name=row[1], members=tuple(json.loads(row[2])),
+                sid=row[0], name=row[1],
+                members=tuple(_safe_json_loads(row[2], [])),
                 member_count=row[3], implicit=row[4],
             )
 

@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import sqlite3
 import stat
+import warnings
 
 import pytest
 
@@ -409,3 +410,85 @@ def test_load_estate_tolerates_pre_v3_db_without_principal_tables(tmp_path):
     out = store.load_estate(conn, sid)
     assert out.principals == {}
     assert out.group_members == {}
+
+
+def test_load_estate_corrupted_setting_raw_does_not_crash(tmp_path):
+    db = tmp_path / "corrupt.db"
+    conn = sqlite3.connect(str(db))
+    store.init_db(conn)
+
+    gpo = _make_gpo(
+        id="gpo-1", name="Corrupt",
+        settings=[
+            Setting(
+                gpo_id="gpo-1", side="Computer", cse="Registry",
+                identity="X", display_name="X", display_value="1",
+                raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    sid = store.save_estate(conn, Estate(domain="test.local", gpos=[gpo]))
+
+    conn.execute(
+        "UPDATE setting SET raw = 'not-valid-json' WHERE snapshot_id = ? AND gpo_id = ?",
+        (sid, "gpo-1"),
+    )
+    conn.commit()
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        loaded = store.load_estate(conn, sid)
+    conn.close()
+
+    assert len(loaded.gpos) == 1
+    assert loaded.gpos[0].settings[0].raw == {}
+
+
+def test_load_estate_corrupted_group_members_does_not_crash(tmp_path):
+    from gpo_lens.model import GroupMembership
+
+    db = tmp_path / "corrupt-gm.db"
+    conn = sqlite3.connect(str(db))
+    store.init_db(conn)
+
+    gm = GroupMembership(
+        sid="s-1-5-21-1-2-3-1000", name="Test",
+        members=("s-1-5-21-1-2-3-1001",), member_count=1, implicit="",
+    )
+    sid = store.save_estate(
+        conn,
+        Estate(
+            domain="test.local", gpos=[_make_gpo()],
+            group_members={"s-1-5-21-1-2-3-1000": gm},
+        ),
+    )
+
+    conn.execute(
+        "UPDATE group_member SET members = 'not-valid-json' "
+        "WHERE snapshot_id = ? AND sid = ?",
+        (sid, "s-1-5-21-1-2-3-1000"),
+    )
+    conn.commit()
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        loaded = store.load_estate(conn, sid)
+    conn.close()
+
+    assert "s-1-5-21-1-2-3-1000" in loaded.group_members
+    assert loaded.group_members["s-1-5-21-1-2-3-1000"].members == ()
+
+
+def test_restrict_db_permissions_warns_on_failure(tmp_path, monkeypatch):
+    db = tmp_path / "warn.db"
+    conn = sqlite3.connect(str(db))
+    store.init_db(conn)
+
+    def fail_chmod(path, mode):
+        raise OSError("permission denied")
+
+    monkeypatch.setattr(os, "chmod", fail_chmod)
+
+    with pytest.warns(UserWarning, match="Could not restrict DB permissions"):
+        store.restrict_db_permissions(conn)
+    conn.close()

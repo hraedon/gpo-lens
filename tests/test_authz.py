@@ -269,3 +269,23 @@ def test_resolve_principal_strips_whitespace():
     assert rp.resolved is True
     assert rp.name == "Authenticated Users"
     assert rp.sid == "s-1-5-11"
+
+
+def test_extract_aces_unbalanced_paren_does_not_drop_aces():
+    from gpo_lens.authz import _extract_aces
+
+    sddl = "(A;;GA;;;S-1-5-11))(D;;GR;;;S-1-1-0)"
+    aces = _extract_aces(sddl)
+    trustee_sids = {ace.trustee_sid for ace in aces}
+    assert "S-1-5-11" in trustee_sids
+    assert "S-1-1-0" in trustee_sids
+
+
+def test_extract_aces_normal_balanced():
+    from gpo_lens.authz import _extract_aces
+
+    sddl = "(A;;GA;;;S-1-5-11)(D;;GR;;;S-1-1-0)"
+    aces = _extract_aces(sddl)
+    assert len(aces) == 2
+    assert aces[0].trustee_sid == "S-1-5-11"
+    assert aces[1].trustee_sid == "S-1-1-0"

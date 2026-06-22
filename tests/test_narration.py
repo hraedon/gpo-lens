@@ -104,6 +104,17 @@ class TestCallLlm:
                 with pytest.raises(NarrationUnavailable):
                     call_llm("sys", "user")
 
+    def test_call_llm_rejects_non_http_endpoint(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "GPO_LENS_API_KEY": "k",
+                "GPO_LENS_LLM_ENDPOINT": "file:///etc/passwd",
+            },
+        ):
+            with pytest.raises(NarrationUnavailable, match="must be http"):
+                call_llm("sys", "user")
+
 
 class TestExplainFindings:
     def test_explain_findings_returns_narration(self) -> None:

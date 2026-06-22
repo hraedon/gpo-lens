@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
+import pytest
+
 from gpo_lens.events import append_events, init_events_table, query_events
 from gpo_lens.sinks import HecSink, NdjsonSink, emit_events
 
@@ -144,6 +146,10 @@ class TestHecSink:
             assert result is True
         finally:
             server.shutdown()
+
+    def test_hec_rejects_non_http_url(self) -> None:
+        with pytest.raises(ValueError, match="must be http"):
+            HecSink(url="file:///etc/passwd", token="x")
 
     def test_from_env_none_when_not_set(self) -> None:
         with patch.dict(os.environ, {}, clear=True):

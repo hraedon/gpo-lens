@@ -937,18 +937,18 @@ class TestStreamingBaselineZip:
         assert gpos[0].name == "Test GPO"
 
     def test_large_nested_zip_rejected(self, tmp_path: Path) -> None:
-        """Nested zip with large content must be rejected during streaming.
+        """Nested zip with large content must be warned and skipped, not crash.
 
         A real zip-bomb uses highly compressible data inside nested zips.
         The inner zip decompresses to much more than its compressed size.
         Our streaming reader catches this by counting actual decompressed
-        bytes, not trusting header values.
+        bytes, not trusting header values. The oversized entry is skipped
+        with a warning rather than crashing the entire baseline load.
         """
         import unittest.mock
 
-        # Create a large inner zip entry
         gpo_xml = self._min_gpo_xml()
-        large_padding = " " * 5000  # make the content large
+        large_padding = " " * 5000
         padded_xml = gpo_xml + large_padding
 
         inner_buf = io.BytesIO()
@@ -966,19 +966,17 @@ class TestStreamingBaselineZip:
         zip_path = tmp_path / "baseline.zip"
         zip_path.write_bytes(outer_buf.getvalue())
 
-        # Should be rejected because the actual decompressed content
-        # exceeds the limit (set low for testing)
         with unittest.mock.patch("gpo_lens.ingest._MAX_DECOMPRESSED_BYTES", 200):
-            with pytest.raises(ValueError, match="exceeds limit"):
-                ingest.load_baseline_from_zip(zip_path)
+            with pytest.warns(UserWarning, match="exceeds limit"):
+                gpos = ingest.load_baseline_from_zip(zip_path)
+        assert gpos == []
 
     def test_large_direct_zip_rejected(self, tmp_path: Path) -> None:
-        """Direct zip (no nesting) with large content must be rejected."""
+        """Direct zip (no nesting) with large content must be warned and skipped."""
         import unittest.mock
 
-        # Create a zip with a large gpreport.xml
         gpo_xml = self._min_gpo_xml()
-        padded_xml = gpo_xml + " " * 5000  # make it large
+        padded_xml = gpo_xml + " " * 5000
 
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -988,8 +986,9 @@ class TestStreamingBaselineZip:
         zip_path.write_bytes(buf.getvalue())
 
         with unittest.mock.patch("gpo_lens.ingest._MAX_DECOMPRESSED_BYTES", 200):
-            with pytest.raises(ValueError, match="exceeds limit"):
-                ingest.load_baseline_from_zip(zip_path)
+            with pytest.warns(UserWarning, match="exceeds limit"):
+                gpos = ingest.load_baseline_from_zip(zip_path)
+        assert gpos == []
 
 
 # ---------------------------------------------------------------------------
@@ -1035,3 +1034,188 @@ def test_parse_inheritance_normalizes_integer_container_type(tmp_path: Path) -> 
     soms = ingest.parse_inheritance(p)
     by_type = {s.container_type for s in soms}
     assert by_type == {"domain", "ou"}
+
+
+class TestLoadBaselineFromZipErrorHandling:
+    def test_oversized_inner_zip_skipped_not_crash(self, tmp_path: Path) -> None:
+        import unittest.mock
+
+        good_xml = (
+            '<?xml version="1.0" encoding="utf-8"?>\n'
+            "<GPO>\n"
+            "  <Identifier><Identifier>{99999999-9999-9999-9999-999999999999}</Identifier>"
+            "<Domain>test.local</Domain></Identifier>\n"
+            "  <Name>Good GPO</Name>\n"
+            "  <Computer><Enabled>true</Enabled></Computer>\n"
+            "  <User><Enabled>true</Enabled></User>\n"
+            "  <FilterDataAvailable>false</FilterDataAvailable>\n"
+            "</GPO>\n"
+        )
+        large_padding = " " * 5000
+        bad_xml = good_xml + large_padding
+
+        inner_bad = io.BytesIO()
+        with zipfile.ZipFile(inner_bad, "w", zipfile.ZIP_DEFLATED) as inner:
+            inner.writestr("GPOs/bad/gpreport.xml", bad_xml)
+        inner_good = io.BytesIO()
+        with zipfile.ZipFile(inner_good, "w", zipfile.ZIP_DEFLATED) as inner:
+            inner.writestr("GPOs/good/gpreport.xml", good_xml)
+
+        outer_buf = io.BytesIO()
+        with zipfile.ZipFile(outer_buf, "w", zipfile.ZIP_DEFLATED) as outer:
+            outer.writestr("bad.zip", inner_bad.getvalue())
+            outer.writestr("good.zip", inner_good.getvalue())
+
+        zip_path = tmp_path / "baseline.zip"
+        zip_path.write_bytes(outer_buf.getvalue())
+
+        with unittest.mock.patch("gpo_lens.ingest._MAX_DECOMPRESSED_BYTES", 2000):
+            with pytest.warns(UserWarning, match="exceeds limit"):
+                gpos = ingest.load_baseline_from_zip(zip_path)
+        good_ids = [g.name for g in gpos if g.name == "Good GPO"]
+        assert len(good_ids) == 1
+
+    def test_oversized_direct_gpreport_warns_not_crash(self, tmp_path: Path) -> None:
+        import unittest.mock
+
+        good_xml = (
+            '<?xml version="1.0" encoding="utf-8"?>\n'
+            "<GPO>\n"
+            "  <Identifier><Identifier>{99999999-9999-9999-9999-999999999999}</Identifier>"
+            "<Domain>test.local</Domain></Identifier>\n"
+            "  <Name>Good</Name>\n"
+            "  <Computer><Enabled>true</Enabled></Computer>\n"
+            "  <User><Enabled>true</Enabled></User>\n"
+            "  <FilterDataAvailable>false</FilterDataAvailable>\n"
+            "</GPO>\n"
+        )
+        padded = good_xml + " " * 5000
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("GPOs/test/gpreport.xml", padded)
+
+        zip_path = tmp_path / "baseline.zip"
+        zip_path.write_bytes(buf.getvalue())
+
+        with unittest.mock.patch("gpo_lens.ingest._MAX_DECOMPRESSED_BYTES", 200):
+            with pytest.warns(UserWarning, match="exceeds limit"):
+                gpos = ingest.load_baseline_from_zip(zip_path)
+        assert gpos == []
+
+
+class TestNonDictArrayGuards:
+    def test_parse_inheritance_skips_non_dict(self, tmp_path: Path) -> None:
+        j = tmp_path / "inh.json"
+        j.write_text(
+            '[{"Path":"dc=t,dc=l","Name":"t","ContainerType":"domain",'
+            '"GpoInheritanceBlocked":false,"InheritedGpoLinks":[]},'
+            '"bad-string", 42, null]',
+            encoding="utf-8",
+        )
+        with pytest.warns(UserWarning, match="Skipping non-dict"):
+            soms = ingest.parse_inheritance(j)
+        assert len(soms) == 1
+        assert soms[0].name == "t"
+
+    def test_parse_wmi_filters_skips_non_dict(self, tmp_path: Path) -> None:
+        j = tmp_path / "wmi.json"
+        j.write_text(
+            '[{"Name":"F1","Query":"q"}, "bad", null]',
+            encoding="utf-8",
+        )
+        with pytest.warns(UserWarning, match="Skipping non-dict"):
+            filters = ingest.parse_wmi_filters(j)
+        assert len(filters) == 1
+        assert filters[0].name == "F1"
+
+    def test_parse_ou_tree_skips_non_dict(self, tmp_path: Path) -> None:
+        j = tmp_path / "ou.json"
+        j.write_text(
+            '[{"DistinguishedName":"OU=x,DC=t","Name":"x","gPLink":null,"gPOptions":0},'
+            '"bad", 123]',
+            encoding="utf-8",
+        )
+        with pytest.warns(UserWarning, match="Skipping non-dict"):
+            records = ingest.parse_ou_tree(j)
+        assert len(records) == 1
+        assert records[0].name == "x"
+
+    def test_parse_sites_skips_non_dict(self, tmp_path: Path) -> None:
+        j = tmp_path / "sites.json"
+        j.write_text(
+            '[{"DistinguishedName":"CN=Site1","Name":"Site1","gPLink":null},'
+            '"bad", null]',
+            encoding="utf-8",
+        )
+        with pytest.warns(UserWarning, match="Skipping non-dict"):
+            sites = ingest.parse_sites(j)
+        assert len(sites) == 1
+        assert sites[0].name == "Site1"
+
+    def test_parse_coverage_gaps_skips_non_dict_in_inventory(self, tmp_path: Path) -> None:
+        inv = tmp_path / "gpo-inventory.json"
+        inv.write_text(
+            '[{"Id":"{00000000-0000-0000-0000-000000000001}","DisplayName":"Gap1"},'
+            '"bad", null]',
+            encoding="utf-8",
+        )
+        errs = tmp_path / "collection-errors.json"
+        errs.write_text("[]", encoding="utf-8")
+        with pytest.warns(UserWarning, match="Skipping non-dict"):
+            gaps = ingest.parse_coverage_gaps(inv, errs, [])
+        assert len(gaps) == 1
+        assert gaps[0].kind == "inaccessible"
+
+    def test_parse_coverage_gaps_skips_non_dict_in_errors(self, tmp_path: Path) -> None:
+        inv = tmp_path / "gpo-inventory.json"
+        inv.write_text("[]", encoding="utf-8")
+        errs = tmp_path / "collection-errors.json"
+        errs.write_text(
+            '[{"GpoId":"{00000000-0000-0000-0000-000000000002}","DisplayName":"Err1",'
+            '"Error":"fail"}, "bad", null]',
+            encoding="utf-8",
+        )
+        with pytest.warns(UserWarning, match="Skipping non-dict"):
+            gaps = ingest.parse_coverage_gaps(inv, errs, [])
+        assert len(gaps) == 1
+        assert gaps[0].kind == "collection_error"
+
+
+class TestFloatOrderValue:
+    def test_float_order_preserved(self, tmp_path: Path) -> None:
+        j = tmp_path / "inh.json"
+        j.write_text(
+            '[{"Path":"dc=t,dc=l","Name":"t","ContainerType":"domain",'
+            '"GpoInheritanceBlocked":false,"InheritedGpoLinks":'
+            '[{"GpoId":"{31B2F340-016D-11D2-945F-00C04FB984F9}",'
+            '"Order":3.0,"Enabled":true,"Enforced":false,"Target":"dc=t,dc=l"}]}]',
+            encoding="utf-8",
+        )
+        soms = ingest.parse_inheritance(j)
+        assert len(soms[0].links) == 1
+        assert soms[0].links[0].order == 3
+
+    def test_float_order_zero(self, tmp_path: Path) -> None:
+        j = tmp_path / "inh.json"
+        j.write_text(
+            '[{"Path":"dc=t,dc=l","Name":"t","ContainerType":"domain",'
+            '"GpoInheritanceBlocked":false,"InheritedGpoLinks":'
+            '[{"GpoId":"{31B2F340-016D-11D2-945F-00C04FB984F9}",'
+            '"Order":1.0,"Enabled":true,"Enforced":false,"Target":"dc=t,dc=l"}]}]',
+            encoding="utf-8",
+        )
+        soms = ingest.parse_inheritance(j)
+        assert soms[0].links[0].order == 1
+
+    def test_int_order_still_works(self, tmp_path: Path) -> None:
+        j = tmp_path / "inh.json"
+        j.write_text(
+            '[{"Path":"dc=t,dc=l","Name":"t","ContainerType":"domain",'
+            '"GpoInheritanceBlocked":false,"InheritedGpoLinks":'
+            '[{"GpoId":"{31B2F340-016D-11D2-945F-00C04FB984F9}",'
+            '"Order":5,"Enabled":true,"Enforced":false,"Target":"dc=t,dc=l"}]}]',
+            encoding="utf-8",
+        )
+        soms = ingest.parse_inheritance(j)
+        assert soms[0].links[0].order == 5
