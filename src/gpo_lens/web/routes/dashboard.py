@@ -9,6 +9,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
 from gpo_lens.web._helpers import (
+    _POSTURE_CATEGORY,
     _POSTURE_SPEC,
     _VALID_SORTS,
     base_qs,
@@ -43,6 +44,7 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         severity: str = "",
         q: str = "",
         sort: str = "severity",
+        category: str = "",
         _principal: Principal = Depends(requires(Permission.VIEW)),
     ) -> HTMLResponse:
         from gpo_lens.danger import danger_findings
@@ -86,7 +88,25 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         # WI-025: filter / search / sort
         if sort not in _VALID_SORTS:
             sort = "severity"
-        findings = filter_findings(all_findings, severity, q, sort)
+        # The default view hides bulk informational findings (a large estate can
+        # carry thousands of "enforced link" info rows that bury the actionable
+        # ones over dozens of pages). An explicit severity overrides this; a
+        # posture deep-link shows ALL of its category, since several cards
+        # (enforced links, stale, item-level targeting) are themselves info-tone.
+        if severity:
+            effective_severity = severity
+        elif category:
+            effective_severity = "all"
+        else:
+            effective_severity = "critical,high,medium,low"
+        findings = filter_findings(all_findings, effective_severity, q, sort, category)
+        # When the actionable default is hiding info rows, tell the user how many
+        # and give them a one-click way to see everything.
+        info_hidden = (
+            sum(1 for f in all_findings if f.severity == "info")
+            if not severity and not category
+            else 0
+        )
 
         # WI-026: pagination
         page, per_page_int, per_page_raw = parse_pagination(request)
@@ -97,7 +117,15 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         # vs clear (count == 0, collapsed into one quiet "all clear" line).
         tone_rank = {"crit": 0, "warn": 1, "info": 2}
         fired = [
-            {"label": label, "value": getattr(summary, attr), "tone": tone}
+            {
+                "attr": attr,
+                "label": label,
+                "value": getattr(summary, attr),
+                "tone": tone,
+                # Deep-link target into the findings table; None = non-clickable
+                # (a few cards, e.g. conflicts, link to their own page instead).
+                "category": _POSTURE_CATEGORY.get(attr),
+            }
             for attr, label, tone in _POSTURE_SPEC
             if getattr(summary, attr)
         ]
@@ -125,6 +153,8 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
                 "f_severity": severity,
                 "f_q": q,
                 "f_sort": sort,
+                "f_category": category,
+                "info_hidden": info_hidden,
                 "f_base_qs": findings_qs,
                 # WI-026 pagination
                 "pag": pag,

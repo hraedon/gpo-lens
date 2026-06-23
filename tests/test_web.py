@@ -354,6 +354,30 @@ class TestDashboard:
         assert "/gpo/bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb" in html
         assert "/gpo/cccccccc-cccc-cccc-cccc-cccccccccccc" in html
 
+    def test_posture_cards_deeplink_into_findings(self, client) -> None:
+        html = client.get("/").text
+        # At least one fired posture card is an anchor that filters the findings
+        # table by category and jumps to it.
+        assert 'class="gp-ind' in html
+        assert "?category=" in html
+        assert "#findings" in html
+
+    def test_posture_category_filter_narrows_findings(self, client) -> None:
+        import re
+        html = client.get("/").text
+        m = re.search(r"\?category=([A-Za-z0-9_%:]+)#findings", html)
+        assert m, "expected at least one clickable posture card"
+        category = m.group(1)
+        resp = client.get(f"/?category={category}")
+        assert resp.status_code == 200
+        # The active-filter chip (with its clear ✕) is shown.
+        assert "✕" in resp.text
+
+    def test_unknown_category_is_safe(self, client) -> None:
+        # A bogus category must not error — it simply matches nothing.
+        resp = client.get("/?category=does_not_exist")
+        assert resp.status_code == 200
+
     def test_dashboard_severity_order(self, client) -> None:
         resp = client.get("/")
         html = resp.text
@@ -1196,9 +1220,21 @@ class TestDashboardFiltering:
         assert "gpo-cpassword" in resp.text
 
     def test_unfiltered_shows_total_without_of(self, client) -> None:
-        resp = client.get("/")
+        # "All (incl. info)" is the only truly-unfiltered view; the bare default
+        # hides info, so it legitimately shows "N of 24".
+        resp = client.get("/?severity=all")
         assert "24" in resp.text
         assert " of 24" not in resp.text
+
+    def test_default_view_hides_info_findings(self, client) -> None:
+        # The actionable default suppresses info-level rows and offers a "Show
+        # all" escape hatch so a large estate's bulk info doesn't bury findings.
+        default = client.get("/").text
+        assert self._sev_sequence(default)  # actionable findings still present
+        assert "info" not in self._sev_sequence(default)
+        assert "Show all" in default
+        # ...and they reappear under the explicit all view.
+        assert "info" in self._sev_sequence(client.get("/?severity=all").text)
 
     def test_search_filters_by_text(self, client) -> None:
         resp = client.get("/?q=cpassword")
@@ -1215,8 +1251,9 @@ class TestDashboardFiltering:
 
     def test_sort_severity_desc_reverses_order(self, client) -> None:
         rank = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
-        default = self._sev_sequence(client.get("/").text)
-        desc = self._sev_sequence(client.get("/?sort=severity_desc").text)
+        # severity=all so the full ladder (incl. info) is present to reverse.
+        default = self._sev_sequence(client.get("/?severity=all").text)
+        desc = self._sev_sequence(client.get("/?severity=all&sort=severity_desc").text)
         assert default  # findings present
         assert desc
         # default ascending (worst first); desc reversed (least severe first)
@@ -1248,13 +1285,13 @@ class TestPagination:
     """WI-026: server-side pagination of large tables."""
 
     def test_dashboard_pagination_controls(self, client) -> None:
-        resp = client.get("/?per_page=5")
+        resp = client.get("/?severity=all&per_page=5")
         assert resp.status_code == 200
         assert "gp-pagination" in resp.text
         assert "page 1 of 5" in resp.text  # ceil(24/5) = 5
 
     def test_dashboard_pagination_page2_has_prev(self, client) -> None:
-        resp = client.get("/?per_page=5&page=2")
+        resp = client.get("/?severity=all&per_page=5&page=2")
         assert "page 2 of 5" in resp.text
         assert 'rel="prev"' in resp.text
 
@@ -1270,7 +1307,7 @@ class TestPagination:
         assert "gp-pagination" not in resp.text
 
     def test_dashboard_invalid_page_clamped_to_last(self, client) -> None:
-        resp = client.get("/?per_page=5&page=999")
+        resp = client.get("/?severity=all&per_page=5&page=999")
         assert resp.status_code == 200
         assert "page 5 of 5" in resp.text
 
@@ -1902,3 +1939,142 @@ class TestResultantRoute:
         assert resp.status_code == 200
         assert "test explosion" in resp.text
 
+
+
+class TestInventory:
+    """The Inventory tab lists every GPO and drills into detail."""
+
+    def test_inventory_returns_200_and_lists_gpos(self, client) -> None:
+        resp = client.get("/inventory")
+        assert resp.status_code == 200
+        assert "Inventory" in resp.text
+        # drill-in links to GPO detail pages
+        assert "/gpo/" in resp.text
+
+    def test_inventory_search_filters(self, client) -> None:
+        resp = client.get("/inventory?q=cpassword")
+        assert resp.status_code == 200
+        assert "gpo-cpassword" in resp.text
+
+    def test_inventory_no_match_shows_empty_state(self, client) -> None:
+        resp = client.get("/inventory?q=zzzznosuchgpo")
+        assert resp.status_code == 200
+        assert "No GPOs match" in resp.text
+
+    def test_inventory_invalid_status_and_sort_are_safe(self, client) -> None:
+        resp = client.get("/inventory?status=bogus&sort=bogus")
+        assert resp.status_code == 200
+
+    def test_nav_has_inventory_link(self, client) -> None:
+        resp = client.get("/")
+        assert ">Inventory<" in resp.text
+        assert "/inventory" in resp.text
+
+
+class TestConflicts:
+    """The Conflicts page surfaces both lenses estate-wide."""
+
+    def test_conflicts_page_200_with_tabs(self, client) -> None:
+        resp = client.get("/conflicts")
+        assert resp.status_code == 200
+        assert "Conflicts" in resp.text
+        assert "gp-tab" in resp.text  # resolved / defined tabs
+
+    def test_defined_view_lists_inconsistent_setting(self, client) -> None:
+        # The fixture defines loopback processing mode with differing values
+        # across GPOs -> a definitional conflict.
+        resp = client.get("/conflicts?view=defined")
+        assert resp.status_code == 200
+        assert "loopback processing mode" in resp.text
+
+    def test_resolved_view_shows_winner(self, client) -> None:
+        resp = client.get("/conflicts?view=resolved")
+        assert resp.status_code == 200
+        # winner column header + a resolved row
+        assert "Winner" in resp.text
+        assert "Scopes" in resp.text
+
+    def test_view_switch_and_invalid_view_safe(self, client) -> None:
+        assert client.get("/conflicts?view=resolved").status_code == 200
+        # bogus view falls back, does not error
+        assert client.get("/conflicts?view=bogus").status_code == 200
+
+    def test_search_filters_and_empty_is_safe(self, client) -> None:
+        resp = client.get("/conflicts?view=defined&q=loopback")
+        assert resp.status_code == 200
+        assert "loopback processing mode" in resp.text
+        empty = client.get("/conflicts?view=defined&q=zzzznomatch")
+        assert empty.status_code == 200
+        assert "No conflicts match" in empty.text
+
+    def test_nav_and_posture_card_link_to_conflicts(self, client) -> None:
+        home = client.get("/").text
+        assert ">Conflicts<" in home            # nav entry
+        assert "/conflicts" in home             # posture card / nav href
+
+
+class TestSnapshotDelete:
+    """Removing an estate import from the web UI."""
+
+    def _add_snapshot(self, db_path: str) -> int:
+        import sqlite3
+        from pathlib import Path
+
+        from gpo_lens import ingest as _ing
+        from gpo_lens import store as _st
+        conn = sqlite3.connect(db_path)
+        sid = _st.save_estate(conn, _ing.load_estate(Path("tests/fixtures")))
+        conn.commit()
+        conn.close()
+        return sid
+
+    def test_ingest_page_shows_delete_and_current(self, client) -> None:
+        resp = client.get("/ingest")
+        assert resp.status_code == 200
+        assert "Delete" in resp.text
+        assert "current" in resp.text  # newest snapshot marked
+
+    def test_delete_removes_snapshot_and_cascades(self, client, fixture_db: str) -> None:
+        import sqlite3
+
+        from gpo_lens import store as _st
+        extra = self._add_snapshot(fixture_db)  # newest; fixture itself is older
+        resp = client.post(
+            "/ingest/delete", data={"snapshot_id": extra}, follow_redirects=False
+        )
+        assert resp.status_code == 303
+        conn = sqlite3.connect(fixture_db)
+        try:
+            ids = [s[0] for s in _st.list_snapshots(conn)]
+            assert extra not in ids
+            orphans = conn.execute(
+                "SELECT COUNT(*) FROM setting WHERE snapshot_id=?", (extra,)
+            ).fetchone()[0]
+            assert orphans == 0
+        finally:
+            conn.close()
+
+    def test_delete_missing_snapshot_404(self, client) -> None:
+        resp = client.post("/ingest/delete", data={"snapshot_id": 999999})
+        assert resp.status_code == 404
+        assert "not found" in resp.text.lower()
+
+    def test_delete_requires_same_origin(self, client) -> None:
+        resp = client.post(
+            "/ingest/delete", data={"snapshot_id": 1},
+            headers={"origin": "http://evil.example"},
+        )
+        assert resp.status_code == 403
+
+    def test_delete_all_returns_to_empty_estate(self, client, fixture_db: str) -> None:
+        import sqlite3
+
+        from gpo_lens import store as _st
+        conn = sqlite3.connect(fixture_db)
+        ids = [s[0] for s in _st.list_snapshots(conn)]
+        conn.close()
+        for sid in ids:
+            client.post("/ingest/delete", data={"snapshot_id": sid})
+        # dashboard still renders (empty estate), does not 500
+        assert client.get("/").status_code == 200
+        assert client.get("/ingest").status_code == 200

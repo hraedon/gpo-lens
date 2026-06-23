@@ -405,11 +405,18 @@ if ($SkipSysvol) {
     $dest = Join-Path $out 'SYSVOL-Policies'
     New-Item -ItemType Directory -Force -Path $dest | Out-Null
     $sysvolErrors = 0
+    # Enumerate the source explicitly so an unreachable share (DFS referral,
+    # auth, wrong path) is a recorded error, not a silent empty result that
+    # masquerades as a clean copy. Capturing into $srcErr also stops
+    # SilentlyContinue from hiding *why* the enumeration came back empty.
+    $srcErr = $null
+    $policyFolders = @(Get-ChildItem -LiteralPath $src -Directory `
+        -ErrorAction SilentlyContinue -ErrorVariable +srcErr)
     # Per-policy-folder resilience (mirrors the Get-GPOReport loop): one unreadable
     # policy folder (e.g. Authenticated Users Read stripped for security filtering)
     # must not abort the whole copy. Record the GUID so coverage gaps are explicit
     # rather than silently dropped, consistent with collection-errors.json.
-    foreach ($pf in @(Get-ChildItem -LiteralPath $src -Directory -ErrorAction SilentlyContinue)) {
+    foreach ($pf in $policyFolders) {
         try {
             Copy-Item -LiteralPath $pf.FullName -Destination $dest -Recurse -Force -ErrorAction Stop
         } catch {
@@ -424,8 +431,24 @@ if ($SkipSysvol) {
     # Loose files at the Policies root (rare) — keep parity with a full copy.
     Get-ChildItem -LiteralPath $src -File -ErrorAction SilentlyContinue |
         ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $dest -Force -ErrorAction SilentlyContinue }
-    if ($sysvolErrors -eq 0) {
-        $successSections.Add("SYSVOL copy")
+    # Success means files actually landed — not merely "no exception was thrown".
+    # A 0-folder enumeration (unreachable $src) or a copy that wrote nothing both
+    # produced "SYSVOL copy" success before, yielding a SYSVOL-less export that
+    # silently blinds every GPP/cPassword detector downstream. Verify on disk.
+    $copiedCount = @(Get-ChildItem -LiteralPath $dest -Recurse -File -ErrorAction SilentlyContinue).Count
+    if ($policyFolders.Count -eq 0 -or $copiedCount -eq 0) {
+        $detail = if ($policyFolders.Count -eq 0) {
+            "enumerated 0 policy folders at $src" +
+            $(if ($srcErr) { " ($($srcErr[0].Exception.Message))" } else { "" })
+        } else { "copy wrote 0 files to SYSVOL-Policies" }
+        $failedSections.Add("SYSVOL copy: $detail — GPP/cPassword detection will be BLIND")
+        $collectionErrors.Add([pscustomobject]@{
+            GpoId = $null; DisplayName = $null; Stage = 'sysvol'; Error = $detail
+        })
+        $collectionErrors | ConvertTo-Json -Depth 4 | Set-Content (Join-Path $out 'collection-errors.json') -Encoding UTF8
+        Write-Warning "SYSVOL copy produced no files: $detail"
+    } elseif ($sysvolErrors -eq 0) {
+        $successSections.Add("SYSVOL copy ($copiedCount files)")
     } else {
         $failedSections.Add("SYSVOL copy: $sysvolErrors policy folder(s) inaccessible (see collection-errors.json)")
         # Re-serialize so SYSVOL denials join report/enumerate gaps in one manifest.
@@ -453,18 +476,33 @@ if (-not $NoZip) {
     Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
     try {
         if (Test-Path -LiteralPath "$out.zip") { Remove-Item -LiteralPath "$out.zip" -Force }
+        # Windows PowerShell 5.1's Get-ChildItem -Recurse SILENTLY skips paths
+        # over MAX_PATH (260 chars) — exactly the deep SYSVOL/GPP trees — which
+        # can drop whole subtrees from the archive while the run still reports
+        # "Done". Capture enumeration errors and reconcile the zipped count
+        # against the on-disk count so a partial archive is loud, not silent.
+        $zipEnumErr = $null
+        $diskFiles = @(Get-ChildItem -LiteralPath $out -Recurse -File `
+            -ErrorAction SilentlyContinue -ErrorVariable +zipEnumErr)
+        $zipped = 0
         $zip = [System.IO.Compression.ZipFile]::Open("$out.zip", 'Create')
         try {
             $rootLen = $out.Length + 1
-            foreach ($f in Get-ChildItem -LiteralPath $out -Recurse -File) {
+            foreach ($f in $diskFiles) {
                 $entryName = $f.FullName.Substring($rootLen).Replace('\', '/')
                 [void][System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
                     $zip, $f.FullName, $entryName)
+                $zipped++
             }
         } finally {
             $zip.Dispose()
         }
-        Write-Host "Done: $out.zip"
+        Write-Host "Done: $out.zip ($zipped files)"
+        if ($zipEnumErr) {
+            Write-Warning ("$($zipEnumErr.Count) path(s) could not be enumerated " +
+                "(likely >260 chars) and are MISSING from the archive. Send the " +
+                "folder instead, or re-run from a shorter -OutputRoot: $out")
+        }
     } catch {
         Write-Warning "Zip failed ($($_.Exception.Message)). Send the folder instead: $out"
     }

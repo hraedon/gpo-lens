@@ -12,7 +12,10 @@ from fastapi.templating import Jinja2Templates
 from gpo_lens import topology
 from gpo_lens.web._helpers import (
     _MAX_SEARCH_LEN,
+    _VALID_GPO_SORTS,
+    _VALID_GPO_STATUS,
     base_qs,
+    filter_gpos,
     get_ro_conn,
     paginate,
     parse_pagination,
@@ -21,6 +24,51 @@ from gpo_lens.web.auth import Permission, Principal, requires
 
 
 def register(app: FastAPI, templates: Jinja2Templates) -> None:
+
+    @app.get("/inventory", response_class=HTMLResponse, name="gpo_list")
+    async def gpo_list(
+        request: Request,
+        q: str = "",
+        status: str = "",
+        sort: str = "name",
+        _principal: Principal = Depends(requires(Permission.VIEW)),
+    ) -> HTMLResponse:
+        from gpo_lens.store import load_estate
+
+        conn = get_ro_conn(app.state.db_path)
+        try:
+            try:
+                estate = load_estate(conn)
+                all_gpos = list(estate.gpos)
+            except ValueError:
+                all_gpos = []
+        finally:
+            conn.close()
+
+        if status and status not in _VALID_GPO_STATUS:
+            status = ""
+        if sort not in _VALID_GPO_SORTS:
+            sort = "name"
+        filtered = filter_gpos(all_gpos, q, status, sort)
+
+        page, per_page_int, per_page_raw = parse_pagination(request)
+        page_gpos, pag = paginate(filtered, page, per_page_int, per_page_raw)
+        inv_qs = base_qs(request, "page", "per_page")
+        return templates.TemplateResponse(
+            request,
+            "inventory.html",
+            {
+                "request": request,
+                "gpos": page_gpos,
+                "all_gpos_count": len(all_gpos),
+                "filtered_count": len(filtered),
+                "f_q": q,
+                "f_status": status,
+                "f_sort": sort,
+                "f_base_qs": inv_qs,
+                "pag": pag,
+            },
+        )
 
     @app.get("/gpo/{gpo_id}", response_class=HTMLResponse, name="gpo_detail")
     async def gpo_detail(

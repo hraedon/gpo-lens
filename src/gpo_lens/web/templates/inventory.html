@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% import '_pagination.html' as pg %}
+
+{% block title %}gpo-lens — Inventory{% endblock %}
+
+{% block content %}
+<div class="gp-page-head">
+  <div>
+    <div class="gp-eyebrow">All Group Policy Objects</div>
+    <h1>Inventory</h1>
+    <div class="sub">Every GPO in the estate. Open one to see its settings, links and delegation.</div>
+  </div>
+  {% if all_gpos_count %}
+  <div>
+    {% if filtered_count != all_gpos_count %}
+    <span class="gp-pill medium"><span class="dot"></span>{{ filtered_count }} of {{ all_gpos_count }}</span>
+    {% else %}
+    <span class="gp-pill ok"><span class="dot"></span>{{ all_gpos_count }} GPOs</span>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+
+{% if all_gpos_count %}
+<form class="gp-filter-bar" method="get" action="{{ url_for('gpo_list') }}">
+  <div class="gp-field gp-filter-search">
+    <label class="gp-label" for="f-q">Search</label>
+    <input class="gp-input" id="f-q" name="q" type="search" value="{{ f_q }}" placeholder="GPO name or GUID" autocomplete="off">
+  </div>
+  <div class="gp-field">
+    <label class="gp-label" for="f-status">Status</label>
+    <select class="gp-select" id="f-status" name="status">
+      <option value="" {% if not f_status %}selected{% endif %}>All</option>
+      <option value="linked" {% if f_status == 'linked' %}selected{% endif %}>Linked</option>
+      <option value="unlinked" {% if f_status == 'unlinked' %}selected{% endif %}>Unlinked</option>
+      <option value="empty" {% if f_status == 'empty' %}selected{% endif %}>Empty (no settings)</option>
+      <option value="disabled" {% if f_status == 'disabled' %}selected{% endif %}>Both sides disabled</option>
+    </select>
+  </div>
+  <div class="gp-field">
+    <label class="gp-label" for="f-sort">Sort</label>
+    <select class="gp-select" id="f-sort" name="sort">
+      <option value="name" {% if f_sort == 'name' %}selected{% endif %}>Name</option>
+      <option value="links" {% if f_sort == 'links' %}selected{% endif %}>Links (busiest first)</option>
+      <option value="settings" {% if f_sort == 'settings' %}selected{% endif %}>Settings (most first)</option>
+      <option value="modified" {% if f_sort == 'modified' %}selected{% endif %}>Modified (newest first)</option>
+    </select>
+  </div>
+  <button type="submit" class="gp-btn primary">Apply</button>
+  {% if f_q or f_status or f_sort != 'name' %}
+  <a class="gp-btn" href="{{ url_for('gpo_list') }}">Clear</a>
+  {% endif %}
+</form>
+
+{% if gpos %}
+<div class="gp-table-wrap">
+  <table class="gp-table">
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th style="width:150px">Status</th>
+        <th class="num" style="width:90px">Settings</th>
+        <th class="num" style="width:70px">Links</th>
+        <th style="width:150px">WMI filter</th>
+        <th style="width:120px">Modified</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for g in gpos %}
+      <tr>
+        <td><a href="{{ url_for('gpo_detail', gpo_id=g.id) }}">{{ g.name or '(unnamed)' }}</a></td>
+        <td>
+          {% if not g.links %}<span class="gp-chip warn">Unlinked</span>{% endif %}
+          {% if not g.computer_enabled and not g.user_enabled %}<span class="gp-chip muted">Disabled</span>
+          {% elif not g.computer_enabled %}<span class="gp-chip muted">Computer off</span>
+          {% elif not g.user_enabled %}<span class="gp-chip muted">User off</span>{% endif %}
+          {% if g.links and g.computer_enabled and g.user_enabled %}<span class="muted">—</span>{% endif %}
+        </td>
+        <td class="num">{{ g.settings | length }}</td>
+        <td class="num">{{ g.links | length }}</td>
+        <td class="mono muted">{{ g.wmi_filter or '—' }}</td>
+        <td class="mono muted">{{ g.modified.strftime('%Y-%m-%d') if g.modified else '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{{ pg.pagination(pag, f_base_qs) }}
+{% else %}
+<div class="gp-callout info" style="border-color: color-mix(in srgb, var(--info) 30%, transparent); background: var(--info-soft);">
+  <span class="ico" style="color: var(--info)">
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+  </span>
+  <p>{% if f_q %}No GPOs match "{{ f_q }}".{% else %}No GPOs match the current filter.{% endif %} <a href="{{ url_for('gpo_list') }}">Clear filters</a></p>
+</div>
+{% endif %}
+{% else %}
+<div class="gp-empty">
+  <div class="title">No GPOs loaded</div>
+  <div class="sub">Ingest an estate export to populate the inventory.</div>
+</div>
+{% endif %}
+{% endblock %}

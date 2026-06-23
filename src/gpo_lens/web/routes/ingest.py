@@ -7,7 +7,7 @@ import zipfile
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from fastapi import Depends, FastAPI, File, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
@@ -119,3 +119,49 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
             return RedirectResponse(url=request.url_for("home"), status_code=303)
         finally:
             lock.release()
+
+    @app.post(
+        "/ingest/delete", response_class=HTMLResponse, response_model=None,
+        name="ingest_delete",
+    )
+    async def ingest_delete(
+        request: Request,
+        snapshot_id: int = Form(...),
+        principal: Principal = Depends(requires(Permission.INGEST)),
+    ) -> HTMLResponse | RedirectResponse:
+        # Removing an import is destructive but recoverable (re-upload the zip),
+        # and the snapshot's rows cascade away. Gated on INGEST (same right as
+        # creating one) and the same-origin CSRF middleware.
+        rw_conn = get_rw_conn(app.state.db_path)
+        try:
+            deleted = _store.delete_snapshot(rw_conn, snapshot_id)
+            if deleted:
+                _events.append_event(
+                    rw_conn, "audit.snapshot_delete",
+                    {"principal": principal.name, "snapshot_id": snapshot_id},
+                )
+        finally:
+            rw_conn.close()
+
+        if not deleted:
+            _audit(
+                "snapshot_delete", principal, "failure",
+                f"snapshot {snapshot_id} not found", request,
+            )
+            conn = get_ro_conn(app.state.db_path)
+            try:
+                snapshots = _store.list_snapshots(conn)
+            finally:
+                conn.close()
+            return templates.TemplateResponse(
+                request, "ingest.html",
+                {"snapshots": snapshots,
+                 "error": f"Snapshot {snapshot_id} not found."},
+                status_code=404,
+            )
+
+        _audit(
+            "snapshot_delete", principal, "success",
+            f"snapshot {snapshot_id}", request,
+        )
+        return RedirectResponse(url=request.url_for("ingest_get"), status_code=303)

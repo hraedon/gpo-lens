@@ -42,14 +42,25 @@
 <section class="gp-section">
   <h2>Snapshots {% if snapshots %}<span class="count">{{ snapshots|length }}</span>{% endif %}</h2>
   {% if snapshots %}
+  <div class="sub muted" style="margin-bottom:10px">The newest snapshot is the one shown across the app. Deleting it falls back to the next; deleting all returns to an empty estate. Removing an import cannot be undone — re-upload the export to restore it.</div>
   <div class="gp-table-wrap">
     <table class="gp-table">
       <thead>
-        <tr><th class="num" style="width:60px">#</th><th>Domain</th><th>Captured</th></tr>
+        <tr><th class="num" style="width:60px">#</th><th>Domain</th><th>Captured</th><th style="width:110px"></th></tr>
       </thead>
       <tbody>
         {% for snap in snapshots %}
-        <tr><td class="num">{{ snap[0] }}</td><td>{{ snap[1] }}</td><td class="mono muted">{{ snap[2] }}</td></tr>
+        <tr>
+          <td class="num">{{ snap[0] }}</td>
+          <td>{{ snap[1] }}{% if loop.first %} <span class="gp-chip accent">current</span>{% endif %}</td>
+          <td class="mono muted">{{ snap[2] }}</td>
+          <td>
+            <form method="post" action="{{ url_for('ingest_delete') }}" class="js-confirm-delete" data-label="{{ snap[1] }} (#{{ snap[0] }})" style="margin:0">
+              <input type="hidden" name="snapshot_id" value="{{ snap[0] }}">
+              <button type="submit" class="gp-btn gp-btn-danger">Delete</button>
+            </form>
+          </td>
+        </tr>
         {% endfor %}
       </tbody>
     </table>
@@ -58,4 +69,5 @@
   <p class="muted">No snapshots yet. Your first upload will appear here.</p>
   {% endif %}
 </section>
+<script src="{{ url_for('static', path='snapshot-delete.js') }}"></script>
 {% endblock %}

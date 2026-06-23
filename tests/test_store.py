@@ -492,3 +492,34 @@ def test_restrict_db_permissions_warns_on_failure(tmp_path, monkeypatch):
     with pytest.warns(UserWarning, match="Could not restrict DB permissions"):
         store.restrict_db_permissions(conn)
     conn.close()
+
+
+def test_delete_snapshot_cascades_and_reports(tmp_path):
+    """delete_snapshot removes the estate wholesale and reports existence."""
+    db = tmp_path / "del.db"
+    conn = sqlite3.connect(str(db))
+    store.init_db(conn)
+    s1 = store.save_estate(
+        conn,
+        Estate(domain="a.local", gpos=[_make_gpo(
+            id="gpo-a",
+            settings=[Setting(
+                gpo_id="gpo-a", side="Computer", cse="Registry",
+                identity="HKLM\\X:V", display_name="V", display_value="1", raw={},
+                from_disabled_side=False,
+            )],
+        )]),
+    )
+    s2 = store.save_estate(conn, Estate(domain="b.local", gpos=[_make_gpo(id="gpo-b")]))
+
+    assert store.delete_snapshot(conn, s2) is True
+    assert [s[0] for s in store.list_snapshots(conn)] == [s1]
+    # cascade: no child rows survive for the deleted snapshot
+    for table in ("gpo", "setting", "gpo_link", "delegation", "som", "som_link"):
+        n = conn.execute(
+            f"SELECT COUNT(*) FROM {table} WHERE snapshot_id=?", (s2,)  # noqa: S608
+        ).fetchone()[0]
+        assert n == 0, table
+    # deleting a non-existent snapshot is a no-op that reports False
+    assert store.delete_snapshot(conn, 9999) is False
+    conn.close()
