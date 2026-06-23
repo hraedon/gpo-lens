@@ -299,15 +299,20 @@ try {
         $name = ""
         $type = "Unresolved"
         $sam = ""
-        $dom = ""
+        # NB: must NOT be named $dom - that is the script-level Get-ADDomain object
+        # ($dom.DNSRoot), used later to build the SYSVOL UNC path and the
+        # principals/group-members domain fields. Reusing $dom here clobbered it,
+        # producing a "\\\SYSVOL\\Policies" path (empty DNSRoot) that does not
+        # exist, so the SYSVOL copy silently collected nothing.
+        $domPart = ""
         try {
             $sidObj = New-Object System.Security.Principal.SecurityIdentifier($sid)
             $translated = $sidObj.Translate([System.Security.Principal.NTAccount]).Value
             $name = $translated
             if ($translated -match '^(.+?)\\(.+)$') {
-                $dom = $matches[1]; $sam = $matches[2]
+                $domPart = $matches[1]; $sam = $matches[2]
             } elseif ($translated -match '^(.+?)@(.+)$') {
-                $sam = $matches[1]; $dom = $matches[2]
+                $sam = $matches[1]; $domPart = $matches[2]
             } else {
                 $sam = $translated
             }
@@ -322,7 +327,7 @@ try {
         } catch {
             $name = $sid; $type = "Unresolved"; $unresolved++
         }
-        $principals[$sid] = [ordered]@{ name = $name; sam = $sam; type = $type; domain = $dom }
+        $principals[$sid] = [ordered]@{ name = $name; sam = $sam; type = $type; domain = $domPart }
     }
     # Supplement unresolved domain SIDs via Get-ADObject
     $domainSids = @($allSids | Where-Object { $_ -match '^S-1-5-21-' -and $principals[$_].type -eq 'Unresolved' })

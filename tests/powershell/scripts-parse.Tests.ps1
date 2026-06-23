@@ -29,3 +29,27 @@ Describe "scripts/*.ps1 integrity" {
         @($nonAscii).Count | Should -Be 0
     }
 }
+
+Describe "Export-GpoEstate.ps1 invariants" {
+    BeforeAll {
+        $script:CollectorPath =
+            (Resolve-Path "$PSScriptRoot/../../scripts/Export-GpoEstate.ps1").Path
+        $script:CollectorAst = [System.Management.Automation.Language.Parser]::ParseFile(
+            $script:CollectorPath, [ref]$null, [ref]$null)
+    }
+
+    It "assigns the Get-ADDomain object to `$dom exactly once (never clobbered)" {
+        # The AD-domain object is read much later for the SYSVOL UNC path
+        # (\\<DNSRoot>\SYSVOL\<DNSRoot>\Policies) and the principals/group domain
+        # fields. A loop that reused `$dom` as a local for a "DOMAIN\user" string
+        # silently emptied DNSRoot, yielding "\\\SYSVOL\\Policies" and a SYSVOL
+        # copy that collected nothing. Pin it: `$dom is assigned once, full stop.
+        $assignments = $script:CollectorAst.FindAll({
+            param($n)
+            $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+            $n.Left -is [System.Management.Automation.Language.VariableExpressionAst] -and
+            $n.Left.VariablePath.UserPath -eq 'dom'
+        }, $true)
+        @($assignments).Count | Should -Be 1
+    }
+}
