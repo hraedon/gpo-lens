@@ -1,5 +1,34 @@
 # Changelog
 
+## v0.7.2 — 2026-06-23
+
+### SNI-safe, sibling-safe uninstaller
+
+- **`uninstall-windows.ps1` no longer tears down a co-resident tool's TLS
+  binding.** The SSL-binding cleanup now decides catch-all vs SNI from the
+  site's `sslFlags` (bit 1), not from hostname presence — a catch-all binding
+  can carry a host header (`*:PORT:host` with `sslFlags=0`), where the cert
+  lives at `ipport=0.0.0.0:PORT`, not `hostnameport=host:PORT`. In SNI mode the
+  script removes only the per-host `hostnameport` binding and leaves the
+  catch-all alone (a sibling such as cert-watch on port 443 may own it). The
+  numeric/string `sslFlags` dual-form is handled the same way as the installer
+  (WI-041). Validated end-to-end on a real IIS host with disposable
+  catch-all + SNI sibling sites.
+
+- **Fixed a destructive bug: the uninstaller hard-coded the site directory.**
+  The final cleanup step removed `C:\inetpub\gpo-lens` regardless of
+  `-SiteName`, so running it for a different site could delete the real
+  gpo-lens site directory. It now removes the site's OWN `physicalPath`
+  (captured before the site is removed), falling back to a new `-SitePath`
+  parameter only when the site is already gone.
+
+- **New parameters:** `-HostName` (target an SNI binding when the site is
+  already removed) and `-SitePath`. The catch-all/SNI decision is extracted
+  into pure functions (`Get-IsSniFlag`, `Resolve-OwnedSslBinding`) behind a
+  dot-source guard, covered by `tests/powershell/uninstall-windows.Tests.ps1`
+  (11 Pester tests). Note: the installer already supported `-Port 443` and
+  `-Sni`; this change brings the uninstaller to parity.
+
 ## v0.7.1 — 2026-06-23
 
 ### HEC plaintext token warning, store.py assert fix, CLI coverage round 2
