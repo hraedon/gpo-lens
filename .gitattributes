@@ -1,0 +1,12 @@
+# Auto-detected as binary by git, but make it explicit to prevent
+# merge conflicts and avoid accidental text-normalization.
+*.sqlite3 binary
+*.db binary
+*.zip binary
+*.coverage binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary

@@ -1,6 +1,6 @@
 [project]
 name = "gpo-lens"
-version = "0.7.0"
+version = "0.7.1"
 description = "Local-first, read-only Group Policy analysis"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -37,6 +37,9 @@ packages = ["src/gpo_lens"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q --cov=src --cov-report=term-missing --cov-fail-under=85"
+filterwarnings = [
+    "ignore:.*plaintext.*:UserWarning",
+]
 markers = [
     "samples: requires real GPO export samples in samples/",
 ]

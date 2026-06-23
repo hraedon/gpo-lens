@@ -333,7 +333,8 @@ def save_estate(conn: sqlite3.Connection, estate: Estate, taken_at: datetime | N
         (estate.domain, taken_at.isoformat()),
     )
     snapshot_id = cursor.lastrowid
-    assert snapshot_id is not None
+    if snapshot_id is None:
+        raise RuntimeError("save_estate: cursor.lastrowid returned None")
 
     for g in estate.gpos:
         conn.execute(
