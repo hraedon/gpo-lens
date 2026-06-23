@@ -1,5 +1,38 @@
 # Changelog
 
+## v0.7.0 — 2026-06-23
+
+### sslFlags bitmask fix, test coverage gaps closed, WI-044 deduplicated
+
+- **WI-041 (low, fix):** `install-windows.ps1:158` used string matching
+  (`-match "Sni"`) to detect SNI from IIS `sslFlags`, which fails when
+  `sslFlags` is a numeric bitmask (the common case on modern IIS). Fixed
+  to use `[int]::TryParse` + `-band 1` for numeric values, with string
+  fallback for older IIS provider versions that return `"Sni"`/`"None"`.
+  The Pester test that codified the old behavior (`sslFlags = 1` →
+  `Sni = $false`) is updated to assert the correct behavior (`Sni = $true`).
+  Added a test for `sslFlags = 3` (SNI + Central Cert Store combined).
+
+- **Test coverage gaps closed:**
+  - `cli/_resultant.py`: 15% → 76% coverage. Added 40 tests (26
+    subprocess + 14 direct-call) covering text/JSON output, invalid SID,
+    unknown principal, computer SID, DN, and all error paths.
+  - `cli/_report.py`: 20% → 87% coverage. Added direct-call tests for
+    Markdown/HTML output, file output, `--json` refusal, baseline
+    loading (valid/invalid/missing), changelog (`--since`), and
+    `--admx-dir` warnings.
+  - `web/routes/resultant.py`: 48% → 100% coverage. Added 11 tests
+    covering GET form, POST with empty/valid/whitespace SID, computer
+    SID, DN, viewer permission, and exception handling.
+
+- **WI-044 (low, closed):** Closed as duplicate of WI-043. Both work
+  items had identical descriptions ("Cross-process ingest lock has no
+  multi-process test"). WI-043 was resolved in commit `3e6f06e`.
+
+### Test coverage
+- 1440 passed, 6 skipped. `ruff` and `mypy --strict` clean. Coverage
+  88.31% (with samples), up from 87.03%.
+
 ## v0.6.4 — 2026-06-20
 
 ### Coverage CI gate, danger loader resilience, merge spec (WI-032, WI-034, WI-035)

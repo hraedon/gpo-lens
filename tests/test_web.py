@@ -1796,3 +1796,109 @@ class TestServeAdmxFlag:
             args.db, root_path=args.root_path, admx_dir=str(pd_dir)
         )
 
+
+class TestResultantRoute:
+    def test_get_returns_200(self, client) -> None:
+        resp = client.get("/resultant")
+        assert resp.status_code == 200
+        assert "Principal Resultant" in resp.text
+
+    def test_get_shows_form(self, client) -> None:
+        resp = client.get("/resultant")
+        assert resp.status_code == 200
+        assert "principal_sid" in resp.text
+        assert "Compute resultant" in resp.text
+
+    def test_post_empty_sid_shows_error(self, client) -> None:
+        resp = client.post("/resultant", data={"principal_sid": ""})
+        assert resp.status_code == 200
+        assert "A principal SID is required" in resp.text
+
+    def test_post_whitespace_sid_shows_error(self, client) -> None:
+        resp = client.post("/resultant", data={"principal_sid": "   "})
+        assert resp.status_code == 200
+        assert "A principal SID is required" in resp.text
+
+    def test_post_valid_sid_returns_result(self, client) -> None:
+        resp = client.post("/resultant", data={
+            "principal_sid": "S-1-5-21-100-200-300-1001",
+        })
+        assert resp.status_code == 200
+        assert "Resultant for" in resp.text
+
+    def test_post_with_computer_sid(self, client) -> None:
+        resp = client.post("/resultant", data={
+            "principal_sid": "S-1-5-21-100-200-300-1001",
+            "computer_sid": "S-1-5-21-100-200-300-5001",
+        })
+        assert resp.status_code == 200
+        assert "Resultant for" in resp.text
+
+    def test_post_with_dn(self, client) -> None:
+        resp = client.post("/resultant", data={
+            "principal_sid": "S-1-5-21-100-200-300-1001",
+            "dn": "cn=test,ou=users,dc=fakefixture,dc=local",
+        })
+        assert resp.status_code == 200
+
+    def test_post_shows_caveat_summary(self, client) -> None:
+        resp = client.post("/resultant", data={
+            "principal_sid": "S-1-5-21-100-200-300-1001",
+        })
+        assert resp.status_code == 200
+        assert "resultant given collected inputs" in resp.text.lower()
+
+    def test_post_viewer_gets_200(self, fixture_db: str) -> None:
+        from fastapi.testclient import TestClient
+
+        from gpo_lens.web.app import create_app
+        from gpo_lens.web.auth import Permission, Principal, get_principal
+
+        viewer = Principal(
+            name="viewer",
+            role="viewer",
+            permissions=frozenset([Permission.VIEW]),
+        )
+        app = create_app(fixture_db)
+        app.dependency_overrides[get_principal] = lambda authorization=None: viewer
+        try:
+            c = TestClient(app, headers={"origin": "http://localhost"})
+            resp = c.get("/resultant")
+        finally:
+            app.dependency_overrides.clear()
+        assert resp.status_code == 200
+
+    def test_post_viewer_can_compute(self, fixture_db: str) -> None:
+        from fastapi.testclient import TestClient
+
+        from gpo_lens.web.app import create_app
+        from gpo_lens.web.auth import Permission, Principal, get_principal
+
+        viewer = Principal(
+            name="viewer",
+            role="viewer",
+            permissions=frozenset([Permission.VIEW]),
+        )
+        app = create_app(fixture_db)
+        app.dependency_overrides[get_principal] = lambda authorization=None: viewer
+        try:
+            c = TestClient(app, headers={"origin": "http://localhost"})
+            resp = c.post("/resultant", data={
+                "principal_sid": "S-1-5-21-100-200-300-1001",
+            })
+        finally:
+            app.dependency_overrides.clear()
+        assert resp.status_code == 200
+        assert "Resultant for" in resp.text
+
+    def test_post_exception_shows_error(self, client) -> None:
+        with patch(
+            "gpo_lens.merge.principal_resultant",
+            side_effect=ValueError("test explosion"),
+        ):
+            resp = client.post("/resultant", data={
+                "principal_sid": "S-1-5-21-100-200-300-1001",
+            })
+        assert resp.status_code == 200
+        assert "test explosion" in resp.text
+

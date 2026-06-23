@@ -154,8 +154,16 @@ function Get-ExistingBindingConfig {
     if ($httpsBind) {
         $parsed = Parse-BindingInformation -BindingInformation "$($httpsBind.bindingInformation)"
         if ($parsed.Port -ne "") {
-            # sslFlags string matching is preserved from the original script.
-            $exSni = ("$($httpsBind.sslFlags)" -match "Sni")
+            # sslFlags is a bitmask: bit 0 (1) = SNI, bit 1 (2) = Central Cert Store, etc.
+            # Some IIS provider versions return a string ("Sni"/"None") instead of an int;
+            # fall back to string match for those.
+            $rawFlags = "$($httpsBind.sslFlags)"
+            $flagsVal = 0
+            if ([int]::TryParse($rawFlags, [ref]$flagsVal)) {
+                $exSni = ($flagsVal -band 1) -ne 0
+            } else {
+                $exSni = $rawFlags -match "Sni"
+            }
             $existing = @{ Port = $parsed.Port; Host = $parsed.Host; Sni = $exSni; Cert = "" }
             # Read the currently bound cert hash. Try the IIS binding's
             # certificateHash first (most reliable), then fall back to netsh
