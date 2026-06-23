@@ -31,7 +31,7 @@ jobs:
           GPO_LENS_FORBIDDEN_IDENTIFIERS: ${{ secrets.GPO_LENS_FORBIDDEN_IDENTIFIERS }}
         run: python scripts/check_committed_identifiers.py
 
-  lint-typecheck-test:
+  lint-typecheck:
     runs-on: ubuntu-latest
 
     steps:
@@ -61,5 +61,53 @@ jobs:
       - name: Mypy typecheck
         run: .venv/bin/mypy src
 
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13", "3.14"]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          enable-cache: true
+
+      - name: Create venv and install dependencies
+        run: |
+          uv venv
+          uv pip install -e ".[dev,web]"
+
       - name: Run tests with coverage
         run: .venv/bin/pytest -q
+
+  pester:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Install Pester
+        shell: powershell
+        run: |
+          Install-Module Pester -Force -Scope CurrentUser -MinimumVersion 5.7.1 -ErrorAction Stop
+
+      - name: Run PowerShell tests
+        shell: powershell
+        run: |
+          $result = Invoke-Pester -Path tests/powershell/*.Tests.ps1 -Output Detailed -CI -PassThru
+          if ($result.FailedCount -gt 0) { exit 1 }

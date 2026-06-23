@@ -9,7 +9,13 @@ import pytest
 
 from gpo_lens import model, queries
 from gpo_lens.ingest import load_estate
-from gpo_lens.report import generate_html, generate_markdown, generate_report, write_report
+from gpo_lens.report import (
+    _md_code,
+    generate_html,
+    generate_markdown,
+    generate_report,
+    write_report,
+)
 
 FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures"
 
@@ -188,6 +194,17 @@ def test_generate_markdown_pipe_escaping():
     report = generate_markdown(estate)
     # The summary table should have escaped pipes in the domain value
     assert "test\\|local" in report
+
+
+def test_md_code_no_double_escaping():
+    """_md_code must not HTML-escape — CommonMark renderers escape code span
+    content automatically, so escaping here would double-escape (``<`` →
+    ``&lt;`` → ``&amp;lt;`` in the rendered output).  Only backticks are
+    escaped (to prevent breaking out of the code span)."""
+    assert _md_code("<val>") == "<val>"
+    assert _md_code("a & b") == "a & b"
+    assert _md_code("a ` b") == "a &#96; b"
+    assert _md_code("<script>") == "<script>"
 
 
 def test_generate_html_precedence_conflicts(fixture_estate):

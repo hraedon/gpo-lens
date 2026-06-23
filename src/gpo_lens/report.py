@@ -217,12 +217,14 @@ def _md_esc(text: str | object) -> str:
 
 
 def _md_code(text: str | object) -> str:
-    """Escape text for use inside Markdown inline code (backtick) spans.
+    r"""Escape text for use inside Markdown inline code (backtick) spans.
 
-    Escapes HTML entities (prevents XSS) and backticks (prevents breaking
-    out of the code span).
+    Only escapes backticks (prevents breaking out of the code span).  HTML
+    entities are NOT escaped here because CommonMark renderers escape code
+    span content automatically — calling ``_md_esc`` would double-escape
+    (``<`` → ``&lt;`` → ``&amp;lt;`` in the rendered output).
     """
-    return _md_esc(str(text).replace("`", "&#96;"))
+    return str(text).replace("`", "&#96;")
 
 
 def _md_table(text: str | object) -> str:

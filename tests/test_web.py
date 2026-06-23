@@ -506,6 +506,55 @@ class TestIngest:
         assert "Upload exceeds" in resp.text
 
 
+def test_file_lock_blocks_cross_process(tmp_path):
+    """WI-043: _FileLock must block across processes, not just threads.
+
+    The threading.Lock fast-path only handles same-process contention.
+    This test verifies the underlying fcntl.flock (Unix) / msvcrt.locking
+    (Windows) actually prevents a separate process from acquiring the lock.
+    """
+    import subprocess
+
+    from gpo_lens.web.app import _FileLock
+
+    lock_path = str(tmp_path / "cross.lock")
+    lock = _FileLock(lock_path)
+    assert lock.acquire(blocking=False)
+
+    child_script = (
+        "import sys; "
+        "from gpo_lens.web.app import _FileLock; "
+        f"lock = _FileLock({lock_path!r}); "
+        "acquired = lock.acquire(blocking=False); "
+        "lock.release() if acquired else None; "
+        "sys.exit(0 if acquired else 1)"
+    )
+
+    try:
+        result = subprocess.run(
+            [sys.executable, "-c", child_script],
+            capture_output=True,
+            timeout=10,
+        )
+        assert result.returncode == 1, (
+            "Child should NOT acquire lock held by parent; "
+            f"exit={result.returncode} stderr={result.stderr.decode()}"
+        )
+    finally:
+        lock.release()
+
+    # After release, a new process should acquire.
+    result = subprocess.run(
+        [sys.executable, "-c", child_script],
+        capture_output=True,
+        timeout=10,
+    )
+    assert result.returncode == 0, (
+        "Child should acquire lock after parent released; "
+        f"exit={result.returncode} stderr={result.stderr.decode()}"
+    )
+
+
 class TestAsk:
     def test_ask_page_returns_200(self, client) -> None:
         resp = client.get("/ask")
