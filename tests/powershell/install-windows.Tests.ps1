@@ -263,7 +263,7 @@ Describe "install-windows.ps1" {
             $hostnameportShow | Should -Not -Be $null
         }
 
-        It "treats a numeric sslFlags value as non-SNI (preserves original script behaviour)" {
+        It "detects SNI from numeric sslFlags bitmask (bit 0 = SNI)" {
             Mock Get-WebBinding {
                 @(
                     [pscustomobject]@{ protocol = "https"; bindingInformation = "*:8443:gpo-lens.local"; sslFlags = 1 }
@@ -272,13 +272,26 @@ Describe "install-windows.ps1" {
             $global:NetshCertHash = "ABCDDEF0"
 
             $r = Get-ExistingBindingConfig -SiteName "gpo-lens"
-            $r.Sni | Should -Be $false
+            $r.Sni | Should -Be $true
             $r.Cert | Should -Be "ABCDDEF0"
 
             # Because the binding has a hostname, the script first tries
             # hostnameport and only falls back to ipport on a miss.
             $hostnameportShow = $global:NetshCalls | Where-Object { ($_ -join " ") -match 'show sslcert hostnameport=gpo-lens.local:8443' }
             $hostnameportShow | Should -Not -Be $null
+        }
+
+        It "detects SNI from sslFlags bitmask with combined flags (3 = SNI + CCS)" {
+            Mock Get-WebBinding {
+                @(
+                    [pscustomobject]@{ protocol = "https"; bindingInformation = "*:8443:gpo-lens.local"; sslFlags = 3 }
+                )
+            }
+            $global:NetshCertHash = "ABCD1122"
+
+            $r = Get-ExistingBindingConfig -SiteName "gpo-lens"
+            $r.Sni | Should -Be $true
+            $r.Cert | Should -Be "ABCD1122"
         }
 
         It "returns `$null when bindingInformation is malformed" {
