@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+### Fix: SYSVOL never collected — clobbered `$dom` AD-domain object (the real root cause)
+
+- **The principals/SID-resolution loop reused `$dom` as a local** for the
+  `DOMAIN\user` part of a translated SID, overwriting the script-level
+  `Get-ADDomain` object set at the top. By the time the SYSVOL copy ran,
+  `$dom.DNSRoot` was empty, so the source path became `\\\SYSVOL\\Policies`
+  (a path that does not exist) and the copy collected **nothing** — every
+  SYSVOL/GPP/cPassword detector went blind. The same clobber also broke the
+  Get-ADObject SID supplement (it calls `$dom.DNSRoot` after the clobber, into
+  an empty `catch`) and nulled the `domain` field in principals/group exports.
+- Renamed the loop-local to `$domPart`; `$dom` is now assigned exactly once.
+  This is a **pre-existing regression** from the principal-resolution feature,
+  not from the recent SYSVOL/identity work — but the earlier false-success bug
+  hid it (it reported "SYSVOL copy" success despite 0 files); the false-success
+  fix is what surfaced it.
+- **Validated end-to-end on a live domain** (scheduled task as the machine
+  account, no stored credential): SYSVOL-Policies went from 0 files to **5,328
+  files / ~90 MB across 17 policy folders**, `principals.domain` resolved
+  correctly, and one security-filtered folder was honestly flagged inaccessible
+  rather than silently dropped.
+- **New AST guard** (`scripts-parse.Tests.ps1`): asserts `$dom` is assigned
+  exactly once in the collector, so this clobber cannot regress.
+
 ### Fix: collector aborted with parser "formatting" errors (non-ASCII)
 
 - **`Export-GpoEstate.ps1` had an em-dash (`—`) inside a string literal**, added
