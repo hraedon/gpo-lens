@@ -10,6 +10,7 @@ import threading
 import urllib.error
 import urllib.parse
 import urllib.request
+import warnings
 from typing import Any
 
 
@@ -81,6 +82,12 @@ class HecSink:
             raise ValueError("HEC URL must include http:// or https:// scheme")
         if parsed.scheme not in ("https", "http"):
             raise ValueError(f"HEC URL must be http(s)://, got {parsed.scheme}://")
+        if parsed.scheme == "http":
+            warnings.warn(
+                f"HEC URL {parsed.netloc} is http:// — the Splunk token "
+                "will be sent in plaintext. Use https:// for production.",
+                stacklevel=2,
+            )
         self.url = url.rstrip("/")
         self.token = token
         self.verify_tls = verify_tls
@@ -96,8 +103,7 @@ class HecSink:
         try:
             return cls(url=hec_url, token=hec_token, verify_tls=verify)
         except ValueError as exc:
-            import warnings
-            warnings.warn(f"Invalid HEC URL configuration: {exc}", stacklevel=1)
+            warnings.warn(f"Invalid HEC URL configuration: {exc}", stacklevel=2)
             return None
 
     def _post(self, payload: str) -> bool:

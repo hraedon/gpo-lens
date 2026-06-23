@@ -151,6 +151,19 @@ class TestHecSink:
         with pytest.raises(ValueError, match="must be http"):
             HecSink(url="file:///etc/passwd", token="x")
 
+    def test_http_url_warns_plaintext_token(self) -> None:
+        with pytest.warns(UserWarning, match="plaintext"):
+            HecSink("http://splunk.test:8088", "test-token")
+
+    def test_https_url_does_not_warn(self) -> None:
+        import warnings as w
+
+        with w.catch_warnings(record=True) as caught:
+            w.simplefilter("always")
+            HecSink("https://splunk.test:8088", "test-token")
+        plaintext_warnings = [x for x in caught if "plaintext" in str(x.message)]
+        assert len(plaintext_warnings) == 0
+
     def test_from_env_none_when_not_set(self) -> None:
         with patch.dict(os.environ, {}, clear=True):
             assert HecSink.from_env() is None

@@ -1,5 +1,49 @@
 # Changelog
 
+## v0.7.1 — 2026-06-23
+
+### HEC plaintext token warning, store.py assert fix, CLI coverage round 2
+
+- **sinks.py HEC plaintext token warning.** `HecSink.__init__` now emits
+  a `UserWarning` when the HEC URL is `http://` (the Splunk token is sent
+  in the `Authorization` header in plaintext). The warning includes the
+  hostname:port so multi-sink setups can identify the offending URL.
+  Hoisted `import warnings` to module top-level (was function-local in
+  `from_env`); fixed `from_env` `stacklevel` from 1 to 2. Added 2 new
+  tests verifying the warning fires for `http://` and not for `https://`.
+  Existing tests that intentionally use `http://` mock servers are
+  silenced via `pyproject.toml` `filterwarnings`.
+
+- **store.py assert replaced with RuntimeError.** `save_estate` used
+  `assert snapshot_id is not None` which is a no-op under `python -O`.
+  Replaced with an explicit `if snapshot_id is None: raise RuntimeError`.
+
+- **`.gitattributes` added.** Marks `.sqlite3`, `.db`, `.zip`, `.coverage`,
+  and image files as binary to prevent merge conflicts and accidental
+  text normalization.
+
+- **CLI coverage gaps closed (round 2):**
+  - `cli/_diff.py`: 41% → 98%. 27 direct-call tests covering diff,
+    diff-settings, changelog, snapshots, and baseline-diff (text + JSON,
+    with/without changes, filters, zip baseline path).
+  - `cli/_delegation.py`: 30% → 100%. 15 direct-call tests covering
+    perms, delegation (all 5 output sections), and sddl (text + JSON,
+    with/without data).
+
+- **WI-036, WI-042 closed in memory** (paperwork — code was already
+  resolved in commit `3e6f06e`).
+
+### Adversarial review
+One round of adversarial review (GLM). Found and fixed: missing test for
+HEC warning (C-1), existing test warning suppression (C-2), function-local
+`import warnings` (M-1), incorrect `stacklevel` in `from_env` (M-2), warning
+message missing URL (L-1), fixture return type annotations and decorator
+style inconsistencies in test_cli_diff.py (M-4, M-5).
+
+### Test coverage
+- 1484 passed, 6 skipped. `ruff` and `mypy --strict` clean. Coverage
+  90.36% (with samples), up from 88.31%.
+
 ## v0.7.0 — 2026-06-23
 
 ### sslFlags bitmask fix, test coverage gaps closed, WI-044 deduplicated
