@@ -428,10 +428,10 @@ if ($SkipSysvol) {
             Write-Warning "SYSVOL copy failed for policy folder $($pf.Name): $($_.Exception.Message)"
         }
     }
-    # Loose files at the Policies root (rare) — keep parity with a full copy.
+    # Loose files at the Policies root (rare) - keep parity with a full copy.
     Get-ChildItem -LiteralPath $src -File -ErrorAction SilentlyContinue |
         ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $dest -Force -ErrorAction SilentlyContinue }
-    # Success means files actually landed — not merely "no exception was thrown".
+    # Success means files actually landed - not merely "no exception was thrown".
     # A 0-folder enumeration (unreachable $src) or a copy that wrote nothing both
     # produced "SYSVOL copy" success before, yielding a SYSVOL-less export that
     # silently blinds every GPP/cPassword detector downstream. Verify on disk.
@@ -441,7 +441,7 @@ if ($SkipSysvol) {
             "enumerated 0 policy folders at $src" +
             $(if ($srcErr) { " ($($srcErr[0].Exception.Message))" } else { "" })
         } else { "copy wrote 0 files to SYSVOL-Policies" }
-        $failedSections.Add("SYSVOL copy: $detail — GPP/cPassword detection will be BLIND")
+        $failedSections.Add("SYSVOL copy: $detail - GPP/cPassword detection will be BLIND")
         $collectionErrors.Add([pscustomobject]@{
             GpoId = $null; DisplayName = $null; Stage = 'sysvol'; Error = $detail
         })
@@ -470,14 +470,14 @@ if ($failedSections.Count -gt 0) {
 if (-not $NoZip) {
     # NB: Windows PowerShell 5.1's Compress-Archive writes BACKSLASH path
     # separators and directory entries that extract on Linux without the
-    # traversal (x) bit — which breaks ingest on a non-Windows analysis box.
+    # traversal (x) bit - which breaks ingest on a non-Windows analysis box.
     # Build the archive by hand with forward-slash, file-only entries so it is
     # portable regardless of the extractor.
     Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
     try {
         if (Test-Path -LiteralPath "$out.zip") { Remove-Item -LiteralPath "$out.zip" -Force }
         # Windows PowerShell 5.1's Get-ChildItem -Recurse SILENTLY skips paths
-        # over MAX_PATH (260 chars) — exactly the deep SYSVOL/GPP trees — which
+        # over MAX_PATH (260 chars) - exactly the deep SYSVOL/GPP trees - which
         # can drop whole subtrees from the archive while the run still reports
         # "Done". Capture enumeration errors and reconcile the zipped count
         # against the on-disk count so a partial archive is loud, not silent.

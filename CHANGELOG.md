@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Fix: collector aborted with parser "formatting" errors (non-ASCII)
+
+- **`Export-GpoEstate.ps1` had an em-dash (`—`) inside a string literal**, added
+  with the SYSVOL-coverage work. PowerShell 5.1 reads a BOM-less `.ps1` as the
+  ANSI code page, so the em-dash's bytes corrupted the string token and the
+  parser aborted the whole script with a cascade of misleading syntax errors
+  before it ran anything. Scrubbed the script to ASCII-only. Confirmed it now
+  parses and executes on a real domain-joined Windows box (PS 5.1).
+- **New pester guard** (`tests/powershell/scripts-parse.Tests.ps1`,
+  windows-latest CI): AST-parses every `scripts/*.ps1` and asserts ASCII-only,
+  covering the collector that the install/uninstall unit tests never load. This
+  is the gap that let the break ship — the collector had no CI parse check.
+
 ### Remove estate imports from the web UI
 
 - **The Ingest page can now delete a snapshot.** Each row in the Snapshots table
