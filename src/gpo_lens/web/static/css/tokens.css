@@ -304,7 +304,12 @@ a:hover { text-decoration: underline; }
 .gp-table tbody tr { transition: background .1s; }
 .gp-table tbody tr:hover { background: var(--row-hover); }
 .gp-table td.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; text-align: right; }
-.gp-table .mono { font-family: var(--font-mono); }
+/* Long unbreakable identities (e.g. deep registry paths like Citrix's
+   oidInternetRegionConnectionAuthorizationDecision) must wrap, or they force the
+   column wide enough to push later columns — the Value column — past the wrap's
+   overflow:hidden edge and clip them off-screen. break-word keeps the table
+   within its container so every column stays visible. */
+.gp-table .mono { font-family: var(--font-mono); overflow-wrap: anywhere; word-break: break-word; }
 .gp-table tr.dim td { color: var(--text-3); }
 .gp-table tr.flag { background: var(--warn-soft); }
 .gp-table tr.flag:hover { background: var(--warn-soft); }
