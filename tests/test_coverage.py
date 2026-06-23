@@ -28,6 +28,43 @@ def test_no_manifests_means_no_gaps(tmp_path):
     assert est.coverage_gaps == []
 
 
+def test_absent_sysvol_flags_missing_sysvol_gap(tmp_path):
+    # A SYSVOL-less export still parses (settings come from the report XML) but
+    # the SYSVOL-only detectors (cPassword/GPP) go blind — surface it loudly.
+    dest = _export_with(tmp_path)
+    shutil.rmtree(dest / "SYSVOL-Policies")
+    est = ingest.load_estate(dest)
+    gaps = [g for g in est.coverage_gaps if g.kind == "missing_sysvol"]
+    assert len(gaps) == 1, "exactly one estate-level gap, not one per GPO"
+    assert gaps[0].gpo_id == ""
+
+
+def test_empty_sysvol_flags_missing_sysvol_gap(tmp_path):
+    # Present-but-empty SYSVOL-Policies (the collector copy no-op'd) is the same
+    # blindness as absent, and must trip the same gap.
+    dest = _export_with(tmp_path)
+    shutil.rmtree(dest / "SYSVOL-Policies")
+    (dest / "SYSVOL-Policies").mkdir()
+    est = ingest.load_estate(dest)
+    assert any(g.kind == "missing_sysvol" for g in est.coverage_gaps)
+
+
+def test_missing_sysvol_is_a_critical_doctor_finding(tmp_path):
+    dest = _export_with(tmp_path)
+    shutil.rmtree(dest / "SYSVOL-Policies")
+    est = ingest.load_estate(dest)
+    findings = queries.estate_doctor(est)
+    cov = [f for f in findings if f.category == "coverage_gap"
+           and f.severity == "critical"]
+    assert cov and "BLIND" in cov[0].summary
+
+
+def test_present_sysvol_means_no_missing_gap(tmp_path):
+    # The intact fixture has matching SYSVOL folders — no false positive.
+    est = ingest.load_estate(_export_with(tmp_path))
+    assert not any(g.kind == "missing_sysvol" for g in est.coverage_gaps)
+
+
 def test_inventory_reconciliation_flags_inaccessible(tmp_path):
     base = ingest.load_estate(FIXTURES)
     inventory = [{"Id": g.id, "DisplayName": g.name} for g in base.gpos]

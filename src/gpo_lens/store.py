@@ -727,3 +727,18 @@ def list_snapshots(conn: sqlite3.Connection) -> list[tuple[int, str, datetime | 
         "SELECT id, domain, taken_at FROM snapshot ORDER BY id DESC"
     ).fetchall()
     return [(row[0], row[1], _iso_to_dt(row[2])) for row in rows]
+
+
+def delete_snapshot(conn: sqlite3.Connection, snapshot_id: int) -> bool:
+    """Delete one imported snapshot and all its rows; True if it existed.
+
+    Every child table declares ``ON DELETE CASCADE`` against ``snapshot(id)``,
+    so removing the parent row removes the estate wholesale — but SQLite only
+    enforces that when ``PRAGMA foreign_keys = ON`` is set on the connection
+    (``get_rw_conn`` does). Re-assert it here so a direct caller can't silently
+    orphan child rows.
+    """
+    conn.execute("PRAGMA foreign_keys = ON")
+    cur = conn.execute("DELETE FROM snapshot WHERE id = ?", (snapshot_id,))
+    conn.commit()
+    return cur.rowcount > 0

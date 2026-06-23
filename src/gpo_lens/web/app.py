@@ -478,6 +478,7 @@ def create_app(
         ask,
         baseline,
         changelog,
+        conflicts,
         dashboard,
         export,
         gpo,
@@ -488,6 +489,7 @@ def create_app(
 
     dashboard.register(app, templates)
     gpo.register(app, templates)
+    conflicts.register(app, templates)
     ou.register(app, templates)
     ingest.register(app, templates)
     ask.register(app, templates)

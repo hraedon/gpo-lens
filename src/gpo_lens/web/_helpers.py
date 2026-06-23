@@ -37,6 +37,8 @@ _VALID_SORTS = {"severity", "severity_desc", "gpo", "finding"}
 _SEVERITY_RANK = SEVERITY_ORDER
 _VALID_OU_SORTS = {"name", "links", "type"}
 _VALID_OU_TYPES = {"domain", "ou", "site"}
+_VALID_GPO_SORTS = {"name", "links", "settings", "modified"}
+_VALID_GPO_STATUS = {"linked", "unlinked", "empty", "disabled"}
 
 # Health indicators for the dashboard posture grid, in display order. Each is
 # (EstateSummary attribute, human label, severity tone). Tone drives both the
@@ -60,6 +62,29 @@ _POSTURE_SPEC: list[tuple[str, str, str]] = [
     ("ilt_gpo_count", "Item-level targeting", "info"),
     ("stale_gpo_count", "Stale GPOs (>2y)", "info"),
 ]
+
+# Maps a posture indicator to the Doctor-finding category that backs it, so a
+# posture card can deep-link into the findings table pre-filtered to its issue.
+# A value is matched exactly OR as a prefix (``broken_ref`` -> ``broken_ref:unc``,
+# ``danger`` -> ``danger:<check>``). Indicators with no backing finding
+# (set conflicts, loopback, WMI-filtered) are intentionally absent — they stay
+# non-clickable rather than linking to a guaranteed-empty result.
+_POSTURE_CATEGORY: dict[str, str] = {
+    "cpassword_hit_count": "cpassword",
+    "ms16_072_vulnerable_count": "ms16_072",
+    "danger_finding_count": "danger",
+    "broken_ref_count": "broken_ref",
+    "broken_wmi_ref_count": "broken_wmi_ref",
+    "version_skew_count": "version_skew",
+    "disabled_but_populated_count": "disabled_but_populated",
+    "dangling_link_count": "dangling_link",
+    "orphaned_wmi_filter_count": "orphaned_wmi_filter",
+    "unlinked_count": "unlinked",
+    "empty_count": "empty",
+    "enforced_link_count": "enforced_link",
+    "ilt_gpo_count": "ilt_gpo",
+    "stale_gpo_count": "stale_gpo",
+}
 
 
 async def stream_upload_to_file(
@@ -162,10 +187,20 @@ def base_qs(request: Request, *strip: str) -> str:
 
 
 def filter_findings(
-    findings: list[Any], severity: str, q: str, sort: str
+    findings: list[Any], severity: str, q: str, sort: str, category: str = ""
 ) -> list[Any]:
-    """Apply severity filter, text search, and sort to a findings list."""
+    """Apply category, severity filter, text search, and sort to findings.
+
+    *category* matches a finding's ``category`` exactly or as a ``cat:``-prefix
+    (so the "Broken references" posture card catches every ``broken_ref:<type>``),
+    letting a posture indicator deep-link into this table.
+    """
     result = findings
+    if category:
+        result = [
+            f for f in result
+            if f.category == category or f.category.startswith(category + ":")
+        ]
     if severity and severity != "all":
         wanted = {s.strip() for s in severity.split(",") if s.strip()}
         result = [f for f in result if f.severity in wanted]
@@ -222,6 +257,50 @@ def filter_soms(
         )
     else:
         result = sorted(result, key=lambda s: (s.name or "").lower())
+    return result
+
+
+def filter_gpos(gpos: list[Any], q: str, status: str, sort: str) -> list[Any]:
+    """Apply a status filter, text search, and sort to the GPO inventory.
+
+    *status* is one of ``linked``/``unlinked``/``empty``/``disabled``. Search is
+    a case-insensitive substring over name and GUID. Sort defaults to name so the
+    unfiltered inventory is predictably alphabetical (the dashboard's findings
+    list, by contrast, sorts by severity and is not a GPO browser).
+    """
+    result = gpos
+    if status == "linked":
+        result = [g for g in result if g.links]
+    elif status == "unlinked":
+        result = [g for g in result if not g.links]
+    elif status == "empty":
+        result = [g for g in result if not g.settings]
+    elif status == "disabled":
+        result = [
+            g for g in result if not g.computer_enabled and not g.user_enabled
+        ]
+    q = (q or "")[:_MAX_SEARCH_LEN]
+    if q:
+        needle = q.lower()
+        result = [
+            g for g in result
+            if needle in (g.name or "").lower() or needle in (g.id or "").lower()
+        ]
+    if sort == "links":
+        result = sorted(result, key=lambda g: (-len(g.links), (g.name or "").lower()))
+    elif sort == "settings":
+        result = sorted(
+            result, key=lambda g: (-len(g.settings), (g.name or "").lower())
+        )
+    elif sort == "modified":
+        # Most-recent first; GPOs without a timestamp sort last.
+        result = sorted(
+            result,
+            key=lambda g: (g.modified.timestamp() if g.modified else float("-inf")),
+            reverse=True,
+        )
+    else:
+        result = sorted(result, key=lambda g: (g.name or "").lower())
     return result
 
 

@@ -27,7 +27,9 @@
         </a>
         <nav class="gp-nav" aria-label="Primary">
             <a href="{{ url_for('home') }}" {% if path == '/' %}class="active"{% endif %}>Dashboard</a>
+            <a href="{{ url_for('gpo_list') }}" {% if path.startswith('/inventory') %}class="active"{% endif %}>Inventory</a>
             <a href="{{ url_for('danger_list') }}" {% if path.startswith('/danger') %}class="active"{% endif %}>Danger</a>
+            <a href="{{ url_for('conflicts') }}" {% if path.startswith('/conflicts') %}class="active"{% endif %}>Conflicts</a>
             <a href="{{ url_for('ou_list') }}" {% if path.startswith('/ou') %}class="active"{% endif %}>Directory</a>
             <a href="{{ url_for('changelog') }}" {% if path.startswith('/changelog') %}class="active"{% endif %}>Changelog</a>
             <a href="{{ url_for('baseline_get') }}" {% if path.startswith('/baseline') %}class="active"{% endif %}>Baseline</a>

@@ -227,6 +227,8 @@ a:hover { text-decoration: underline; }
 .gp-btn.primary:hover { filter: brightness(0.92); }
 :root[data-theme="dark"] .gp-btn.primary:hover { filter: brightness(1.1); }
 .gp-btn:disabled { opacity: .45; cursor: not-allowed; }
+.gp-btn-danger { color: var(--crit); border-color: color-mix(in srgb, var(--crit) 34%, transparent); }
+.gp-btn-danger:hover { background: var(--crit-soft); border-color: var(--crit); }
 
 /* ---------- INPUTS / SELECT ---------- */
 .gp-field { display: flex; flex-direction: column; gap: 6px; }
@@ -333,6 +335,10 @@ a:hover { text-decoration: underline; }
 .gp-ind.warn .val { color: var(--warn); }
 .gp-ind.info { border-color: color-mix(in srgb, var(--info) 30%, transparent); background: var(--info-soft); }
 .gp-ind.info .val { color: var(--info); }
+/* A posture card that deep-links into the findings table reads as actionable. */
+a.gp-ind { text-decoration: none; color: inherit; cursor: pointer; transition: border-color .12s, transform .12s; }
+a.gp-ind:hover { border-color: var(--text-muted); transform: translateY(-1px); }
+a.gp-ind:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .gp-allclear {
   margin-top: 12px; font-size: 12.5px; color: var(--text-3); line-height: 1.6;
 }
@@ -507,3 +513,20 @@ a:hover { text-decoration: underline; }
   background: var(--btn-strong-bg);
 }
 .gp-pagination-ellipsis { padding: 5px 4px; color: var(--text-3); }
+
+/* Tabbed sub-navigation (Conflicts: resolved vs defined lenses). */
+.gp-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin: 0 0 18px; }
+.gp-tab {
+  padding: 9px 15px; font-size: var(--fs-sm); color: var(--text-3); text-decoration: none;
+  border-bottom: 2px solid transparent; margin-bottom: -1px; transition: color .12s, border-color .12s;
+}
+.gp-tab:hover { color: var(--text); }
+.gp-tab.active { color: var(--text); border-bottom-color: var(--accent); }
+.gp-tab .count {
+  font-family: var(--font-mono); font-size: 11px; color: var(--text-3);
+  background: var(--panel); border: 1px solid var(--border); border-radius: 999px; padding: 1px 7px; margin-left: 4px;
+}
+/* Expandable scope list inside a conflict row's <details>. */
+.gp-table td details summary { cursor: pointer; color: var(--accent); font-variant-numeric: tabular-nums; }
+.gp-scope-list { margin-top: 6px; max-height: 220px; overflow-y: auto; font-size: 11px; color: var(--text-3); text-align: left; }
+.gp-scope-list div { padding: 1px 0; }

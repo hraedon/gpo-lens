@@ -65,16 +65,24 @@ def estate_doctor(
     """
     findings: list[DoctorFinding] = []
 
+    _COVERAGE_SUMMARY = {
+        "inaccessible": "GPO could not be collected — estate analysis is incomplete",
+        "missing_sysvol": (
+            "No SYSVOL collected — GPP/cPassword detectors are BLIND, not clean"
+        ),
+        "unreadable_sysvol": "GPP content unreadable — estate view is partial",
+    }
     for cov in estate.coverage_gaps:
         findings.append(DoctorFinding(
-            severity="high",
+            # A missing SYSVOL silently zeroes a critical detector (cPassword),
+            # so it outranks an ordinary per-GPO collection gap.
+            severity="critical" if cov.kind == "missing_sysvol" else "high",
             category="coverage_gap",
             gpo_id=cov.gpo_id,
-            gpo_name=cov.display_name or "(unreadable)",
-            summary=(
-                "GPO could not be collected — estate analysis is incomplete"
-                if cov.kind == "inaccessible"
-                else "GPO collection failed — estate analysis may be incomplete"
+            gpo_name=cov.display_name or "(estate)",
+            summary=_COVERAGE_SUMMARY.get(
+                cov.kind,
+                "GPO collection failed — estate analysis may be incomplete",
             ),
             detail=cov.detail,
         ))

@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% import '_pagination.html' as pg %}
+
+{% block title %}gpo-lens — Conflicts{% endblock %}
+
+{% block content %}
+<div class="gp-page-head">
+  <div>
+    <div class="gp-eyebrow">Where Group Policy disagrees with itself</div>
+    <h1>Conflicts</h1>
+    <div class="sub">
+      {% if view == 'resolved' %}
+      Co-linked GPOs that actually fight in a resolved chain, de-duplicated to one row per root cause and ranked by how many scopes each spreads to.
+      {% else %}
+      Settings assigned different values across the estate — regardless of whether the GPOs ever apply to the same object.
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<div class="gp-tabs">
+  <a class="gp-tab {% if view == 'resolved' %}active{% endif %}" href="{{ url_for('conflicts') }}?view=resolved">
+    Resolved (who wins){% if resolved_total is not none %} <span class="count">{{ resolved_total }}</span>{% endif %}
+  </a>
+  <a class="gp-tab {% if view == 'defined' %}active{% endif %}" href="{{ url_for('conflicts') }}?view=defined">
+    Defined inconsistently <span class="count">{{ defined_total }}</span>
+  </a>
+</div>
+
+<form class="gp-filter-bar" method="get" action="{{ url_for('conflicts') }}">
+  <input type="hidden" name="view" value="{{ view }}">
+  <div class="gp-field gp-filter-search">
+    <label class="gp-label" for="f-q">Search</label>
+    <input class="gp-input" id="f-q" name="q" type="search" value="{{ f_q }}" placeholder="Setting, GPO or CSE" autocomplete="off">
+  </div>
+  <button type="submit" class="gp-btn primary">Apply</button>
+  {% if f_q %}<a class="gp-btn" href="{{ url_for('conflicts') }}?view={{ view }}">Clear</a>{% endif %}
+</form>
+
+{% if rows %}
+<div class="gp-table-wrap">
+  <table class="gp-table">
+    {% if view == 'resolved' %}
+    <thead>
+      <tr>
+        <th style="width:120px">CSE</th>
+        <th>Setting</th>
+        <th>Winner</th>
+        <th>Overrides</th>
+        <th class="num" style="width:130px">Scopes</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      {% set winner_id = gpo_id_by_name.get(r.winner) %}
+      <tr>
+        <td class="muted">{{ r.cse }} <span class="mono" style="font-size:11px">{{ r.side[0] }}</span></td>
+        <td class="mono">{{ r.identity }}</td>
+        <td>
+          {% if winner_id and winner_id in resolvable_gpo_ids %}
+          <a href="{{ url_for('gpo_detail', gpo_id=winner_id) }}">{{ r.winner }}</a>
+          {% else %}{{ r.winner }}{% endif %}
+          {% for n, v, s in r.entries if n == r.winner %}<span class="mono muted"> = {{ v }}</span>{% endfor %}
+        </td>
+        <td>
+          {% for n, v, s in r.entries if n != r.winner %}
+          {% set lid = gpo_id_by_name.get(n) %}
+          <div class="mono muted" style="font-size:12px">
+            {% if lid and lid in resolvable_gpo_ids %}<a href="{{ url_for('gpo_detail', gpo_id=lid) }}">{{ n }}</a>{% else %}{{ n }}{% endif %} = {{ v }}
+          </div>
+          {% endfor %}
+        </td>
+        <td class="num">
+          <details>
+            <summary>{{ r.scopes | length }}</summary>
+            <div class="gp-scope-list mono">
+              {% for path in r.scopes[:60] %}<div>{{ path }}</div>{% endfor %}
+              {% if r.scopes | length > 60 %}<div class="muted">… and {{ r.scopes | length - 60 }} more</div>{% endif %}
+            </div>
+          </details>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+    {% else %}
+    <thead>
+      <tr>
+        <th style="width:120px">CSE</th>
+        <th>Setting</th>
+        <th>Conflicting values across GPOs</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td class="muted">{{ r.cse }} <span class="mono" style="font-size:11px">{{ r.side[0] }}</span></td>
+        <td class="mono">{{ r.identity }}</td>
+        <td>
+          {% for gid, val in r.entries %}
+          <div class="mono muted" style="font-size:12px">
+            {% if gid in resolvable_gpo_ids %}<a href="{{ url_for('gpo_detail', gpo_id=gid) }}">{{ gpo_names.get(gid, gid) }}</a>{% else %}{{ gpo_names.get(gid, gid) }}{% endif %} = {{ val }}
+          </div>
+          {% endfor %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+    {% endif %}
+  </table>
+</div>
+{{ pg.pagination(pag, f_base_qs) }}
+{% else %}
+<div class="gp-callout ok" style="border-color: color-mix(in srgb, var(--ok) 30%, transparent); background: var(--ok-soft);">
+  <span class="ico" style="color: var(--ok)">
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+  </span>
+  <p>
+    {% if f_q %}No conflicts match "{{ f_q }}". <a href="{{ url_for('conflicts') }}?view={{ view }}">Clear search</a>
+    {% elif view == 'resolved' %}No co-linked GPOs resolve to conflicting values. Settings may still be <a href="{{ url_for('conflicts') }}?view=defined">defined inconsistently</a>.
+    {% else %}No settings are defined inconsistently across the estate.
+    {% endif %}
+  </p>
+</div>
+{% endif %}
+{% endblock %}

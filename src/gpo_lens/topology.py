@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from gpo_lens.authz import (
     SCOPE_BROAD_TRUSTEES,
@@ -365,6 +365,51 @@ def precedence_conflicts(estate: Estate) -> list[tuple[Som, list[SomConflict]]]:
                 results.append((som, conflicts_))
     results.sort(key=lambda pair: pair[0].path)
     return results
+
+
+@dataclass(frozen=True)
+class ConflictRollup:
+    """One precedence conflict de-duplicated across every scope it resolves at.
+
+    The same two GPOs fighting over the same setting recurs identically at every
+    OU that inherits the same link chain — a flat per-OU list re-counts one root
+    cause hundreds of times. This collapses those into a single row keyed by the
+    competing settings + winner, with ``scopes`` recording the blast radius.
+    """
+
+    cse: str
+    side: Side
+    identity: str
+    display_name: str
+    winner: str
+    entries: tuple[tuple[str, str, str], ...]  # (gpo_name, value, status)
+    scopes: tuple[str, ...]                     # som_paths resolving identically
+
+
+def precedence_conflict_rollup(estate: Estate) -> list[ConflictRollup]:
+    """Collapse :func:`precedence_conflicts` to distinct root causes.
+
+    Two per-OU conflicts are "the same" when the setting, the competing
+    (GPO, value, status) entries, and the winner all match. Sorted by blast
+    radius (most scopes first) so the worst-spread conflicts lead.
+    """
+    groups: dict[tuple[Any, ...], list[str]] = defaultdict(list)
+    meta: dict[tuple[Any, ...], SomConflict] = {}
+    for som, scs in precedence_conflicts(estate):
+        for sc in scs:
+            key = (sc.cse, sc.side, sc.identity, sc.winner, tuple(sc.entries))
+            groups[key].append(som.path)
+            meta[key] = sc
+    out: list[ConflictRollup] = []
+    for key, scopes in groups.items():
+        sc = meta[key]
+        out.append(ConflictRollup(
+            cse=sc.cse, side=sc.side, identity=sc.identity,
+            display_name=sc.display_name, winner=sc.winner,
+            entries=tuple(sc.entries), scopes=tuple(sorted(scopes)),
+        ))
+    out.sort(key=lambda r: (-len(r.scopes), r.cse, r.identity.lower()))
+    return out
 
 
 # ---------------------------------------------------------------------------

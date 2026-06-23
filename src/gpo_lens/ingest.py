@@ -24,6 +24,7 @@ from gpo_lens.model import (
     OuRecord,
     ResolvedPrincipal,
     Setting,
+    Side,
     Som,
     SomLink,
     WmiFilter,
@@ -172,22 +173,46 @@ def _first_non_empty_text_or_attr(elem: Element) -> str:
     return ""
 
 
+_SEC_VALUE_TAGS = (
+    "SettingBoolean", "SettingNumber", "SettingString", "StartupMode", "Log",
+)
+
+
 def _parse_security_setting(block: Element) -> tuple[str, str, str] | None:
-    """Return (identity, display_name, display_value) for a Security CSE block."""
-    name = block.get("Name")
-    type_ = block.get("Type")
-    if name and type_:
-        # Look for SettingBoolean, SettingNumber, SettingString children
-        value = ""
-        for child in block:
-            ln = _localname(child.tag)
-            if ln in ("SettingBoolean", "SettingNumber", "SettingString"):
-                if child.text and child.text.strip():
-                    value = child.text.strip()
-                    break
-        identity = f"{type_}:{name}"
-        return identity, name, value
-    return None
+    """Readable identity for a Security CSE block.
+
+    Real exports name the setting with a child element, not an attribute:
+    ``<Account><Name>ClearTextPassword</Name>``, ``<UserRightsAssignment><Name>
+    SeAssignPrimaryTokenPrivilege</Name>``, ``<SecurityOptions><KeyName>…``,
+    ``<RestrictedGroups><GroupName><Name>BUILTIN\\…``. Fall back to the legacy
+    ``Name``/``Type`` attribute form for older fixtures.
+    """
+    # Identity prefix is the setting class. In the child-element form that is the
+    # block's own tag (<Account>, <UserRightsAssignment>, …); in the legacy
+    # attribute form (<Security Name=… Type="Account">) it is the Type attribute.
+    # Both must agree so the same setting matches across exports.
+    prefix = _localname(block.tag)
+    name = _text(_child_by_localname(block, "Name"))
+    if not name:
+        name = _text(_child_by_localname(block, "KeyName"))
+    if not name:
+        gn = _child_by_localname(block, "GroupName")
+        if gn is not None:
+            name = _text(_child_by_localname(gn, "Name")) or _text(
+                _child_by_localname(gn, "SID")
+            )
+    if not name and block.get("Name"):
+        name = block.get("Name")
+        prefix = block.get("Type") or prefix
+    if not name:
+        return None
+    value = ""
+    for vt in _SEC_VALUE_TAGS:
+        ch = _child_by_localname(block, vt)
+        if ch is not None and ch.text and ch.text.strip():
+            value = ch.text.strip()
+            break
+    return f"{prefix}:{name}", name, value
 
 
 def _parse_registry_setting(block: Element) -> tuple[str, str, str] | None:
@@ -202,19 +227,248 @@ def _parse_registry_setting(block: Element) -> tuple[str, str, str] | None:
     return None
 
 
+def _parse_admin_template_policy(block: Element) -> tuple[str, str, str] | None:
+    """Administrative-Templates ``<Policy>`` block (Registry CSE) -> readable row.
+
+    These abstract the underlying registry value behind a friendly policy name
+    and a GPMC category path; the raw key is not in the report. Use the
+    category-qualified name as identity so it is both human-readable and unique
+    within a side, replacing the opaque ``Registry:Policy:<hash>`` fallback.
+    """
+    name = _text(_child_by_localname(block, "Name"))
+    if not name:
+        return None
+    state = _text(_child_by_localname(block, "State")) or ""
+    category = _text(_child_by_localname(block, "Category")) or ""
+    identity = f"{category}/{name}" if category else name
+    return identity, name, state
+
+
+_HIVE_SHORT = {
+    "HKEY_LOCAL_MACHINE": "HKLM",
+    "HKEY_CURRENT_USER": "HKCU",
+    "HKEY_CLASSES_ROOT": "HKCR",
+    "HKEY_USERS": "HKU",
+    "HKEY_CURRENT_CONFIG": "HKCC",
+}
+
+
+def _parse_gpp_registry(block: Element) -> list[tuple[str, str, str, dict[str, Any]]]:
+    """Expand a GPP Registry block into one row per concrete ``<Properties>``.
+
+    GPP Registry preferences nest the real writes several levels down
+    (``<RegistrySettings>``/``<Collection name>``*/``<Registry>``/
+    ``<Properties hive key name value type>``). Parsing the top block as a single
+    setting collapses the whole tree into one hashed blob (the unreadable
+    ``Registry:Policy:<hash>`` rows); instead emit one readable
+    ``HIVE\\key:name = value`` row per ``<Properties>``, each carrying its own
+    lossless ``raw`` so the GPP action (C/R/U/D) survives for merge logic.
+    """
+    out: list[tuple[str, str, str, dict[str, Any]]] = []
+    for props in block.iter():
+        if _localname(props.tag) != "Properties":
+            continue
+        if props.get("key") is None and props.get("hive") is None:
+            continue
+        hive = props.get("hive") or ""
+        hive = _HIVE_SHORT.get(hive, hive)
+        key = props.get("key") or ""
+        value_name = props.get("name") or ""
+        rtype = props.get("type") or ""
+        value = props.get("value") or ""
+        path = f"{hive}\\{key}" if (hive and key) else (hive or key)
+        identity = f"{path}:{value_name}" if value_name else path
+        display_name = value_name or "(Default)"
+        display_value = f"[{rtype}] {value}" if rtype else value
+        out.append((identity, display_name, display_value, element_to_dict(props)))
+    return out
+
+
+def _parse_classic_registry_setting(block: Element) -> tuple[str, str, str] | None:
+    """Classic ``<RegistrySetting>`` block: ``<KeyPath>`` + ``<Value><Name>/data``."""
+    keypath = _text(_child_by_localname(block, "KeyPath"))
+    val = _child_by_localname(block, "Value")
+    if keypath is None and val is None:
+        return None
+    name = ""
+    data = ""
+    if val is not None:
+        name = _text(_child_by_localname(val, "Name")) or ""
+        for data_tag in ("Number", "String", "Boolean", "ExpandString"):
+            d = _child_by_localname(val, data_tag)
+            if d is not None and d.text and d.text.strip():
+                data = d.text.strip()
+                break
+    keypath = keypath or ""
+    identity = f"{keypath}:{name}" if (keypath and name) else (keypath or name)
+    display_name = name or keypath or _localname(block.tag)
+    return identity, display_name, data
+
+
+# GPP-item Properties attributes, in priority order, that name/locate the item
+# when its own ``name`` attribute is blank (e.g. File copy ops, Folder ops).
+_GPP_ITEM_KEY_ATTRS = (
+    "targetPath", "fromPath", "path", "shortcutPath", "serviceName", "key",
+    "label", "value",
+)
+_GPP_ITEM_VALUE_ATTRS = (
+    "path", "targetPath", "fromPath", "shortcutPath", "value", "startupType",
+    "label",
+)
+
+
+def _parse_gpp_container(block: Element) -> list[tuple[str, str, str, dict[str, Any]]]:
+    """Expand a generic GPP-preferences container into one row per item.
+
+    GPP CSEs (Drive Maps, Printers, Services, Scheduled Tasks, Shortcuts, Files,
+    Folders, Local Users and Groups, Power Options, …) wrap N items in a
+    ``clsid``-bearing container; each item carries a ``uid`` and usually a human
+    ``name`` plus a ``<Properties>`` element. Emit each item as its own readable
+    row (``ItemType:name``) instead of hashing the whole container.
+    """
+    if block.get("clsid") is None:
+        return []
+    items = [c for c in block if c.get("uid") is not None]
+    if not items:
+        return []
+    out: list[tuple[str, str, str, dict[str, Any]]] = []
+    for item in items:
+        item_type = _localname(item.tag)
+        props = _child_by_localname(item, "Properties")
+        pattr = dict(props.attrib) if props is not None else {}
+        name = (item.get("name") or pattr.get("name") or "").strip()
+        if not name:
+            for a in _GPP_ITEM_KEY_ATTRS:
+                if pattr.get(a):
+                    name = pattr[a]
+                    break
+        if not name:
+            name = item_type
+        action = pattr.get("action", "")
+        val = ""
+        for a in _GPP_ITEM_VALUE_ATTRS:
+            if pattr.get(a):
+                val = pattr[a]
+                break
+        display_value = f"[{action}] {val}".strip() if action else (val or item_type)
+        out.append((f"{item_type}:{name}", name, display_value, element_to_dict(item)))
+    return out
+
+
+# Child elements whose text names a setting, tried in priority order.
+_IDENTITY_CHILD_TAGS = (
+    "Name", "SubcategoryName", "KeyName", "Command", "Path", "IssuedTo", "Id",
+)
+# Child elements whose text summarises a setting's value, tried in priority order.
+_VALUE_CHILD_TAGS = (
+    "SettingValue", "SettingNumber", "SettingBoolean", "SettingString", "State",
+    "StartupMode", "DefaultSecurityLevel", "Value", "URL", "Type",
+)
+
+
+def _readable_identity(cse: str, block: Element) -> tuple[str, str, str]:
+    """Readable identity for any block that no CSE-specific parser claimed.
+
+    Builds ``<BlockType>:<natural key>`` from the first naming child or
+    attribute (so e.g. ``AuditSetting:Audit Credential Validation``,
+    ``FavoriteURL:Company Intranet``), degrading to the block type alone for a
+    genuine singleton (``PlaceFavoritesAtTop``). Never emits a hash — an opaque
+    digest is useless to a human reader; a possibly-non-unique readable key is
+    disambiguated with an ordinal at append time instead.
+    """
+    bl = _localname(block.tag)
+    key = None
+    for ck in _IDENTITY_CHILD_TAGS:
+        ch = _child_by_localname(block, ck)
+        if ch is not None and ch.text and ch.text.strip():
+            key = ch.text.strip()
+            break
+    if key is None:
+        # A naming child that wraps its value (e.g. RestrictedGroups/GroupName/Name).
+        for ck in _IDENTITY_CHILD_TAGS:
+            ch = _child_by_localname(block, ck)
+            if ch is not None:
+                nested = _text(_child_by_localname(ch, "Name"))
+                if nested:
+                    key = nested
+                    break
+    if key is None:
+        for ak in ("name", "Name", "Type", "id", "Id"):
+            if block.get(ak):
+                key = block.get(ak)
+                break
+    value = ""
+    for vt in _VALUE_CHILD_TAGS:
+        ch = _child_by_localname(block, vt)
+        if ch is not None and ch.text and ch.text.strip():
+            value = ch.text.strip()
+            break
+    if not value:
+        value = _first_non_empty_text_or_attr(block)
+    if key:
+        return f"{bl}:{key}", key, value
+    return bl, bl, value
+
+
+# Folder Redirection reports the target folder as a KnownFolder GUID; map the
+# common ones so the identity reads "Documents", not an opaque GUID.
+_KNOWN_FOLDERS = {
+    "fdd39ad0-238f-46af-adb4-6c85480369c7": "Documents",
+    "b4bfcc3a-db2c-424c-b029-7fe99a87c641": "Desktop",
+    "a520a1a4-1780-4ff6-bd18-167343c5af16": "AppData (Roaming)",
+    "1777f761-68ad-4d8a-87bd-30b759fa33dd": "Favorites",
+    "374de290-123f-4565-9164-39c4925e467b": "Downloads",
+    "33e28130-4e1e-4676-835a-98395c3bc3bb": "Pictures",
+    "4bd8d571-6d19-48d3-be97-422220080e43": "Music",
+    "18989b1d-99b5-455b-841c-ab7c74e4ddfc": "Videos",
+    "b97d20bb-f46a-4c97-ba10-5e3608430854": "Start Menu",
+    "62ab5d82-fdc1-4dc3-a9dd-070d1d495d97": "Contacts",
+    "bfb9d5e0-c6a9-404c-b2b2-ae6db6af4968": "Links",
+    "4c5c32ff-bb9d-43b0-b5b4-2d72e54eaaa4": "Saved Games",
+    "7d1d3a04-debb-4115-95cf-2f29da2920da": "Searches",
+}
+
+
+def _parse_folder_redirection(block: Element) -> tuple[str, str, str] | None:
+    """``<Folder><Id>{GUID}</Id>`` -> friendly known-folder name + destination."""
+    fid = _text(_child_by_localname(block, "Id"))
+    if not fid:
+        return None
+    name = _KNOWN_FOLDERS.get(fid.strip("{}").lower(), fid)
+    loc = _child_by_localname(block, "Location")
+    dest = _text(_child_by_localname(loc, "DestinationPath")) if loc is not None else ""
+    return f"Folder Redirection:{name}", name, dest or ""
+
+
 def _parse_generic_setting(cse: str, block: Element) -> tuple[str, str, str]:
-    """Generic fallback identity/display for any CSE block."""
-    raw = element_to_dict(block)
-    identity = f"{cse}:{_localname(block.tag)}:{_stable_hash(raw)}"
-    display_name = _localname(block.tag)
-    display_value = _first_non_empty_text_or_attr(block)
-    return identity, display_name, display_value
+    """Readable fallback identity/display for any CSE block (never a hash)."""
+    return _readable_identity(cse, block)
 
 
 def _parse_settings(gpo_elem: Element, gpo_id: str) -> list[Setting]:
     """Parse all settings from a GPO element."""
     settings: list[Setting] = []
-    for side_name in ("Computer", "User"):
+    # Track identities used per side so a readable-but-non-unique key (two
+    # singleton blocks of the same type, lacking any natural key) is suffixed
+    # with an ordinal instead of resolved by an opaque hash.
+    seen: dict[tuple[str, str], int] = {}
+
+    def _emit(
+        side: Side, cse: str, identity: str, name: str, value: str,
+        raw: dict[str, Any], enabled: bool, source_state: str = "normal",
+    ) -> None:
+        n = seen.get((side, identity), 0) + 1
+        seen[(side, identity)] = n
+        if n > 1:
+            identity = f"{identity} #{n}"
+        settings.append(Setting(
+            gpo_id=gpo_id, side=side, cse=cse, identity=identity,
+            display_name=name, display_value=value, raw=raw,
+            from_disabled_side=not enabled, source_state=source_state,
+        ))
+
+    sides: tuple[Side, ...] = ("Computer", "User")
+    for side_name in sides:
         side_elem = _child_by_localname(gpo_elem, side_name)
         if side_elem is None:
             continue
@@ -226,45 +480,50 @@ def _parse_settings(gpo_elem: Element, gpo_id: str) -> list[Setting]:
                 # Check for blocked extension
                 children = list(ext)
                 if len(children) == 1 and _localname(children[0].tag) == "Blocked":
-                    settings.append(
-                        Setting(
-                            gpo_id=gpo_id,
-                            side=side_name,
-                            cse=cse,
-                            identity=f"{cse}:blocked",
-                            display_name="(blocked extension)",
-                            display_value="",
-                            raw={"blocked": True},
-                            from_disabled_side=not enabled,
-                            source_state="blocked",
-                        )
-                    )
+                    _emit(side_name, cse, f"{cse}:blocked", "(blocked extension)",
+                          "", {"blocked": True}, enabled, source_state="blocked")
                     continue
                 # Walk direct child elements as setting blocks
                 for block in children:
+                    bl = _localname(block.tag)
+                    # GPP preferences wrap N concrete items several levels down;
+                    # expand each into its own readable row rather than hashing
+                    # the whole container into one opaque blob. Registry GPP has a
+                    # richer key (HIVE\\key:name) so it is tried first.
+                    multi = (
+                        _parse_gpp_registry(block)
+                        if cse in ("Registry", "Windows Registry")
+                        else []
+                    )
+                    if not multi:
+                        multi = _parse_gpp_container(block)
+                    if multi:
+                        for identity, name, value, raw in multi:
+                            _emit(side_name, cse, identity, name, value, raw, enabled)
+                        continue
                     raw = element_to_dict(block)
                     # Try CSE-specific identity
                     parsed: tuple[str, str, str] | None = None
                     if cse == "Security":
                         parsed = _parse_security_setting(block)
-                    if cse in ("Registry", "Windows Registry"):
+                    elif bl == "Blocked":
+                        # A <Blocked> flag sibling (extension not blocked) — give
+                        # it a stable readable key, not a per-value hash.
+                        parsed = (f"{cse}:Blocked", "(extension blocked flag)",
+                                  _text(block) or "")
+                    elif cse == "Registry" and bl == "Policy":
+                        parsed = _parse_admin_template_policy(block)
+                    elif cse == "Folder Redirection" and bl == "Folder":
+                        parsed = _parse_folder_redirection(block)
+                    elif bl == "RegistrySetting":
+                        parsed = _parse_classic_registry_setting(block)
+                    elif cse in ("Registry", "Windows Registry"):
                         parsed = _parse_registry_setting(block)
                     if parsed is None:
                         parsed = _parse_generic_setting(cse, block)
                     identity, display_name, display_value = parsed
-                    settings.append(
-                        Setting(
-                            gpo_id=gpo_id,
-                            side=side_name,
-                            cse=cse,
-                            identity=identity,
-                            display_name=display_name,
-                            display_value=display_value,
-                            raw=raw,
-                            from_disabled_side=not enabled,
-                            source_state="normal",
-                        )
-                    )
+                    _emit(side_name, cse, identity, display_name, display_value,
+                          raw, enabled)
     return settings
 
 
@@ -1082,6 +1341,47 @@ def _scan_sysvol_coverage(gpos: list[Gpo]) -> list[CoverageGap]:
     return gaps
 
 
+def _scan_missing_sysvol(
+    sysvol_root: Path | None, gpos: list[Gpo]
+) -> list[CoverageGap]:
+    """Flag an export that carries no SYSVOL policy files at all.
+
+    The settings tables come from the report XML, so a SYSVOL-less export still
+    renders and *looks* complete. But every SYSVOL-sourced detector — cPassword,
+    GPP Scheduled Tasks, GPP Local Users & Groups, and Registry.pol blocked-
+    extension resolution — reads only from ``gpo.sysvol_path`` and silently
+    returns nothing when it is unset (``detection.py`` guards on it). A run that
+    quietly reports ZERO cPassword hits because SYSVOL was never collected is
+    indistinguishable from a genuinely clean estate, so surface it loudly as a
+    single estate-level coverage gap rather than per GPO.
+
+    Triggers when no GPO matched a SYSVOL folder: either the directory is absent
+    (``-SkipSysvol``, or a collector copy that no-op'd) or present but empty.
+    """
+    if not gpos:
+        return []
+    if any(gpo.sysvol_path for gpo in gpos):
+        return []
+    if sysvol_root is None:
+        reason = "the SYSVOL-Policies directory is absent from the export"
+    else:
+        reason = f"{sysvol_root.name} is present but contains no policy folders"
+    return [CoverageGap(
+        gpo_id="",
+        display_name=None,
+        kind="missing_sysvol",
+        detail=(
+            f"No SYSVOL policy files were collected ({reason}). GPP-based "
+            f"detectors — cPassword secrets, GPP Scheduled Tasks, GPP Local "
+            f"Users & Groups, and Registry.pol resolution — could not run and "
+            f"will report ZERO regardless of actual exposure. Re-run the "
+            f"collector and confirm its 'SYSVOL copy' section wrote files; if "
+            f"the export was zipped on Windows, also confirm the archive "
+            f"actually contains SYSVOL-Policies/."
+        ),
+    )]
+
+
 def load_estate(sample_dir: str | Path) -> Estate:
     """Orchestrate loading a full estate from a sample directory."""
     src = Path(sample_dir)
@@ -1120,12 +1420,12 @@ def load_estate(sample_dir: str | Path) -> Estate:
             warnings.warn(f"Skipping gpo-metadata.json: {exc}", stacklevel=1)
 
     sysvol_dir = src / "SYSVOL-Policies"
-    if sysvol_dir.exists():
-        attach_sysvol_paths(sysvol_dir, gpos)
-    else:
-        alt = src / "SYSVOL" / "Policies"
-        if alt.exists():
-            attach_sysvol_paths(alt, gpos)
+    alt = src / "SYSVOL" / "Policies"
+    sysvol_root = (
+        sysvol_dir if sysvol_dir.exists() else (alt if alt.exists() else None)
+    )
+    if sysvol_root is not None:
+        attach_sysvol_paths(sysvol_root, gpos)
 
     # Resolve <Blocked/> Registry extensions from the binary Registry.pol where
     # SYSVOL is present. No-op when SYSVOL wasn't copied or nothing is blocked.
@@ -1152,6 +1452,7 @@ def load_estate(sample_dir: str | Path) -> Estate:
     )
 
     coverage_gaps.extend(_scan_sysvol_coverage(gpos))
+    coverage_gaps.extend(_scan_missing_sysvol(sysvol_root, gpos))
 
     principals: dict[str, ResolvedPrincipal] = {}
     principals_path = src / "principals.json"

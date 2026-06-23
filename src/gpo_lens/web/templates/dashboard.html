@@ -62,10 +62,22 @@
   {% if posture_fired %}
   <div class="gp-posture">
     {% for ind in posture_fired %}
+    {% if ind.attr == 'conflict_count' %}
+    <a class="gp-ind {{ ind.tone }}" href="{{ url_for('conflicts') }}" title="Open the Conflicts view">
+      <span class="lab">{{ ind.label }}</span>
+      <span class="val">{{ ind.value }}</span>
+    </a>
+    {% elif ind.category %}
+    <a class="gp-ind {{ ind.tone }}" href="{{ url_for('home') }}?category={{ ind.category | urlencode }}#findings" title="Show findings: {{ ind.label }}">
+      <span class="lab">{{ ind.label }}</span>
+      <span class="val">{{ ind.value }}</span>
+    </a>
+    {% else %}
     <div class="gp-ind {{ ind.tone }}">
       <span class="lab">{{ ind.label }}</span>
       <span class="val">{{ ind.value }}</span>
     </div>
+    {% endif %}
     {% endfor %}
   </div>
   {% endif %}
@@ -77,10 +89,13 @@
   {% endif %}
 </section>
 
-<section class="gp-section">
+<section class="gp-section" id="findings">
   <h2>Doctor findings
     {% if all_findings_count %}
     <span class="count">{{ filtered_findings_count }}{% if filtered_findings_count != all_findings_count %} of {{ all_findings_count }}{% endif %}</span>
+    {% endif %}
+    {% if f_category %}
+    <a class="gp-chip" href="{{ url_for('home') }}#findings" title="Remove this filter">{{ f_category }} ✕</a>
     {% endif %}
     {% if all_findings_count %}
     <a class="gp-btn gp-export-btn" href="{{ url_for('export_findings') }}?format=csv">Export CSV</a>
@@ -90,16 +105,19 @@
   {% if all_findings_count %}
   {# WI-025: filter / search / sort controls #}
   <form class="gp-filter-bar" method="get" action="{{ url_for('home') }}">
+    {# Preserve a posture deep-link's category across severity/search/sort changes. #}
+    {% if f_category %}<input type="hidden" name="category" value="{{ f_category }}">{% endif %}
     <div class="gp-field">
       <label class="gp-label" for="f-severity">Severity</label>
       <select class="gp-select" id="f-severity" name="severity">
-        {% set sev_vals = f_severity.split(',') if f_severity else ['all'] %}
-        <option value="all" {% if 'all' in sev_vals or not f_severity %}selected{% endif %}>All</option>
+        {% set sev_vals = f_severity.split(',') if f_severity else [] %}
+        <option value="" {% if not f_severity %}selected{% endif %}>Actionable (hide info)</option>
+        <option value="all" {% if f_severity == 'all' %}selected{% endif %}>All (incl. info)</option>
         <option value="critical" {% if 'critical' in sev_vals %}selected{% endif %}>Critical</option>
         <option value="high" {% if 'high' in sev_vals %}selected{% endif %}>High</option>
         <option value="medium" {% if 'medium' in sev_vals %}selected{% endif %}>Medium</option>
         <option value="low" {% if 'low' in sev_vals %}selected{% endif %}>Low</option>
-        <option value="info" {% if 'info' in sev_vals %}selected{% endif %}>Info</option>
+        <option value="info" {% if 'info' in sev_vals %}selected{% endif %}>Info only</option>
       </select>
     </div>
     <div class="gp-field gp-filter-search">
@@ -116,10 +134,13 @@
       </select>
     </div>
     <button type="submit" class="gp-btn primary">Apply</button>
-    {% if f_severity or f_q or f_sort != 'severity' %}
+    {% if f_severity or f_q or f_sort != 'severity' or f_category %}
     <a class="gp-btn" href="{{ url_for('home') }}">Clear</a>
     {% endif %}
   </form>
+  {% if info_hidden %}
+  <p class="gp-allclear"><b>{{ info_hidden }}</b> informational finding{{ 's' if info_hidden != 1 }} hidden by default. <a href="{{ url_for('home') }}?severity=all#findings">Show all</a></p>
+  {% endif %}
   {% endif %}
 
   {% if findings %}
@@ -134,9 +155,9 @@
           <td><span class="gp-pill {{ f.severity }}"><span class="dot"></span>{{ f.severity }}</span></td>
           <td>
             {% if f.gpo_id and f.gpo_id in resolvable_gpo_ids %}
-            <a href="{{ url_for('gpo_detail', gpo_id=f.gpo_id) }}">{{ f.gpo_name }}</a>
+            <a href="{{ url_for('gpo_detail', gpo_id=f.gpo_id) }}">{{ f.gpo_name or '(unnamed)' }}</a>
             {% else %}
-            <span class="mono muted">{{ f.gpo_name }}</span>
+            <span class="mono muted">{{ f.gpo_name or '(estate-wide)' }}</span>
             {% endif %}
           </td>
           <td>{{ f.summary }}</td>

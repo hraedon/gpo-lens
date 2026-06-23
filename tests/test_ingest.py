@@ -1219,3 +1219,164 @@ class TestFloatOrderValue:
         )
         soms = ingest.parse_inheritance(j)
         assert soms[0].links[0].order == 5
+
+
+# --- Registry CSE parsing: readable identities instead of hashed blobs --------
+NS = "http://www.microsoft.com/GroupPolicy/Settings"
+
+
+class TestRegistryIdentities:
+    def test_gpp_registry_expands_to_one_row_per_properties(self):
+        block = ET.fromstring(
+            f'<RegistrySettings xmlns="{NS}">'
+            '<Collection name="Outer">'
+            '<Registry name="a"><Properties hive="HKEY_LOCAL_MACHINE" '
+            'key="SOFTWARE\\Acme" name="Foo" type="REG_SZ" value="1" '
+            'action="C"/></Registry>'
+            '<Registry name="b"><Properties hive="HKEY_CURRENT_USER" '
+            'key="SOFTWARE\\B" name="" type="REG_DWORD" value="0"/></Registry>'
+            '</Collection></RegistrySettings>'
+        )
+        rows = ingest._parse_gpp_registry(block)
+        assert len(rows) == 2
+        ident, name, val, raw = rows[0]
+        assert ident == "HKLM\\SOFTWARE\\Acme:Foo"
+        assert name == "Foo"
+        assert val == "[REG_SZ] 1"
+        # raw stays lossless enough for merge's action extraction
+        assert raw["@attr"]["action"] == "C"
+        # empty value name renders (Default), hive shortens
+        assert rows[1][0] == "HKCU\\SOFTWARE\\B"
+        assert rows[1][1] == "(Default)"
+
+    def test_gpp_ignores_properties_without_key_or_hive(self):
+        block = ET.fromstring(
+            f'<RegistrySettings xmlns="{NS}"><Properties name="x"/>'
+            "</RegistrySettings>"
+        )
+        assert ingest._parse_gpp_registry(block) == []
+
+    def test_admin_template_policy_uses_category_qualified_name(self):
+        block = ET.fromstring(
+            f'<Policy xmlns="{NS}"><Name>Site to Zone Assignment List</Name>'
+            "<State>Enabled</State>"
+            "<Category>Windows Components/Internet Explorer</Category></Policy>"
+        )
+        ident, name, val = ingest._parse_admin_template_policy(block)
+        assert ident == "Windows Components/Internet Explorer/Site to Zone Assignment List"
+        assert name == "Site to Zone Assignment List"
+        assert val == "Enabled"
+
+    def test_admin_template_policy_without_name_falls_through(self):
+        block = ET.fromstring(f'<Policy xmlns="{NS}"><State>Enabled</State></Policy>')
+        assert ingest._parse_admin_template_policy(block) is None
+
+    def test_classic_registry_setting_uses_keypath_and_value_name(self):
+        block = ET.fromstring(
+            f'<RegistrySetting xmlns="{NS}">'
+            "<KeyPath>Software\\Policies\\Google\\Chrome</KeyPath>"
+            "<AdmSetting>false</AdmSetting>"
+            "<Value><Name>RemoteAccessHostAllowGnubbyAuth</Name>"
+            "<Number>0</Number></Value></RegistrySetting>"
+        )
+        ident, name, val = ingest._parse_classic_registry_setting(block)
+        assert ident == "Software\\Policies\\Google\\Chrome:RemoteAccessHostAllowGnubbyAuth"
+        assert name == "RemoteAccessHostAllowGnubbyAuth"
+        assert val == "0"
+
+
+class TestReadableIdentitiesNoHash:
+    """Every CSE block resolves to a human-readable identity, never a hash."""
+
+    def test_security_account_uses_name_child(self):
+        b = ET.fromstring(
+            f'<Account xmlns="{NS}"><Name>ClearTextPassword</Name>'
+            "<SettingBoolean>false</SettingBoolean><Type>Password</Type></Account>"
+        )
+        assert ingest._parse_security_setting(b) == (
+            "Account:ClearTextPassword", "ClearTextPassword", "false",
+        )
+
+    def test_security_restricted_groups_uses_nested_group_name(self):
+        b = ET.fromstring(
+            f'<RestrictedGroups xmlns="{NS}"><GroupName>'
+            "<SID>S-1-5-32-555</SID><Name>BUILTIN\\Remote Desktop Users</Name>"
+            "</GroupName></RestrictedGroups>"
+        )
+        ident, name, _ = ingest._parse_security_setting(b)
+        assert ident == "RestrictedGroups:BUILTIN\\Remote Desktop Users"
+        assert name == "BUILTIN\\Remote Desktop Users"
+
+    def test_gpp_container_expands_items_by_name(self):
+        b = ET.fromstring(
+            f'<Printers xmlns="{NS}" clsid="{{X}}">'
+            '<PortPrinter uid="{{A}}" name="floor1-printer">'
+            '<Properties action="U" path="\\\\printsrv\\floor1"/></PortPrinter>'
+            '<SharedPrinter uid="{{B}}" name="floor2-printer">'
+            '<Properties action="C" path="\\\\printsrv\\floor2"/></SharedPrinter>'
+            "</Printers>"
+        )
+        rows = ingest._parse_gpp_container(b)
+        assert [r[0] for r in rows] == [
+            "PortPrinter:floor1-printer", "SharedPrinter:floor2-printer",
+        ]
+        assert rows[0][2] == "[U] \\\\printsrv\\floor1"
+
+    def test_advanced_audit_uses_subcategory_name(self):
+        b = ET.fromstring(
+            f'<AuditSetting xmlns="{NS}"><PolicyTarget>System</PolicyTarget>'
+            "<SubcategoryName>Audit Credential Validation</SubcategoryName>"
+            "<SettingValue>3</SettingValue></AuditSetting>"
+        )
+        ident, name, val = ingest._readable_identity("Advanced Audit Configuration", b)
+        assert ident == "AuditSetting:Audit Credential Validation"
+        assert val == "3"
+
+    def test_singleton_block_falls_back_to_block_type(self):
+        b = ET.fromstring(f'<PlaceFavoritesAtTop xmlns="{NS}"><Value>true</Value>'
+                          "</PlaceFavoritesAtTop>")
+        ident, name, val = ingest._readable_identity("Internet Explorer Maintenance", b)
+        assert ident == "PlaceFavoritesAtTop"
+        assert val == "true"
+
+    def test_folder_redirection_resolves_known_folder_guid(self):
+        b = ET.fromstring(
+            f'<Folder xmlns="{NS}"><Id>{{FDD39AD0-238F-46AF-ADB4-6C85480369C7}}</Id>'
+            "<Location><DestinationPath>\\\\srv\\home\\%USERNAME%\\Docs"
+            "</DestinationPath></Location></Folder>"
+        )
+        ident, name, dest = ingest._parse_folder_redirection(b)
+        assert ident == "Folder Redirection:Documents"
+        assert dest == "\\\\srv\\home\\%USERNAME%\\Docs"
+
+    def test_real_export_has_zero_hashed_identities(self, tmp_path):
+        # Discover any local sample export rather than naming one (the file
+        # itself is gitignored; the name must not be committed). Skips in CI,
+        # where samples/ is absent. Picks the first zip that ingests with GPOs.
+        import re
+        import zipfile
+        samples = sorted(Path("samples").glob("*.zip")) if Path("samples").is_dir() else []
+        if not samples:
+            import pytest
+            pytest.skip("no sample export present")
+        est = None
+        for sample in samples:
+            dest = tmp_path / sample.stem
+            try:
+                with zipfile.ZipFile(sample) as z:
+                    z.extractall(dest)
+                candidate = ingest.load_estate(dest)
+            except (zipfile.BadZipFile, OSError, ValueError, KeyError):
+                continue  # not a GPO export (e.g. a baseline zip) — try the next
+            if candidate.gpos:
+                est = candidate
+                break
+        if est is None:
+            import pytest
+            pytest.skip("no ingestable GPO export in samples/")
+        hexpat = re.compile(r":[0-9a-f]{16}(\s#\d+)?$")
+        hashed = [
+            s.identity for g in est.gpos for s in g.settings
+            if hexpat.search(s.identity)
+        ]
+        assert hashed == [], f"unexpected hashed identities: {hashed[:5]}"

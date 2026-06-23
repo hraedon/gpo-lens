@@ -1,5 +1,123 @@
 # Changelog
 
+## Unreleased
+
+### Remove estate imports from the web UI
+
+- **The Ingest page can now delete a snapshot.** Each row in the Snapshots table
+  has a Delete action (with a confirm and the newest snapshot marked
+  `current`); removal cascades away the whole estate via the existing
+  `snapshot(id) ON DELETE CASCADE` foreign keys. Deleting the current snapshot
+  falls back to the next newest; deleting all returns to the empty-estate state.
+  Gated on the `INGEST` permission and the same-origin CSRF check, and audited
+  (`audit.snapshot_delete`). New `store.delete_snapshot`.
+
+### New: Conflicts view (`/conflicts`)
+
+- **Estate-wide conflict surfacing — two lenses, both previously CLI-only.**
+  - **Resolved (who wins):** `topology.precedence_conflict_rollup` collapses the
+    per-OU resolved conflicts into one row per *root cause* (competing settings +
+    winner), ranked by blast radius. On a real estate this turned **10,935 per-OU
+    conflict instances into 58 distinct conflicts** — the same handful of GPO
+    pairs re-counted down the OU tree. Each row expands to the scopes it spreads
+    to; winner and overridden GPOs deep-link to their detail pages.
+  - **Defined inconsistently:** `queries.conflicts` lists settings assigned
+    different values across the estate (89 on the same export — most newly
+    visible now that GPP/Audit/Printers identities are readable and bucket).
+  - The "Setting conflicts" posture card links here (it was previously a dead
+    count), plus a primary-nav entry.
+- *Perf note:* the resolved lens resolves every OU chain (~3s on a 900-OU
+  estate), so it is computed only when its tab is the active view; the defined
+  lens is cheap. Caching the rollup is a future optimization.
+
+### Readable identities everywhere — no hashed setting keys
+
+- **Every CSE now resolves to a human-readable identity; the opaque
+  `<cse>:<block>:<hash>` fallback is gone.** Validated against a real 3,900-setting
+  export: zero hashed identities remain (was ~1,900). This fixes the unreadable
+  `IDENTITY` column in the GPO detail view, the Effective/Resultant table, **and**
+  OU browsing — they all render the same `identity`.
+  - **GPP preferences** (Drive Maps, Printers, Services, Scheduled Tasks,
+    Shortcuts, Files, Folders, Local Users & Groups, Power Options) expand into
+    one readable row per item (`PortPrinter:floor1-printer`, `Drive:I:`).
+  - **Security** keys on the real child element, not an attribute
+    (`Account:ClearTextPassword`, `UserRightsAssignment:SeAssignPrimaryTokenPrivilege`,
+    `RestrictedGroups:BUILTIN\Remote Desktop Users`), while the legacy
+    `Type`-attribute form still maps to the same key for cross-export diffs.
+  - **Advanced Audit** uses the subcategory (`AuditSetting:Audit Credential
+    Validation`); **Folder Redirection** resolves the KnownFolder GUID to a name
+    (`Folder Redirection:Documents` = destination path).
+  - Anything else falls back to `<BlockType>:<natural key>` from the first naming
+    child/attribute, degrading to the block type for a genuine singleton. A
+    readable-but-duplicate key is disambiguated with an ordinal (`… #2`), never a
+    hash.
+
+### New: Inventory tab
+
+- **`/inventory` lists every GPO with drill-in to detail**, with search (name or
+  GUID), a status filter (linked / unlinked / empty / both-sides-disabled), and
+  sort by name / links / settings / modified. Added to the primary nav. This is
+  the "show me all the GPOs" browser the severity-sorted dashboard findings list
+  was never meant to be.
+
+### Dashboard findings: usable by default
+
+- **Informational findings are hidden by default.** A large estate can carry
+  thousands of `info`-level rows (e.g. ~4,000 enforced links) that buried the
+  actionable findings across dozens of pages. The default view now shows
+  critical/high/medium/low with a "Show all" escape hatch and an "All (incl.
+  info)" filter option; a posture deep-link still shows its whole category.
+- **Estate-wide findings no longer render a blank GPO cell** — they read
+  `(estate-wide)` instead, so the GPO-name sort is no longer dominated by blanks.
+
+### Collector: SYSVOL-less exports no longer pass silently
+
+- **`Export-GpoEstate.ps1` now verifies SYSVOL files actually landed before
+  reporting "SYSVOL copy" success.** Previously the section reported success
+  whenever no copy *exception* was thrown — which was also true when the source
+  share enumerated zero policy folders (unreachable `\\domain\SYSVOL\…\Policies`,
+  DFS/auth failure) and nothing was copied. That produced an export ~5% of normal
+  size with **no SYSVOL data at all**, which silently blinds every SYSVOL-only
+  detector (cPassword, GPP Scheduled Tasks, GPP Local Users & Groups,
+  `Registry.pol` resolution). The copy now counts files on disk and surfaces the
+  source enumeration error (no longer swallowed by `SilentlyContinue`), failing
+  the section with a "GPP/cPassword detection will be BLIND" message instead.
+- **Zip step reconciles archived-vs-on-disk file counts.** PowerShell 5.1's
+  `Get-ChildItem -Recurse` silently skips paths over `MAX_PATH` (260 chars) —
+  exactly the deep SYSVOL/GPP trees — so an archive could omit whole subtrees
+  while still printing "Done". The collector now warns loudly when paths could
+  not be enumerated and prints the zipped file count.
+
+### Ingest: a missing SYSVOL is a loud, critical finding
+
+- **`load_estate` emits a `missing_sysvol` coverage gap** when no GPO matched a
+  SYSVOL folder (directory absent or empty). It surfaces as a **critical** Doctor
+  finding ("No SYSVOL collected — GPP/cPassword detectors are BLIND, not clean"),
+  so a SYSVOL-blind run can no longer masquerade as a clean estate.
+
+### GPO detail: readable Registry identities
+
+- **Group Policy Preferences Registry settings are now parsed into one readable
+  row per value** (`HKLM\key:name = value`) instead of collapsing an entire
+  `<RegistrySettings>`/`<Collection>`/`<Registry>`/`<Properties>` tree into a
+  single opaque `Registry:Policy:<hash>` row. GPP `action` (C/R/U/D) is preserved
+  in each row's `raw` for merge logic.
+- **Administrative-Templates policies** (`<Policy>`) now use the
+  category-qualified policy name as identity (e.g.
+  `Windows Components/Internet Explorer/Site to Zone Assignment List = Enabled`),
+  and classic `<RegistrySetting>` blocks resolve to `KeyPath:ValueName`. The
+  unreadable hashed-identity rows in the Registry table are gone.
+
+### Dashboard: clickable Posture indicators
+
+- **Posture cards deep-link into the Doctor-findings table, pre-filtered to that
+  issue.** The findings list gained a `category` filter (exact or `cat:`-prefix,
+  so "Broken references" catches every `broken_ref:<type>`); each fired card that
+  has a backing finding category is now an anchor to `?category=…#findings` with
+  an active-filter chip and clear (✕). Set conflicts, loopback, and WMI-filtered
+  cards have no backing finding and stay non-clickable rather than dead-ending on
+  empty results.
+
 ## v0.7.2 — 2026-06-23
 
 ### SNI-safe, sibling-safe uninstaller
