@@ -14,13 +14,31 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Literal, Protocol, runtime_checkable
+from typing import Literal, Protocol, TypedDict, runtime_checkable
 
 Side = Literal["Computer", "User"]
 
 SEVERITY_ORDER: dict[str, int] = {
     "critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4,
 }
+
+SettingRaw = TypedDict(
+    "SettingRaw",
+    {
+        "tag": str,
+        "text": str,
+        "@attr": dict[str, str],
+        "children": list["SettingRaw"],
+    },
+    total=False,
+)
+"""Lossless dict representation of a CSE setting's XML element.
+
+Produced by :func:`gpo_lens.ingest.element_to_dict` and stored as
+``Setting.raw``.  All fields are optional (present only when the source
+XML element has corresponding content).  The ``@attr`` key holds the
+element's attributes; ``children`` is a recursive list of the same type.
+"""
 
 
 @dataclass(frozen=True)
@@ -95,7 +113,7 @@ class Setting:
     identity: str           # CSE-specific natural key (conflict identity)
     display_name: str
     display_value: str
-    raw: dict[str, object]  # preserved CSE-specific subtree
+    raw: dict[str, object]  # CSE-specific subtree (element_to_dict or registry_pol)
     from_disabled_side: bool  # side's Enabled=false but settings present
     source_state: str = "normal"   # "normal" | "blocked" (<Blocked/> extension)
 
@@ -252,9 +270,30 @@ class Estate:
     coverage_gaps: list[CoverageGap] = field(default_factory=list)
     principals: dict[str, ResolvedPrincipal] = field(default_factory=dict)
     group_members: dict[str, GroupMembership] = field(default_factory=dict)
+    _gpo_index: dict[str, Gpo] | None = field(default=None, repr=False, compare=False)
+
+    @property
+    def gpo_index(self) -> dict[str, Gpo]:
+        """Lazy, cached ``{gpo_id: Gpo}`` index.
+
+        Built on first access and reused for all subsequent lookups, eliminating
+        the O(n) scan previously performed by ``gpo_by_id`` and the duplicated
+        ``{g.id: g for g in estate.gpos}`` dicts that appeared across 5+ call
+        sites. If ``gpos`` is mutated after first access the cache goes stale;
+        callers that modify ``gpos`` should set ``_gpo_index = None`` to
+        invalidate.
+        """
+        if self._gpo_index is None:
+            self._gpo_index = {g.id: g for g in self.gpos}
+        return self._gpo_index
+
+    @property
+    def gpo_names(self) -> dict[str, str]:
+        """Lazy, cached ``{gpo_id: gpo_name}`` map."""
+        return {g.id: g.name for g in self.gpo_index.values()}
 
     def gpo_by_id(self, gpo_id: str) -> Gpo | None:
-        return next((g for g in self.gpos if g.id == gpo_id), None)
+        return self.gpo_index.get(gpo_id)
 
 
 @runtime_checkable

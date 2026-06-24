@@ -10,7 +10,7 @@ import warnings
 import zipfile
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Protocol, cast, runtime_checkable
 from xml.etree.ElementTree import Element
 
 import defusedxml.ElementTree as ET
@@ -25,6 +25,7 @@ from gpo_lens.model import (
     OuRecord,
     ResolvedPrincipal,
     Setting,
+    SettingRaw,
     Side,
     Som,
     SomLink,
@@ -168,9 +169,9 @@ def _text(elem: Element | None) -> str | None:
     return elem.text
 
 
-def element_to_dict(elem: Element) -> dict[str, Any]:
+def element_to_dict(elem: Element) -> SettingRaw:
     """Recursively render an element as a lossless dict."""
-    result: dict[str, Any] = {"tag": _localname(elem.tag)}
+    result: SettingRaw = {"tag": _localname(elem.tag)}
     if elem.text and elem.text.strip():
         result["text"] = elem.text.strip()
     if elem.attrib:
@@ -181,7 +182,7 @@ def element_to_dict(elem: Element) -> dict[str, Any]:
     return result
 
 
-def _stable_hash(raw: dict[str, Any]) -> str:
+def _stable_hash(raw: SettingRaw) -> str:
     """Deterministic hash of a raw dict for generic fallback identity."""
     payload = json.dumps(raw, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
@@ -281,7 +282,7 @@ _HIVE_SHORT = {
 }
 
 
-def _parse_gpp_registry(block: Element) -> list[tuple[str, str, str, dict[str, Any]]]:
+def _parse_gpp_registry(block: Element) -> list[tuple[str, str, str, SettingRaw]]:
     """Expand a GPP Registry block into one row per concrete ``<Properties>``.
 
     GPP Registry preferences nest the real writes several levels down
@@ -292,7 +293,7 @@ def _parse_gpp_registry(block: Element) -> list[tuple[str, str, str, dict[str, A
     ``HIVE\\key:name = value`` row per ``<Properties>``, each carrying its own
     lossless ``raw`` so the GPP action (C/R/U/D) survives for merge logic.
     """
-    out: list[tuple[str, str, str, dict[str, Any]]] = []
+    out: list[tuple[str, str, str, SettingRaw]] = []
     for props in block.iter():
         if _localname(props.tag) != "Properties":
             continue
@@ -345,7 +346,7 @@ _GPP_ITEM_VALUE_ATTRS = (
 )
 
 
-def _parse_gpp_container(block: Element) -> list[tuple[str, str, str, dict[str, Any]]]:
+def _parse_gpp_container(block: Element) -> list[tuple[str, str, str, SettingRaw]]:
     """Expand a generic GPP-preferences container into one row per item.
 
     GPP CSEs (Drive Maps, Printers, Services, Scheduled Tasks, Shortcuts, Files,
@@ -359,7 +360,7 @@ def _parse_gpp_container(block: Element) -> list[tuple[str, str, str, dict[str, 
     items = [c for c in block if c.get("uid") is not None]
     if not items:
         return []
-    out: list[tuple[str, str, str, dict[str, Any]]] = []
+    out: list[tuple[str, str, str, SettingRaw]] = []
     for item in items:
         item_type = _localname(item.tag)
         props = _child_by_localname(item, "Properties")
@@ -483,7 +484,7 @@ def _parse_settings(gpo_elem: Element, gpo_id: str) -> list[Setting]:
 
     def _emit(
         side: Side, cse: str, identity: str, name: str, value: str,
-        raw: dict[str, Any], enabled: bool, source_state: str = "normal",
+        raw: dict[str, object], enabled: bool, source_state: str = "normal",
     ) -> None:
         n = seen.get((side, identity), 0) + 1
         seen[(side, identity)] = n
@@ -527,7 +528,8 @@ def _parse_settings(gpo_elem: Element, gpo_id: str) -> list[Setting]:
                         multi = _parse_gpp_container(block)
                     if multi:
                         for identity, name, value, raw in multi:
-                            _emit(side_name, cse, identity, name, value, raw, enabled)
+                            _emit(side_name, cse, identity, name, value,
+                                  cast(dict[str, object], raw), enabled)
                         continue
                     raw = element_to_dict(block)
                     # Try CSE-specific identity
@@ -551,7 +553,7 @@ def _parse_settings(gpo_elem: Element, gpo_id: str) -> list[Setting]:
                         parsed = _parse_generic_setting(cse, block)
                     identity, display_name, display_value = parsed
                     _emit(side_name, cse, identity, display_name, display_value,
-                          raw, enabled)
+                          cast(dict[str, object], raw), enabled)
     return settings
 
 
@@ -818,10 +820,10 @@ def _parse_single_gpo(gpo_elem: Element) -> Gpo:
         wmi_filter=None,
         sysvol_path=None,
         description=description,
+        links=_parse_links(gpo_elem, gpo_id),
+        settings=_parse_settings(gpo_elem, gpo_id),
+        delegation=_parse_delegation(gpo_elem, gpo_id),
     )
-    gpo.links = _parse_links(gpo_elem, gpo_id)
-    gpo.settings = _parse_settings(gpo_elem, gpo_id)
-    gpo.delegation = _parse_delegation(gpo_elem, gpo_id)
     return gpo
 
 

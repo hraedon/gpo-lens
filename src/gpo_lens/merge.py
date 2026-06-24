@@ -29,6 +29,7 @@ from gpo_lens.authz import (
     is_deny_ace_type,
     parse_sddl,
     parse_sddl_rights,
+    permission_implies_read,
     resolve_principal,
     resolve_well_known,
 )
@@ -607,9 +608,7 @@ def _gpo_apply_trustee_sids(
 
     for entry in gpo.delegation:
         has_data = True
-        perm = entry.permission.lower()
-        if not ("apply" in perm or "grouppolicy" in perm.replace(" ", "")
-                or "read" in perm or "full control" in perm):
+        if not permission_implies_read(entry.permission):
             continue
         sid = (entry.trustee_sid or "").strip().lower()
         if not sid and entry.trustee:
@@ -814,6 +813,8 @@ def _collect_chain_entries(
     name_to_sid: dict[str, str],
     domain_sid: str | None,
     excluded: list[ExcludedGpo],
+    *,
+    _already_excluded: set[str] | None = None,
 ) -> list[ChainEntry]:
     """Walk a precedence chain, evaluate gates, and collect one side's settings.
 
@@ -821,22 +822,33 @@ def _collect_chain_entries(
     ``excluded`` (never silently dropped — decision 2). Used for both the
     user chain (User-side settings) and the computer chain (Computer-side
     settings) so the two paths share one exclusion-recording code path.
+
+    ``_already_excluded`` is a shared set of GPO IDs already excluded from
+    a prior chain (e.g. the user chain when computing a user+computer pair).
+    When provided, GPOs in this set are skipped without re-recording the
+    exclusion, preventing duplicate entries (WI-051).
     """
     entries: list[ChainEntry] = []
     for eg in chain:
         gpo = gpo_by_id.get(eg.gpo_id)
         if gpo is None or not eg.enabled:
             continue
+        if _already_excluded is not None and gpo.id in _already_excluded:
+            continue
         passes, reason = _evaluate_security_gate(
             gpo, token_sids, name_to_sid, domain_sid,
         )
         if not passes:
+            if _already_excluded is not None:
+                _already_excluded.add(gpo.id)
             excluded.append(ExcludedGpo(
                 gpo_id=gpo.id, gpo_name=gpo.name,
                 reason=reason, kind="security_filter",
             ))
             continue
         if gpo.wmi_filter:
+            if _already_excluded is not None:
+                _already_excluded.add(gpo.id)
             excluded.append(ExcludedGpo(
                 gpo_id=gpo.id, gpo_name=gpo.name,
                 reason=f"WMI filter attached: {gpo.wmi_filter}",
@@ -908,7 +920,7 @@ def principal_resultant(
 
     som_path = _resolve_som_path_for_principal(estate, dn)
     chain = som_effective_gpos(estate, som_path) if som_path else []
-    gpo_by_id = {g.id: g for g in estate.gpos}
+    gpo_by_id = estate.gpo_index
 
     side = _side_for_principal(rp.principal_type)
     is_user_computer_pair = computer_sid is not None and side == "User"
@@ -922,32 +934,23 @@ def principal_resultant(
             estate, computer_dn if computer_dn is not None else dn,
         )
         comp_chain = som_effective_gpos(estate, comp_som) if comp_som else []
+        # Track GPOs excluded from the user chain so the computer chain
+        # doesn't re-record them (WI-051: prevent duplicates at source
+        # rather than deduplicating after the fact).
+        excluded_ids: set[str] = set()
         chain_entries = _collect_chain_entries(
             chain, "User", gpo_by_id, token_sids, name_to_sid, domain_sid,
-            excluded,
+            excluded, _already_excluded=excluded_ids,
         )
         chain_entries += _collect_chain_entries(
             comp_chain, "Computer", gpo_by_id, token_sids, name_to_sid,
-            domain_sid, excluded,
+            domain_sid, excluded, _already_excluded=excluded_ids,
         )
     else:
         chain_entries = _collect_chain_entries(
             chain, side, gpo_by_id, token_sids, name_to_sid, domain_sid,
             excluded,
         )
-
-    # In a user+computer pair, a GPO linked at a shared ancestor (e.g. the
-    # domain root) appears in BOTH chains; if it is gated it would be recorded
-    # twice. Collapse to one entry per GPO (a GPO has one exclusion reason).
-    if is_user_computer_pair and excluded:
-        seen: set[str] = set()
-        deduped: list[ExcludedGpo] = []
-        for e in excluded:
-            if e.gpo_id in seen:
-                continue
-            seen.add(e.gpo_id)
-            deduped.append(e)
-        excluded = deduped
 
     merge = merge_settings_with_exclusions(
         chain_entries, ilt_gpo_ids=ilt_gpo_ids,

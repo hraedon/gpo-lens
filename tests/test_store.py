@@ -7,10 +7,10 @@ both are correctness/reproducibility properties that the snapshot-diff and
 
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 import stat
-import warnings
 
 import pytest
 
@@ -412,7 +412,9 @@ def test_load_estate_tolerates_pre_v3_db_without_principal_tables(tmp_path):
     assert out.group_members == {}
 
 
-def test_load_estate_corrupted_setting_raw_does_not_crash(tmp_path):
+def test_load_estate_corrupted_setting_raw_raises(tmp_path):
+    """Corrupt JSON in the setting.raw column must raise, not silently
+    return a default (WI-049 — coverage honesty charter)."""
     db = tmp_path / "corrupt.db"
     conn = sqlite3.connect(str(db))
     store.init_db(conn)
@@ -435,16 +437,13 @@ def test_load_estate_corrupted_setting_raw_does_not_crash(tmp_path):
     )
     conn.commit()
 
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        loaded = store.load_estate(conn, sid)
+    with pytest.raises(json.JSONDecodeError):
+        store.load_estate(conn, sid)
     conn.close()
 
-    assert len(loaded.gpos) == 1
-    assert loaded.gpos[0].settings[0].raw == {}
 
-
-def test_load_estate_corrupted_group_members_does_not_crash(tmp_path):
+def test_load_estate_corrupted_group_members_raises(tmp_path):
+    """Corrupt JSON in the group_member.members column must raise (WI-049)."""
     from gpo_lens.model import GroupMembership
 
     db = tmp_path / "corrupt-gm.db"
@@ -470,13 +469,9 @@ def test_load_estate_corrupted_group_members_does_not_crash(tmp_path):
     )
     conn.commit()
 
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        loaded = store.load_estate(conn, sid)
+    with pytest.raises(json.JSONDecodeError):
+        store.load_estate(conn, sid)
     conn.close()
-
-    assert "s-1-5-21-1-2-3-1000" in loaded.group_members
-    assert loaded.group_members["s-1-5-21-1-2-3-1000"].members == ()
 
 
 def test_restrict_db_permissions_warns_on_failure(tmp_path, monkeypatch):

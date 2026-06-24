@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import warnings
 from collections.abc import Iterable
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from gpo_lens.model import ResolvedPrincipal, SddlAce, SddlAcl
@@ -21,17 +22,26 @@ __all__ = [
     "ACE_TYPE_MAP",
     "APPLY_RIGHTS",
     "AU_SID",
+    "DEFAULT_WRITER_NAMES",
+    "DEFAULT_WRITER_SID_SUFFIXES",
     "DOMAIN_COMPUTERS_RID_SUFFIX",
     "DOMAIN_SID_PREFIX",
     "EVERYONE_SID",
     "MS16_072_TRUSTEES",
+    "READ_IMPLYING_PERMISSIONS",
     "SCOPE_BROAD_TRUSTEES",
+    "SddlApplyAce",
     "applies_broadly",
     "broad_trustee_key",
     "is_allow_ace_type",
+    "is_default_writer",
+    "is_default_writer_sid",
     "is_deny_ace_type",
+    "iter_sddl_apply_aces",
     "parse_sddl",
     "parse_sddl_rights",
+    "permission_implies_apply",
+    "permission_implies_read",
     "resolve_principal",
     "resolve_well_known",
 ]
@@ -176,7 +186,7 @@ _SDDL_SID_ALIASES: dict[str, str] = {
     # lives in (e.g. a GPO owner is almost always ``O:DA`` = Domain Admins,
     # not a raw S-1-5-21-...-512 SID). They resolve to the same friendly
     # names as the corresponding domain RIDs above, which is what
-    # ``detection._is_default_writer_sid`` matches on by name.
+    # ``is_default_writer_sid`` matches on by name.
     "da": "Domain Admins",
     "dg": "Domain Guests",
     "du": "Domain Users",
@@ -311,6 +321,138 @@ def is_allow_ace_type(ace_type: str) -> bool:
 
 def is_deny_ace_type(ace_type: str) -> bool:
     return ace_type in ("deny", "object_deny")
+
+
+# ---------------------------------------------------------------------------
+# Authorization predicates (WI-047: consolidated from detection.py and
+# queries/_delegation.py where they were duplicated 2-3x each).
+# ---------------------------------------------------------------------------
+
+# Names that are considered "default writers" — trustees whose write access
+# to a GPO is expected and not a security concern.  The lowercase subset is
+# used by the name-based predicate; the full set is used by the SID-based
+# predicate via resolve_well_known.
+DEFAULT_WRITER_NAMES = frozenset({
+    "BUILTIN\\Administrators",
+    "Domain Admins",
+    "Enterprise Admins",
+    "SYSTEM",
+    # Non-actionable placeholder identities present in the default GPO DACL.
+    # No security principal ever authenticates as Creator Owner / Creator
+    # Group / Owner Rights, so a write ACE for them is not a hijack primitive
+    # — flagging them buries the real findings under per-GPO noise.
+    "Creator Owner",
+    "Creator Group",
+    "Owner Rights",
+})
+
+DEFAULT_WRITER_SID_SUFFIXES = frozenset({"-512", "-519"})
+
+# Lowercase subset for the name-based check (queries/_delegation.py formerly
+# used only {"domain admins", "enterprise admins", "system"} — missing
+# "administrators" and the placeholder identities).
+_DEFAULT_WRITER_NAMES_LOWER = frozenset(
+    n.lower() for n in DEFAULT_WRITER_NAMES
+)
+
+
+def is_default_writer(trustee: str) -> bool:
+    """True if *trustee* (by display name) is a default GPO writer."""
+    return trustee.strip().lower() in _DEFAULT_WRITER_NAMES_LOWER
+
+
+def is_default_writer_sid(sid: str) -> bool:
+    """True if *sid* belongs to a default GPO writer.
+
+    Checks the well-known-SID table and domain RID suffixes (-512, -519).
+    """
+    s = sid.strip().lower()
+    if resolve_well_known(s) in DEFAULT_WRITER_NAMES:
+        return True
+    return (
+        s.startswith(DOMAIN_SID_PREFIX)
+        and any(s.endswith(suffix) for suffix in DEFAULT_WRITER_SID_SUFFIXES)
+    )
+
+
+# GPMC's grouped-permission labels (GPOGroupedAccessEnum / GPPermissionType).
+# Per Microsoft, every standard grouping except "Custom"/"None" includes the
+# READ access right:
+#   GpoRead                     -> "Read"
+#   GpoApply                    -> "Apply Group Policy"  (Read AND Apply)
+#   GpoEdit                     -> "Edit settings"
+#   GpoEditDeleteModifySecurity -> "Edit, delete, modify security"
+# "Apply Group Policy" in particular IS Read+Apply — GPMC's Delegation tab
+# shows it as "Read (from Security Filtering)".  Treating it as non-Read
+# produced MS16-072 false positives on every GPO with default Authenticated
+# Users filtering.  (ref: gpmgmt.h GPMPermissionType, KB MS16-072.)
+#
+# GPMC display strings for the Edit* family vary across versions and locales
+# ("Edit settings" / "Edit Settings" / "Edit, delete, modify security" /
+# "Edit settings, delete, modify security"), so we match that family by prefix
+# rather than enumerating every spelling.
+READ_IMPLYING_PERMISSIONS = frozenset({
+    "read",
+    "apply group policy",
+    "full control",
+})
+
+
+def permission_implies_read(permission: str) -> bool:
+    """True if a GPMC grouped-permission label confers the READ access right."""
+    p = permission.strip().lower()
+    return (
+        p in READ_IMPLYING_PERMISSIONS
+        or p.startswith("edit ")
+        or p.startswith("edit,")
+    )
+
+
+def permission_implies_apply(permission: str) -> bool:
+    """True if a GPMC grouped-permission label confers the APPLY access right.
+
+    Only ``Apply Group Policy`` and ``Full control`` explicitly grant Apply.
+    The ``Edit*`` family grants Read+Write but **not** Apply.
+    """
+    return permission.strip().lower() in ("apply group policy", "full control")
+
+
+# ---------------------------------------------------------------------------
+# SDDL fallback (WI-046: consolidated from topology.py, danger.py, merge.py).
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class SddlApplyAce:
+    """An allow ACE in the SDDL DACL that grants apply/read rights."""
+
+    ace: SddlAce
+    rights: frozenset[str]
+    broad_key: str | None
+
+
+def iter_sddl_apply_aces(
+    sddl: str,
+    broad_names: Iterable[str] = SCOPE_BROAD_TRUSTEES,
+) -> list[SddlApplyAce]:
+    """Extract allow ACEs with apply/read rights from an SDDL string.
+
+    Used as the SDDL fallback when a GPO has no ``delegation`` entries (common
+    when the collector only captured the raw SDDL string).  Returns one
+    ``SddlApplyAce`` per allow ACE whose rights intersect ``APPLY_RIGHTS``.
+    ``broad_key`` is set when the trustee is a recognized broad-application
+    trustee (Authenticated Users, Domain Computers, Everyone).
+    """
+    acl = parse_sddl(sddl)
+    result: list[SddlApplyAce] = []
+    for ace in acl.dacl:
+        if not is_allow_ace_type(ace.ace_type):
+            continue
+        rights = frozenset(parse_sddl_rights(ace.rights))
+        if not (rights & APPLY_RIGHTS):
+            continue
+        key = broad_trustee_key("", ace.trustee_sid, broad_names)
+        result.append(SddlApplyAce(ace=ace, rights=rights, broad_key=key))
+    return result
 
 
 def parse_sddl_rights(rights: str) -> list[str]:

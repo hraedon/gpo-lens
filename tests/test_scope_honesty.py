@@ -784,7 +784,10 @@ class TestIsSecurityFilteredEmptyDelegation:
         )
         assert is_security_filtered(gpo) is True
 
-    def test_delegation_with_non_read_apply_permission_ignored(self) -> None:
+    def test_delegation_edit_settings_is_read_implying(self) -> None:
+        """'Edit settings' includes Read per Microsoft's GPOGroupedAccessEnum,
+        so a GPO with AU 'Edit settings' is NOT security-filtered (WI-047
+        consolidated the permission predicate)."""
         from gpo_lens.topology import is_security_filtered
 
         gpo = _make_gpo(
@@ -799,7 +802,7 @@ class TestIsSecurityFilteredEmptyDelegation:
                 ),
             ],
         )
-        assert is_security_filtered(gpo) is True
+        assert is_security_filtered(gpo) is False
 
 
 class TestIsSecurityFilteredSddlFallback:
@@ -1148,7 +1151,9 @@ class TestSecurityFilteringGolden:
         )
         assert is_security_filtered(gpo) is False
 
-    def test_edit_settings_is_filtered(self) -> None:
+    def test_edit_settings_is_not_filtered(self) -> None:
+        """'Edit settings' includes Read per GPOGroupedAccessEnum, so a GPO
+        with AU 'Edit settings' is NOT security-filtered (WI-047)."""
         from gpo_lens.topology import is_security_filtered
 
         gpo = _make_gpo(
@@ -1163,7 +1168,7 @@ class TestSecurityFilteringGolden:
                 ),
             ],
         )
-        assert is_security_filtered(gpo) is True
+        assert is_security_filtered(gpo) is False
 
     def test_sddl_only_with_object_allow_not_filtered(self) -> None:
         from gpo_lens.topology import is_security_filtered

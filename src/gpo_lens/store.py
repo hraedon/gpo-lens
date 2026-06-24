@@ -35,13 +35,15 @@ CURRENT_SCHEMA_VERSION: int = 3
 
 
 def _safe_json_loads(raw: str | None, default: Any) -> Any:
+    """Load JSON from a DB column, returning *default* for NULL.
+
+    Raises ``json.JSONDecodeError`` for corrupt JSON — the previous behavior
+    of silently returning *default* hid data corruption, violating the
+    coverage-honesty charter (WI-049).
+    """
     if raw is None:
         return default
-    try:
-        return json.loads(raw)
-    except (json.JSONDecodeError, TypeError) as exc:
-        warnings.warn(f"Corrupt JSON in DB column, using default: {exc}", stacklevel=1)
-        return default
+    return json.loads(raw)
 
 
 def init_db(conn: sqlite3.Connection) -> None:
@@ -515,8 +517,9 @@ def load_estate(conn: sqlite3.Connection, snapshot_id: int | None = None) -> Est
 
     domain = row[1]
 
-    # Load GPOs
-    gpos: dict[str, Gpo] = {}
+    # Load GPOs — collect related rows first, then construct each Gpo fully
+    # (WI-050: no partially-constructed state).
+    gpo_rows: dict[str, tuple[Any, ...]] = {}
     for row in conn.execute(
         """
         SELECT id, name, domain, created, modified, read,
@@ -528,6 +531,76 @@ def load_estate(conn: sqlite3.Connection, snapshot_id: int | None = None) -> Est
         """,
         (snapshot_id,),
     ):
+        gpo_rows[row[0]] = row
+
+    # Collect links per GPO
+    links_by_gpo: dict[str, list[GpoLink]] = {}
+    for row in conn.execute(
+        """
+        SELECT gpo_id, som_name, som_path, link_enabled, enforced
+        FROM gpo_link WHERE snapshot_id = ?
+        ORDER BY gpo_id, som_path
+        """,
+        (snapshot_id,),
+    ):
+        links_by_gpo.setdefault(row[0], []).append(
+            GpoLink(
+                gpo_id=row[0],
+                som_name=row[1],
+                som_path=row[2],
+                link_enabled=bool(row[3]),
+                enforced=bool(row[4]),
+            )
+        )
+
+    # Collect settings per GPO
+    settings_by_gpo: dict[str, list[Setting]] = {}
+    for row in conn.execute(
+        """
+        SELECT gpo_id, side, cse, identity, display_name, display_value,
+               raw, from_disabled_side, source_state
+        FROM setting WHERE snapshot_id = ?
+        ORDER BY gpo_id, side, cse, identity
+        """,
+        (snapshot_id,),
+    ):
+        settings_by_gpo.setdefault(row[0], []).append(
+            Setting(
+                gpo_id=row[0],
+                side=row[1],
+                cse=row[2],
+                identity=row[3],
+                display_name=row[4],
+                display_value=row[5],
+                raw=_safe_json_loads(row[6], {}),
+                from_disabled_side=bool(row[7]),
+                source_state=row[8],
+            )
+        )
+
+    # Collect delegation per GPO
+    delegation_by_gpo: dict[str, list[DelegationEntry]] = {}
+    for row in conn.execute(
+        """
+        SELECT gpo_id, trustee, trustee_sid, permission, allowed
+        FROM delegation WHERE snapshot_id = ?
+        ORDER BY gpo_id, trustee
+        """,
+        (snapshot_id,),
+    ):
+        delegation_by_gpo.setdefault(row[0], []).append(
+            DelegationEntry(
+                gpo_id=row[0],
+                trustee=row[1],
+                trustee_sid=row[2],
+                permission=row[3],
+                allowed=bool(row[4]),
+            )
+        )
+
+    # Construct fully-populated Gpo objects
+    gpos: dict[str, Gpo] = {}
+    for gpo_id, row in gpo_rows.items():
         gpo = Gpo(
             id=row[0],
             name=row[1],
@@ -547,79 +620,11 @@ def load_estate(conn: sqlite3.Connection, snapshot_id: int | None = None) -> Est
             wmi_filter=row[15],
             sysvol_path=row[16],
             description=row[17],
+            links=links_by_gpo.get(gpo_id, []),
+            settings=settings_by_gpo.get(gpo_id, []),
+            delegation=delegation_by_gpo.get(gpo_id, []),
         )
         gpos[gpo.id] = gpo
-
-    # Load links
-    for row in conn.execute(
-        """
-        SELECT gpo_id, som_name, som_path, link_enabled, enforced
-        FROM gpo_link WHERE snapshot_id = ?
-        ORDER BY gpo_id, som_path
-        """,
-        (snapshot_id,),
-    ):
-        if row[0] not in gpos:
-            continue
-        gpo = gpos[row[0]]
-        gpo.links.append(
-            GpoLink(
-                gpo_id=row[0],
-                som_name=row[1],
-                som_path=row[2],
-                link_enabled=bool(row[3]),
-                enforced=bool(row[4]),
-            )
-        )
-
-    # Load settings
-    for row in conn.execute(
-        """
-        SELECT gpo_id, side, cse, identity, display_name, display_value,
-               raw, from_disabled_side, source_state
-        FROM setting WHERE snapshot_id = ?
-        ORDER BY gpo_id, side, cse, identity
-        """,
-        (snapshot_id,),
-    ):
-        if row[0] not in gpos:
-            continue
-        gpo = gpos[row[0]]
-        gpo.settings.append(
-            Setting(
-                gpo_id=row[0],
-                side=row[1],
-                cse=row[2],
-                identity=row[3],
-                display_name=row[4],
-                display_value=row[5],
-                raw=_safe_json_loads(row[6], {}),
-                from_disabled_side=bool(row[7]),
-                source_state=row[8],
-            )
-        )
-
-    # Load delegation
-    for row in conn.execute(
-        """
-        SELECT gpo_id, trustee, trustee_sid, permission, allowed
-        FROM delegation WHERE snapshot_id = ?
-        ORDER BY gpo_id, trustee
-        """,
-        (snapshot_id,),
-    ):
-        if row[0] not in gpos:
-            continue
-        gpo = gpos[row[0]]
-        gpo.delegation.append(
-            DelegationEntry(
-                gpo_id=row[0],
-                trustee=row[1],
-                trustee_sid=row[2],
-                permission=row[3],
-                allowed=bool(row[4]),
-            )
-        )
 
     # Load SOMs
     soms: dict[str, Som] = {}

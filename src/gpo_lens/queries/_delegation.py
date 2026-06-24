@@ -20,11 +20,7 @@ if TYPE_CHECKING:
 # Security / hygiene helpers (used by permissions_audit, delegation_deep_dive)
 # ---------------------------------------------------------------------------
 
-_DEFAULT_WRITERS = {"domain admins", "enterprise admins", "system"}
-
-
-def _is_default_writer(trustee: str) -> bool:
-    return trustee.strip().lower() in _DEFAULT_WRITERS
+from gpo_lens.authz import is_default_writer as _is_default_writer
 
 
 @dataclass(frozen=True)
