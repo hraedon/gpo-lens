@@ -588,7 +588,7 @@ class TestAsk:
         with patch.dict(os.environ, {"GPO_LENS_API_KEY": ""}, clear=False):
             resp = client.get("/ask")
         assert resp.status_code == 200
-        assert "Narration is not configured" in resp.text
+        assert "AI narration is not configured" in resp.text
 
     def test_post_ask_mocked_returns_answer_and_facts(self, client) -> None:
         mock_route = MagicMock(return_value={"query": "estate_summary", "params": {}})

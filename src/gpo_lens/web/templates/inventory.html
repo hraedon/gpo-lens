@@ -70,10 +70,10 @@
       <tr>
         <td><a href="{{ url_for('gpo_detail', gpo_id=g.id) }}">{{ g.name or '(unnamed)' }}</a></td>
         <td>
-          {% if not g.links %}<span class="gp-chip warn">Unlinked</span>{% endif %}
-          {% if not g.computer_enabled and not g.user_enabled %}<span class="gp-chip muted">Disabled</span>
-          {% elif not g.computer_enabled %}<span class="gp-chip muted">Computer off</span>
-          {% elif not g.user_enabled %}<span class="gp-chip muted">User off</span>{% endif %}
+          {% if not g.links %}<span class="gp-chip warn" title="This GPO has no links and will not apply to any scope">Unlinked</span>{% endif %}
+          {% if not g.computer_enabled and not g.user_enabled %}<span class="gp-chip muted" title="Both the computer side and the user side are disabled">Both sides disabled</span>
+          {% elif not g.computer_enabled %}<span class="gp-chip muted" title="The computer side is disabled; computer settings will not apply">Computer disabled</span>
+          {% elif not g.user_enabled %}<span class="gp-chip muted" title="The user side is disabled; user settings will not apply">User disabled</span>{% endif %}
           {% if g.links and g.computer_enabled and g.user_enabled %}<span class="muted">—</span>{% endif %}
         </td>
         <td class="num">{{ g.settings | length }}</td>
