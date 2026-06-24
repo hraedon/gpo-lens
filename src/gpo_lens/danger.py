@@ -24,7 +24,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from gpo_lens.authz import is_allow_ace_type, parse_sddl, parse_sddl_rights, resolve_principal
+from gpo_lens.authz import (
+    APPLY_RIGHTS,
+    is_allow_ace_type,
+    parse_sddl,
+    parse_sddl_rights,
+    resolve_principal,
+)
 from gpo_lens.detection import (
     _has_write_right,
     _is_default_writer_sid,
@@ -91,7 +97,6 @@ _APPLY_GP_REF = (
 # "Apply Group Policy" granted to these SIDs means any authenticated or
 # anonymous user receives the GPO — an over-broad apply scope.
 _BROAD_APPLY_SIDS = {"s-1-1-0", "s-1-5-7", "wd", "an"}
-_APPLY_RIGHTS = {"GA", "GR", "CC", "CR", "RP"}
 
 
 def _format_trustee(estate: Estate, sid: str) -> str:
@@ -241,7 +246,7 @@ def overbroad_apply_group_policy(estate: Estate) -> list[DangerFinding]:
                 if sid not in _BROAD_APPLY_SIDS:
                     continue
                 rights = set(parse_sddl_rights(ace.rights))
-                if not (rights & _APPLY_RIGHTS):
+                if not (rights & APPLY_RIGHTS):
                     continue
                 trustee_display = _format_trustee(estate, ace.trustee_sid)
                 findings.append(DangerFinding(

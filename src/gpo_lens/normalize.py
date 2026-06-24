@@ -6,11 +6,25 @@ import json
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from xml.etree.ElementTree import Element
 
 
 def localname(tag: str) -> str:
     """Strip XML namespace prefix from a tag: ``{ns}local`` → ``local``."""
     return tag.split("}")[-1] if "}" in tag else tag
+
+
+def child_by_localname(parent: Element, name: str) -> Element | None:
+    """First child whose localname matches ``name``."""
+    for child in parent:
+        if localname(child.tag) == name:
+            return child
+    return None
+
+
+def children_by_localname(parent: Element, name: str) -> list[Element]:
+    """All children whose localname matches ``name``."""
+    return [child for child in parent if localname(child.tag) == name]
 
 
 def canonical_guid(raw: str) -> str:

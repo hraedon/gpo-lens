@@ -8,6 +8,7 @@ import json
 import re
 import warnings
 import zipfile
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 from xml.etree.ElementTree import Element
@@ -29,7 +30,20 @@ from gpo_lens.model import (
     SomLink,
     WmiFilter,
 )
-from gpo_lens.normalize import canonical_guid, load_json, localname, parse_bool, parse_dt, parse_int
+from gpo_lens.normalize import (
+    canonical_guid,
+    load_json,
+    localname,
+    parse_bool,
+    parse_dt,
+    parse_int,
+)
+from gpo_lens.normalize import (
+    child_by_localname as _child_by_localname,
+)
+from gpo_lens.normalize import (
+    children_by_localname as _children_by_localname,
+)
 from gpo_lens.paths import ci_child, ci_path
 from gpo_lens.registry_pol import parse_registry_pol
 
@@ -120,17 +134,31 @@ def _streaming_zip_read(
 _localname = localname
 
 
-def _child_by_localname(parent: Element, name: str) -> Element | None:
-    """First child whose localname matches ``name``."""
-    for child in parent:
-        if _localname(child.tag) == name:
-            return child
-    return None
+def _load_json_records(path: str | Path) -> list[dict[str, Any]]:
+    """Load JSON and return only dict entries, warning about skipped non-dicts.
 
-
-def _children_by_localname(parent: Element, name: str) -> list[Element]:
-    """All children whose localname matches ``name``."""
-    return [child for child in parent if _localname(child.tag) == name]
+    Consolidates the repeated ``load_json`` → list-wrap → non-dict-skip pattern
+    used by ``parse_inheritance``, ``merge_metadata``, ``parse_wmi_filters``,
+    ``parse_ou_tree``, ``parse_sites``, and ``parse_coverage_gaps``.
+    """
+    data = load_json(path)
+    if isinstance(data, dict):
+        return [data]
+    if not isinstance(data, list):
+        warnings.warn(
+            f"Unexpected top-level {type(data).__name__} in {path}; "
+            f"expected object or array",
+            stacklevel=2,
+        )
+        return []
+    records = [r for r in data if isinstance(r, dict)]
+    skipped = len(data) - len(records)
+    if skipped:
+        warnings.warn(
+            f"Skipped {skipped} non-dict entr{'y' if skipped == 1 else 'ies'} in {path}",
+            stacklevel=2,
+        )
+    return records
 
 
 def _text(elem: Element | None) -> str | None:
@@ -828,14 +856,9 @@ def _normalize_container_type(raw: object) -> str:
 
 def parse_inheritance(json_path: str | Path) -> list[Som]:
     """Parse GPInheritance dump into a list of ``Som``."""
-    data = load_json(json_path)
-    if not isinstance(data, list):
-        data = [data]
+    records = _load_json_records(json_path)
     soms: list[Som] = []
-    for record in data:
-        if not isinstance(record, dict):
-            warnings.warn(f"Skipping non-dict entry in {json_path}", stacklevel=1)
-            continue
+    for record in records:
         path = record.get("Path", "")
         name = record.get("Name", "")
         container_type = _normalize_container_type(record.get("ContainerType", ""))
@@ -891,14 +914,9 @@ def parse_inheritance(json_path: str | Path) -> list[Som]:
 
 def merge_metadata(json_path: str | Path, gpos: list[Gpo]) -> None:
     """Read metadata JSON and back-fill WMI filter + version fields."""
-    data = load_json(json_path)
+    records = _load_json_records(json_path)
     by_id = {g.id: g for g in gpos}
-    if not isinstance(data, list):
-        data = [data]
-    for record in data:
-        if not isinstance(record, dict):
-            warnings.warn(f"Skipping non-dict entry in {json_path}", stacklevel=1)
-            continue
+    for record in records:
         raw_id = record.get("Id", "")
         if not raw_id:
             continue
@@ -1032,14 +1050,9 @@ def augment_blocked_registry_from_pol(gpos: list[Gpo]) -> None:
 
 def parse_wmi_filters(json_path: str | Path) -> list[WmiFilter]:
     """Parse ``wmi-filters.json`` into a list of :class:`WmiFilter`."""
-    data = load_json(json_path)
-    if not isinstance(data, list):
-        data = [data]
+    records = _load_json_records(json_path)
     filters: list[WmiFilter] = []
-    for record in data:
-        if not isinstance(record, dict):
-            warnings.warn(f"Skipping non-dict entry in {json_path}", stacklevel=1)
-            continue
+    for record in records:
         name = record.get("Name", "")
         query = record.get("Query", "")
         if name:
@@ -1049,14 +1062,9 @@ def parse_wmi_filters(json_path: str | Path) -> list[WmiFilter]:
 
 def parse_ou_tree(json_path: str | Path) -> list[OuRecord]:
     """Parse ``ou-tree.json`` (raw gPLink / gPOptions) into :class:`OuRecord` list."""
-    data = load_json(json_path)
-    if not isinstance(data, list):
-        data = [data]
+    json_records = _load_json_records(json_path)
     records: list[OuRecord] = []
-    for record in data:
-        if not isinstance(record, dict):
-            warnings.warn(f"Skipping non-dict entry in {json_path}", stacklevel=1)
-            continue
+    for record in json_records:
         dn = record.get("DistinguishedName", "")
         name = record.get("Name", "")
         gp_link = record.get("gPLink")
@@ -1208,14 +1216,9 @@ def parse_sites(json_path: str | Path) -> list[Som]:
     ancestors); their per-machine application (IP subnet -> site) is
     intentionally not resolved here.
     """
-    data = load_json(json_path)
-    if not isinstance(data, list):
-        data = [data]
+    records = _load_json_records(json_path)
     sites: list[Som] = []
-    for record in data:
-        if not isinstance(record, dict):
-            warnings.warn(f"Skipping non-dict entry in {json_path}", stacklevel=1)
-            continue
+    for record in records:
         dn = record.get("DistinguishedName", "")
         name = record.get("Name", "")
         som = Som(
@@ -1245,13 +1248,7 @@ def parse_coverage_gaps(
     gaps: list[CoverageGap] = []
 
     if inventory_path.exists():
-        inv = load_json(inventory_path)
-        if not isinstance(inv, list):
-            inv = [inv]
-        for rec in inv:
-            if not isinstance(rec, dict):
-                warnings.warn(f"Skipping non-dict entry in {inventory_path}", stacklevel=1)
-                continue
+        for rec in _load_json_records(inventory_path):
             raw = rec.get("Id") or rec.get("id") or ""
             try:
                 gid = canonical_guid(raw)
@@ -1269,13 +1266,7 @@ def parse_coverage_gaps(
             seen.add(gid)
 
     if errors_path.exists():
-        errs = load_json(errors_path)
-        if not isinstance(errs, list):
-            errs = [errs]
-        for rec in errs:
-            if not isinstance(rec, dict):
-                warnings.warn(f"Skipping non-dict entry in {errors_path}", stacklevel=1)
-                continue
+        for rec in _load_json_records(errors_path):
             raw = rec.get("GpoId") or rec.get("gpo_id") or ""
             if not raw:
                 continue
@@ -1382,6 +1373,34 @@ def _scan_missing_sysvol(
     )]
 
 
+def _try_load[T](
+    path: Path, fn: Callable[..., T], label: str, *args: Any,
+) -> T | None:
+    """Load an optional file, warning on error instead of raising.
+
+    Consolidates the repeated ``if path.exists(): try: ... except: warn`` pattern
+    in :func:`load_estate`. Returns ``None`` when the file is absent or
+    unparseable — callers treat that as "skip this input."
+    """
+    if not path.exists():
+        return None
+    try:
+        return fn(path, *args)
+    except (OSError, ValueError) as exc:
+        warnings.warn(f"Skipping {label}: {exc}", stacklevel=2)
+        return None
+
+
+def _try_action(path: Path, fn: Callable[..., None], label: str, *args: Any) -> None:
+    """Run a side-effecting loader (e.g. ``merge_metadata``) with the same guard."""
+    if not path.exists():
+        return
+    try:
+        fn(path, *args)
+    except (OSError, ValueError) as exc:
+        warnings.warn(f"Skipping {label}: {exc}", stacklevel=2)
+
+
 def load_estate(sample_dir: str | Path) -> Estate:
     """Orchestrate loading a full estate from a sample directory."""
     src = Path(sample_dir)
@@ -1395,29 +1414,19 @@ def load_estate(sample_dir: str | Path) -> Estate:
         warnings.warn(f"Skipping AllGPOs.xml: {exc}", stacklevel=1)
     domain = gpos[0].domain if gpos else ""
 
-    inheritance_path = src / "gp-inheritance.json"
-    soms: list[Som] = []
-    if inheritance_path.exists():
-        try:
-            soms = parse_inheritance(inheritance_path)
-        except (OSError, ValueError) as exc:
-            warnings.warn(f"Skipping gp-inheritance.json: {exc}", stacklevel=1)
+    soms = _try_load(
+        src / "gp-inheritance.json", parse_inheritance, "gp-inheritance.json",
+    ) or []
 
     # AD sites are a parallel scoping axis; append them as container_type="site"
     # SOMs. Absent sites.json (older exports) changes nothing.
-    sites_path = src / "sites.json"
-    if sites_path.exists():
-        try:
-            soms.extend(parse_sites(sites_path))
-        except (OSError, ValueError) as exc:
-            warnings.warn(f"Skipping sites.json: {exc}", stacklevel=1)
+    sites = _try_load(src / "sites.json", parse_sites, "sites.json")
+    if sites:
+        soms.extend(sites)
 
-    metadata_path = src / "gpo-metadata.json"
-    if metadata_path.exists():
-        try:
-            merge_metadata(metadata_path, gpos)
-        except (OSError, ValueError) as exc:
-            warnings.warn(f"Skipping gpo-metadata.json: {exc}", stacklevel=1)
+    _try_action(
+        src / "gpo-metadata.json", merge_metadata, "gpo-metadata.json", gpos,
+    )
 
     sysvol_dir = src / "SYSVOL-Policies"
     alt = src / "SYSVOL" / "Policies"
@@ -1431,21 +1440,12 @@ def load_estate(sample_dir: str | Path) -> Estate:
     # SYSVOL is present. No-op when SYSVOL wasn't copied or nothing is blocked.
     augment_blocked_registry_from_pol(gpos)
 
-    wmi_filters: list[WmiFilter] = []
-    wmi_path = src / "wmi-filters.json"
-    if wmi_path.exists():
-        try:
-            wmi_filters = parse_wmi_filters(wmi_path)
-        except (OSError, ValueError) as exc:
-            warnings.warn(f"Skipping wmi-filters.json: {exc}", stacklevel=1)
-
-    ou_tree: list[OuRecord] = []
-    ou_tree_path = src / "ou-tree.json"
-    if ou_tree_path.exists():
-        try:
-            ou_tree = parse_ou_tree(ou_tree_path)
-        except (OSError, ValueError) as exc:
-            warnings.warn(f"Skipping ou-tree.json: {exc}", stacklevel=1)
+    wmi_filters = _try_load(
+        src / "wmi-filters.json", parse_wmi_filters, "wmi-filters.json",
+    ) or []
+    ou_tree = _try_load(
+        src / "ou-tree.json", parse_ou_tree, "ou-tree.json",
+    ) or []
 
     coverage_gaps = parse_coverage_gaps(
         src / "gpo-inventory.json", src / "collection-errors.json", gpos
@@ -1454,21 +1454,12 @@ def load_estate(sample_dir: str | Path) -> Estate:
     coverage_gaps.extend(_scan_sysvol_coverage(gpos))
     coverage_gaps.extend(_scan_missing_sysvol(sysvol_root, gpos))
 
-    principals: dict[str, ResolvedPrincipal] = {}
-    principals_path = src / "principals.json"
-    if principals_path.exists():
-        try:
-            principals = parse_principals(principals_path)
-        except (OSError, ValueError) as exc:
-            warnings.warn(f"Skipping principals.json: {exc}", stacklevel=1)
-
-    group_members: dict[str, GroupMembership] = {}
-    group_members_path = src / "group-members.json"
-    if group_members_path.exists():
-        try:
-            group_members = parse_group_members(group_members_path)
-        except (OSError, ValueError) as exc:
-            warnings.warn(f"Skipping group-members.json: {exc}", stacklevel=1)
+    principals = _try_load(
+        src / "principals.json", parse_principals, "principals.json",
+    ) or {}
+    group_members = _try_load(
+        src / "group-members.json", parse_group_members, "group-members.json",
+    ) or {}
 
     return Estate(
         domain=domain, gpos=gpos, soms=soms,

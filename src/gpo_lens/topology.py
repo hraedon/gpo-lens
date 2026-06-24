@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from gpo_lens.authz import (
+    APPLY_RIGHTS,
     SCOPE_BROAD_TRUSTEES,
     applies_broadly,
     broad_trustee_key,
@@ -525,22 +526,12 @@ def settings_at_som(estate: Estate, som_path: str) -> list[EffectiveSetting]:
 
 # Domain Computers = S-1-5-21-{domain}-515. Require the domain-SID prefix so
 # we don't match arbitrary SIDs whose RID happens to end in "515".
-_SDDL_READ_OR_APPLY_RIGHTS = {"GA", "GR", "CC", "CR", "RP"}
 
 
 def _grants_read_or_apply(permission: str) -> bool:
     """True if the permission label conveys Read or Apply Group Policy."""
     p = permission.lower().strip()
     return "read" in p or "apply" in p
-
-
-def _broad_key(trustee: str, sid: str | None) -> str | None:
-    """Thin compatibility wrapper around :func:`gpo_lens.authz.broad_trustee_key`.
-
-    Preserves the historical topology helper used by tests that enumerate
-    broad-trustee name/SID matching.
-    """
-    return broad_trustee_key(trustee, sid, SCOPE_BROAD_TRUSTEES)
 
 
 def _sddl_read_or_apply_grants(
@@ -553,7 +544,7 @@ def _sddl_read_or_apply_grants(
         if key is None:
             continue
         rights = set(parse_sddl_rights(ace.rights))
-        if not (rights & _SDDL_READ_OR_APPLY_RIGHTS):
+        if not (rights & APPLY_RIGHTS):
             continue
         if is_allow_ace_type(ace.ace_type):
             grants.append((key, True))
@@ -628,7 +619,7 @@ def is_security_filtered(gpo: Gpo) -> bool:
     if gpo.delegation:
         grants: list[tuple[str | None, bool]] = []
         for entry in gpo.delegation:
-            key = _broad_key(entry.trustee, entry.trustee_sid)
+            key = broad_trustee_key(entry.trustee, entry.trustee_sid, SCOPE_BROAD_TRUSTEES)
             if key is None or not _grants_read_or_apply(entry.permission):
                 continue
             grants.append((key, entry.allowed))
@@ -659,7 +650,7 @@ def security_filtering_detail(
     for entry in gpo.delegation:
         if not entry.allowed:
             continue
-        key = _broad_key(entry.trustee, entry.trustee_sid)
+        key = broad_trustee_key(entry.trustee, entry.trustee_sid, SCOPE_BROAD_TRUSTEES)
         perm_lower = entry.permission.lower().strip()
         if (
             "read" in perm_lower
@@ -682,7 +673,7 @@ def security_filtering_detail(
             if key is None:
                 continue
             rights = set(parse_sddl_rights(ace.rights))
-            if not (rights & _SDDL_READ_OR_APPLY_RIGHTS):
+            if not (rights & APPLY_RIGHTS):
                 continue
             if key == "authenticated_users":
                 has_au_read = True

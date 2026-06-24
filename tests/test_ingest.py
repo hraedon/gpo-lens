@@ -1113,7 +1113,7 @@ class TestNonDictArrayGuards:
             '"bad-string", 42, null]',
             encoding="utf-8",
         )
-        with pytest.warns(UserWarning, match="Skipping non-dict"):
+        with pytest.warns(UserWarning, match="non-dict"):
             soms = ingest.parse_inheritance(j)
         assert len(soms) == 1
         assert soms[0].name == "t"
@@ -1124,7 +1124,7 @@ class TestNonDictArrayGuards:
             '[{"Name":"F1","Query":"q"}, "bad", null]',
             encoding="utf-8",
         )
-        with pytest.warns(UserWarning, match="Skipping non-dict"):
+        with pytest.warns(UserWarning, match="non-dict"):
             filters = ingest.parse_wmi_filters(j)
         assert len(filters) == 1
         assert filters[0].name == "F1"
@@ -1136,7 +1136,7 @@ class TestNonDictArrayGuards:
             '"bad", 123]',
             encoding="utf-8",
         )
-        with pytest.warns(UserWarning, match="Skipping non-dict"):
+        with pytest.warns(UserWarning, match="non-dict"):
             records = ingest.parse_ou_tree(j)
         assert len(records) == 1
         assert records[0].name == "x"
@@ -1148,7 +1148,7 @@ class TestNonDictArrayGuards:
             '"bad", null]',
             encoding="utf-8",
         )
-        with pytest.warns(UserWarning, match="Skipping non-dict"):
+        with pytest.warns(UserWarning, match="non-dict"):
             sites = ingest.parse_sites(j)
         assert len(sites) == 1
         assert sites[0].name == "Site1"
@@ -1162,7 +1162,7 @@ class TestNonDictArrayGuards:
         )
         errs = tmp_path / "collection-errors.json"
         errs.write_text("[]", encoding="utf-8")
-        with pytest.warns(UserWarning, match="Skipping non-dict"):
+        with pytest.warns(UserWarning, match="non-dict"):
             gaps = ingest.parse_coverage_gaps(inv, errs, [])
         assert len(gaps) == 1
         assert gaps[0].kind == "inaccessible"
@@ -1176,7 +1176,7 @@ class TestNonDictArrayGuards:
             '"Error":"fail"}, "bad", null]',
             encoding="utf-8",
         )
-        with pytest.warns(UserWarning, match="Skipping non-dict"):
+        with pytest.warns(UserWarning, match="non-dict"):
             gaps = ingest.parse_coverage_gaps(inv, errs, [])
         assert len(gaps) == 1
         assert gaps[0].kind == "collection_error"
