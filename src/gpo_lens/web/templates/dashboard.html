@@ -6,7 +6,7 @@
 {% block content %}
 {% set crit = sev_counts.get('critical', 0) %}
 {% set high = sev_counts.get('high', 0) %}
-{% set total_findings = findings|length %}
+{% set total_findings = filtered_findings_count %}
 
 <div class="gp-page-head">
   <div>

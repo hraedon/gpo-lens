@@ -18,8 +18,8 @@
     <div class="sub mono">{{ gpo.id }}</div>
   </div>
   <div style="display:flex;gap:8px;align-items:center">
-    {% if gpo.computer_enabled %}<span class="gp-pill ok"><span class="dot"></span>Computer</span>{% else %}<span class="gp-pill low"><span class="dot"></span>Computer off</span>{% endif %}
-    {% if gpo.user_enabled %}<span class="gp-pill ok"><span class="dot"></span>User</span>{% else %}<span class="gp-pill low"><span class="dot"></span>User off</span>{% endif %}
+    {% if gpo.computer_enabled %}<span class="gp-pill ok" title="Computer side is enabled"><span class="dot"></span>Computer enabled</span>{% else %}<span class="gp-pill low" title="Computer side is disabled; computer settings will not apply"><span class="dot"></span>Computer disabled</span>{% endif %}
+    {% if gpo.user_enabled %}<span class="gp-pill ok" title="User side is enabled"><span class="dot"></span>User enabled</span>{% else %}<span class="gp-pill low" title="User side is disabled; user settings will not apply"><span class="dot"></span>User disabled</span>{% endif %}
     <a class="gp-btn gp-export-btn" href="{{ url_for('export_gpo', gpo_id=gpo.id) }}?format=json">Export JSON</a>
   </div>
 </div>
@@ -99,7 +99,7 @@
         <tr>
           <td>{{ link.som_name }}</td>
           <td class="mono muted">{{ link.som_path }}</td>
-          <td>{% if link.link_enabled %}<span class="gp-pill ok"><span class="dot"></span>on</span>{% else %}<span class="gp-pill low"><span class="dot"></span>off</span>{% endif %}</td>
+          <td>{% if link.link_enabled %}<span class="gp-pill ok" title="This link is enabled"><span class="dot"></span>enabled</span>{% else %}<span class="gp-pill low" title="This link is disabled"><span class="dot"></span>disabled</span>{% endif %}</td>
           <td>{% if link.enforced %}<span class="gp-chip warn">enforced</span>{% else %}<span class="muted">—</span>{% endif %}</td>
         </tr>
         {% endfor %}
@@ -172,7 +172,7 @@
         {% for d in gpo.delegation %}
         <tr>
           <td>{{ d.trustee }}</td>
-          <td>{{ d.permission }}</td>
+          <td{% if d.permission == 'Apply Group Policy' %} title="Apply Group Policy includes both Read and Apply rights"{% endif %}>{{ d.permission }}</td>
           <td>{% if d.allowed %}<span class="gp-pill ok"><span class="dot"></span>Allow</span>{% else %}<span class="gp-pill critical"><span class="dot"></span>Deny</span>{% endif %}</td>
         </tr>
         {% endfor %}
