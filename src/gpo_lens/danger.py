@@ -25,15 +25,14 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from gpo_lens.authz import (
-    APPLY_RIGHTS,
     is_allow_ace_type,
+    is_default_writer_sid,
+    iter_sddl_apply_aces,
     parse_sddl,
-    parse_sddl_rights,
     resolve_principal,
 )
 from gpo_lens.detection import (
     _has_write_right,
-    _is_default_writer_sid,
     scan_local_groups,
 )
 from gpo_lens.model import SEVERITY_ORDER
@@ -115,7 +114,7 @@ def gpo_writable_by_nonadmin(estate: Estate) -> list[DangerFinding]:
     """Flag GPOs whose DACL grants write rights to a non-default-writer trustee,
     or whose Owner is a non-default-writer SID.
 
-    Reuses the existing SDDL parse and the ``_is_default_writer_sid`` /
+    Reuses the existing SDDL parse and the ``is_default_writer_sid`` /
     ``_has_write_right`` helpers — no new ACL evaluator (AC-7). Emits one
     finding per (GPO, trustee) pair for DACL write ACEs, plus one finding
     per GPO with a non-admin Owner (the Owner implicitly holds WRITE_DAC
@@ -127,7 +126,7 @@ def gpo_writable_by_nonadmin(estate: Estate) -> list[DangerFinding]:
             continue
         acl = parse_sddl(g.sddl)
 
-        if acl.owner_sid and not _is_default_writer_sid(acl.owner_sid):
+        if acl.owner_sid and not is_default_writer_sid(acl.owner_sid):
             owner_display = _format_trustee(estate, acl.owner_sid)
             findings.append(DangerFinding(
                 check_id="gpo_owner_nonadmin",
@@ -148,7 +147,7 @@ def gpo_writable_by_nonadmin(estate: Estate) -> list[DangerFinding]:
             if not _has_write_right(ace.rights):
                 continue
             sid = ace.trustee_sid
-            if not sid or _is_default_writer_sid(sid):
+            if not sid or is_default_writer_sid(sid):
                 continue
             trustee_display = _format_trustee(estate, sid)
             findings.append(DangerFinding(
@@ -238,17 +237,11 @@ def overbroad_apply_group_policy(estate: Estate) -> list[DangerFinding]:
             continue
 
         if not g.delegation and g.sddl:
-            acl = parse_sddl(g.sddl)
-            for ace in acl.dacl:
-                if not is_allow_ace_type(ace.ace_type):
-                    continue
-                sid = (ace.trustee_sid or "").lower()
+            for entry in iter_sddl_apply_aces(g.sddl):
+                sid = (entry.ace.trustee_sid or "").lower()
                 if sid not in _BROAD_APPLY_SIDS:
                     continue
-                rights = set(parse_sddl_rights(ace.rights))
-                if not (rights & APPLY_RIGHTS):
-                    continue
-                trustee_display = _format_trustee(estate, ace.trustee_sid)
+                trustee_display = _format_trustee(estate, entry.ace.trustee_sid)
                 findings.append(DangerFinding(
                     check_id="overbroad_apply_gp",
                     severity="medium",
@@ -257,7 +250,7 @@ def overbroad_apply_group_policy(estate: Estate) -> list[DangerFinding]:
                     gpo_name=g.name,
                     detail=(
                         f"SDDL grants apply rights to {trustee_display} "
-                        f"({ace.rights})"
+                        f"({entry.ace.rights})"
                     ),
                     reference=_APPLY_GP_REF,
                 ))

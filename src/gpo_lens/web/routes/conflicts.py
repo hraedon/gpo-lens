@@ -57,7 +57,7 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
                 resolvable_gpo_ids = {g.id for g in estate.gpos}
                 # The resolved rollup carries GPO names; the defined lens carries
                 # ids. Map both ways so either can deep-link to a GPO detail page.
-                gpo_names = {g.id: g.name for g in estate.gpos}
+                gpo_names = estate.gpo_names
                 gpo_id_by_name = {g.name: g.id for g in estate.gpos}
                 # The defined count is cheap and shown on both tabs; the resolved
                 # rollup resolves every OU chain, so only pay for it on its tab.

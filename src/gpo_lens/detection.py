@@ -14,17 +14,20 @@ import defusedxml.ElementTree as ET
 from gpo_lens.authz import (
     MS16_072_TRUSTEES,
     broad_trustee_key,
+    is_allow_ace_type,
+    is_default_writer_sid,
     is_deny_ace_type,
     parse_sddl,
     parse_sddl_rights,
+    permission_implies_read,
     resolve_principal,
-    resolve_well_known,
 )
 from gpo_lens.model import (
     DenyAce,
     ExcessiveWriter,
     SddlAce,
     SddlAcl,
+    SettingRaw,
     Side,
 )
 from gpo_lens.normalize import child_by_localname as _child_by_localname
@@ -273,33 +276,9 @@ def _scan_gpo_for_cpassword(gpo: Gpo) -> list[CpasswordHit]:
     return results
 
 
-# GPMC's grouped-permission labels (GPOGroupedAccessEnum / GPPermissionType).
-# Per Microsoft, every standard grouping except "Custom"/"None" includes the
-# READ access right:
-#   GpoRead                     -> "Read"
-#   GpoApply                    -> "Apply Group Policy"  (Read AND Apply)
-#   GpoEdit                     -> "Edit settings"
-#   GpoEditDeleteModifySecurity -> "Edit, delete, modify security"
-# "Apply Group Policy" in particular IS Read+Apply -- GPMC's Delegation tab shows
-# it as "Read (from Security Filtering)". Treating it as non-Read produced
-# MS16-072 false positives on every GPO with default Authenticated Users
-# filtering. (ref: gpmgmt.h GPMPermissionType, KB MS16-072.)
-#
-# GPMC display strings for the Edit* family vary across versions and locales
-# ("Edit settings" / "Edit Settings" / "Edit, delete, modify security" /
-# "Edit settings, delete, modify security"), so we match that family by prefix
-# rather than enumerating every spelling.
-_READ_IMPLYING_PERMISSIONS = frozenset({
-    "read",
-    "apply group policy",
-    "full control",
-})
-
-
-def _permission_implies_read(permission: str) -> bool:
-    """True if a GPMC grouped-permission label confers the READ access right."""
-    p = permission.strip().lower()
-    return p in _READ_IMPLYING_PERMISSIONS or p.startswith("edit ") or p.startswith("edit,")
+# WI-047: authorization predicates consolidated into authz.py.
+# Backward-compatible aliases for existing callers/tests.
+_permission_implies_read = permission_implies_read
 
 
 def _has_ms16_072_read(delegation: list[DelegationEntry]) -> bool:
@@ -331,7 +310,7 @@ def _scan_text_for_unc(text: str) -> list[str]:
     return re.findall(r"\\\\[^\s\"'<>|]+", text)
 
 
-def _raw_strings(raw: dict[str, object]) -> list[str]:
+def _raw_strings(raw: dict[str, object] | SettingRaw) -> list[str]:
     out: list[str] = []
     for v in raw.values():
         if isinstance(v, str):
@@ -777,30 +756,9 @@ def broken_refs(estate: Estate) -> list[BrokenRef]:
 
 _WRITE_RIGHTS = {"GA", "GW", "WD", "WO", "SD", "DT", "WP", "DC", "CC"}
 
-_DEFAULT_WRITER_NAMES = frozenset({
-    "BUILTIN\\Administrators",
-    "Domain Admins",
-    "Enterprise Admins",
-    "SYSTEM",
-    # Non-actionable placeholder identities present in the default GPO DACL.
-    # No security principal ever authenticates as Creator Owner / Creator
-    # Group / Owner Rights, so a write ACE for them is not a hijack primitive
-    # — flagging them buries the real findings under per-GPO noise.
-    "Creator Owner",
-    "Creator Group",
-    "Owner Rights",
-})
-_DEFAULT_WRITER_DOMAIN_RID_SUFFIXES = frozenset({"-512", "-519"})
 
-
-def _is_default_writer_sid(sid: str) -> bool:
-    s = sid.strip().lower()
-    if resolve_well_known(s) in _DEFAULT_WRITER_NAMES:
-        return True
-    return (
-        s.startswith("s-1-5-21-")
-        and any(s.endswith(suffix) for suffix in _DEFAULT_WRITER_DOMAIN_RID_SUFFIXES)
-    )
+# WI-047: _is_default_writer_sid consolidated into authz.py.
+_is_default_writer_sid = is_default_writer_sid
 
 
 def _has_write_right(rights: str) -> bool:
@@ -857,7 +815,7 @@ def excessive_writers(
             continue
         acl = parse_sddl(g.sddl)
         for ace in acl.dacl:
-            if ace.ace_type != "allow":
+            if not is_allow_ace_type(ace.ace_type):
                 continue
             if not _has_write_right(ace.rights):
                 continue

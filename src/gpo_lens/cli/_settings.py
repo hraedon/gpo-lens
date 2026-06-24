@@ -14,7 +14,7 @@ from gpo_lens.display import render_settings_diff
 def cmd_who_sets(args: argparse.Namespace) -> None:
     estate = _get_estate(args)
     result = queries.who_sets(estate, args.term)
-    name_map = {g.id: g.name for g in estate.gpos}
+    name_map = estate.gpo_names
     if args.json:
         _render_json(
             [

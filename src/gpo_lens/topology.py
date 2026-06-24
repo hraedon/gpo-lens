@@ -18,8 +18,11 @@ from gpo_lens.authz import (
     broad_trustee_key,
     is_allow_ace_type,
     is_deny_ace_type,
+    iter_sddl_apply_aces,
     parse_sddl,
     parse_sddl_rights,
+    permission_implies_apply,
+    permission_implies_read,
     resolve_principal,
 )
 from gpo_lens.detection import scan_ilt
@@ -71,7 +74,7 @@ def som_effective_gpos(
     estate: Estate, som_path: str, *, _som: Som | None = None,
 ) -> list[EffectiveGpo]:
     """Return the resolved, ordered GPO chain at a given SOM path."""
-    names = {g.id: g.name for g in estate.gpos}
+    names = estate.gpo_names
     target_som = _som
     if target_som is None:
         for som in estate.soms:
@@ -261,9 +264,7 @@ def _resolve_som_chain(
     chain = [link for link in target_som.links if link.enabled]
     if not chain:
         return None
-    gpo_by_id = {g.id: g for g in estate.gpos}
-    names = {g.id: g.name for g in estate.gpos}
-    return chain, gpo_by_id, names
+    return chain, estate.gpo_index, estate.gpo_names
 
 
 @dataclass(frozen=True)
@@ -439,7 +440,7 @@ class SiteScope:
 
 def site_scopes(estate: Estate) -> list[SiteScope]:
     """All AD sites with their direct GPO links, resolved to GPO names."""
-    names = {g.id: g.name for g in estate.gpos}
+    names = estate.gpo_names
     out: list[SiteScope] = []
     for som in estate.soms:
         if som.container_type != "site":
@@ -528,12 +529,6 @@ def settings_at_som(estate: Estate, som_path: str) -> list[EffectiveSetting]:
 # we don't match arbitrary SIDs whose RID happens to end in "515".
 
 
-def _grants_read_or_apply(permission: str) -> bool:
-    """True if the permission label conveys Read or Apply Group Policy."""
-    p = permission.lower().strip()
-    return "read" in p or "apply" in p
-
-
 def _sddl_read_or_apply_grants(
     dacl: tuple[SddlAce, ...],
 ) -> list[tuple[str | None, bool]]:
@@ -620,7 +615,7 @@ def is_security_filtered(gpo: Gpo) -> bool:
         grants: list[tuple[str | None, bool]] = []
         for entry in gpo.delegation:
             key = broad_trustee_key(entry.trustee, entry.trustee_sid, SCOPE_BROAD_TRUSTEES)
-            if key is None or not _grants_read_or_apply(entry.permission):
+            if key is None or not permission_implies_read(entry.permission):
                 continue
             grants.append((key, entry.allowed))
         return not applies_broadly(grants)
@@ -651,36 +646,22 @@ def security_filtering_detail(
         if not entry.allowed:
             continue
         key = broad_trustee_key(entry.trustee, entry.trustee_sid, SCOPE_BROAD_TRUSTEES)
-        perm_lower = entry.permission.lower().strip()
-        if (
-            "read" in perm_lower
-            or "apply" in perm_lower
-            or "grouppolicy" in perm_lower.replace(" ", "")
-        ):
+        if permission_implies_read(entry.permission):
             if key == "authenticated_users":
                 has_au_read = True
             if key == "domain_computers":
                 has_dc_read = True
-        if "apply" in perm_lower or "grouppolicy" in perm_lower.replace(" ", ""):
+        if permission_implies_apply(entry.permission):
             if entry.trustee not in apply_trustees:
                 apply_trustees.append(entry.trustee)
     if not gpo.delegation and gpo.sddl:
-        acl = parse_sddl(gpo.sddl)
-        for ace in acl.dacl:
-            if not is_allow_ace_type(ace.ace_type):
-                continue
-            key = broad_trustee_key("", ace.trustee_sid, SCOPE_BROAD_TRUSTEES)
-            if key is None:
-                continue
-            rights = set(parse_sddl_rights(ace.rights))
-            if not (rights & APPLY_RIGHTS):
-                continue
-            if key == "authenticated_users":
+        for sddl_entry in iter_sddl_apply_aces(gpo.sddl):
+            if sddl_entry.broad_key == "authenticated_users":
                 has_au_read = True
-            if key == "domain_computers":
+            if sddl_entry.broad_key == "domain_computers":
                 has_dc_read = True
             if estate is not None:
-                rp = resolve_principal(estate, ace.trustee_sid)
+                rp = resolve_principal(estate, sddl_entry.ace.trustee_sid)
                 if rp.name not in apply_trustees:
                     apply_trustees.append(rp.name)
     return SecurityFiltering(
@@ -868,7 +849,7 @@ def gate_summaries(
     chain = som_effective_gpos(estate, som_path, _som=_som)
     if not chain:
         return []
-    gpo_by_id = {g.id: g for g in estate.gpos}
+    gpo_by_id = estate.gpo_index
     loopback_map = loopback_awareness(estate)
     ilt_gpos = {hit.gpo_id for hit in scan_ilt(estate)}
 
