@@ -21,6 +21,7 @@ from enum import Enum
 from typing import TYPE_CHECKING
 
 from gpo_lens.authz import (
+    APPLY_RIGHTS,
     AU_SID,
     DOMAIN_SID_PREFIX,
     EVERYONE_SID,
@@ -98,7 +99,6 @@ _FOLDER_REDIRECTION_CSES = frozenset({
     "folder redirection", "folders redirection",
 })
 
-_APPLY_RIGHTS = frozenset({"GA", "GR", "CC", "CR", "RP"})
 _DOMAIN_RID_DOMAIN_USERS = "-513"
 _DOMAIN_RID_DOMAIN_COMPUTERS = "-515"
 
@@ -640,7 +640,7 @@ def _gpo_apply_trustee_sids(
                 deny_rights[sid] |= rights
         for sid, allowed in allow_rights.items():
             net = allowed - deny_rights.get(sid, set())
-            if net & _APPLY_RIGHTS:
+            if net & APPLY_RIGHTS:
                 allow_sids.add(sid)
 
     if not has_data:

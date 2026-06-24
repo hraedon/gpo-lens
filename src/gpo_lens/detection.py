@@ -27,6 +27,7 @@ from gpo_lens.model import (
     SddlAcl,
     Side,
 )
+from gpo_lens.normalize import child_by_localname as _child_by_localname
 from gpo_lens.normalize import localname
 from gpo_lens.paths import ci_child, ci_path
 
@@ -419,13 +420,6 @@ def _props(elem: Element) -> Element | None:
     """Find the first <Properties> child by local name (namespace-tolerant)."""
     for child in elem:
         if _localname(child.tag) == "Properties":
-            return child
-    return None
-
-
-def _child_by_localname(parent: Element, name: str) -> Element | None:
-    for child in parent:
-        if _localname(child.tag) == name:
             return child
     return None
 

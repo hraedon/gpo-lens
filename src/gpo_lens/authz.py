@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "ACE_TYPE_MAP",
+    "APPLY_RIGHTS",
     "AU_SID",
     "DOMAIN_COMPUTERS_RID_SUFFIX",
     "DOMAIN_SID_PREFIX",
@@ -38,6 +39,12 @@ __all__ = [
 AU_SID = "s-1-5-11"
 EVERYONE_SID = "s-1-1-0"
 DOMAIN_SID_PREFIX = "s-1-5-21-"
+
+# SDDL right codes that convey Read or Apply Group Policy access.
+# Used by danger, merge, and topology to test whether an ACE grants
+# apply/read rights — previously duplicated as _APPLY_RIGHTS (danger,
+# merge) and _SDDL_READ_OR_APPLY_RIGHTS (topology).
+APPLY_RIGHTS = frozenset({"GA", "GR", "CC", "CR", "RP"})
 DOMAIN_COMPUTERS_RID_SUFFIX = "-515"
 _BUILTIN_PREFIX = "s-1-5-32-"
 _MANDATORY_PREFIX = "s-1-16-"

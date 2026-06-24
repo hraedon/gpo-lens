@@ -1,7 +1,7 @@
 """Unit tests for scope-honesty features in topology.py.
 
 Covers scope_caveats, effective_scope, scan_ilt edge cases, and the
-is_security_filtered / _broad_key SID-matching rules (including the tightened
+is_security_filtered / broad_trustee_key SID-matching rules (including the tightened
 Domain Computers check that requires the S-1-5-21-* prefix).
 """
 
@@ -508,7 +508,7 @@ class TestScanIlt:
 
 
 # ---------------------------------------------------------------------------
-# is_security_filtered / _broad_key — SID matching
+# is_security_filtered / broad_trustee_key — SID matching
 # ---------------------------------------------------------------------------
 
 
@@ -518,25 +518,27 @@ class TestBroadTrusteeSidMatching:
     false-match (which would mask a real security-filtering finding)."""
 
     def test_dc_sid_with_domain_prefix_matches(self) -> None:
-        from gpo_lens.topology import _broad_key
+        from gpo_lens.authz import SCOPE_BROAD_TRUSTEES, broad_trustee_key
 
-        assert _broad_key("x", "S-1-5-21-123-456-515") == "domain_computers"
+        result = broad_trustee_key("x", "S-1-5-21-123-456-515", SCOPE_BROAD_TRUSTEES)
+        assert result == "domain_computers"
 
     def test_builtin_sid_ending_in_515_does_not_match(self) -> None:
-        from gpo_lens.topology import _broad_key
+        from gpo_lens.authz import SCOPE_BROAD_TRUSTEES, broad_trustee_key
 
         # S-1-5-32-515 is in the builtin domain, not a domain principal.
-        assert _broad_key("x", "S-1-5-32-515") is None
+        assert broad_trustee_key("x", "S-1-5-32-515", SCOPE_BROAD_TRUSTEES) is None
 
     def test_arbitrary_sid_ending_in_515_does_not_match(self) -> None:
-        from gpo_lens.topology import _broad_key
+        from gpo_lens.authz import SCOPE_BROAD_TRUSTEES, broad_trustee_key
 
-        assert _broad_key("x", "S-1-2-3-515") is None
+        assert broad_trustee_key("x", "S-1-2-3-515", SCOPE_BROAD_TRUSTEES) is None
 
     def test_name_match_still_works_without_sid(self) -> None:
-        from gpo_lens.topology import _broad_key
+        from gpo_lens.authz import SCOPE_BROAD_TRUSTEES, broad_trustee_key
 
-        assert _broad_key("Domain Computers", None) == "domain_computers"
+        result = broad_trustee_key("Domain Computers", None, SCOPE_BROAD_TRUSTEES)
+        assert result == "domain_computers"
 
     def test_is_security_filtered_flags_gpo_with_only_bogus_515_sid(self) -> None:
         """A GPO whose only 'broad' trustee is a non-domain SID ending in 515
