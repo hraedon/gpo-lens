@@ -12,7 +12,9 @@ writes is the SQLite snapshot DB (path via `--db`, default
 `./gpo-lens.sqlite3`). All commands accept `--json` to emit machine-readable
 output instead of a text table.
 
-Module: `src/gpo_lens/cli.py`.
+Module: `src/gpo_lens/cli/` (package — `__init__.py` re-exports `main`,
+`_core.py` builds the argparse tree and dispatches, subcommand handlers live
+in sibling `_*.py` modules).
 
 ---
 

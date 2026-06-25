@@ -495,7 +495,14 @@ def _load_rules_file(path: Path) -> list[DangerRule]:
     try:
         with open(path, "rb") as f:
             data = tomllib.load(f)
-    except (OSError, tomllib.TOMLDecodeError):
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        # Warn loudly and return empty. The orchestrator ``load_danger_rules``
+        # escalates a *shipped*-file failure to a hard error; per-file
+        # tolerance here keeps one bad override from disabling every override.
+        warnings.warn(
+            f"Failed to load danger rules from {path.name}: {exc}",
+            stacklevel=2,
+        )
         return []
     raw_rules = data.get("rules", [])
     if not isinstance(raw_rules, list):
@@ -544,11 +551,24 @@ def load_danger_rules(rules_path: Path | None = None) -> list[DangerRule]:
     Falls back to the shipped ``danger_rules.toml``. When
     ``GPO_LENS_DANGER_RULES_DIR`` is set, additional ``.toml`` files in that
     directory are loaded and merged by ``id`` (drop-in overrides — B.2).
+
+    Fail-fast policy: the shipped file is part of the package and must always
+    load. If it does not (corruption, packaging bug, accidental deletion) we
+    raise ``RuntimeError`` rather than silently disabling every curated danger
+    check — a security tool that swallows its own rule-set failure would
+    report a clean estate while having no rules to evaluate.
     """
     if rules_path is not None:
         return _load_rules_file(rules_path)
 
-    shipped = _load_rules_file(Path(__file__).resolve().parent / "danger_rules.toml")
+    shipped_path = Path(__file__).resolve().parent / "danger_rules.toml"
+    shipped = _load_rules_file(shipped_path)
+    if not shipped:
+        raise RuntimeError(
+            f"Shipped danger_rules.toml ({shipped_path}) failed to load or "
+            f"contains no rules. The dangerous-configuration detector cannot "
+            f"run safely — refusing to return an empty rule set."
+        )
 
     env_dir = os.environ.get("GPO_LENS_DANGER_RULES_DIR")
     if not env_dir:

@@ -33,7 +33,6 @@ from gpo_lens.authz import (
     resolve_principal,
     resolve_well_known,
 )
-from gpo_lens.danger import danger_findings as _danger_findings
 from gpo_lens.detection import scan_ilt
 from gpo_lens.model import Side
 from gpo_lens.topology import EffectiveGpo, som_effective_gpos
@@ -958,7 +957,17 @@ def principal_resultant(
     settings = merge.settings
     excluded_settings = merge.excluded_settings
 
-    dangers = danger if danger is not None else _danger_findings(estate)
+    if danger is not None:
+        dangers = danger
+    else:
+        # Lazy import: merge is a core module and shouldn't eagerly couple to
+        # the danger rules loader (which reads ``danger_rules.toml`` at call
+        # time). Importing at module top made every principal_resultant call
+        # depend on a parseable shipped rules file even when the caller
+        # passed pre-computed findings.
+        from gpo_lens.danger import danger_findings as _danger_findings
+
+        dangers = _danger_findings(estate)
     conditional_dangers = _build_conditional_dangers(
         excluded, excluded_settings, dangers,
     )

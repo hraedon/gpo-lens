@@ -658,21 +658,42 @@ def _parse_delegation(gpo_elem: Element, gpo_id: str) -> list[DelegationEntry]:
 
 
 def parse_report(xml_path: str | Path) -> list[Gpo]:
-    """Parse one or more GPOs from a report XML file."""
+    """Parse one or more GPOs from a report XML file.
+
+    Handles both shapes the collector emits:
+
+    * many ``<GPO>`` elements under a root wrapper (``AllGPOs.xml``) — the
+      wrapper itself also carries localname ``GPO`` in some exports, so the
+      distinguishing signal is the presence of a nested ``<GPO>`` child.
+    * a single ``<GPO>`` as the root itself (per-GPO backups and the
+      Microsoft Security Baseline ``gpreport.xml`` shape) — no nested
+      ``<GPO>`` child, so the root *is* the GPO and ``root.iter()`` would
+      otherwise skip it (the loop excludes ``gpo_elem is root``).
+
+    Mirrors ``parse_report_xml`` (the bytes-based variant) which handles the
+    same two shapes. An empty wrapper (root localname GPO, no children) is
+    treated as the wrapper case and returns ``[]`` rather than mis-parsing
+    the wrapper itself as a malformed single GPO.
+    """
     tree = ET.parse(xml_path)
     root = tree.getroot()
     if root is None:
         return []
     gpos: list[Gpo] = []
-    # The report may contain many <GPO> elements as children of the root
-    # wrapper (AllGPOs.xml) or one <GPO> as the root itself.  We only look
-    # at descendants that are actual GPO blocks, never the root wrapper.
+    root_is_gpo = _localname(root.tag) == "GPO"
+    has_nested_gpo = any(_localname(child.tag) == "GPO" for child in root)
+    # Single-GPO-as-root: root localname is GPO, no nested <GPO>, and at
+    # least one non-GPO child (e.g. <Identifier>) — the last clause rejects
+    # an empty wrapper so it returns [] instead of yielding a phantom GPO.
+    has_content = any(_localname(child.tag) != "GPO" for child in root)
+    if root_is_gpo and not has_nested_gpo and has_content:
+        gpos.append(_parse_single_gpo(root))
+        return gpos
     for gpo_elem in root.iter():
         if gpo_elem is root:
             continue
         if _localname(gpo_elem.tag) == "GPO":
-            gpo = _parse_single_gpo(gpo_elem)
-            gpos.append(gpo)
+            gpos.append(_parse_single_gpo(gpo_elem))
     return gpos
 
 
@@ -686,7 +707,13 @@ def parse_report_xml(xml_bytes: bytes) -> list[Gpo]:
         text = xml_bytes.decode("utf-8")
     root = ET.fromstring(text)
     gpos: list[Gpo] = []
-    if _localname(root.tag) == "GPO":
+    root_is_gpo = _localname(root.tag) == "GPO"
+    has_nested_gpo = any(_localname(child.tag) == "GPO" for child in root)
+    has_content = any(_localname(child.tag) != "GPO" for child in root)
+    if root_is_gpo and not has_nested_gpo and has_content:
+        # Single-GPO document (per-GPO backup, baseline gpreport.xml): root
+        # itself is the GPO. Without this branch, the loop below would skip
+        # it via the ``gpo_elem is root`` guard.
         gpos.append(_parse_single_gpo(root))
     else:
         for gpo_elem in root.iter():
@@ -1334,6 +1361,75 @@ def _scan_sysvol_coverage(gpos: list[Gpo]) -> list[CoverageGap]:
     return gaps
 
 
+def _scan_corrupt_gpp_xml(gpos: list[Gpo]) -> list[CoverageGap]:
+    """Detect GPOs whose SYSVOL Preferences XML files fail to parse.
+
+    Sibling of ``_scan_sysvol_coverage``: that one flags *unreadable*
+    directories (lost traversal bit); this one flags *readable-but-corrupt*
+    XML files (truncated download, mid-copy snapshot, or a tampered export).
+    The GPP scanners in ``detection.py`` catch ``ET.ParseError`` and continue,
+    which is correct for resilience but means a corrupt ``ScheduledTasks.xml``
+    is silently invisible — a coverage-honesty hazard for a security tool. We
+    walk the same Preferences layout once at ingest time and surface every
+    unparseable file as a coverage gap so the user knows the cPassword /
+    scheduled-task / local-group views for that GPO are partial.
+    """
+    gaps: list[CoverageGap] = []
+    for gpo in gpos:
+        if not gpo.sysvol_path:
+            continue
+        base = Path(gpo.sysvol_path)
+        corrupt: list[str] = []
+        for side_dir in ("Machine", "User"):
+            side = ci_child(base, side_dir)
+            if side is None:
+                continue
+            prefs = ci_child(side, "Preferences")
+            if prefs is None:
+                continue
+            try:
+                entries = sorted(prefs.iterdir())
+            except OSError:
+                continue
+            for entry in entries:
+                try:
+                    candidates: list[Path] = []
+                    if entry.is_dir():
+                        candidates.extend(
+                            sorted(c for c in entry.iterdir() if c.is_file())
+                        )
+                    elif entry.is_file():
+                        candidates.append(entry)
+                    for fp in candidates:
+                        if fp.suffix.lower() != ".xml":
+                            continue
+                        try:
+                            ET.parse(fp)
+                        except (ET.ParseError, UnicodeDecodeError, OSError):
+                            # ParseError = malformed XML; UnicodeDecodeError =
+                            # wrong/invalid encoding declaration; OSError =
+                            # file became unreadable between iterdir and parse.
+                            # All three are "this GPP file is unusable" from
+                            # the perspective of the security scanners that
+                            # feed off Preferences XML.
+                            rel = fp.relative_to(base)
+                            corrupt.append(str(rel))
+                except OSError:
+                    continue
+        if corrupt:
+            gaps.append(CoverageGap(
+                gpo_id=gpo.id,
+                display_name=gpo.name,
+                kind="corrupt_gpp_xml",
+                detail=(
+                    f"GPP XML failed to parse: {', '.join(corrupt)}. "
+                    f"cPassword/GPP detectors cannot read these files; treat "
+                    f"the GPO's GPP-derived findings as incomplete."
+                ),
+            ))
+    return gaps
+
+
 def _scan_missing_sysvol(
     sysvol_root: Path | None, gpos: list[Gpo]
 ) -> list[CoverageGap]:
@@ -1410,10 +1506,17 @@ def load_estate(sample_dir: str | Path) -> Estate:
     if not report_path.exists():
         raise FileNotFoundError(f"AllGPOs.xml not found in {src}")
     gpos: list[Gpo] = []
+    # A missing AllGPOs.xml raised above. A *corrupt* primary input is a
+    # different failure: the charter promises coverage honesty, and silently
+    # producing an empty Estate from an unparseable report would violate it
+    # (the estate would look complete with zero GPOs). Fail fast instead —
+    # previously this caught ParseError/OSError/UnicodeDecodeError and warned.
     try:
         gpos = parse_report(report_path)
-    except (ET.ParseError, OSError, UnicodeDecodeError) as exc:
-        warnings.warn(f"Skipping AllGPOs.xml: {exc}", stacklevel=1)
+    except (ET.ParseError, UnicodeDecodeError) as exc:
+        raise ValueError(f"AllGPOs.xml in {src} is not parseable: {exc}") from exc
+    except OSError as exc:
+        raise OSError(f"AllGPOs.xml in {src} could not be read: {exc}") from exc
     domain = gpos[0].domain if gpos else ""
 
     soms = _try_load(
@@ -1454,6 +1557,7 @@ def load_estate(sample_dir: str | Path) -> Estate:
     )
 
     coverage_gaps.extend(_scan_sysvol_coverage(gpos))
+    coverage_gaps.extend(_scan_corrupt_gpp_xml(gpos))
     coverage_gaps.extend(_scan_missing_sysvol(sysvol_root, gpos))
 
     principals = _try_load(

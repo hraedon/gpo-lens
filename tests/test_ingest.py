@@ -127,6 +127,49 @@ class TestParseReport:
         with pytest.raises(ET.ParseError):
             ingest.parse_report(xml_path)
 
+    def test_parse_single_gpo_as_root(self, tmp_path: Path) -> None:
+        """A document whose root *is* the GPO (no wrapper) must parse.
+
+        Regression: ``root.iter()`` includes the root element, and the loop's
+        ``gpo_elem is root`` guard skipped it, yielding []. The single-GPO
+        shape is what Microsoft Security Baseline gpreport.xml files and
+        per-GPO backups use.
+        """
+        gpo_id = "{22222222-2222-2222-2222-222222222222}"
+        xml = (
+            '<?xml version="1.0" encoding="utf-8"?>\n'
+            '<GPO xmlns="http://www.microsoft.com/GroupPolicy/Settings">\n'
+            '  <Identifier>\n'
+            f'    <Identifier>{gpo_id}</Identifier>\n'
+            '    <Domain>single.local</Domain>\n'
+            '  </Identifier>\n'
+            '  <Name>SoloGpo</Name>\n'
+            '  <CreatedTime>2026-01-01T00:00:00</CreatedTime>\n'
+            '  <ModifiedTime>2026-01-02T00:00:00</ModifiedTime>\n'
+            '  <ReadTime>2026-01-03T00:00:00</ReadTime>\n'
+            '  <Computer><VersionDirectory>1</VersionDirectory>'
+            '<VersionSysvol>1</VersionSysvol><Enabled>true</Enabled></Computer>\n'
+            '  <User><VersionDirectory>1</VersionDirectory>'
+            '<VersionSysvol>1</VersionSysvol><Enabled>true</Enabled></User>\n'
+            '  <FilterDataAvailable>true</FilterDataAvailable>\n'
+            '</GPO>\n'
+        )
+        xml_path = tmp_path / "solo.xml"
+        xml_path.write_text(xml, encoding="utf-8")
+        gpos = ingest.parse_report(xml_path)
+        assert len(gpos) == 1
+        assert gpos[0].name == "SoloGpo"
+        assert gpos[0].id == "22222222-2222-2222-2222-222222222222"
+
+    def test_parse_wrapper_still_finds_inner_gpos(self, tmp_path: Path) -> None:
+        """Wrapper shape (root localname GPO + nested GPO) must still work."""
+        # The minimal fixture uses exactly this shape.
+        xml_path = tmp_path / "report.xml"
+        xml_path.write_text(_min_gpo_xml(), encoding="utf-8")
+        gpos = ingest.parse_report(xml_path)
+        assert len(gpos) == 1
+        assert gpos[0].name == "Test GPO"
+
     def test_bom_tolerant(self, tmp_path: Path) -> None:
         xml_path = tmp_path / "bom.xml"
         xml_path.write_bytes(
@@ -188,6 +231,19 @@ class TestParseSingleGpoEdgeCases:
 class TestLoadEstate:
     def test_load_estate_missing_allgpos(self, tmp_path: Path) -> None:
         with pytest.raises(FileNotFoundError):
+            ingest.load_estate(tmp_path)
+
+    def test_load_estate_corrupt_allgpos_fails_loud(self, tmp_path: Path) -> None:
+        """A corrupt primary input must not silently produce an empty estate.
+
+        Regression: ``load_estate`` previously caught ``ParseError`` and
+        warned, producing a valid-looking Estate with zero GPOs — a coverage-
+        honesty violation (the estate would render as "complete, just empty").
+        Now it raises so the operator knows the input is bad.
+        """
+        xml_path = tmp_path / "AllGPOs.xml"
+        xml_path.write_text("not xml at all <<<", encoding="utf-8")
+        with pytest.raises((ValueError, ET.ParseError)):
             ingest.load_estate(tmp_path)
 
     def test_load_estate_minimal(self, tmp_path: Path) -> None:
@@ -281,6 +337,94 @@ class TestLoadEstate:
         guid_dir.mkdir(parents=True)
         estate = ingest.load_estate(tmp_path)
         assert estate.gpos[0].sysvol_path is not None
+
+    def test_scan_corrupt_gpp_xml_surfaces_unparseable_files(
+        self, tmp_path: Path
+    ) -> None:
+        """A truncated Preferences XML is flagged as a coverage gap.
+
+        Regression: the GPP scanners in detection.py catch ``ET.ParseError``
+        and continue (correct for resilience), but a corrupt ScheduledTasks.xml
+        was therefore silently invisible — a coverage-honesty hazard for a
+        security tool. ``_scan_corrupt_gpp_xml`` walks the same Preferences
+        layout once at ingest time and surfaces every unparseable file.
+        """
+        from gpo_lens.model import Gpo
+
+        sysvol = tmp_path / "SYSVOL-Policies"
+        guid_dir = sysvol / "31B2F340-016D-11D2-945F-00C04FB984F9"
+        prefs = guid_dir / "Machine" / "Preferences" / "ScheduledTasks"
+        prefs.mkdir(parents=True)
+        # One good XML, one corrupt XML.
+        (prefs / "Good.xml").write_text(
+            '<?xml version="1.0"?><root></root>', encoding="utf-8"
+        )
+        (prefs / "Broken.xml").write_text(
+            "<<<not xml<<<", encoding="utf-8"
+        )
+        gpo = Gpo(
+            id="31b2f340-016d-11d2-945f-00c04fb984f9", name="Test",
+            domain="test.local", created=None, modified=None, read=None,
+            computer_enabled=True, user_enabled=True,
+            computer_ver_ds=None, computer_ver_sysvol=None,
+            user_ver_ds=None, user_ver_sysvol=None,
+            sddl=None, owner=None, filter_data_available=False,
+            wmi_filter=None, sysvol_path=str(guid_dir),
+            links=[], delegation=[], settings=[],
+        )
+        gaps = ingest._scan_corrupt_gpp_xml([gpo])
+        assert len(gaps) == 1
+        assert gaps[0].kind == "corrupt_gpp_xml"
+        assert "Broken.xml" in gaps[0].detail
+        assert "Good.xml" not in gaps[0].detail
+
+    def test_scan_corrupt_gpp_xml_no_sysvol_returns_empty(self) -> None:
+        from gpo_lens.model import Gpo
+
+        gpo = Gpo(
+            id="x", name="X", domain="d", created=None, modified=None, read=None,
+            computer_enabled=True, user_enabled=True,
+            computer_ver_ds=None, computer_ver_sysvol=None,
+            user_ver_ds=None, user_ver_sysvol=None,
+            sddl=None, owner=None, filter_data_available=False,
+            wmi_filter=None, sysvol_path=None,
+            links=[], delegation=[], settings=[],
+        )
+        assert ingest._scan_corrupt_gpp_xml([gpo]) == []
+
+    def test_scan_corrupt_gpp_xml_case_insensitive_side_and_skips_non_xml(
+        self, tmp_path: Path
+    ) -> None:
+        """Side dirs vary in case on real SYSVOL (MACHINE/USER); non-XML skipped."""
+        from gpo_lens.model import Gpo
+
+        sysvol = tmp_path / "SYSVOL-Policies"
+        guid_dir = sysvol / "31B2F340-016D-11D2-945F-00C04FB984F9"
+        # Uppercase side dir, mixed-case Preferences.
+        prefs = guid_dir / "USER" / "Preferences" / "Groups"
+        prefs.mkdir(parents=True)
+        (prefs / "Broken.xml").write_text("<<<not xml", encoding="utf-8")
+        # Non-XML files must be ignored.
+        (prefs / "notes.txt").write_text("ignore me", encoding="utf-8")
+        (prefs / "Good.xml").write_text(
+            '<?xml version="1.0"?><root></root>', encoding="utf-8"
+        )
+        gpo = Gpo(
+            id="31b2f340-016d-11d2-945f-00c04fb984f9", name="Test",
+            domain="test.local", created=None, modified=None, read=None,
+            computer_enabled=True, user_enabled=True,
+            computer_ver_ds=None, computer_ver_sysvol=None,
+            user_ver_ds=None, user_ver_sysvol=None,
+            sddl=None, owner=None, filter_data_available=False,
+            wmi_filter=None, sysvol_path=str(guid_dir),
+            links=[], delegation=[], settings=[],
+        )
+        gaps = ingest._scan_corrupt_gpp_xml([gpo])
+        assert len(gaps) == 1
+        assert gaps[0].kind == "corrupt_gpp_xml"
+        assert "Broken.xml" in gaps[0].detail
+        assert "notes.txt" not in gaps[0].detail
+        assert "Good.xml" not in gaps[0].detail
 
 
 class TestParseInheritanceEdgeCases:

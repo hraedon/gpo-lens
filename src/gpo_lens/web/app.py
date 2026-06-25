@@ -119,12 +119,25 @@ def _safe_extract(zip_path: Path, dest: Path) -> None:
                 if not extracted.is_relative_to(dest_root):
                     raise ValueError(f"zip-slip blocked: {member}")
     except BaseException:
-        # Clean up any partially extracted files/dirs before re-raising
-        for child in dest.iterdir():
-            if child.is_dir():
-                shutil.rmtree(child)
-            else:
-                child.unlink()
+        # Clean up any partially extracted files/dirs before re-raising.
+        # Cleanup errors are warned, not raised, so the *original* extraction
+        # failure (zip-slip, decompression bomb, symlink) propagates — without
+        # this guard a failing ``rmtree`` would mask the root cause. The
+        # outer ``iterdir`` guard is needed because ``dest`` may not exist
+        # (extraction failed before any file was written) or may have been
+        # removed mid-extraction by a concurrent process.
+        if dest.is_dir():
+            for child in dest.iterdir():
+                try:
+                    if child.is_dir():
+                        shutil.rmtree(child)
+                    else:
+                        child.unlink()
+                except OSError as cleanup_exc:
+                    _logger.warning(
+                        "cleanup of %s after extraction failure failed: %s",
+                        child, cleanup_exc,
+                    )
         raise
 
 

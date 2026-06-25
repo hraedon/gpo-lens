@@ -114,6 +114,9 @@ def test_every_consumed_command_emits_the_envelope(capsys, contract_db):
         ("topology-check", ()),
         ("admx-gaps", ()),
         ("precedence-conflicts", ()),
+        # ``danger`` and ``trends`` define their own subcommand-level --json
+        # that shadows the global flag (same shape as ``ingest``); they are
+        # pinned by ``test_danger_shape`` and ``test_trends_shape`` below.
     ]
     for kind, args in cases:
         _payload(capsys, contract_db, kind, *args)
@@ -587,3 +590,174 @@ def test_scope_not_found_errors_off_stdout(capsys, contract_db):
     assert rc != 0
     assert captured.out == ""
     assert "not found" in captured.err.lower()
+
+
+# --- Deterministic --json commands previously outside the contract ----------
+# These three commands emit the envelope but were not pinned by the freeze
+# above (regression coverage for the security/reasoning surface). They each
+# define their own subcommand-level ``--json`` that shadows the global flag
+# (same shape as ``ingest``), so the flag must follow the subcommand name.
+
+def _run_subjson(capsys, db, kind, *argv):
+    """Run a command whose subparser defines its own --json (post-subcommand)."""
+    rc = main(["--db", str(db), kind, "--json", *argv])
+    out = capsys.readouterr().out
+    return rc, json.loads(out)
+
+
+def _payload_subjson(capsys, db, kind, *argv):
+    rc, env = _run_subjson(capsys, db, kind, *argv)
+    assert rc == 0
+    assert set(env) == ENVELOPE_KEYS, f"unexpected envelope keys: {set(env)}"
+    assert env["schema_version"] == JSON_CONTRACT_VERSION
+    assert env["kind"] == kind
+    return env["data"]
+
+
+def test_danger_shape(capsys, contract_db):
+    """``danger --json`` carries the versioned envelope and a stable row shape.
+
+    The fixture includes intentionally-dangerous settings (cpassword,
+    version-skew, MS16-072 vulnerable) so the deterministic core produces at
+    least one finding; the row shape is what consumers like the Splunk sink
+    and the REST ``/api/v1/query/danger_findings`` route build on.
+    """
+    data = _payload_subjson(capsys, contract_db, "danger")
+    assert isinstance(data, list)
+    _assert_list_of(
+        data,
+        {
+            "check_id", "severity", "title", "gpo_id", "gpo_name",
+            "detail", "reference", "compliance", "remediation",
+        },
+        "danger[]",
+    )
+    if data:
+        first = data[0]
+        assert isinstance(first["compliance"], list)
+        if first["compliance"]:
+            _assert_keys(
+                first["compliance"][0],
+                {"framework", "control_id"},
+                "danger[].compliance[]",
+            )
+
+
+def test_trends_shape(capsys, contract_db):
+    """``trends --json`` emits one TrendPoint per snapshot.
+
+    The ``contract_db`` fixture ingests twice, so at least two snapshots are
+    present; the shape is what the web ``/trends`` page and the API
+    ``/api/v1/trends`` route build on.
+    """
+    data = _payload_subjson(capsys, contract_db, "trends")
+    assert isinstance(data, list) and data
+    _assert_keys(
+        data[0],
+        {
+            "snapshot_id", "taken_at", "gpo_count", "danger_finding_count",
+            "cpassword_hit_count", "ms16_072_vulnerable_count",
+            "version_skew_count", "broken_ref_count", "unlinked_count",
+            "empty_count", "total_settings", "coverage_gap_count",
+        },
+        "trends[]",
+    )
+
+
+def test_resultant_shape(capsys, tmp_path):
+    """``resultant --json`` carries the versioned envelope and a stable shape.
+
+    ``resultant`` requires a populated principals table, which the standard
+    fixture estate does not carry. Build a dedicated estate mirroring
+    ``test_cli_resultant_report._make_principal_db`` so the contract test is
+    self-contained.
+    """
+    import sqlite3
+
+    from gpo_lens import store
+    from gpo_lens.model import (
+        DelegationEntry,
+        Estate,
+        Gpo,
+        GroupMembership,
+        ResolvedPrincipal,
+        Setting,
+        Som,
+        SomLink,
+    )
+
+    domain_sid = "s-1-5-21-1000000000-2000000000-3000000000"
+    user_sid = f"{domain_sid}-1001"
+    group_sid = f"{domain_sid}-2001"
+    root_dn = "dc=test,dc=local"
+    gpo_id = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+
+    db = tmp_path / "resultant_contract.db"
+    conn = sqlite3.connect(str(db))
+    store.init_db(conn)
+    estate = Estate(
+        domain="test.local",
+        gpos=[Gpo(
+            id=gpo_id, name="gpo-test", domain="test.local",
+            created=None, modified=None, read=None,
+            computer_enabled=True, user_enabled=True,
+            computer_ver_ds=None, computer_ver_sysvol=None,
+            user_ver_ds=None, user_ver_sysvol=None,
+            sddl=None, owner=None, filter_data_available=False,
+            wmi_filter=None, sysvol_path=None,
+            settings=[Setting(
+                gpo_id=gpo_id, side="User", cse="Registry",
+                identity=r"HKCU\Software\A", display_name="A",
+                display_value="1", raw={}, from_disabled_side=False,
+            )],
+            delegation=[DelegationEntry(
+                gpo_id=gpo_id, trustee="Authenticated Users",
+                trustee_sid="S-1-5-11", permission="Apply Group Policy",
+                allowed=True,
+            )],
+        )],
+        soms=[Som(
+            path=root_dn, name="test", container_type="domain",
+            inheritance_blocked=False,
+            links=[SomLink(
+                gpo_id=gpo_id, order=1, enabled=True, enforced=False,
+                target=root_dn,
+            )],
+        )],
+        principals={
+            user_sid: ResolvedPrincipal(
+                sid=user_sid, name="TEST\\jdoe", sam="jdoe",
+                principal_type="User", domain="TEST", resolved=True,
+            ),
+        },
+        group_members={
+            group_sid: GroupMembership(
+                sid=group_sid, name="TEST\\Users", members=(user_sid,),
+                member_count=1,
+            ),
+        },
+    )
+    store.save_estate(conn, estate)
+    conn.close()
+
+    data = _payload_subjson(capsys, db, "resultant", user_sid)
+    assert isinstance(data, dict)
+    _assert_keys(
+        data,
+        {
+            "principal_sid", "principal_name", "computer_sid", "settings",
+            "excluded", "excluded_settings", "conditional_dangers",
+            "token_caveats", "caveat_summary",
+        },
+        "resultant",
+    )
+    if data["settings"]:
+        _assert_keys(
+            data["settings"][0],
+            {
+                "cse", "side", "identity", "display_name", "winning_value",
+                "winning_gpo_id", "winning_gpo_name", "merge_mode",
+                "overridden_by", "approximate", "conditional",
+            },
+            "resultant.settings[]",
+        )

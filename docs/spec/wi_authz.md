@@ -41,7 +41,7 @@ delete) between collection runs; the SID cannot.
 - **The plan called for one resolver with two fallbacks; the
   implementation has two resolvers.** `resolve_well_known(sid)` covers
   the static table only (no `Estate` argument — for callers like
-  `detection._is_default_writer_sid` that work on a bare SID). 
+  `authz.is_default_writer_sid` that work on a bare SID). 
   `resolve_principal(estate, sid)` is the full resolver: well-known
   table → `estate.principals` → unresolved fallback (AC-09). Both are
   public. The split is deliberate — `resolve_well_known` is the
