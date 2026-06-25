@@ -27,7 +27,15 @@ narrates facts the core computed. See `README.md` for the full charter.
 
 - **No work-domain identifiers in committed files.** Reflections and docs use
   placeholders (`WORK-DOMAIN.local`, `LABDOMAIN`). Exact counts are allowed
-  only in test assertions against `samples/`; docs use ranges.
+  only in test assertions against `samples/`; docs use ranges. **Reflections are
+  the repeat offender** — when a reflection *describes* a leak, refer to "the
+  work-domain FQDN", never paste the literal token (that re-leaks it).
+  Enforced two ways: the CI `identifier-gate` job (hard gate) **and** a local
+  pre-commit hook (early warning) — activate it once per clone with
+  `git config core.hooksPath githooks` (or `scripts/install-git-hooks.sh`) and
+  provide the denylist via `$GPO_LENS_FORBIDDEN_IDENTIFIERS` or a gitignored
+  `.identifiers-denylist.local`. The hook scans staged content before the commit
+  exists, closing the window where a token reaches history before CI flags it.
 - **Fixture data is synthetic.** No real GPO names, OU paths, or domain names
   in committed test files.
 - **`samples/` is gitignored and must never be committed.**

@@ -153,3 +153,22 @@ def test_main_exits_zero_when_no_violation(
 
     monkeypatch.setattr(checker.subprocess, "run", fake_run)
     assert checker.main([]) == 0
+
+
+def test_staged_mode_scans_staged_diff(
+    monkeypatch: pytest.MonkeyPatch, checker: ModuleType, tmp_path: Path
+) -> None:
+    """--staged routes through `git diff --cached` and still flags violations."""
+    file_path = tmp_path / "staged.txt"
+    file_path.write_text("Secret FAKEDOM value\n", encoding="utf-8")
+    monkeypatch.setenv("GPO_LENS_FORBIDDEN_IDENTIFIERS", "FAKEDOM")
+
+    seen: dict[str, list[str]] = {}
+
+    def fake_run(args: list[str], **kwargs: object) -> CompletedProcess[str]:
+        seen["args"] = args
+        return CompletedProcess(args=args, returncode=0, stdout=f"{file_path}\0")
+
+    monkeypatch.setattr(checker.subprocess, "run", fake_run)
+    assert checker.main(["--staged"]) == 1
+    assert seen["args"][:3] == ["git", "diff", "--cached"]

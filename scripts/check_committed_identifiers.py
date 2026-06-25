@@ -108,10 +108,10 @@ def scan_files(identifiers: frozenset[str], paths: list[Path]) -> list[Violation
     return violations
 
 
-def collect_tracked_paths() -> list[Path]:
-    """Return tracked file paths from ``git ls-files``, excluding obvious skips."""
+def _paths_from_git(args: list[str]) -> list[Path]:
+    """Run a NUL-delimited git path command and return filtered Paths."""
     result = subprocess.run(
-        ["git", "ls-files", "-z"],
+        args,
         capture_output=True,
         text=True,
         check=True,
@@ -127,6 +127,23 @@ def collect_tracked_paths() -> list[Path]:
     return paths
 
 
+def collect_tracked_paths() -> list[Path]:
+    """Return tracked file paths from ``git ls-files``, excluding obvious skips."""
+    return _paths_from_git(["git", "ls-files", "-z"])
+
+
+def collect_staged_paths() -> list[Path]:
+    """Return staged (added/copied/modified) paths for the pre-commit hook.
+
+    Scans only what is about to be committed rather than the whole tree, so the
+    local gate is fast enough to run on every commit. Deletions are excluded
+    (``--diff-filter=ACM``) because there is nothing to scan.
+    """
+    return _paths_from_git(
+        ["git", "diff", "--cached", "--name-only", "--diff-filter=ACM", "-z"]
+    )
+
+
 def print_report(violations: list[Violation]) -> None:
     violations.sort(key=lambda v: (str(v.path), v.line_number, v.identifier))
     print("Committed identifier violations detected:", file=sys.stderr)
@@ -140,7 +157,13 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Gate that prevents committing forbidden domain identifiers.",
     )
-    parser.parse_args(argv)
+    parser.add_argument(
+        "--staged",
+        action="store_true",
+        help="Scan only staged files (for the pre-commit hook) instead of the "
+        "full tracked tree (the CI default).",
+    )
+    args = parser.parse_args(argv)
 
     raw = os.environ.get("GPO_LENS_FORBIDDEN_IDENTIFIERS", "")
     if not raw.strip():
@@ -159,7 +182,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
 
-    paths = collect_tracked_paths()
+    paths = collect_staged_paths() if args.staged else collect_tracked_paths()
     violations = scan_files(identifiers, paths)
     if violations:
         print_report(violations)
