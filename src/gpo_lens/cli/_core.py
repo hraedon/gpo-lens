@@ -57,6 +57,7 @@ from gpo_lens.cli._topology import (
     cmd_wmi,
     cmd_wmi_filters,
 )
+from gpo_lens.cli._trends import cmd_trends
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -440,6 +441,18 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--json", action="store_true", help="JSON output")
     _add_src(p)
     p.set_defaults(func=cmd_resultant)
+
+    # trends
+    p = sub.add_parser(
+        "trends",
+        help="Posture-over-time from snapshot history",
+    )
+    p.add_argument("--json", action="store_true", help="JSON output")
+    p.add_argument(
+        "--changes-only", action="store_true",
+        help="Only show snapshots where key metrics changed",
+    )
+    p.set_defaults(func=cmd_trends)
 
     args = parser.parse_args(argv)
     if not hasattr(args, "func"):

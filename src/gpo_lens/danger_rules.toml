@@ -11,6 +11,10 @@
 # Rules may also match by ADMX policy display name when an ADMX source is
 # supplied (see danger.evaluate_danger_rules); with no ADMX source, name-keyed
 # rules degrade to identity-keyed only (no crash, no silent all-match — AC-9).
+#
+# Compliance sub-tables (optional) map each rule to one or more compliance
+# framework control IDs. The mappings are propagated to DangerFinding so the
+# CLI and web UI can surface the associated controls alongside the finding.
 
 [[rules]]
 id = "wdigest_creds"
@@ -21,6 +25,16 @@ identity = 'HKLM\SYSTEM\CurrentControlSet\Control\Lsa:UseLogonCredential'
 predicate = "equals"
 value = "1"
 reference = "https://attack.mitre.org/techniques/T1003/001/"
+remediation = "Set UseLogonCredential to 0. This disables WDigest plaintext credential storage in LSASS memory. Apply via GPO: Computer Configuration > Policies > Administrative Templates > MSS (Legacy) > MSS: (UseLogonCredential) Avoidable stored logon credential — set to Disabled."
+[[rules.compliance]]
+framework = "CIS"
+control_id = "18.6.2"
+[[rules.compliance]]
+framework = "STIG"
+control_id = "WN10-CC-000038"
+[[rules.compliance]]
+framework = "NIST-800-171"
+control_id = "3.5.10"
 
 [[rules]]
 id = "smb_signing_disabled"
@@ -31,6 +45,16 @@ identity = 'HKLM\SYSTEM\CurrentControlSet\Services\LanmanWorkstation\Parameters:
 predicate = "equals"
 value = "0"
 reference = "https://attack.mitre.org/techniques/T1557/001/"
+remediation = "Set RequireSecuritySignature to 1. This enables SMB client packet signing, preventing SMB relay attacks. Apply via GPO: Computer Configuration > Policies > Administrative Templates > Network > Lanman Workstation > Microsoft network client: Digitally sign communications (always) — Enabled."
+[[rules.compliance]]
+framework = "CIS"
+control_id = "2.3.9.1"
+[[rules.compliance]]
+framework = "STIG"
+control_id = "WN10-SO-000100"
+[[rules.compliance]]
+framework = "NIST-800-171"
+control_id = "3.13.1"
 
 [[rules]]
 id = "lm_hash_enabled"
@@ -41,6 +65,16 @@ identity = 'HKLM\SYSTEM\CurrentControlSet\Control\Lsa:NoLMHash'
 predicate = "equals"
 value = "0"
 reference = "https://attack.mitre.org/techniques/T1003/002/"
+remediation = "Set NoLMHash to 1. This prevents storage of the weak LM hash of user passwords. Apply via GPO: Computer Configuration > Policies > Windows Settings > Security Settings > Local Policies > Security Options > Network security: Do not store LM hash value on next password change — Enabled."
+[[rules.compliance]]
+framework = "CIS"
+control_id = "2.3.11.2"
+[[rules.compliance]]
+framework = "STIG"
+control_id = "WN10-SO-000195"
+[[rules.compliance]]
+framework = "NIST-800-171"
+control_id = "3.5.10"
 
 [[rules]]
 id = "autoadmin_logon"
@@ -51,6 +85,16 @@ identity = 'HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon:AutoAdmin
 predicate = "equals"
 value = "1"
 reference = "https://attack.mitre.org/techniques/T1078/"
+remediation = "Set AutoAdminLogon to 0 or remove the registry value. Remove the DefaultPassword value if present. Stored plaintext credentials in the registry are a credential-theft risk."
+[[rules.compliance]]
+framework = "CIS"
+control_id = "2.3.2.1"
+[[rules.compliance]]
+framework = "STIG"
+control_id = "WN10-CC-000325"
+[[rules.compliance]]
+framework = "NIST-800-171"
+control_id = "3.5.3"
 
 [[rules]]
 id = "ntlmv1_allowed"
@@ -61,3 +105,13 @@ identity = 'HKLM\SYSTEM\CurrentControlSet\Control\Lsa:LmCompatibilityLevel'
 predicate = "in"
 value = "0,1"
 reference = "https://learn.microsoft.com/en-us/windows-server/security/ntlm/ntlm-authentication/"
+remediation = "Set LmCompatibilityLevel to 3 or higher. Level 3 sends NTLMv2 only and refuses LM. Level 5 additionally refuses NTLM. Apply via GPO: Computer Configuration > Policies > Windows Settings > Security Settings > Local Policies > Security Options > Network security: LAN Manager authentication level — Send NTLMv2 response only. Refuse LM & NTLM."
+[[rules.compliance]]
+framework = "CIS"
+control_id = "2.3.11.5"
+[[rules.compliance]]
+framework = "STIG"
+control_id = "WN10-SO-000205"
+[[rules.compliance]]
+framework = "NIST-800-171"
+control_id = "3.1.2"

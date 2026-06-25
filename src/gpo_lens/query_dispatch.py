@@ -28,7 +28,13 @@ _QUERY_DISPATCH: dict[str, Callable[..., Any]] = {
     "danger_findings": lambda **kw: queries.danger_findings(kw["estate"]),
     "principal_resultant": lambda **kw: __import__(
         "gpo_lens.merge", fromlist=["principal_resultant"]
-    ).principal_resultant(kw["estate"], kw["principal_sid"]),
+    ).principal_resultant(
+        kw["estate"],
+        kw["principal_sid"],
+        computer_sid=kw.get("computer_sid") or None,
+        dn=kw.get("dn") or None,
+        computer_dn=kw.get("computer_dn") or None,
+    ),
 }
 
 _QUERY_DESCRIPTIONS: dict[str, str] = {
@@ -71,10 +77,22 @@ QUERY_REQUIRED_PARAMS: dict[str, list[str]] = {
     "principal_resultant": ["principal_sid"],
 }
 
+# Optional params that a query accepts but does not require.  ``validate_params``
+# passes these through (when present) so callers like the REST API can forward
+# them without needing to know each query's signature individually.
+QUERY_OPTIONAL_PARAMS: dict[str, list[str]] = {
+    "principal_resultant": ["computer_sid", "dn", "computer_dn"],
+}
+
 _PARAM_VALIDATORS: dict[str, dict[str, type]] = {
     "settings_at_som": {"ou_path": str},
     "effective_scope": {"gpo_id": str},
-    "principal_resultant": {"principal_sid": str},
+    "principal_resultant": {
+        "principal_sid": str,
+        "computer_sid": str,
+        "dn": str,
+        "computer_dn": str,
+    },
 }
 
 
@@ -83,7 +101,8 @@ def validate_params(query_name: str, params: dict[str, object]) -> dict[str, obj
     if query_name not in _QUERY_DISPATCH:
         raise ValueError(f"Unknown query: {query_name}")
     required = set(QUERY_REQUIRED_PARAMS.get(query_name, []))
-    expected = {"estate", *required}
+    optional = set(QUERY_OPTIONAL_PARAMS.get(query_name, []))
+    expected = {"estate", *required, *optional}
     schema = _PARAM_VALIDATORS.get(query_name, {})
     validated: dict[str, object] = {}
     for key, value in params.items():

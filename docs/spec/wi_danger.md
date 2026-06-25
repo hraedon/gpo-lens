@@ -91,8 +91,9 @@ dangers are still worth flagging because the override is fragile.
 
 | Public surface | Role |
 |----------------|------|
-| `DangerFinding` (frozen dataclass) | One finding. Fields: `check_id, severity, title, gpo_id, gpo_name, detail, reference`. |
-| `DangerRule` (frozen dataclass) | One cited TOML rule. Fields: `id, title, severity, applies, identity, predicate, value, reference`. |
+| `ComplianceMapping` (frozen dataclass) | One compliance framework control mapping. Fields: `framework` (e.g. `"CIS"`, `"STIG"`, `"NIST-800-171"`), `control_id` (e.g. `"18.6.2"`, `"WN10-CC-000038"`). |
+| `DangerFinding` (frozen dataclass) | One finding. Fields: `check_id, severity, title, gpo_id, gpo_name, detail, reference, compliance, remediation`. `compliance` is a `tuple[ComplianceMapping, ...]` (default `()`). `remediation` is a `str` (default `""`). |
+| `DangerRule` (frozen dataclass) | One cited TOML rule. Fields: `id, title, severity, applies, identity, predicate, value, reference, compliance, remediation`. `compliance` is a `tuple[ComplianceMapping, ...]` (default `()`). `remediation` is a `str` (default `""`). |
 | `gpo_writable_by_nonadmin(estate) -> list[DangerFinding]` | Bucket 2 — non-admin write ACEs and non-admin Owner. |
 | `local_admin_push(estate) -> list[DangerFinding]` | Bucket 2 — local Administrators group membership adds. |
 | `overbroad_apply_group_policy(estate) -> list[DangerFinding]` | Bucket 2 — Everyone/Anonymous apply scope. |
@@ -100,16 +101,16 @@ dangers are still worth flagging because the override is fragile.
 | `load_danger_rules(rules_path=None) -> list[DangerRule]` | Load shipped + env-drop-in rules. |
 | `danger_findings(estate, *, admx=None, rules=None) -> list[DangerFinding]` | Aggregate — run all four detectors and sort. |
 
-`__all__` exports exactly: `DangerFinding`, `DangerRule`, `danger_findings`,
-`evaluate_danger_rules`, `gpo_writable_by_nonadmin`, `load_danger_rules`,
-`local_admin_push`, `overbroad_apply_group_policy`.
+`__all__` exports exactly: `ComplianceMapping`, `DangerFinding`, `DangerRule`,
+`danger_findings`, `evaluate_danger_rules`, `gpo_writable_by_nonadmin`,
+`load_danger_rules`, `local_admin_push`, `overbroad_apply_group_policy`.
 
 Module-private but load-bearing (cross-module contract via `detection`):
 `_load_rules_file`, `_format_trustee`, `_predicate_matches`, `_side_matches`,
-`_identity_matches`, `_resolve_display_name`, `_BROAD_APPLY_SIDS`,
-`_REGISTRY_CSES`, `_VALID_PREDICATES`,
-`_REQUIRED_RULE_FIELDS`, `_GPO_MODIFY_REF`, `_LOCAL_ADMIN_REF`,
-`_APPLY_GP_REF`.
+`_identity_matches`, `_resolve_display_name`, `_parse_compliance`,
+`_BROAD_APPLY_SIDS`, `_REGISTRY_CSES`, `_VALID_PREDICATES`,
+`_REQUIRED_RULE_FIELDS`, `_BUCKET2_COMPLIANCE`, `_BUCKET2_REMEDIATION`,
+`_GPO_MODIFY_REF`, `_LOCAL_ADMIN_REF`, `_APPLY_GP_REF`.
 
 ---
 
@@ -127,34 +128,93 @@ module never parses ADMX files itself and never imports `admx_parser` at
 runtime (only under `TYPE_CHECKING`). `PolicyDefinitions` satisfies the
 `AdmxResolver` Protocol (`tests/test_danger.py::TestAdmxResolverProtocol`).
 
-## AC-02: `DangerFinding` and `DangerRule` dataclass shapes
+## AC-02: `DangerFinding`, `DangerRule`, and `ComplianceMapping` dataclass shapes
 
-Both are `@dataclass(frozen=True)`.
+Both `DangerFinding` and `DangerRule` are `@dataclass(frozen=True)`.
+`ComplianceMapping` is also `@dataclass(frozen=True)`.
 
-`DangerFinding` fields (all `str`):
-
-| Field | Source |
-|-------|--------|
-| `check_id` | The detector's stable identifier (e.g. `"gpo_writable_nonadmin"`, `"wdigest_creds"`). |
-| `severity` | One of `"critical" "high" "medium" "low"` for shipped detectors; not validated by the loader. |
-| `title` | Short human-readable headline. |
-| `gpo_id` | Canonical GPO id, or `""` for estate-wide findings (AC-12). |
-| `gpo_name` | GPO display name, or `""`. |
-| `detail` | Free-form detail string. May embed resolved principal names (AC-03/AC-04). |
-| `reference` | External citation URL. Always non-empty for shipped detectors. |
-
-`DangerRule` fields (all `str`):
+`ComplianceMapping` fields (all `str`):
 
 | Field | Meaning |
-|--------|---------|
-| `id` | Stable rule identifier (unique within the loaded set; drop-ins override by id — AC-13). |
-| `title` | Headline copied to the finding. |
-| `severity` | Copied to the finding; not validated. |
-| `applies` | Side selector: `"Machine"`, `"User"`, or `"Both"` (AC-09). |
-| `identity` | Raw registry identity (`HKLM\...:valueName`) **or** an ADMX policy display name (AC-10). |
-| `predicate` | One of `equals in min max present absent` (AC-11). |
-| `value` | Always coerced to `str` at load time (AC-14). |
-| `reference` | External citation URL. |
+|-------|---------|
+| `framework` | Compliance framework name, e.g. `"CIS"`, `"STIG"`, `"NIST-800-171"`. Must be non-empty (validated at load time). |
+| `control_id` | The framework's control identifier, e.g. `"18.6.2"`, `"WN10-CC-000038"`, `"3.1.2"`. Must be non-empty (validated at load time). |
+
+`DangerFinding` fields:
+
+| Field | Type | Source |
+|-------|------|--------|
+| `check_id` | `str` | The detector's stable identifier (e.g. `"gpo_writable_nonadmin"`, `"wdigest_creds"`). |
+| `severity` | `str` | One of `"critical" "high" "medium" "low"` for shipped detectors; not validated by the loader. |
+| `title` | `str` | Short human-readable headline. |
+| `gpo_id` | `str` | Canonical GPO id, or `""` for estate-wide findings (AC-12). |
+| `gpo_name` | `str` | GPO display name, or `""`. |
+| `detail` | `str` | Free-form detail string. May embed resolved principal names (AC-03/AC-04). |
+| `reference` | `str` | External citation URL. Always non-empty for shipped detectors. |
+| `compliance` | `tuple[ComplianceMapping, ...]` | Compliance framework control mappings (default `()`). Propagated from the `DangerRule` for Bucket 1 findings, or from `_BUCKET2_COMPLIANCE` for Bucket 2 findings. |
+| `remediation` | `str` | Concise, actionable fix guidance (default `""`). Propagated from the `DangerRule` for Bucket 1 findings, or from `_BUCKET2_REMEDIATION` for Bucket 2 findings. |
+
+`DangerRule` fields:
+
+| Field | Type | Meaning |
+|--------|------|---------|
+| `id` | `str` | Stable rule identifier (unique within the loaded set; drop-ins override by id — AC-13). |
+| `title` | `str` | Headline copied to the finding. |
+| `severity` | `str` | Copied to the finding; not validated. |
+| `applies` | `str` | Side selector: `"Machine"`, `"User"`, or `"Both"` (AC-09). |
+| `identity` | `str` | Raw registry identity (`HKLM\...:valueName`) **or** an ADMX policy display name (AC-10). |
+| `predicate` | `str` | One of `equals in min max present absent` (AC-11). |
+| `value` | `str` | Always coerced to `str` at load time (AC-14). |
+| `reference` | `str` | External citation URL. |
+| `compliance` | `tuple[ComplianceMapping, ...]` | Parsed from `[[rules.compliance]]` sub-tables in the TOML (default `()`). |
+| `remediation` | `str` | Optional remediation text loaded from the `remediation` key in the TOML rule (default `""`). |
+
+### Compliance TOML format
+
+Each rule may carry zero or more `[[rules.compliance]]` sub-tables:
+
+```toml
+[[rules]]
+id = "wdigest_creds"
+# ... required fields ...
+[[rules.compliance]]
+framework = "CIS"
+control_id = "18.6.2"
+[[rules.compliance]]
+framework = "STIG"
+control_id = "WN10-CC-000038"
+```
+
+The `_parse_compliance(raw, path)` function validates each entry:
+rejects non-table entries, entries with non-string `framework`/`control_id`,
+and entries with empty or whitespace-only `framework`/`control_id` (each
+rejected with a `warnings.warn`). Bucket 2 structural checks use the
+`_BUCKET2_COMPLIANCE` constant (not TOML) — STIG is omitted for
+`gpo_writable_nonadmin`, `gpo_owner_nonadmin`, and `local_admin_push` because
+there is no direct Windows 10 endpoint STIG for GPO permission checks (these
+are AD-level concerns).
+
+### Remediation text
+
+Each rule may carry an optional `remediation` string in the TOML:
+
+```toml
+[[rules]]
+id = "wdigest_creds"
+# ... required fields ...
+remediation = "Set UseLogonCredential to 0. ..."
+```
+
+The loader reads `remediation` via `str(entry.get("remediation", ""))`,
+defaulting to `""` when absent. The text is propagated to `DangerFinding`
+via `evaluate_danger_rules` (both present and absent findings) and to the
+CLI / web UI for display.
+
+Bucket 2 structural checks use the `_BUCKET2_REMEDIATION` constant dict
+(not TOML) — keyed by `check_id`, with one concise remediation string per
+detector (`gpo_writable_nonadmin`, `gpo_owner_nonadmin`,
+`local_admin_push`, `overbroad_apply_gp`). The text is attached at finding
+creation time via `remediation=_BUCKET2_REMEDIATION.get(check_id, "")`.
 
 ## AC-03: `gpo_writable_by_nonadmin` — DACL write-ACE detection
 
@@ -408,6 +468,7 @@ For each (rule, setting) match, emit a `DangerFinding` with:
 - `gpo_id=g.id`, `gpo_name=g.name`.
 - `detail=f"{s.identity} = {s.display_value}"`.
 - `reference=rule.reference`.
+- `compliance=rule.compliance`, `remediation=rule.remediation`.
 
 ## AC-12: `evaluate_danger_rules` — `absent` predicate (estate-wide)
 
@@ -424,7 +485,7 @@ the active-rules pass. For each absent rule:
 3. If no match was found, emit a single `DangerFinding`:
    - `gpo_id=""`, `gpo_name=""` — estate-wide finding, not anchored to a GPO.
    - `detail=f"Expected setting not found estate-wide: {rule.identity}"`.
-   - Other fields from the rule.
+   - Other fields from the rule (`compliance`, `remediation`).
 
 Return value is `present_findings + absent_findings` — active-rule
 findings first (in rule, GPO, setting order), then absent findings (in
@@ -485,7 +546,8 @@ def _load_rules_file(path: Path) -> list[DangerRule]: ...
     `_VALID_PREDICATES` check above), and `value` defaults to `""`
     (`test_missing_required_fields_skipped_with_warning`).
   - Construct `DangerRule(..., value=str(entry.get("value", "")), ...)`.
-    `value` is always stringified.
+    `value` is always stringified. `remediation` is read via
+    `str(entry.get("remediation", ""))` and defaults to `""`.
   - Unknown/extra fields are silently ignored (forward-compatible,
     `test_extra_fields_ignored`).
 
@@ -523,7 +585,8 @@ detectors never consult ADMX. `rules` is forwarded only to
 
 **Integration (Plan 018 AC-10):** `queries.estate_doctor` wraps each
 finding as a `DoctorFinding(category=f"danger:{check_id}", ...)` with a
-`[ref: ...]` suffix on the detail; `queries.estate_summary` exposes
+`[ref: ...]` suffix on the detail, propagating `compliance` and
+`remediation` from the `DangerFinding`; `queries.estate_summary` exposes
 `danger_finding_count = len(danger_findings(estate))`
 (`tests/test_danger.py::TestIntegration`).
 

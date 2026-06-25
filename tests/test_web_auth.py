@@ -92,7 +92,9 @@ class TestRequiresDecorator:
 class TestRoutePermissions:
     # Intentionally unauthenticated routes — liveness/version probes that
     # IIS/app-pool supervisors and ops must reach without credentials.
-    _UNAUTHED_ROUTES = {"/healthz", "/api/version"}
+    # /api/v1/ and /api/v1/health are the REST API self-listing and health
+    # probe (WI-057), also exempt for the same monitoring reason.
+    _UNAUTHED_ROUTES = {"/healthz", "/api/version", "/api/v1/", "/api/v1/health"}
 
     def test_all_routes_declare_a_permission(self, tmp_db):
         app = create_app(tmp_db)

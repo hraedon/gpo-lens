@@ -366,6 +366,8 @@ def _findings_md(findings: list[DoctorFinding]) -> list[str]:
             )
             if f.detail:
                 parts.append(f"  _{_md_esc(f.detail)}_")
+            if f.remediation:
+                parts.append(f"  **Remediation:** {_md_esc(f.remediation)}")
         parts.append("")
     return parts
 
@@ -526,11 +528,15 @@ def _findings_html(findings: list[DoctorFinding]) -> list[str]:
         parts.append("<ul>")
         for f in group:
             detail = f"<br><small>{_esc(f.detail)}</small>" if f.detail else ""
+            remediation = (
+                f"<br><strong>Remediation:</strong> {_esc(f.remediation)}"
+                if f.remediation else ""
+            )
             parts.append(
                 f"<li>{_badge(sev)} <strong>{_esc(f.category)}</strong> — "
                 f"{_esc(f.gpo_name or f.gpo_id or 'N/A')}: "
                 f"{_esc(f.summary)}"
-                f"{detail}</li>"
+                f"{detail}{remediation}</li>"
             )
         parts.append("</ul>")
     return parts

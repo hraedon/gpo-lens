@@ -41,6 +41,7 @@ if TYPE_CHECKING:
     from gpo_lens.model import AdmxResolver, Estate
 
 __all__ = [
+    "ComplianceMapping",
     "DangerFinding",
     "DangerRule",
     "danger_findings",
@@ -56,6 +57,14 @@ _SEVERITY_ORDER = SEVERITY_ORDER
 
 
 @dataclass(frozen=True)
+class ComplianceMapping:
+    """One compliance framework control mapping for a danger finding."""
+
+    framework: str
+    control_id: str
+
+
+@dataclass(frozen=True)
 class DangerFinding:
     """One dangerous-configuration finding from a curated, cited check."""
 
@@ -66,6 +75,8 @@ class DangerFinding:
     gpo_name: str
     detail: str
     reference: str
+    compliance: tuple[ComplianceMapping, ...] = ()
+    remediation: str = ""
 
 
 @dataclass(frozen=True)
@@ -80,6 +91,8 @@ class DangerRule:
     predicate: str
     value: str
     reference: str
+    compliance: tuple[ComplianceMapping, ...] = ()
+    remediation: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -96,6 +109,53 @@ _APPLY_GP_REF = (
 # "Apply Group Policy" granted to these SIDs means any authenticated or
 # anonymous user receives the GPO — an over-broad apply scope.
 _BROAD_APPLY_SIDS = {"s-1-1-0", "s-1-5-7", "wd", "an"}
+
+_BUCKET2_COMPLIANCE: dict[str, tuple[ComplianceMapping, ...]] = {
+    "gpo_writable_nonadmin": (
+        ComplianceMapping(framework="CIS", control_id="5.1"),
+        ComplianceMapping(framework="NIST-800-171", control_id="3.1.2"),
+    ),
+    "gpo_owner_nonadmin": (
+        ComplianceMapping(framework="CIS", control_id="5.1"),
+        ComplianceMapping(framework="NIST-800-171", control_id="3.1.2"),
+    ),
+    "local_admin_push": (
+        ComplianceMapping(framework="NIST-800-171", control_id="3.1.6"),
+        ComplianceMapping(framework="CIS", control_id="2.3.1.1"),
+    ),
+    "overbroad_apply_gp": (
+        ComplianceMapping(framework="NIST-800-171", control_id="3.1.5"),
+        ComplianceMapping(framework="CIS", control_id="2.3.11.2"),
+    ),
+}
+
+_BUCKET2_REMEDIATION: dict[str, str] = {
+    "gpo_writable_nonadmin": (
+        "Remove write permissions from the GPO's ACL for non-admin trustees "
+        "(look for rights including GenericAll, WriteDacl, WriteOwner, "
+        "WriteProperty). GPO modification should be restricted to Domain "
+        "Admins, Enterprise Admins, and SYSTEM only. Edit via GPMC > GPO > "
+        "Delegation tab."
+    ),
+    "gpo_owner_nonadmin": (
+        "Change the GPO owner to a Domain Admin or Enterprise Admin. The Owner "
+        "implicitly holds WRITE_DAC and can escalate to full control. Use GPMC "
+        "to change ownership (right-click GPO > Properties > Security tab > "
+        "Advanced > Owner), or use Set-Acl / dsmod from the command line."
+    ),
+    "local_admin_push": (
+        "Review and remove GPP Local Users and Groups entries that add members "
+        "to the local Administrators group (SID S-1-5-32-544). If tiered "
+        "administration is required, use a separate GPO with security filtering "
+        "targeting specific admin groups, not broad membership pushes."
+    ),
+    "overbroad_apply_gp": (
+        "Remove 'Apply Group Policy' permission from Everyone (S-1-1-0) and "
+        "Anonymous (S-1-5-7). Use security filtering to target specific groups. "
+        "Edit via GPMC > GPO > Security Filtering, removing 'Everyone' and "
+        "adding the intended target group."
+    ),
+}
 
 
 def _format_trustee(estate: Estate, sid: str) -> str:
@@ -139,6 +199,8 @@ def gpo_writable_by_nonadmin(estate: Estate) -> list[DangerFinding]:
                     f"holds WRITE_DAC and can escalate to full control"
                 ),
                 reference=_GPO_MODIFY_REF,
+                compliance=_BUCKET2_COMPLIANCE.get("gpo_owner_nonadmin", ()),
+                remediation=_BUCKET2_REMEDIATION.get("gpo_owner_nonadmin", ""),
             ))
 
         for ace in acl.dacl:
@@ -161,6 +223,8 @@ def gpo_writable_by_nonadmin(estate: Estate) -> list[DangerFinding]:
                     f"to this GPO — a GPO-hijack primitive"
                 ),
                 reference=_GPO_MODIFY_REF,
+                compliance=_BUCKET2_COMPLIANCE.get("gpo_writable_nonadmin", ()),
+                remediation=_BUCKET2_REMEDIATION.get("gpo_writable_nonadmin", ""),
             ))
     return findings
 
@@ -195,6 +259,8 @@ def local_admin_push(estate: Estate) -> list[DangerFinding]:
                 gpo_name=g.name,
                 detail="; ".join(pushes),
                 reference=_LOCAL_ADMIN_REF,
+                compliance=_BUCKET2_COMPLIANCE.get("local_admin_push", ()),
+                remediation=_BUCKET2_REMEDIATION.get("local_admin_push", ""),
             ))
     return findings
 
@@ -229,6 +295,8 @@ def overbroad_apply_group_policy(estate: Estate) -> list[DangerFinding]:
                     f"'Apply Group Policy' granted to {d.trustee or sid} ({sid})"
                 ),
                 reference=_APPLY_GP_REF,
+                compliance=_BUCKET2_COMPLIANCE.get("overbroad_apply_gp", ()),
+                remediation=_BUCKET2_REMEDIATION.get("overbroad_apply_gp", ""),
             ))
             found = True
             break
@@ -253,6 +321,8 @@ def overbroad_apply_group_policy(estate: Estate) -> list[DangerFinding]:
                         f"({entry.ace.rights})"
                     ),
                     reference=_APPLY_GP_REF,
+                    compliance=_BUCKET2_COMPLIANCE.get("overbroad_apply_gp", ()),
+                    remediation=_BUCKET2_REMEDIATION.get("overbroad_apply_gp", ""),
                 ))
                 break
     return findings
@@ -355,6 +425,8 @@ def evaluate_danger_rules(
                         gpo_name=g.name,
                         detail=f"{s.identity} = {s.display_value}",
                         reference=rule.reference,
+                        compliance=rule.compliance,
+                        remediation=rule.remediation,
                     ))
 
     absent_findings: list[DangerFinding] = []
@@ -378,6 +450,8 @@ def evaluate_danger_rules(
                 gpo_name="",
                 detail=f"Expected setting not found estate-wide: {rule.identity}",
                 reference=rule.reference,
+                compliance=rule.compliance,
+                remediation=rule.remediation,
             ))
 
     return present_findings + absent_findings
@@ -390,6 +464,31 @@ _VALID_PREDICATES = frozenset({
 _REQUIRED_RULE_FIELDS = frozenset({
     "id", "title", "severity", "applies", "identity", "reference",
 })
+
+
+def _parse_compliance(raw: object, path: Path) -> tuple[ComplianceMapping, ...]:
+    if not isinstance(raw, list):
+        return ()
+    out: list[ComplianceMapping] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            warnings.warn(
+                f"Skipping non-table compliance entry in {path.name}",
+                stacklevel=1,
+            )
+            continue
+        framework = item.get("framework")
+        control_id = item.get("control_id")
+        if (not isinstance(framework, str) or not isinstance(control_id, str)
+                or not framework.strip() or not control_id.strip()):
+            warnings.warn(
+                f"Skipping compliance entry with missing or empty framework/control_id "
+                f"in {path.name}",
+                stacklevel=1,
+            )
+            continue
+        out.append(ComplianceMapping(framework=framework, control_id=control_id))
+    return tuple(out)
 
 
 def _load_rules_file(path: Path) -> list[DangerRule]:
@@ -423,6 +522,7 @@ def _load_rules_file(path: Path) -> list[DangerRule]:
                 stacklevel=1,
             )
             continue
+        remediation_raw = entry.get("remediation", "")
         rules.append(DangerRule(
             id=entry["id"],
             title=entry["title"],
@@ -432,6 +532,8 @@ def _load_rules_file(path: Path) -> list[DangerRule]:
             predicate=predicate,
             value=str(entry.get("value", "")),
             reference=entry["reference"],
+            compliance=_parse_compliance(entry.get("compliance"), path),
+            remediation=remediation_raw if isinstance(remediation_raw, str) else "",
         ))
     return rules
 

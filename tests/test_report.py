@@ -442,3 +442,69 @@ def test_html_effective_settings_surface_scope_caveats(fixture_estate):
     assert "Scope caveats" in report
     assert "flagged, not simulated" in report
     assert 'class="caveats"' in report
+
+
+# ---------------------------------------------------------------------------
+# Remediation rendering (WI-055)
+# ---------------------------------------------------------------------------
+
+def test_markdown_renders_remediation_for_danger_finding():
+    """When a danger finding carries remediation text, the Markdown report
+    must surface it under the finding."""
+    gpo = model.Gpo(
+        id="11111111-1111-1111-1111-111111111111",
+        name="writable-gpo",
+        domain="test.local",
+        created=None, modified=None, read=None,
+        computer_enabled=True, user_enabled=True,
+        computer_ver_ds=None, computer_ver_sysvol=None,
+        user_ver_ds=None, user_ver_sysvol=None,
+        sddl="D:(A;;GA;;;S-1-5-21-1-2-3-1000)",
+        owner=None, filter_data_available=False,
+        wmi_filter=None, sysvol_path=None,
+    )
+    estate = model.Estate(domain="test.local", gpos=[gpo])
+    md = generate_markdown(estate)
+    assert "**Remediation:**" in md
+    # The writable-nonadmin remediation mentions "write permissions".
+    assert "write permissions" in md.lower()
+
+
+def test_html_renders_remediation_for_danger_finding():
+    """When a danger finding carries remediation text, the HTML report
+    must surface it inside the finding list item."""
+    gpo = model.Gpo(
+        id="11111111-1111-1111-1111-111111111111",
+        name="writable-gpo",
+        domain="test.local",
+        created=None, modified=None, read=None,
+        computer_enabled=True, user_enabled=True,
+        computer_ver_ds=None, computer_ver_sysvol=None,
+        user_ver_ds=None, user_ver_sysvol=None,
+        sddl="D:(A;;GA;;;S-1-5-21-1-2-3-1000)",
+        owner=None, filter_data_available=False,
+        wmi_filter=None, sysvol_path=None,
+    )
+    estate = model.Estate(domain="test.local", gpos=[gpo])
+    html = generate_html(estate)
+    assert "<strong>Remediation:</strong>" in html
+    assert "write permissions" in html.lower()
+
+
+def test_markdown_no_remediation_line_when_empty():
+    """Findings without remediation text must not render an empty line."""
+    # A version-skew finding has no remediation.
+    gpo = model.Gpo(
+        id="11111111-1111-1111-1111-111111111111",
+        name="skew-gpo",
+        domain="test.local",
+        created=None, modified=None, read=None,
+        computer_enabled=True, user_enabled=True,
+        computer_ver_ds=2, computer_ver_sysvol=1,
+        user_ver_ds=None, user_ver_sysvol=None,
+        sddl=None, owner=None, filter_data_available=False,
+        wmi_filter=None, sysvol_path=None,
+    )
+    estate = model.Estate(domain="test.local", gpos=[gpo])
+    md = generate_markdown(estate)
+    assert "**Remediation:**" not in md

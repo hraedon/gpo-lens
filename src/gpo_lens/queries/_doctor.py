@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from gpo_lens.danger import DangerFinding, danger_findings
+from gpo_lens.danger import ComplianceMapping, DangerFinding, danger_findings
 from gpo_lens.detection import (
     admx_gaps,
     broken_refs,
@@ -45,6 +45,8 @@ class DoctorFinding:
     gpo_name: str
     summary: str
     detail: str
+    compliance: tuple[ComplianceMapping, ...] = ()
+    remediation: str = ""
 
 
 _SEVERITY_ORDER = SEVERITY_ORDER
@@ -277,6 +279,8 @@ def estate_doctor(
             gpo_name=df.gpo_name,
             summary=df.title,
             detail=f"{df.detail} [ref: {df.reference}]",
+            compliance=df.compliance,
+            remediation=df.remediation,
         ))
 
     findings.sort(key=lambda f: (_SEVERITY_ORDER.get(f.severity, 99), f.category, f.gpo_id))
