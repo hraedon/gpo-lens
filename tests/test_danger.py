@@ -582,11 +582,60 @@ class TestDangerRules:
         estate = Estate(gpos=[gpo])
         assert evaluate_danger_rules(estate, [rule]) == []
 
-    def test_malformed_toml_returns_empty(self, tmp_path: Path) -> None:
+    def test_malformed_toml_warns_and_returns_empty(self, tmp_path: Path) -> None:
+        """Malformed TOML warns loudly; orchestrator escalates shipped-file failure."""
+        import warnings as _warnings
+
         bad = tmp_path / "bad.toml"
         bad.write_text("not valid toml {{{{", encoding="utf-8")
         from gpo_lens.danger import _load_rules_file
-        assert _load_rules_file(bad) == []
+        with _warnings.catch_warnings(record=True) as caught:
+            _warnings.simplefilter("always")
+            assert _load_rules_file(bad) == []
+        assert any(
+            "Failed to load danger rules" in str(w.message) for w in caught
+        ), "malformed TOML must warn loudly, not silently"
+
+    def test_load_danger_rules_raises_when_shipped_file_yields_zero_rules(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """If the shipped danger_rules.toml yields zero rules, fail loud.
+
+        A security tool that silently returns an empty rule set when its own
+        packaged rules file is corrupt/missing would report a clean estate
+        while having no rules to evaluate. The orchestrator must refuse.
+        """
+        from gpo_lens import danger as danger_mod
+
+        # Force the shipped-path lookup to return [].
+        monkeypatch.setattr(
+            danger_mod, "_load_rules_file", lambda _path: []
+        )
+        monkeypatch.delenv("GPO_LENS_DANGER_RULES_DIR", raising=False)
+        with pytest.raises(RuntimeError, match="failed to load or contains no rules"):
+            danger_mod.load_danger_rules()
+
+    def test_load_danger_rules_override_dir_warns_on_bad_file(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """A malformed override file warns but does not abort the load."""
+        import warnings as _warnings
+
+        from gpo_lens import danger as danger_mod
+
+        override_dir = tmp_path / "overrides"
+        override_dir.mkdir()
+        (override_dir / "broken.toml").write_text(
+            "not valid toml {{{{", encoding="utf-8"
+        )
+        monkeypatch.setenv("GPO_LENS_DANGER_RULES_DIR", str(override_dir))
+        with _warnings.catch_warnings(record=True) as caught:
+            _warnings.simplefilter("always")
+            rules = danger_mod.load_danger_rules()
+        assert rules, "shipped rules must still load despite bad override"
+        assert any(
+            "broken.toml" in str(w.message) for w in caught
+        ), "malformed override must warn"
 
     def test_invalid_predicate_skipped_at_load(self, tmp_path: Path) -> None:
         toml_file = tmp_path / "rules.toml"

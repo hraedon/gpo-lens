@@ -10,6 +10,7 @@ the whole ``doctor`` run. Coverage gaps are reported via collection-errors.json.
 from __future__ import annotations
 
 import os
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import pytest
@@ -250,11 +251,16 @@ def test_empty_xml_in_preferences_is_skipped(tmp_path):
     assert scan_scheduled_tasks(gpo) == []
 
 
-def test_load_estate_malformed_allgpos_degrades(tmp_path):
+def test_load_estate_malformed_allgpos_fails_loud(tmp_path):
+    """A corrupt primary input must fail loud, not silently degrade.
+
+    Coverage honesty: silently producing an empty Estate from an unparseable
+    AllGPOs.xml would render the estate as "complete, just empty" — a worse
+    failure mode than crashing, because the operator might not notice.
+    """
     (tmp_path / "AllGPOs.xml").write_text("<<not xml", encoding="utf-8")
-    with pytest.warns(UserWarning, match="Skipping AllGPOs.xml"):
-        estate = ingest.load_estate(tmp_path)
-    assert estate.gpos == []
+    with pytest.raises((ValueError, ET.ParseError)):
+        ingest.load_estate(tmp_path)
 
 
 def test_load_estate_malformed_optional_json_degrades(tmp_path):

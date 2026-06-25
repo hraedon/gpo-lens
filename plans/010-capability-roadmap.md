@@ -14,14 +14,17 @@ makes this tool unlike anything else in the niche.
   Uncommitted: `snapshot_settings_diff` (per-setting delta between snapshots —
   the core AGPM-replacement query) + CLI command + 370 lines of tests. Complete
   and green; needs commit.
-- **No git remote, no CI, no tags, no CHANGELOG.** The project exists only on
-  this machine. Every gate is local-only and runs only when an agent remembers.
+- ~~**No git remote, no CI, no tags, no CHANGELOG.**~~ **(Resolved post-hoc:
+  remote at `github.com/hraedon/gpo-lens`, `.github/workflows/ci.yml`, tags
+  through v0.7.2, real `CHANGELOG.md` — all Phase 0 items landed by 2026-06-25.)**
+  Earlier reflections flagged these as outstanding; that framing is outdated.
 - 4 active breadcrumbs: changelog-over-time, delegation-audit-deep-dive,
   estate-doc-export, settings-diff-pipeline. All filed 2026-06-09; the
   uncommitted work partially addresses the first and last.
 - Tier 1, Tier 2 (baseline diff vs Win11 24H2), and Tier 2.5 (topology) are
-  implemented. Tier 3 (LLM narration) — the charter's differentiator — has no
-  code and no design doc.
+  implemented. ~~Tier 3 (LLM narration) — the charter's differentiator — has no
+  code and no design doc.~~ **(Resolved: Tier 3 narration landed across
+  `narration.py`, `cli/_narration.py`, `web/routes/ask.py`.)**
 - Data hygiene verified: `samples/` (incl. the real WORK-DOMAIN.local work-domain
   SYSVOL) is gitignored and has **never been committed**. Committed calibration
   tests carry only aggregate counts (100+ GPOs, 1,000+ SOMs), but a sanitization
@@ -29,10 +32,11 @@ makes this tool unlike anything else in the niche.
 
 ---
 
-## Phase 0 — Project infrastructure (before more features)
+## Phase 0 — Project infrastructure (before more features) — **DONE**
 
-The codebase quality is ahead of its scaffolding. cert-watch already proved out
-every pattern needed here; copy, don't reinvent.
+~~The codebase quality is ahead of its scaffolding.~~ Phase 0 is complete as
+of v0.7.x: remote + CI + tags + CHANGELOG all landed. The sub-items below are
+kept as the historical record of what was sequenced.
 
 ### WI-0.1 — Commit the in-flight settings-diff work
 - `snapshot_settings_diff` + `settings-diff` CLI + tests are green in the tree.

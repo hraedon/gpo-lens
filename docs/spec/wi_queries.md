@@ -8,7 +8,10 @@
 
 Pure functions over an `Estate` (or equivalently a loaded snapshot). No I/O, no
 AI. Each returns plain dataclasses/tuples suitable for CLI rendering and, later,
-JSON/web. Module: `src/gpo_lens/queries.py`.
+JSON/web. Module: `src/gpo_lens/queries/` (package — `__init__.py` is the
+backward-compatible re-export facade; composition logic lives in `_search`,
+`_delegation`, `_topology`, `_wmi`, `_settings`, `_baseline`, `_summary`,
+`_doctor`).
 
 The calibration numbers in `tests/` (measured from the real exports) are the
 acceptance bar — e.g. the work export has 8 disabled-but-populated sides.

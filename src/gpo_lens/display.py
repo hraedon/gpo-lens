@@ -19,8 +19,9 @@ if TYPE_CHECKING:
 def serialize_result(result: object) -> object:
     """Recursively convert dataclass instances to plain dicts for JSON serialization.
 
-    Handles ``datetime``/``date`` (→ ISO 8601 string) and ``Enum`` (→ ``.value``)
-    so the output is always JSON-serialisable — the CLI's ``json.dumps(...,
+    Handles ``datetime``/``date`` (→ ISO 8601 string), ``Enum`` (→ ``.value``),
+    ``set``/``frozenset`` (→ sorted list), and ``bytes`` (→ hex string) so the
+    output is always JSON-serialisable — the CLI's ``json.dumps(...,
     default=str)`` masks these, but ``JSONResponse`` has no ``default`` hook.
     """
     if isinstance(result, Enum):
@@ -39,8 +40,32 @@ def serialize_result(result: object) -> object:
     if isinstance(result, dict):
         return {k: serialize_result(v) for k, v in result.items()}
     if isinstance(result, tuple):
+        # Tuples preserve order — they are positional records, not unordered.
         return [serialize_result(item) for item in result]
+    if isinstance(result, (set, frozenset)):
+        # Sets have non-deterministic iteration order; sort for stable output.
+        # ``_set_sort_key`` provides a total order across mixed types (a set
+        # may legally contain ``{1, "a", None}`` which would otherwise raise).
+        return [serialize_result(item) for item in sorted(result, key=_set_sort_key)]
+    if isinstance(result, (bytes, bytearray)):
+        return result.hex()
     return result
+
+
+def _set_sort_key(item: object) -> tuple[int, str]:
+    """Total-ordering key for mixed-type collections (set/frozenset).
+
+    ``sorted()`` requires a total order; a set may legally contain mixed types
+    (e.g. ``{1, "a"}``), which would raise ``TypeError`` under default
+    comparison. Group by type-rank then by string form.
+    """
+    if item is None:
+        return (0, "")
+    if isinstance(item, bool):
+        return (1, str(item))
+    if isinstance(item, (int, float)):
+        return (2, str(item))
+    return (3, str(item))
 
 
 def render_table(

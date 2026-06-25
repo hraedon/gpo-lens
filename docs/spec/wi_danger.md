@@ -273,7 +273,7 @@ Admins) produces no owner finding (`test_ignores_admin_owner`,
 
 ## AC-05: Default-writer SID set and write-rights set
 
-`detection._is_default_writer_sid(sid)` returns True when:
+`authz.is_default_writer_sid(sid)` returns True when:
 
 - `resolve_well_known(sid)` matches one of
   `{"BUILTIN\\Administrators", "Domain Admins", "Enterprise Admins",
@@ -503,7 +503,12 @@ def load_danger_rules(rules_path: Path | None = None) -> list[DangerRule]: ...
   exactly that file's rules back). This is the testing/custom-rules hook.
 - Else load the shipped file at
   `Path(__file__).resolve().parent / "danger_rules.toml"` via
-  `_load_rules_file` (AC-14).
+  `_load_rules_file` (AC-14). **Fail-fast contract:** if the shipped file
+  yields zero rules (corruption, packaging bug, accidental deletion),
+  `load_danger_rules` raises `RuntimeError` rather than silently returning
+  `[]` — a security tool that swallows its own rule-set failure would
+  report a clean estate while having no rules to evaluate
+  (`test_load_danger_rules_raises_when_shipped_file_yields_zero_rules`).
 - Then consult `os.environ.get("GPO_LENS_DANGER_RULES_DIR")`. If unset or
   not a directory, return the shipped rules as-is.
 - If it is a directory, iterate `sorted(env_path.glob("*.toml"))`
@@ -524,8 +529,12 @@ implementation uses a single shipped file + env-var directory.
 def _load_rules_file(path: Path) -> list[DangerRule]: ...
 ```
 
-- On `OSError` or `tomllib.TOMLDecodeError`: return `[]` silently (no
-  warning) (`test_malformed_toml_returns_empty`).
+- On `OSError` or `tomllib.TOMLDecodeError`: warn loudly (``UserWarning``
+  naming the file) and return `[]`
+  (`test_malformed_toml_warns_and_returns_empty`). Per-file tolerance keeps
+  one bad override from disabling every override; the orchestrator
+  `load_danger_rules` escalates a *shipped*-file zero-rule result to a
+  hard `RuntimeError` (see AC-13).
 - `raw_rules = data.get("rules", [])`. If not a `list`, emit
   `warnings.warn(f"Skipping danger rules in {path.name} ('rules' must be
   an array)")` and return `[]` (`test_rules_not_a_list_returns_empty`).

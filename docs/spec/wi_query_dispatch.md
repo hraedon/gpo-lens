@@ -5,10 +5,11 @@
 - `interface_ref`: `queries` (every dispatched query is a `queries.*`
   function — except `principal_resultant`, which is lazily imported
   from `merge`).
-- `interface_ref`: `merge.principal_resultant` (imported lazily via
-  `__import__` inside the dispatch lambda — see AC-04 / Notes).
+- `interface_ref`: `merge.principal_resultant` (imported as
+  `from gpo_lens import merge as _merge` at module top; the dispatch lambda
+  calls `_merge.principal_resultant` — see AC-04 / Notes).
 - Consumer: `narration.route_question` (LLM-driven ask), `web/app.py`
-  `/ask` route (programmatic + LLM ask), `cli/_ask.py` (CLI ask
+  `/ask` route (programmatic + LLM ask), `cli/_narration.py` (CLI ask
   subcommand). All three call `validate_params` then `dispatch_query`.
 - Reference: there is **no dedicated plan file** for `query_dispatch.py`.
   It was factored out of `narration.py` when the web `/ask` route
@@ -116,7 +117,7 @@ The architecture rule is one-way: `narration` and `web` may import
 the routing vocabulary in the deterministic core, with the LLM/web
 layers as consumers.
 
-## AC-02: `_QUERY_DISPATCH` — the 20 routable queries
+## AC-02: `_QUERY_DISPATCH` — the 19 routable queries
 
 `_QUERY_DISPATCH` is a `dict[str, Callable[..., Any]]` with exactly
 these keys (validated by `test_all_valid_queries_are_covered`, which

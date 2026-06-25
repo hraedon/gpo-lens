@@ -145,6 +145,30 @@ group membership.
 settings_count, delegation_count}`. Informational (not in the "consumed"
 table below); prefer `scope`/`doctor` for cross-tool integration.
 
+### `danger --json` → array (security findings)
+`[{check_id, severity, title, gpo_id, gpo_name, detail, reference,
+compliance, remediation}]`. `severity` ∈ `{critical, high, medium, low}`;
+`compliance` is an array of `{framework, control_id}` mappings (CIS, STIG,
+NIST); `remediation` is operator-facing guidance. Empty when no danger rule
+fires. Note: `danger` defines its own subcommand-level `--json` (post-
+subcommand) that shadows the global flag — invoke as
+`gpo-lens danger --json`, not `gpo-lens --json danger`.
+
+### `resultant <sid> --json` → object (principal RSoP)
+`{principal_sid, principal_name, computer_sid, settings, excluded,
+excluded_settings, conditional_dangers, token_caveats, caveat_summary}`.
+`settings[]` = `[{cse, side, identity, display_name, winning_value,
+winning_gpo_id, winning_gpo_name, merge_mode, overridden_by, approximate,
+conditional}]`. `overridden_by` is an array of `{gpo_name, value}` pairs.
+Like `danger`, `resultant` requires post-subcommand `--json`.
+
+### `trends --json` → array (posture over time)
+One `TrendPoint` per snapshot: `[{snapshot_id, taken_at, gpo_count,
+danger_finding_count, cpassword_hit_count, ms16_072_vulnerable_count,
+version_skew_count, broken_ref_count, unlinked_count, empty_count,
+total_settings, coverage_gap_count}]`. `taken_at` is the snapshot timestamp
+(ISO-8601). Like `danger`/`resultant`, post-subcommand `--json` is required.
+
 ## Who consumes what (current complements)
 
 | Complement (parked) | Consumes |

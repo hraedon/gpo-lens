@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
+from gpo_lens import merge as _merge
 from gpo_lens import queries
 
 _QUERY_DISPATCH: dict[str, Callable[..., Any]] = {
@@ -26,9 +27,7 @@ _QUERY_DISPATCH: dict[str, Callable[..., Any]] = {
     "broken_wmi_refs": lambda **kw: queries.broken_wmi_refs(kw["estate"]),
     "stale_gpos": lambda **kw: queries.stale_gpos(kw["estate"]),
     "danger_findings": lambda **kw: queries.danger_findings(kw["estate"]),
-    "principal_resultant": lambda **kw: __import__(
-        "gpo_lens.merge", fromlist=["principal_resultant"]
-    ).principal_resultant(
+    "principal_resultant": lambda **kw: _merge.principal_resultant(
         kw["estate"],
         kw["principal_sid"],
         computer_sid=kw.get("computer_sid") or None,
