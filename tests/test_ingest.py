@@ -426,6 +426,98 @@ class TestLoadEstate:
         assert "notes.txt" not in gaps[0].detail
         assert "Good.xml" not in gaps[0].detail
 
+    def test_scan_sysvol_gaps_emits_both_corrupt_and_unreadable_in_one_walk(
+        self, tmp_path: Path
+    ) -> None:
+        """WI-066: the merged walker surfaces BOTH a corrupt-gpp-xml gap and
+        an unreadable-sysvol gap from a single Preferences walk.
+
+        One Preferences subdir is unreadable (lost traversal bit, as from a zip
+        extraction); a sibling subdir holds a corrupt XML file. The former
+        two-pass design walked Preferences twice (once per scanner); this
+        verifies the merge did not drop either signal and emits both kinds from
+        one walk.
+        """
+        from gpo_lens.model import Gpo
+
+        guid_dir = tmp_path / "GUID"
+        prefs = guid_dir / "Machine" / "Preferences"
+        sched = prefs / "ScheduledTasks"
+        sched.mkdir(parents=True)
+        (sched / "Broken.xml").write_text("<<<not xml", encoding="utf-8")
+        groups = prefs / "Groups"
+        groups.mkdir(parents=True)
+        (groups / "Groups.xml").write_text(
+            '<?xml version="1.0"?><root></root>', encoding="utf-8"
+        )
+        groups.chmod(0o000)
+        try:
+            gpo = Gpo(
+                id="guid", name="T", domain="d", created=None, modified=None,
+                read=None, computer_enabled=True, user_enabled=True,
+                computer_ver_ds=None, computer_ver_sysvol=None,
+                user_ver_ds=None, user_ver_sysvol=None, sddl=None, owner=None,
+                filter_data_available=False, wmi_filter=None,
+                sysvol_path=str(guid_dir), links=[], delegation=[], settings=[],
+            )
+            gaps = ingest._scan_sysvol_gaps([gpo])
+            kinds = {g.kind for g in gaps}
+            assert kinds == {"corrupt_gpp_xml", "unreadable_sysvol"}
+            unreadable = [g for g in gaps if g.kind == "unreadable_sysvol"]
+            assert len(unreadable) == 1
+            # AC-4: the operator remediation hint must survive verbatim.
+            assert "chmod -R +rX" in (unreadable[0].detail or "")
+            corrupt = [g for g in gaps if g.kind == "corrupt_gpp_xml"]
+            assert len(corrupt) == 1
+            assert "Broken.xml" in (corrupt[0].detail or "")
+        finally:
+            groups.chmod(0o755)
+
+    def test_scan_sysvol_gaps_walks_preferences_once_per_gpo(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """WI-066 regression guard: the merged walker iterates each Preferences
+        directory (and each subdir) exactly once per GPO per ingest. The old
+        design called ``_scan_sysvol_coverage`` and ``_scan_corrupt_gpp_xml``
+        separately, so Preferences was iterdir'd twice; ``load_estate`` now
+        calls the merged ``_scan_sysvol_gaps`` once. Exact-case side/Preferences
+        names keep ``ci_child`` on its fast (``exists``) path so its fallback
+        ``iterdir`` does not pollute the Preferences/subdir counts.
+        """
+        import pathlib
+
+        from gpo_lens.model import Gpo
+
+        guid_dir = tmp_path / "GUID"
+        prefs = guid_dir / "Machine" / "Preferences"
+        sched = prefs / "ScheduledTasks"
+        sched.mkdir(parents=True)
+        (sched / "Good.xml").write_text(
+            '<?xml version="1.0"?><root></root>', encoding="utf-8"
+        )
+        gpo = Gpo(
+            id="guid", name="T", domain="d", created=None, modified=None,
+            read=None, computer_enabled=True, user_enabled=True,
+            computer_ver_ds=None, computer_ver_sysvol=None,
+            user_ver_ds=None, user_ver_sysvol=None, sddl=None, owner=None,
+            filter_data_available=False, wmi_filter=None,
+            sysvol_path=str(guid_dir), links=[], delegation=[], settings=[],
+        )
+
+        calls: list[Path] = []
+        orig = pathlib.Path.iterdir
+
+        def spy(self: Path) -> object:
+            calls.append(self)
+            return orig(self)
+
+        monkeypatch.setattr(pathlib.Path, "iterdir", spy)
+        ingest._scan_sysvol_gaps([gpo])
+        # Preferences itself, and its subdir, each iterdir'd exactly once.
+        # A regressed two-pass design would make these 2.
+        assert sum(1 for p in calls if p == prefs) == 1
+        assert sum(1 for p in calls if p == sched) == 1
+
 
 class TestParseInheritanceEdgeCases:
     def test_single_dict_not_list(self, tmp_path: Path) -> None:

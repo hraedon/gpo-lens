@@ -214,7 +214,7 @@ def _walk_gpp_xml(
         # Per-entry try/except keeps one unreadable subtree (a security-filtered
         # GPO copied with ACLs intact, or an extraction that dropped a dir's
         # traversal bit) from aborting the scan. Unreadable dirs are surfaced
-        # as coverage_gaps by _scan_sysvol_coverage in ingest.load_estate.
+        # as coverage_gaps by _scan_sysvol_gaps in ingest.load_estate.
         try:
             entries = sorted(prefs.iterdir())
         except OSError:
