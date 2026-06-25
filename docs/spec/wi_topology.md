@@ -80,8 +80,9 @@ or does not.
   default DACL granting Authenticated Users Read+Apply. Returning
   `True` would be a confident false positive (WI-029 lesson).
 - **`_sddl_read_or_apply_grants` is identical to the merge security-gate
-  SDDL evaluation.** Both use `_SDDL_READ_OR_APPLY_RIGHTS = {"GA", "GR",
-  "CC", "CR", "RP"}`. Keep them in lockstep; this is the WI-029
+  SDDL evaluation.** Both use `READ_OR_APPLY_RIGHTS = {"GA", "GR",
+  "CC", "CR", "RP"}` (imported from `authz`). Keep them in lockstep;
+  this is the WI-029
   anti-drift invariant (`test_gate_summaries_match_effective_scope` is
   the regression test for the `gate_summaries` ↔ `effective_scope`
   direction).
@@ -133,7 +134,6 @@ or does not.
 `__all__` exports every public name above. Private load-bearing helpers:
 `_find_som`, `_resolve_som_chain`, `_fold_chain_to_buckets`,
 `_BucketEntry`, `_LOOPBACK_IDENTITIES`, `_extract_loopback_mode`,
-`_SDDL_READ_OR_APPLY_RIGHTS`, `_grants_read_or_apply`, `_broad_key`,
 `_sddl_read_or_apply_grants`, `_wmi_filter_scope`.
 
 ---

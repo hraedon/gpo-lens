@@ -21,10 +21,10 @@ from enum import Enum
 from typing import TYPE_CHECKING
 
 from gpo_lens.authz import (
-    APPLY_RIGHTS,
     AU_SID,
     DOMAIN_SID_PREFIX,
     EVERYONE_SID,
+    READ_OR_APPLY_RIGHTS,
     is_allow_ace_type,
     is_deny_ace_type,
     parse_sddl,
@@ -639,7 +639,7 @@ def _gpo_apply_trustee_sids(
                 deny_rights[sid] |= rights
         for sid, allowed in allow_rights.items():
             net = allowed - deny_rights.get(sid, set())
-            if net & APPLY_RIGHTS:
+            if net & READ_OR_APPLY_RIGHTS:
                 allow_sids.add(sid)
 
     if not has_data:

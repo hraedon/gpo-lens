@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from gpo_lens.authz import (
-    APPLY_RIGHTS,
+    READ_OR_APPLY_RIGHTS,
     SCOPE_BROAD_TRUSTEES,
     applies_broadly,
     broad_trustee_key,
@@ -539,7 +539,7 @@ def _sddl_read_or_apply_grants(
         if key is None:
             continue
         rights = set(parse_sddl_rights(ace.rights))
-        if not (rights & APPLY_RIGHTS):
+        if not (rights & READ_OR_APPLY_RIGHTS):
             continue
         if is_allow_ace_type(ace.ace_type):
             grants.append((key, True))

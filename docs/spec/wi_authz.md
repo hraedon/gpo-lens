@@ -96,7 +96,11 @@ module (`tests/_arch.py`); pure functions, no I/O.
 | Public surface | Role |
 |----------------|------|
 | `ACE_TYPE_MAP` (`dict[str, str]`) | SDDL ACE-type code → normalized label (7 entries, AC-02). |
+| `READ_OR_APPLY_RIGHTS` (`frozenset[str]`) | SDDL right codes that convey read or apply access (`GA,GR,CC,CR,RP`). |
 | `AU_SID`, `EVERYONE_SID`, `DOMAIN_SID_PREFIX`, `DOMAIN_COMPUTERS_RID_SUFFIX` | SID constants used by `broad_trustee_key`. |
+| `DEFAULT_WRITER_NAMES` (`frozenset[str]`) | Default GPO writer trustee names (Admins, SYSTEM, placeholder identities). |
+| `DEFAULT_WRITER_SID_SUFFIXES` (`frozenset[str]`) | SID suffixes for default writers (`-512`, `-519`). |
+| `READ_IMPLYING_PERMISSIONS` (`frozenset[str]`) | GPMC grouped-permission labels that confer the READ access right. |
 | `MS16_072_TRUSTEES` (`frozenset[str]`) | MS16-072 read-trustee name set (`{authenticated users, domain computers}`). |
 | `SCOPE_BROAD_TRUSTEES` (`frozenset[str]`) | Scope-honesty broad-trustee name set (adds `everyone`). |
 | `resolve_well_known(sid) -> str \| None` | Static well-known SID/RID → name (no Estate). |
@@ -104,6 +108,11 @@ module (`tests/_arch.py`); pure functions, no I/O.
 | `broad_trustee_key(trustee, sid, broad_names=SCOPE_BROAD_TRUSTEES) -> str \| None` | Canonical key for a broad trustee. |
 | `applies_broadly(grants) -> bool` | Allow/deny set logic over trustee keys. |
 | `is_allow_ace_type(ace_type) -> bool`, `is_deny_ace_type(ace_type) -> bool` | ACE-type predicates. |
+| `is_default_writer(trustee) -> bool`, `is_default_writer_sid(sid) -> bool` | Default-writer predicates (name-based and SID-based). |
+| `permission_implies_read(permission) -> bool` | True if a GPMC grouped-permission label confers READ. |
+| `permission_implies_apply(permission) -> bool` | True if a GPMC grouped-permission label confers APPLY. |
+| `SddlApplyAce` (frozen dataclass) | An allow ACE in the SDDL DACL that grants read/apply rights. |
+| `iter_sddl_apply_aces(sddl, broad_names=SCOPE_BROAD_TRUSTEES) -> list[SddlApplyAce]` | Extract allow ACEs with read/apply rights from SDDL. |
 | `parse_sddl_rights(rights) -> list[str]` | Extract 2-char SDDL right codes from a rights string. |
 | `parse_sddl(sddl) -> SddlAcl` | Parse SDDL string → owner/group/DACL/SACL. |
 

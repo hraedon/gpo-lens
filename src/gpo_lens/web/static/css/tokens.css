@@ -292,7 +292,7 @@ a:hover { text-decoration: underline; }
 .gp-chip.muted    { color: var(--text-3); }
 
 /* ---------- TABLE ---------- */
-.gp-table-wrap { border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; }
+.gp-table-wrap { border: 1px solid var(--border); border-radius: var(--radius-lg); overflow-x: auto; }
 .gp-table { width: 100%; border-collapse: separate; border-spacing: 0; }
 .gp-table th {
   text-align: left; font-family: var(--font-mono); font-size: 10.5px; font-weight: 500; color: var(--text-3);
@@ -444,7 +444,6 @@ a.gp-ind:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; 
   .gp-wrap { padding: 16px 13px; }
   .gp-topbar { height: auto; flex-wrap: wrap; gap: 8px; padding: 10px 13px; }
   .gp-nav { order: 3; width: 100%; }
-  .gp-table-wrap { overflow-x: auto; }
   .gp-table { min-width: 560px; }
   .gp-page-head { flex-direction: column; align-items: flex-start; }
 }

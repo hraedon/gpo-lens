@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "ACE_TYPE_MAP",
-    "APPLY_RIGHTS",
+    "READ_OR_APPLY_RIGHTS",
     "AU_SID",
     "DEFAULT_WRITER_NAMES",
     "DEFAULT_WRITER_SID_SUFFIXES",
@@ -52,9 +52,12 @@ DOMAIN_SID_PREFIX = "s-1-5-21-"
 
 # SDDL right codes that convey Read or Apply Group Policy access.
 # Used by danger, merge, and topology to test whether an ACE grants
-# apply/read rights — previously duplicated as _APPLY_RIGHTS (danger,
+# read/apply rights — previously duplicated as _APPLY_RIGHTS (danger,
 # merge) and _SDDL_READ_OR_APPLY_RIGHTS (topology).
-APPLY_RIGHTS = frozenset({"GA", "GR", "CC", "CR", "RP"})
+# The name READ_OR_APPLY_RIGHTS (not APPLY_RIGHTS) reflects that the set
+# includes GR (Generic Read) and RP (Read Property), which are read-only
+# rights, not "apply" rights. GA (Generic All) also includes write.
+READ_OR_APPLY_RIGHTS = frozenset({"GA", "GR", "CC", "CR", "RP"})
 DOMAIN_COMPUTERS_RID_SUFFIX = "-515"
 _BUILTIN_PREFIX = "s-1-5-32-"
 _MANDATORY_PREFIX = "s-1-16-"
@@ -423,7 +426,7 @@ def permission_implies_apply(permission: str) -> bool:
 
 @dataclass(frozen=True)
 class SddlApplyAce:
-    """An allow ACE in the SDDL DACL that grants apply/read rights."""
+    """An allow ACE in the SDDL DACL that grants read/apply rights."""
 
     ace: SddlAce
     rights: frozenset[str]
@@ -434,11 +437,11 @@ def iter_sddl_apply_aces(
     sddl: str,
     broad_names: Iterable[str] = SCOPE_BROAD_TRUSTEES,
 ) -> list[SddlApplyAce]:
-    """Extract allow ACEs with apply/read rights from an SDDL string.
+    """Extract allow ACEs with read/apply rights from an SDDL string.
 
     Used as the SDDL fallback when a GPO has no ``delegation`` entries (common
     when the collector only captured the raw SDDL string).  Returns one
-    ``SddlApplyAce`` per allow ACE whose rights intersect ``APPLY_RIGHTS``.
+    ``SddlApplyAce`` per allow ACE whose rights intersect ``READ_OR_APPLY_RIGHTS``.
     ``broad_key`` is set when the trustee is a recognized broad-application
     trustee (Authenticated Users, Domain Computers, Everyone).
     """
@@ -448,7 +451,7 @@ def iter_sddl_apply_aces(
         if not is_allow_ace_type(ace.ace_type):
             continue
         rights = frozenset(parse_sddl_rights(ace.rights))
-        if not (rights & APPLY_RIGHTS):
+        if not (rights & READ_OR_APPLY_RIGHTS):
             continue
         key = broad_trustee_key("", ace.trustee_sid, broad_names)
         result.append(SddlApplyAce(ace=ace, rights=rights, broad_key=key))

@@ -277,15 +277,13 @@ def _scan_gpo_for_cpassword(gpo: Gpo) -> list[CpasswordHit]:
 
 
 # WI-047: authorization predicates consolidated into authz.py.
-# Backward-compatible aliases for existing callers/tests.
-_permission_implies_read = permission_implies_read
 
 
 def _has_ms16_072_read(delegation: list[DelegationEntry]) -> bool:
     return any(
         e.allowed
         and broad_trustee_key(e.trustee, e.trustee_sid, MS16_072_TRUSTEES) is not None
-        and _permission_implies_read(e.permission)
+        and permission_implies_read(e.permission)
         for e in delegation
     )
 

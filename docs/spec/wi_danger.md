@@ -107,7 +107,7 @@ dangers are still worth flagging because the override is fragile.
 Module-private but load-bearing (cross-module contract via `detection`):
 `_load_rules_file`, `_format_trustee`, `_predicate_matches`, `_side_matches`,
 `_identity_matches`, `_resolve_display_name`, `_BROAD_APPLY_SIDS`,
-`_APPLY_RIGHTS`, `_REGISTRY_CSES`, `_VALID_PREDICATES`,
+`_REGISTRY_CSES`, `_VALID_PREDICATES`,
 `_REQUIRED_RULE_FIELDS`, `_GPO_MODIFY_REF`, `_LOCAL_ADMIN_REF`,
 `_APPLY_GP_REF`.
 
@@ -310,9 +310,9 @@ parsing the SDDL:
    - Skip if `not is_allow_ace_type(ace.ace_type)`.
    - `sid = (ace.trustee_sid or "").lower()`; skip if not in
      `_BROAD_APPLY_SIDS`.
-   - `rights = set(parse_sddl_rights(ace.rights))`; skip if
-     `not (rights & _APPLY_RIGHTS)` where
-     `_APPLY_RIGHTS = {"GA", "GR", "CC", "CR", "RP"}`.
+    - `rights = set(parse_sddl_rights(ace.rights))`; skip if
+     `not (rights & READ_OR_APPLY_RIGHTS)` where
+     `READ_OR_APPLY_RIGHTS = {"GA", "GR", "CC", "CR", "RP"}` (imported from `authz`).
    - Emit one finding, `break`.
 
 The finding uses `_format_trustee(estate, ace.trustee_sid)` for the
