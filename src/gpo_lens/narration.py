@@ -26,6 +26,24 @@ class NarrationUnavailable(Exception):
     """Raised when narration cannot be produced (no API key, transport error, etc.)."""
 
 
+def _llm_provider_for_url(url: str) -> str:
+    host = urllib.parse.urlparse(url).hostname or ""
+    host = host.lower()
+    if host == "api.anthropic.com" or host.endswith(".anthropic.com"):
+        return "anthropic"
+    return "openai"
+
+
+def _llm_auth_headers(provider: str, key: str) -> dict[str, str]:
+    headers = {"Content-Type": "application/json"}
+    if provider == "anthropic":
+        headers["x-api-key"] = key
+        headers["anthropic-version"] = "2023-06-01"
+    else:
+        headers["Authorization"] = f"Bearer {key}"
+    return headers
+
+
 def call_llm(
     system_prompt: str,
     user_prompt: str,
@@ -36,6 +54,17 @@ def call_llm(
     max_tokens: int = 2048,
     timeout: int = 30,
 ) -> str:
+    """Call an LLM endpoint.
+
+    Environment variables:
+      - GPO_LENS_API_KEY: API key for the endpoint.
+      - GPO_LENS_LLM_ENDPOINT: URL (default is Anthropic).
+      - GPO_LENS_LLM_MODEL: model name.
+      - GPO_LENS_LLM_PROVIDER: "anthropic", "openai", or "auto" (default).
+        "auto" chooses Anthropic headers for Anthropic hosts and Bearer
+        headers for everything else.  The request body is currently
+        Anthropic-shaped regardless of provider.
+    """
     key = api_key or os.environ.get("GPO_LENS_API_KEY")
     if not key:
         raise NarrationUnavailable("No API key configured")
@@ -52,6 +81,13 @@ def call_llm(
         raise NarrationUnavailable(
             f"LLM endpoint must be http(s)://, got {parsed.scheme}://"
         )
+    provider_env = os.environ.get("GPO_LENS_LLM_PROVIDER", "auto").strip().lower()
+    if provider_env == "anthropic":
+        provider = "anthropic"
+    elif provider_env == "openai":
+        provider = "openai"
+    else:
+        provider = _llm_provider_for_url(url)
     model_name = model or os.environ.get(
         "GPO_LENS_LLM_MODEL",
         "claude-sonnet-4-20250514",
@@ -62,14 +98,11 @@ def call_llm(
         "system": system_prompt,
         "messages": [{"role": "user", "content": user_prompt}],
     }).encode("utf-8")
+    headers = _llm_auth_headers(provider, key)
     req = urllib.request.Request(
         url,
         data=payload,
-        headers={
-            "Content-Type": "application/json",
-            "x-api-key": key,
-            "anthropic-version": "2023-06-01",
-        },
+        headers=headers,
         method="POST",
     )
     try:

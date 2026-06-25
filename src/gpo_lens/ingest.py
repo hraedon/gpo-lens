@@ -1317,14 +1317,23 @@ def parse_coverage_gaps(
     return gaps
 
 
-def _scan_sysvol_coverage(gpos: list[Gpo]) -> list[CoverageGap]:
-    """Detect GPOs whose SYSVOL Preferences directories are unreadable.
+def _scan_sysvol_gaps(gpos: list[Gpo]) -> list[CoverageGap]:
+    """Walk each GPO's SYSVOL Preferences once, surfacing both coverage-honesty
+    signals in a single pass:
 
-    A Windows-produced zip extracted on Linux often drops the traversal (``x``)
-    bit on subdirectories. The parser skips these silently (correct — it must
-    not crash), but the charter demands coverage honesty: if GPP content is
-    invisible, surface it as a coverage_gap so the user knows the estate view
-    is partial and can fix permissions (``chmod -R +rX SYSVOL-Policies``).
+    * ``unreadable_sysvol`` — a Preferences subtree the parser cannot enter
+      (a Windows-produced zip extracted on Linux often drops the traversal
+      ``x`` bit on subdirectories). Remediation: ``chmod -R +rX`` on the
+      SYSVOL-Policies directory.
+    * ``corrupt_gpp_xml`` — a readable-but-unparseable Preferences XML file
+      (truncated download, mid-copy snapshot, or a tampered export).
+
+    The GPP scanners in ``detection.py`` catch ``ET.ParseError`` and skip
+    unreadable dirs (correct for resilience), which means a corrupt or
+    invisible ``ScheduledTasks.xml`` is silently invisible — a coverage-honesty
+    hazard for a security tool. This walker replaces the former two-pass design
+    (``_scan_sysvol_coverage`` + ``_scan_corrupt_gpp_xml``), which walked the
+    same Preferences tree twice per ingest; both now delegate here.
     """
     gaps: list[CoverageGap] = []
     for gpo in gpos:
@@ -1332,6 +1341,7 @@ def _scan_sysvol_coverage(gpos: list[Gpo]) -> list[CoverageGap]:
             continue
         base = Path(gpo.sysvol_path)
         unreadable: list[str] = []
+        corrupt: list[str] = []
         for side_dir in ("Machine", "User"):
             side = ci_child(base, side_dir)
             if side is None:
@@ -1339,14 +1349,49 @@ def _scan_sysvol_coverage(gpos: list[Gpo]) -> list[CoverageGap]:
             prefs = ci_child(side, "Preferences")
             if prefs is None:
                 continue
+            side_flagged = False
             try:
-                for entry in sorted(prefs.iterdir()):
-                    if entry.is_dir():
-                        list(entry.iterdir())
+                entries = sorted(prefs.iterdir())
             except OSError as exc:
                 unreadable.append(
                     f"{side_dir}/Preferences ({exc.__class__.__name__})"
                 )
+                side_flagged = True
+                continue
+            for entry in entries:
+                try:
+                    candidates: list[Path] = []
+                    if entry.is_dir():
+                        candidates.extend(
+                            sorted(c for c in entry.iterdir() if c.is_file())
+                        )
+                    elif entry.is_file():
+                        candidates.append(entry)
+                except OSError as exc:
+                    # Lost traversal bit on this Preferences subdir: the GPP
+                    # scanners cannot enter it, so its content is invisible.
+                    # Flag the side once and keep walking siblings so a single
+                    # bad subdir does not hide corrupt XML in its siblings.
+                    if not side_flagged:
+                        unreadable.append(
+                            f"{side_dir}/Preferences ({exc.__class__.__name__})"
+                        )
+                        side_flagged = True
+                    continue
+                for fp in candidates:
+                    if fp.suffix.lower() != ".xml":
+                        continue
+                    try:
+                        ET.parse(fp)
+                    except (ET.ParseError, UnicodeDecodeError, OSError):
+                        # ParseError = malformed XML; UnicodeDecodeError =
+                        # wrong/invalid encoding declaration; OSError =
+                        # file became unreadable between iterdir and parse.
+                        # All three are "this GPP file is unusable" from the
+                        # perspective of the security scanners that feed off
+                        # Preferences XML.
+                        rel = fp.relative_to(base)
+                        corrupt.append(str(rel))
         if unreadable:
             gaps.append(CoverageGap(
                 gpo_id=gpo.id,
@@ -1358,64 +1403,6 @@ def _scan_sysvol_coverage(gpos: list[Gpo]) -> list[CoverageGap]:
                     f"SYSVOL-Policies directory."
                 ),
             ))
-    return gaps
-
-
-def _scan_corrupt_gpp_xml(gpos: list[Gpo]) -> list[CoverageGap]:
-    """Detect GPOs whose SYSVOL Preferences XML files fail to parse.
-
-    Sibling of ``_scan_sysvol_coverage``: that one flags *unreadable*
-    directories (lost traversal bit); this one flags *readable-but-corrupt*
-    XML files (truncated download, mid-copy snapshot, or a tampered export).
-    The GPP scanners in ``detection.py`` catch ``ET.ParseError`` and continue,
-    which is correct for resilience but means a corrupt ``ScheduledTasks.xml``
-    is silently invisible — a coverage-honesty hazard for a security tool. We
-    walk the same Preferences layout once at ingest time and surface every
-    unparseable file as a coverage gap so the user knows the cPassword /
-    scheduled-task / local-group views for that GPO are partial.
-    """
-    gaps: list[CoverageGap] = []
-    for gpo in gpos:
-        if not gpo.sysvol_path:
-            continue
-        base = Path(gpo.sysvol_path)
-        corrupt: list[str] = []
-        for side_dir in ("Machine", "User"):
-            side = ci_child(base, side_dir)
-            if side is None:
-                continue
-            prefs = ci_child(side, "Preferences")
-            if prefs is None:
-                continue
-            try:
-                entries = sorted(prefs.iterdir())
-            except OSError:
-                continue
-            for entry in entries:
-                try:
-                    candidates: list[Path] = []
-                    if entry.is_dir():
-                        candidates.extend(
-                            sorted(c for c in entry.iterdir() if c.is_file())
-                        )
-                    elif entry.is_file():
-                        candidates.append(entry)
-                    for fp in candidates:
-                        if fp.suffix.lower() != ".xml":
-                            continue
-                        try:
-                            ET.parse(fp)
-                        except (ET.ParseError, UnicodeDecodeError, OSError):
-                            # ParseError = malformed XML; UnicodeDecodeError =
-                            # wrong/invalid encoding declaration; OSError =
-                            # file became unreadable between iterdir and parse.
-                            # All three are "this GPP file is unusable" from
-                            # the perspective of the security scanners that
-                            # feed off Preferences XML.
-                            rel = fp.relative_to(base)
-                            corrupt.append(str(rel))
-                except OSError:
-                    continue
         if corrupt:
             gaps.append(CoverageGap(
                 gpo_id=gpo.id,
@@ -1428,6 +1415,39 @@ def _scan_corrupt_gpp_xml(gpos: list[Gpo]) -> list[CoverageGap]:
                 ),
             ))
     return gaps
+
+
+def _scan_sysvol_coverage(gpos: list[Gpo]) -> list[CoverageGap]:
+    """Detect GPOs whose SYSVOL Preferences directories are unreadable.
+
+    Thin filter over :func:`_scan_sysvol_gaps` (the merged single-walk scanner)
+    so existing callers and tests see the same ``unreadable_sysvol`` records.
+    A Windows-produced zip extracted on Linux often drops the traversal (``x``)
+    bit on subdirectories; the parser skips these silently (correct — it must
+    not crash), but the charter demands coverage honesty: if GPP content is
+    invisible, surface it as a coverage_gap so the user knows the estate view
+    is partial and can fix permissions (``chmod -R +rX SYSVOL-Policies``).
+    """
+    return [
+        g for g in _scan_sysvol_gaps(gpos) if g.kind == "unreadable_sysvol"
+    ]
+
+
+def _scan_corrupt_gpp_xml(gpos: list[Gpo]) -> list[CoverageGap]:
+    """Detect GPOs whose SYSVOL Preferences XML files fail to parse.
+
+    Thin filter over :func:`_scan_sysvol_gaps` (the merged single-walk scanner)
+    so existing callers and tests see the same ``corrupt_gpp_xml`` records.
+    Flags *readable-but-corrupt* XML (truncated download, mid-copy snapshot, or
+    a tampered export): the GPP scanners in ``detection.py`` catch
+    ``ET.ParseError`` and continue, which is correct for resilience but means a
+    corrupt ``ScheduledTasks.xml`` is silently invisible — a coverage-honesty
+    hazard. Surfacing every unparseable file tells the user the cPassword /
+    scheduled-task / local-group views for that GPO are partial.
+    """
+    return [
+        g for g in _scan_sysvol_gaps(gpos) if g.kind == "corrupt_gpp_xml"
+    ]
 
 
 def _scan_missing_sysvol(
@@ -1556,8 +1576,7 @@ def load_estate(sample_dir: str | Path) -> Estate:
         src / "gpo-inventory.json", src / "collection-errors.json", gpos
     )
 
-    coverage_gaps.extend(_scan_sysvol_coverage(gpos))
-    coverage_gaps.extend(_scan_corrupt_gpp_xml(gpos))
+    coverage_gaps.extend(_scan_sysvol_gaps(gpos))
     coverage_gaps.extend(_scan_missing_sysvol(sysvol_root, gpos))
 
     principals = _try_load(

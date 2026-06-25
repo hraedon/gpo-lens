@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+### Fix: `narration.call_llm` no longer leaks Anthropic headers to non-Anthropic endpoints (WI-064)
+
+- `call_llm` previously sent `x-api-key` and `anthropic-version` headers
+  unconditionally, regardless of `GPO_LENS_LLM_ENDPOINT`. This caused
+  OpenAI-compatible proxies that reject unknown headers to fail, and meant the
+  Anthropic API key was sent to whichever host the operator pointed at.
+- Headers are now chosen by hostname detection: Anthropic hosts
+  (`api.anthropic.com` and `*.anthropic.com`) get `x-api-key` + `anthropic-version`;
+  all other hosts get `Authorization: Bearer <key>`. Lookalike and suffix-attack
+  domains (`api.anthropic.com.evil.com`, `xanthropic.com`, etc.) are correctly
+  treated as non-Anthropic — the leading dot in `.anthropic.com` defeats the
+  suffix attack.
+- A new `GPO_LENS_LLM_PROVIDER` env var (`anthropic` / `openai` / `auto`,
+  default `auto`, case-insensitive) lets operators force the header style when
+  a proxy or gateway hostname is ambiguous. Unrecognized values fall through
+  to `auto` detection rather than failing — narration degrades gracefully.
+- **The request body shape is unchanged** (still Anthropic-shaped
+  `{"system":..., "messages":[...]}`). True OpenAI chat-completions endpoints
+  will still not work end-to-end; that is filed as a separate work item.
+
 ### Fix: SYSVOL never collected — clobbered `$dom` AD-domain object (the real root cause)
 
 - **The principals/SID-resolution loop reused `$dom` as a local** for the

@@ -78,7 +78,7 @@ def main(argv: list[str] | None = None) -> int:
     # ingest
     p = sub.add_parser("ingest")
     p.add_argument("sample_dir")
-    p.add_argument("--json", action="store_true")
+    p.add_argument("--json", dest="_sub_json", action="store_true", help="JSON output")
     p.add_argument(
         "--diff-latest", action="store_true",
         help="After ingesting, diff against the previous snapshot and print the changelog",
@@ -406,7 +406,7 @@ def main(argv: list[str] | None = None) -> int:
         "danger",
         help="Scan for dangerous GPO configurations (curated, cited checks)",
     )
-    p.add_argument("--json", action="store_true", help="JSON output")
+    p.add_argument("--json", dest="_sub_json", action="store_true", help="JSON output")
     p.add_argument(
         "--admx-dir",
         help="PolicyDefinitions directory for policy-name-keyed rules",
@@ -438,7 +438,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--computer-sid", default=None, help="Computer SID (for user+computer pair)")
     p.add_argument("--dn", default=None, help="Distinguished name of the principal (for SOM chain)")
     p.add_argument("--computer-dn", default=None, help="Computer DN (for user+computer SOM chain)")
-    p.add_argument("--json", action="store_true", help="JSON output")
+    p.add_argument("--json", dest="_sub_json", action="store_true", help="JSON output")
     _add_src(p)
     p.set_defaults(func=cmd_resultant)
 
@@ -447,7 +447,7 @@ def main(argv: list[str] | None = None) -> int:
         "trends",
         help="Posture-over-time from snapshot history",
     )
-    p.add_argument("--json", action="store_true", help="JSON output")
+    p.add_argument("--json", dest="_sub_json", action="store_true", help="JSON output")
     p.add_argument(
         "--changes-only", action="store_true",
         help="Only show snapshots where key metrics changed",
@@ -460,6 +460,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     # Label every --json envelope with the active subcommand (the contract `kind`).
     _set_json_kind(getattr(args, "command", None))
+    args.json = bool(args.json) or bool(getattr(args, "_sub_json", False))
     try:
         return args.func(args) or 0
     except SystemExit:

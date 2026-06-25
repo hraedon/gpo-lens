@@ -115,6 +115,134 @@ class TestCallLlm:
             with pytest.raises(NarrationUnavailable, match="must be http"):
                 call_llm("sys", "user")
 
+    def test_call_llm_openai_endpoint_uses_bearer(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "GPO_LENS_API_KEY": "test-key-123",
+                "GPO_LENS_LLM_ENDPOINT": "https://api.openai.com/v1/chat/completions",
+            },
+            clear=True,
+        ):
+            with patch("gpo_lens.narration.urllib.request.urlopen") as mock_urlopen:
+                mock_resp = mock_urlopen.return_value.__enter__.return_value
+                mock_resp.read.return_value = json.dumps({
+                    "content": [{"type": "text", "text": "hello"}],
+                }).encode("utf-8")
+                call_llm("sys", "user")
+                req = mock_urlopen.call_args[0][0]
+                assert req.get_header("Authorization") == "Bearer test-key-123"
+                assert req.get_header("X-api-key") is None
+                assert req.get_header("Anthropic-version") is None
+
+    def test_call_llm_auto_detects_anthropic_subdomain(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "GPO_LENS_API_KEY": "proxy-key",
+                "GPO_LENS_LLM_ENDPOINT": "https://gateway.corp.anthropic.com/v1/messages",
+            },
+            clear=True,
+        ):
+            with patch("gpo_lens.narration.urllib.request.urlopen") as mock_urlopen:
+                mock_resp = mock_urlopen.return_value.__enter__.return_value
+                mock_resp.read.return_value = json.dumps({
+                    "content": [{"type": "text", "text": "hello"}],
+                }).encode("utf-8")
+                call_llm("sys", "user")
+                req = mock_urlopen.call_args[0][0]
+                assert req.get_header("X-api-key") == "proxy-key"
+                assert req.get_header("Anthropic-version") == "2023-06-01"
+                assert req.get_header("Authorization") is None
+
+    def test_call_llm_explicit_provider_overrides_hostname(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "GPO_LENS_API_KEY": "test-key-123",
+                "GPO_LENS_LLM_ENDPOINT": "https://api.anthropic.com/v1/messages",
+                "GPO_LENS_LLM_PROVIDER": "openai",
+            },
+            clear=True,
+        ):
+            with patch("gpo_lens.narration.urllib.request.urlopen") as mock_urlopen:
+                mock_resp = mock_urlopen.return_value.__enter__.return_value
+                mock_resp.read.return_value = json.dumps({
+                    "content": [{"type": "text", "text": "hello"}],
+                }).encode("utf-8")
+                call_llm("sys", "user")
+                req = mock_urlopen.call_args[0][0]
+                assert req.get_header("Authorization") == "Bearer test-key-123"
+                assert req.get_header("X-api-key") is None
+                assert req.get_header("Anthropic-version") is None
+
+    def test_call_llm_explicit_provider_anthropic(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "GPO_LENS_API_KEY": "test-key-123",
+                "GPO_LENS_LLM_ENDPOINT": "https://api.openai.com/v1/chat/completions",
+                "GPO_LENS_LLM_PROVIDER": "anthropic",
+            },
+            clear=True,
+        ):
+            with patch("gpo_lens.narration.urllib.request.urlopen") as mock_urlopen:
+                mock_resp = mock_urlopen.return_value.__enter__.return_value
+                mock_resp.read.return_value = json.dumps({
+                    "content": [{"type": "text", "text": "hello"}],
+                }).encode("utf-8")
+                call_llm("sys", "user")
+                req = mock_urlopen.call_args[0][0]
+                assert req.get_header("X-api-key") == "test-key-123"
+                assert req.get_header("Anthropic-version") == "2023-06-01"
+                assert req.get_header("Authorization") is None
+
+    @pytest.mark.parametrize("url", [
+        "https://api.anthropic.com.evil.com/v1/messages",
+        "https://evilantrhopic.com/v1/messages",
+        "https://xanthropic.com/v1/messages",
+        "https://anthropic.com/v1/messages",
+    ])
+    def test_lookalike_host_gets_bearer_not_anthropic(self, url: str) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "GPO_LENS_API_KEY": "test-key-123",
+                "GPO_LENS_LLM_ENDPOINT": url,
+            },
+            clear=True,
+        ):
+            with patch("gpo_lens.narration.urllib.request.urlopen") as mock_urlopen:
+                mock_resp = mock_urlopen.return_value.__enter__.return_value
+                mock_resp.read.return_value = json.dumps({
+                    "content": [{"type": "text", "text": "hello"}],
+                }).encode("utf-8")
+                call_llm("sys", "user")
+                req = mock_urlopen.call_args[0][0]
+                assert req.get_header("Authorization") == "Bearer test-key-123"
+                assert req.get_header("X-api-key") is None
+                assert req.get_header("Anthropic-version") is None
+
+    def test_provider_env_is_case_insensitive(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "GPO_LENS_API_KEY": "k",
+                "GPO_LENS_LLM_ENDPOINT": "https://api.openai.com/v1/chat/completions",
+                "GPO_LENS_LLM_PROVIDER": "Anthropic",
+            },
+            clear=True,
+        ):
+            with patch("gpo_lens.narration.urllib.request.urlopen") as mock_urlopen:
+                mock_resp = mock_urlopen.return_value.__enter__.return_value
+                mock_resp.read.return_value = json.dumps({
+                    "content": [{"type": "text", "text": "hello"}],
+                }).encode("utf-8")
+                call_llm("sys", "user")
+                req = mock_urlopen.call_args[0][0]
+                assert req.get_header("X-api-key") == "k"
+                assert req.get_header("Authorization") is None
+
 
 class TestExplainFindings:
     def test_explain_findings_returns_narration(self) -> None:

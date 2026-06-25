@@ -71,8 +71,9 @@ def _assert_keys(obj: dict, required: set[str], where: str) -> None:
 def test_every_consumed_command_emits_the_envelope(capsys, contract_db):
     """Every DB-driven --json command carries the versioned envelope.
 
-    ``ingest`` (mutating; its own --json flag shadows the top-level one) and
-    ``settings-diff`` (file-in, not DB-driven) are pinned in their own tests.
+    ``ingest`` (mutating; historically its own --json flag shadowed the
+    top-level one — now both positions are honored) and ``settings-diff``
+    (file-in, not DB-driven) are pinned in their own tests.
     """
     cases = [
         ("summary", ()),
@@ -114,9 +115,11 @@ def test_every_consumed_command_emits_the_envelope(capsys, contract_db):
         ("topology-check", ()),
         ("admx-gaps", ()),
         ("precedence-conflicts", ()),
-        # ``danger`` and ``trends`` define their own subcommand-level --json
-        # that shadows the global flag (same shape as ``ingest``); they are
-        # pinned by ``test_danger_shape`` and ``test_trends_shape`` below.
+        # ``danger`` and ``trends`` historically defined their own
+        # subcommand-level --json that shadowed the global flag (same shape
+        # as ``ingest``). Both positions are honored now; they are pinned by
+        # ``test_danger_shape`` and ``test_trends_shape`` below, and the
+        # position equivalence is covered by ``test_cli_json_shadowing.py``.
     ]
     for kind, args in cases:
         _payload(capsys, contract_db, kind, *args)
@@ -536,9 +539,10 @@ def test_changelog_shape(capsys, contract_db):
 # --- Special-case commands (non-standard invocation) -----------------------
 
 def test_ingest_shape(capsys, contract_db):
-    """``ingest`` defines its own subparser ``--json`` that shadows the
-    top-level flag, so the envelope only emits when ``--json`` follows the
-    subcommand. It is also mutating, so it is pinned here, not in ``cases``.
+    """``ingest`` is mutating, so it is pinned here, not in ``cases``.
+
+    It also has a subcommand-level ``--json`` flag; both flag positions now
+    work, but this test keeps using the post-subcommand form for consistency.
     """
     rc = main(["--db", str(contract_db), "ingest", str(FIXTURES), "--json"])
     env = json.loads(capsys.readouterr().out)
@@ -595,8 +599,9 @@ def test_scope_not_found_errors_off_stdout(capsys, contract_db):
 # --- Deterministic --json commands previously outside the contract ----------
 # These three commands emit the envelope but were not pinned by the freeze
 # above (regression coverage for the security/reasoning surface). They each
-# define their own subcommand-level ``--json`` that shadows the global flag
-# (same shape as ``ingest``), so the flag must follow the subcommand name.
+# have a subcommand-level ``--json`` flag that historically shadowed the global
+# flag; both flag positions now work, but these tests keep using the
+# post-subcommand form for consistency.
 
 def _run_subjson(capsys, db, kind, *argv):
     """Run a command whose subparser defines its own --json (post-subcommand)."""
