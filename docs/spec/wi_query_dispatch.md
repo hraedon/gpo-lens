@@ -259,3 +259,73 @@ will fail.
 - The lazy `__import__` for `principal_resultant` is deterministic:
   Python caches imported modules, so the second call reuses the cached
   `gpo_lens.merge` module. No re-import overhead per call.
+
+## AC-07: REST API surface (WI-057)
+
+The dispatch table is also exposed as a versioned JSON REST API under
+`/api/v1/`. The API is a thin layer: it validates params, loads the
+estate, dispatches the query, serializes via `serialize_result`, and
+returns JSON. The API runs the deterministic core only — no LLM calls
+(it never imports `narration`).
+
+### Endpoints
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/api/v1/` | none | Endpoint listing (self-documenting) |
+| GET | `/api/v1/queries` | `VIEW` | List all available queries with descriptions and required params |
+| GET | `/api/v1/query/{query_name}` | `VIEW` | Execute a named query |
+| GET | `/api/v1/health` | none | Health check (version + DB basename) |
+| GET | `/api/v1/snapshots` | `VIEW` | List saved snapshots |
+
+### Query execution contract
+
+`GET /api/v1/query/{query_name}` accepts required parameters as URL
+query string params (e.g. `?ou_path=OU=Servers,DC=example,DC=com`).
+The endpoint:
+
+1. Checks `query_name in VALID_QUERIES` — 404 if not.
+2. Collects required params (`QUERY_REQUIRED_PARAMS`) from the query
+   string.
+3. Validates via `validate_params` — 400 with the `ValueError` message
+   if validation fails (missing required param, type mismatch).
+4. Loads the estate from the DB via `store.load_estate`.
+5. Dispatches via `dispatch_query`.
+6. For `cpassword_scan`, masks cpassword values via
+   `detection.mask_cpassword` (never surfaces raw secrets).
+7. Serializes via `display.serialize_result` and returns `{"status":
+   "ok", "data": <result>}`.
+
+### Error response format
+
+All error responses use a consistent envelope:
+
+```
+{"status": "error", "detail": "<human-readable message>"}
+```
+
+| Status | When |
+|--------|------|
+| 400 | Validation failure (missing required param, type mismatch, estate load error) |
+| 401 | Missing/invalid auth token (when `GPO_LENS_AUTH_TOKEN` is configured) |
+| 404 | Unknown query name |
+
+### Auth
+
+The API uses the same auth system as the web UI (`web.auth`). Endpoints
+requiring `Permission.VIEW` accept a `Bearer` token via the
+`Authorization` header (when `GPO_LENS_AUTH_TOKEN` is set) or allow
+loopback without a token (local dev mode). The `/api/v1/health` and
+`/api/v1/` endpoints are exempt — no auth required — so monitoring and
+load balancers can poll without credentials.
+
+### Versioning
+
+All endpoints are under `/api/v1/` for future compatibility. A v2
+surface (if needed) would mount under `/api/v2/` without breaking v1
+consumers.
+
+### Read-only
+
+All API endpoints are `GET`. No `POST`/`PUT`/`DELETE` — the API never
+mutates estate data or triggers ingest.

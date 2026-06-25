@@ -7,7 +7,9 @@ format strings every time.
 from __future__ import annotations
 
 import dataclasses
+import datetime
 from collections.abc import Sequence
+from enum import Enum
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -15,9 +17,23 @@ if TYPE_CHECKING:
 
 
 def serialize_result(result: object) -> object:
-    """Recursively convert dataclass instances to plain dicts for JSON serialization."""
+    """Recursively convert dataclass instances to plain dicts for JSON serialization.
+
+    Handles ``datetime``/``date`` (→ ISO 8601 string) and ``Enum`` (→ ``.value``)
+    so the output is always JSON-serialisable — the CLI's ``json.dumps(...,
+    default=str)`` masks these, but ``JSONResponse`` has no ``default`` hook.
+    """
+    if isinstance(result, Enum):
+        return result.value
+    if isinstance(result, (datetime.datetime, datetime.date)):
+        return result.isoformat()
     if dataclasses.is_dataclass(result) and not isinstance(result, type):
-        return dataclasses.asdict(result)
+        # Manually recurse through fields instead of ``dataclasses.asdict`` so
+        # that nested datetime/Enum values are converted, not passed through.
+        return {
+            f.name: serialize_result(getattr(result, f.name))
+            for f in dataclasses.fields(result)
+        }
     if isinstance(result, list):
         return [serialize_result(item) for item in result]
     if isinstance(result, dict):

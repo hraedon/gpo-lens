@@ -396,6 +396,14 @@ def create_app(
     async def _http_exception_handler(  # type: ignore[no-untyped-def]
         request: Request, exc: StarletteHTTPException
     ):
+        # API paths always get the JSON error envelope, never an HTML page.
+        # Auth failures (401/403) and other HTTP exceptions under /api/v1/ must
+        # return {"status": "error", "detail": "..."} per the API spec.
+        if request.url.path.startswith("/api/v1/"):
+            return JSONResponse(
+                {"status": "error", "detail": exc.detail},
+                status_code=exc.status_code,
+            )
         # Render a styled page for browsers; keep JSON for API/programmatic use.
         if "text/html" in request.headers.get("accept", ""):
             return templates.TemplateResponse(
@@ -475,6 +483,7 @@ def create_app(
     # / _MAX_UPLOAD_BYTES from this module, which must be fully loaded first.
     # ------------------------------------------------------------------
     from gpo_lens.web.routes import (
+        api,
         ask,
         baseline,
         changelog,
@@ -485,6 +494,7 @@ def create_app(
         ingest,
         ou,
         resultant,
+        trends,
     )
 
     dashboard.register(app, templates)
@@ -497,5 +507,7 @@ def create_app(
     baseline.register(app, templates)
     export.register(app, templates)
     resultant.register(app, templates)
+    trends.register(app, templates)
+    api.register(app, templates)
 
     return app

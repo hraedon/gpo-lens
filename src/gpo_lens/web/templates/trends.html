@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+
+{% block title %}gpo-lens — Trends{% endblock %}
+
+{% block content %}
+<div class="gp-page-head">
+  <div>
+    <div class="gp-eyebrow">Posture over time</div>
+    <h1>Trends</h1>
+    <div class="sub">Track how estate posture changes across snapshots.</div>
+  </div>
+</div>
+
+{% if points|length < 2 %}
+<div class="gp-callout info" style="margin-bottom:14px">
+  <div>
+    <h4>Need at least two snapshots</h4>
+    <p>Each ingest creates a new snapshot. Upload another estate export to see trends over time.</p>
+  </div>
+</div>
+{% endif %}
+
+{% if points %}
+<section class="gp-section" style="margin-bottom:20px">
+  <h2>Sparklines</h2>
+  <div class="gp-panel pad">
+    <div style="margin-bottom:10px">
+      <span class="muted" style="font-size:12px">Dangerous configurations</span>
+      <div class="mono" style="font-size:20px;letter-spacing:1px">{{ danger_spark }}</div>
+    </div>
+    <div style="margin-bottom:10px">
+      <span class="muted" style="font-size:12px">cPassword hits</span>
+      <div class="mono" style="font-size:20px;letter-spacing:1px">{{ cpassword_spark }}</div>
+    </div>
+    <div>
+      <span class="muted" style="font-size:12px">Version skew</span>
+      <div class="mono" style="font-size:20px;letter-spacing:1px">{{ skew_spark }}</div>
+    </div>
+  </div>
+</section>
+
+<section class="gp-section">
+  <h2>Snapshots <span class="count">{{ points|length }}</span></h2>
+  <div class="gp-table-wrap">
+    <table class="gp-table">
+      <thead>
+        <tr>
+          <th>Snapshot ID</th>
+          <th>Date</th>
+          <th>GPOs</th>
+          <th>Dangers</th>
+          <th>cPassword</th>
+          <th>MS16-072</th>
+          <th>Skew</th>
+          <th>Broken Refs</th>
+          <th>Coverage Gaps</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in points %}
+        <tr {% if row_tones[p.snapshot_id] == 'worse' %}style="background:rgba(220,53,69,0.12)"{% elif row_tones[p.snapshot_id] == 'better' %}style="background:rgba(40,167,69,0.12)"{% endif %}>
+          <td>{{ p.snapshot_id }}</td>
+          <td class="mono">{{ p.taken_at or '—' }}</td>
+          <td>{{ p.gpo_count }}</td>
+          <td>{{ p.danger_finding_count }}</td>
+          <td>{{ p.cpassword_hit_count }}</td>
+          <td>{{ p.ms16_072_vulnerable_count }}</td>
+          <td>{{ p.version_skew_count }}</td>
+          <td>{{ p.broken_ref_count }}</td>
+          <td>{{ p.coverage_gap_count }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% else %}
+<div class="gp-empty">
+  <div class="title">No snapshots</div>
+  <div class="sub">Ingest an estate export to start tracking trends.</div>
+</div>
+{% endif %}
+{% endblock %}

@@ -53,12 +53,12 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
             return json_attachment(payload, "gpo-lens-findings.json")
         # default: csv
         rows = [
-            [f.severity, f.category, f.gpo_id, f.gpo_name, f.summary, f.detail]
+            [f.severity, f.category, f.gpo_id, f.gpo_name, f.summary, f.detail, f.remediation]
             for f in findings
         ]
         return csv_response(
             rows,
-            ["severity", "category", "gpo_id", "gpo_name", "summary", "detail"],
+            ["severity", "category", "gpo_id", "gpo_name", "summary", "detail", "remediation"],
             "gpo-lens-findings.csv",
         )
 
