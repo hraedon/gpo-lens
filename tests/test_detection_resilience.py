@@ -392,8 +392,8 @@ def test_parse_admx_dir_unreadable_directory_returns_empty(tmp_path):
 def test_unreadable_sysvol_produces_coverage_gap(tmp_path):
     """A Windows zip extracted on Linux often drops the traversal bit on
     Preferences subdirs. The walker must skip them (not crash), and
-    _scan_sysvol_coverage must surface them as coverage_gaps."""
-    from gpo_lens.ingest import _scan_sysvol_coverage
+    _scan_sysvol_gaps must surface them as coverage_gaps."""
+    from gpo_lens.ingest import _scan_sysvol_gaps
 
     base = tmp_path / "{GUID}"
     prefs = base / "Machine" / "Preferences" / "Groups"
@@ -403,7 +403,7 @@ def test_unreadable_sysvol_produces_coverage_gap(tmp_path):
     prefs.chmod(0o000)
     try:
         gpo = _make_gpo(str(base))
-        gaps = _scan_sysvol_coverage([gpo])
+        gaps = [g for g in _scan_sysvol_gaps([gpo]) if g.kind == "unreadable_sysvol"]
         assert len(gaps) == 1
         assert gaps[0].kind == "unreadable_sysvol"
         assert gaps[0].gpo_id == gpo.id
@@ -414,14 +414,14 @@ def test_unreadable_sysvol_produces_coverage_gap(tmp_path):
 
 def test_readable_sysvol_produces_no_coverage_gap(tmp_path):
     """A healthy SYSVOL with readable Preferences dirs produces no gaps."""
-    from gpo_lens.ingest import _scan_sysvol_coverage
+    from gpo_lens.ingest import _scan_sysvol_gaps
 
     base = tmp_path / "{GUID}"
     sched = base / "Machine" / "Preferences" / "ScheduledTasks"
     sched.mkdir(parents=True)
     (sched / "ScheduledTasks.xml").write_text(_SCHED_XML, encoding="utf-8")
     gpo = _make_gpo(str(base))
-    gaps = _scan_sysvol_coverage([gpo])
+    gaps = [g for g in _scan_sysvol_gaps([gpo]) if g.kind == "unreadable_sysvol"]
     assert gaps == []
 
 

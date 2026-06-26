@@ -338,7 +338,7 @@ class TestLoadEstate:
         estate = ingest.load_estate(tmp_path)
         assert estate.gpos[0].sysvol_path is not None
 
-    def test_scan_corrupt_gpp_xml_surfaces_unparseable_files(
+    def test_scan_sysvol_gaps_corrupt_xml_surfaces_unparseable_files(
         self, tmp_path: Path
     ) -> None:
         """A truncated Preferences XML is flagged as a coverage gap.
@@ -346,8 +346,8 @@ class TestLoadEstate:
         Regression: the GPP scanners in detection.py catch ``ET.ParseError``
         and continue (correct for resilience), but a corrupt ScheduledTasks.xml
         was therefore silently invisible — a coverage-honesty hazard for a
-        security tool. ``_scan_corrupt_gpp_xml`` walks the same Preferences
-        layout once at ingest time and surfaces every unparseable file.
+        security tool. ``_scan_sysvol_gaps`` walks the Preferences layout once
+        at ingest time and surfaces every unparseable file.
         """
         from gpo_lens.model import Gpo
 
@@ -372,13 +372,13 @@ class TestLoadEstate:
             wmi_filter=None, sysvol_path=str(guid_dir),
             links=[], delegation=[], settings=[],
         )
-        gaps = ingest._scan_corrupt_gpp_xml([gpo])
+        gaps = [g for g in ingest._scan_sysvol_gaps([gpo]) if g.kind == "corrupt_gpp_xml"]
         assert len(gaps) == 1
         assert gaps[0].kind == "corrupt_gpp_xml"
         assert "Broken.xml" in gaps[0].detail
         assert "Good.xml" not in gaps[0].detail
 
-    def test_scan_corrupt_gpp_xml_no_sysvol_returns_empty(self) -> None:
+    def test_scan_sysvol_gaps_no_sysvol_returns_empty(self) -> None:
         from gpo_lens.model import Gpo
 
         gpo = Gpo(
@@ -390,9 +390,9 @@ class TestLoadEstate:
             wmi_filter=None, sysvol_path=None,
             links=[], delegation=[], settings=[],
         )
-        assert ingest._scan_corrupt_gpp_xml([gpo]) == []
+        assert [g for g in ingest._scan_sysvol_gaps([gpo]) if g.kind == "corrupt_gpp_xml"] == []
 
-    def test_scan_corrupt_gpp_xml_case_insensitive_side_and_skips_non_xml(
+    def test_scan_sysvol_gaps_corrupt_xml_case_insensitive_and_skips_non_xml(
         self, tmp_path: Path
     ) -> None:
         """Side dirs vary in case on real SYSVOL (MACHINE/USER); non-XML skipped."""
@@ -419,7 +419,7 @@ class TestLoadEstate:
             wmi_filter=None, sysvol_path=str(guid_dir),
             links=[], delegation=[], settings=[],
         )
-        gaps = ingest._scan_corrupt_gpp_xml([gpo])
+        gaps = [g for g in ingest._scan_sysvol_gaps([gpo]) if g.kind == "corrupt_gpp_xml"]
         assert len(gaps) == 1
         assert gaps[0].kind == "corrupt_gpp_xml"
         assert "Broken.xml" in gaps[0].detail
@@ -478,8 +478,8 @@ class TestLoadEstate:
     ) -> None:
         """WI-066 regression guard: the merged walker iterates each Preferences
         directory (and each subdir) exactly once per GPO per ingest. The old
-        design called ``_scan_sysvol_coverage`` and ``_scan_corrupt_gpp_xml``
-        separately, so Preferences was iterdir'd twice; ``load_estate`` now
+        design used two separate wrapper scanners, so Preferences was
+        iterdir'd twice; ``load_estate`` now
         calls the merged ``_scan_sysvol_gaps`` once. Exact-case side/Preferences
         names keep ``ci_child`` on its fast (``exists``) path so its fallback
         ``iterdir`` does not pollute the Preferences/subdir counts.

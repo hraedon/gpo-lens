@@ -89,8 +89,12 @@ jobs:
           uv venv
           uv pip install -e ".[dev,web]"
 
-      - name: Run tests with coverage
-        run: .venv/bin/pytest -q
+      - name: Run tests with coverage gate
+        # samples/ is gitignored, so sample-dependent calibration tests are
+        # skipped in CI; the realistic fresh-checkout floor is ~20%. The 20%
+        # threshold catches catastrophic regressions (e.g., tests don't run at
+        # all) without false-failing on normal code.
+        run: .venv/bin/pytest -q --cov-fail-under=20
 
   pester:
     runs-on: windows-latest
