@@ -9,6 +9,7 @@ import pytest
 from gpo_lens.registry_pol import (
     REG_TYPE_NAMES,
     PregRecord,
+    _read_utf16_null,
     decode_value,
     parse_registry_pol,
 )
@@ -356,3 +357,143 @@ def test_sz_with_multiple_trailing_nulls() -> None:
     rec_bytes = _encode_record(r"K", "V", 1, raw)
     result = parse_registry_pol(_build_file(rec_bytes))
     assert result[0].display_value == "Hi"
+
+
+# ---------------------------------------------------------------------------
+# 13. Malformed / truncated record error-recovery branches
+#     These exercise every ``break`` in the parser's field-by-field state
+#     machine.  A preceding valid record must survive; the malformed tail is
+#     silently dropped (tolerant parsing — never raise on corrupt SYSVOL).
+# ---------------------------------------------------------------------------
+
+_BAD = b"\x99\x99"  # two bytes that are not a UTF-16LE separator/bracket
+
+
+def _prefix_record(body: bytes) -> bytes:
+    """Prepend one valid record so we can assert earlier records survive."""
+    good = _encode_record(r"Good", "V", 4, struct.pack("<I", 7))
+    return _build_file(good) + body
+
+
+class TestMalformedRecords:
+    """Each test crafts a byte sequence that is valid up to a specific field
+    boundary, then corrupt.  The parser must ``break`` out of the record loop
+    and return the valid records parsed so far — never raise."""
+
+    def test_missing_sep_after_key(self) -> None:
+        # [key  then garbage (not ';')
+        body = _W_OPEN + _encode_str_utf16_null("K") + _BAD
+        result = parse_registry_pol(_prefix_record(body))
+        assert len(result) == 1
+        assert result[0].key == "Good"
+
+    def test_missing_sep_after_value_name(self) -> None:
+        # [key;value_name  then garbage (not ';')
+        body = _W_OPEN + _encode_str_utf16_null("K") + _W_SEP + _encode_str_utf16_null("V") + _BAD
+        result = parse_registry_pol(_prefix_record(body))
+        assert len(result) == 1
+        assert result[0].key == "Good"
+
+    def test_truncated_type_dword(self) -> None:
+        # [key;value_name;  then only 2 bytes (need 4 for DWORD)
+        body = (
+            _W_OPEN + _encode_str_utf16_null("K") + _W_SEP
+            + _encode_str_utf16_null("V") + _W_SEP + b"\x01\x00"
+        )
+        result = parse_registry_pol(_prefix_record(body))
+        assert len(result) == 1
+        assert result[0].key == "Good"
+
+    def test_missing_sep_after_type(self) -> None:
+        # [key;value_name;type  then garbage (not ';')
+        body = (
+            _W_OPEN + _encode_str_utf16_null("K") + _W_SEP
+            + _encode_str_utf16_null("V") + _W_SEP
+            + struct.pack("<I", 4) + _BAD
+        )
+        result = parse_registry_pol(_prefix_record(body))
+        assert len(result) == 1
+        assert result[0].key == "Good"
+
+    def test_truncated_size_dword(self) -> None:
+        # [key;value_name;type;  then only 2 bytes (need 4 for size DWORD)
+        body = (
+            _W_OPEN + _encode_str_utf16_null("K") + _W_SEP
+            + _encode_str_utf16_null("V") + _W_SEP
+            + struct.pack("<I", 4) + _W_SEP + b"\x01\x00"
+        )
+        result = parse_registry_pol(_prefix_record(body))
+        assert len(result) == 1
+        assert result[0].key == "Good"
+
+    def test_missing_sep_after_size(self) -> None:
+        # [key;value_name;type;size  then garbage (not ';')
+        body = (
+            _W_OPEN + _encode_str_utf16_null("K") + _W_SEP
+            + _encode_str_utf16_null("V") + _W_SEP
+            + struct.pack("<I", 4) + _W_SEP
+            + struct.pack("<I", 4) + _BAD
+        )
+        result = parse_registry_pol(_prefix_record(body))
+        assert len(result) == 1
+        assert result[0].key == "Good"
+
+    def test_truncated_data(self) -> None:
+        # size claims 100 bytes but only 2 follow
+        body = (
+            _W_OPEN + _encode_str_utf16_null("K") + _W_SEP
+            + _encode_str_utf16_null("V") + _W_SEP
+            + struct.pack("<I", 4) + _W_SEP
+            + struct.pack("<I", 100) + _W_SEP + b"\x01\x00"
+        )
+        result = parse_registry_pol(_prefix_record(body))
+        assert len(result) == 1
+        assert result[0].key == "Good"
+
+    def test_missing_close_bracket(self) -> None:
+        # data present but no ']' terminator
+        body = (
+            _W_OPEN + _encode_str_utf16_null("K") + _W_SEP
+            + _encode_str_utf16_null("V") + _W_SEP
+            + struct.pack("<I", 4) + _W_SEP
+            + struct.pack("<I", 4) + _W_SEP
+            + struct.pack("<I", 1) + _BAD
+        )
+        result = parse_registry_pol(_prefix_record(body))
+        assert len(result) == 1
+        assert result[0].key == "Good"
+
+    def test_stray_bytes_between_records_skipped(self) -> None:
+        """Bytes that are not '[' openers are skipped until the next opener."""
+        good1 = _encode_record(r"K1", "V1", 4, struct.pack("<I", 1))
+        good2 = _encode_record(r"K2", "V2", 4, struct.pack("<I", 2))
+        junk = b"\x00\x01\x02\x03"
+        result = parse_registry_pol(_build_file(good1) + junk + good2)
+        assert len(result) == 2
+        assert result[1].key == "K2"
+
+
+# ---------------------------------------------------------------------------
+# 14. _read_utf16_null — no-null-terminator fallback
+# ---------------------------------------------------------------------------
+
+
+class TestReadUtf16Null:
+    def test_no_null_terminator_returns_rest(self) -> None:
+        """When no 0x00 0x00 pair is found, the rest of the buffer is the
+        string and the cursor advances to len(buf)."""
+        buf = b"A\x00B\x00C\x00"  # three UTF-16LE chars, no null terminator
+        text, end = _read_utf16_null(buf, 0)
+        assert text == "ABC"
+        assert end == len(buf)
+
+    def test_empty_buffer_from_offset(self) -> None:
+        text, end = _read_utf16_null(b"", 0)
+        assert text == ""
+        assert end == 0
+
+    def test_normal_null_terminated(self) -> None:
+        buf = b"H\x00i\x00\x00\x00"  # "Hi" + null terminator
+        text, end = _read_utf16_null(buf, 0)
+        assert text == "Hi"
+        assert end == 6  # past the 2-byte terminator

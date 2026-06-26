@@ -91,10 +91,11 @@ jobs:
 
       - name: Run tests with coverage gate
         # samples/ is gitignored, so sample-dependent calibration tests are
-        # skipped in CI; the realistic fresh-checkout floor is ~20%. The 20%
-        # threshold catches catastrophic regressions (e.g., tests don't run at
-        # all) without false-failing on normal code.
-        run: .venv/bin/pytest -q --cov-fail-under=20
+        # skipped in CI. The synthetic fixture estates (tests/fixtures/ +
+        # tests/golden_estate/) drive coverage to ~92% without samples. The 85%
+        # floor catches real regressions while leaving headroom for CLI/web
+        # presentation-layer evolution.
+        run: .venv/bin/pytest -q --cov-fail-under=85
 
   pester:
     runs-on: windows-latest

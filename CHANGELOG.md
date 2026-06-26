@@ -2,6 +2,38 @@
 
 ## Unreleased
 
+### Fix: CI coverage gate raised from 20% to 85% — synthetic estate already built (WI-074)
+
+- The WI-070 entry below described a `--cov-fail-under=20` CI floor as
+  necessary because "sample-dependent calibration tests are skipped on a fresh
+  checkout, yielding only ~20.7%." That framing was **stale**: two synthetic
+  fixture estates (`tests/fixtures/` — 14 GPOs, and `tests/golden_estate/` —
+  6 GPOs) had already landed with comprehensive structural test suites that
+  drive CI coverage to **~92%** without samples. The 20% gate was a
+  false-confidence hazard in the opposite direction — it would let a
+  regression that deleted half the detection module pass green.
+- The CI gate is now `--cov-fail-under=85`, leaving 7% headroom below the
+  measured 92% for CLI/web presentation-layer evolution while catching any
+  real regression. Stale comments in `pyproject.toml`, `ci.yml`, and
+  `plans/010-capability-roadmap.md` corrected.
+- Added targeted core-coverage tests for previously-untested branches in the
+  deterministic core (not presentation wrappers):
+  - `registry_pol.py` — all 8 malformed/truncated PReg record branches
+    (missing separators, truncated DWORDs, truncated data, missing close
+    bracket) and the `_read_utf16_null` no-null-terminator fallback. Coverage:
+    90% → **100%**.
+  - `danger.py` — the `in`/`present`/`min`/`max` predicate evaluators (shipped
+    rules use only `equals`), the `absent` estate-wide rule path, the
+    `_parse_compliance` malformed-entry warning branches, and ADMX
+    display-name identity resolution through `evaluate_danger_rules`. Coverage:
+    90% → **98%**.
+  - `ingest.py` — the flat `<Permission>` delegation fallback (alternate SDDL
+    parsing path used by older/third-party GPO reports). Coverage: 91% → 93%.
+- Cross-model adversarial review (kimi) ran against all new tests; four
+  SHOULD-FIX findings (missing line-175 test, unasserted `<Type>` fallback,
+  uncovered `_parse_compliance` empty-field branch, untested ADMX resolution)
+  were addressed before this entry.
+
 ### Fix: CI coverage gate false-confidence hazard (WI-070)
 
 - The 85% coverage threshold in `pyproject.toml` `addopts` was unrealistic

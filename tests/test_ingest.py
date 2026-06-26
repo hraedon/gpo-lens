@@ -1616,3 +1616,127 @@ class TestReadableIdentitiesNoHash:
             if hexpat.search(s.identity)
         ]
         assert hashed == [], f"unexpected hashed identities: {hashed[:5]}"
+
+
+# ---------------------------------------------------------------------------
+# Flat <Permission> delegation fallback (ingest.py lines 633-657)
+# Real exports use the nested <TrusteePermissions> structure. Some older /
+# third-party GPO reports use the flat <Permission> elements directly under
+# <Permissions>. The parser must fall back and extract trustee/SID/type.
+# ---------------------------------------------------------------------------
+
+
+def _gpo_xml_with_flat_permission(
+    gpo_id: str = "{AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA}",
+) -> str:
+    """A GPO whose SecurityDescriptor uses flat <Permission> elements (no
+    <TrusteePermissions>), exercising the fallback branch."""
+    return f"""<?xml version="1.0" encoding="utf-8"?>
+<GPO xmlns="http://www.microsoft.com/GroupPolicy/Settings">
+  <GPO>
+    <Identifier>
+      <Identifier>{gpo_id}</Identifier>
+      <Domain>flat.local</Domain>
+    </Identifier>
+    <Name>flat-delegation-gpo</Name>
+    <Computer>
+      <Enabled>true</Enabled>
+      <VersionDirectory>0</VersionDirectory>
+      <VersionSysvol>0</VersionSysvol>
+    </Computer>
+    <User>
+      <Enabled>true</Enabled>
+      <VersionDirectory>0</VersionDirectory>
+      <VersionSysvol>0</VersionSysvol>
+    </User>
+    <SecurityDescriptor>
+      <Permissions>
+        <Permission>
+          <Trustee>Authenticated Users</Trustee>
+          <TrusteeSID>S-1-5-11</TrusteeSID>
+          <Standard>Read</Standard>
+          <Type>Allow</Type>
+        </Permission>
+        <Permission>
+          <Trustee>Helpdesk</Trustee>
+          <SID>S-1-5-21-1-2-3-1000</SID>
+          <Standard>Edit</Standard>
+          <AccessDenied>false</AccessDenied>
+        </Permission>
+        <Permission>
+          <Trustee>Denied Group</Trustee>
+          <SID>S-1-5-21-1-2-3-1001</SID>
+          <Type>Deny</Type>
+          <AccessDenied>true</AccessDenied>
+        </Permission>
+      </Permissions>
+    </SecurityDescriptor>
+  </GPO>
+</GPO>"""
+
+
+def test_flat_permission_delegation_fallback() -> None:
+    """When no <TrusteePermissions> are present, the parser falls back to flat
+    <Permission> elements and extracts trustee, SID, permission type."""
+    xml = _gpo_xml_with_flat_permission()
+    elem = ET.fromstring(xml)
+    # Namespace-stripping: find the <GPO> child
+    gpo_elem = None
+    for child in elem:
+        if child.tag.split("}")[-1] == "GPO":
+            gpo_elem = child
+            break
+    assert gpo_elem is not None
+
+    entries = ingest._parse_delegation(gpo_elem, "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+    assert len(entries) == 3
+
+    # Entry 0: TrusteeSID element used
+    e0 = entries[0]
+    assert e0.trustee == "Authenticated Users"
+    assert e0.trustee_sid == "S-1-5-11"
+    assert e0.permission == "Read"
+    assert e0.allowed is True
+
+    # Entry 1: SID element (fallback) + AccessDenied=false
+    e1 = entries[1]
+    assert e1.trustee == "Helpdesk"
+    assert e1.trustee_sid == "S-1-5-21-1-2-3-1000"
+    assert e1.permission == "Edit"
+    assert e1.allowed is True
+
+    # Entry 2: AccessDenied=true → allowed=False; Type used as permission fallback
+    e2 = entries[2]
+    assert e2.trustee == "Denied Group"
+    assert e2.trustee_sid == "S-1-5-21-1-2-3-1001"
+    assert e2.permission == "Deny"
+    assert e2.allowed is False
+
+
+def test_flat_permission_no_sid_resolves_to_none() -> None:
+    """A flat <Permission> with neither TrusteeSID nor SID yields sid=None."""
+    xml = """<?xml version="1.0" encoding="utf-8"?>
+<GPO xmlns="http://www.microsoft.com/GroupPolicy/Settings">
+  <GPO>
+    <Identifier><Identifier>{BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB}</Identifier>
+    <Domain>flat.local</Domain></Identifier>
+    <Name>no-sid-gpo</Name>
+    <Computer><Enabled>true</Enabled></Computer>
+    <User><Enabled>true</Enabled></User>
+    <SecurityDescriptor>
+      <Permissions>
+        <Permission>
+          <Trustee>Unknown Trustee</Trustee>
+          <Standard>GPO Custom</Standard>
+        </Permission>
+      </Permissions>
+    </SecurityDescriptor>
+  </GPO>
+</GPO>"""
+    elem = ET.fromstring(xml)
+    gpo_elem = next(c for c in elem if c.tag.split("}")[-1] == "GPO")
+    entries = ingest._parse_delegation(gpo_elem, "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+    assert len(entries) == 1
+    assert entries[0].trustee == "Unknown Trustee"
+    assert entries[0].trustee_sid is None
+    assert entries[0].permission == "GPO Custom"

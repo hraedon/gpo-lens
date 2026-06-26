@@ -1739,3 +1739,220 @@ class TestAdmxResolverProtocol:
                 return None
 
         assert isinstance(Duck(), AdmxResolver)
+
+
+# ---------------------------------------------------------------------------
+# Bucket 1 — predicate evaluator coverage (non-``equals`` predicates)
+# The shipped ``danger_rules.toml`` uses only ``equals``, so the ``in``,
+# ``present``, ``min``, and ``max`` branches are never exercised by the
+# calibration tests.  These unit-test the extensible predicate engine.
+# ---------------------------------------------------------------------------
+
+
+def _rule(predicate: str, value: str, **kwargs: object) -> DangerRule:
+    """Build a minimal DangerRule with the given predicate/value."""
+    fields: dict[str, object] = {
+        "id": "test_rule",
+        "title": "Test Rule",
+        "severity": "high",
+        "applies": "Machine",
+        "identity": r"HKLM\Software\Test:Setting",
+        "predicate": predicate,
+        "value": value,
+        "reference": "https://example.com/ref",
+    }
+    fields.update(kwargs)
+    return DangerRule(**fields)  # type: ignore[arg-type]
+
+
+class TestPredicateMatches:
+    def test_in_predicate_matches(self) -> None:
+        from gpo_lens.danger import _predicate_matches
+        rule = _rule("in", "1, 2, 3")
+        assert _predicate_matches(rule, "2") is True
+
+    def test_in_predicate_no_match(self) -> None:
+        from gpo_lens.danger import _predicate_matches
+        rule = _rule("in", "1, 2, 3")
+        assert _predicate_matches(rule, "4") is False
+
+    def test_present_predicate_always_true(self) -> None:
+        from gpo_lens.danger import _predicate_matches
+        rule = _rule("present", "")
+        assert _predicate_matches(rule, "anything") is True
+        assert _predicate_matches(rule, "") is True
+
+    def test_min_predicate_above(self) -> None:
+        from gpo_lens.danger import _predicate_matches
+        rule = _rule("min", "5")
+        assert _predicate_matches(rule, "10") is True
+
+    def test_min_predicate_below(self) -> None:
+        from gpo_lens.danger import _predicate_matches
+        rule = _rule("min", "5")
+        assert _predicate_matches(rule, "3") is False
+
+    def test_min_predicate_non_numeric(self) -> None:
+        from gpo_lens.danger import _predicate_matches
+        rule = _rule("min", "5")
+        assert _predicate_matches(rule, "abc") is False
+
+    def test_max_predicate_below(self) -> None:
+        from gpo_lens.danger import _predicate_matches
+        rule = _rule("max", "5")
+        assert _predicate_matches(rule, "3") is True
+
+    def test_max_predicate_above(self) -> None:
+        from gpo_lens.danger import _predicate_matches
+        rule = _rule("max", "5")
+        assert _predicate_matches(rule, "10") is False
+
+    def test_max_predicate_non_numeric(self) -> None:
+        from gpo_lens.danger import _predicate_matches
+        rule = _rule("max", "5")
+        assert _predicate_matches(rule, "abc") is False
+
+    def test_unknown_predicate_returns_false(self) -> None:
+        from gpo_lens.danger import _predicate_matches
+        rule = _rule("bogus", "x")
+        assert _predicate_matches(rule, "x") is False
+
+
+class TestAbsentPredicate:
+    """The ``absent`` predicate fires a finding when *no* GPO in the estate
+    carries a setting matching the rule's identity."""
+
+    def test_absent_fires_when_setting_missing(self) -> None:
+        estate = Estate(gpos=[_make_gpo()])  # no settings
+        rule = _rule("absent", "", identity=r"HKLM\Software\Missing:Key")
+        findings = evaluate_danger_rules(estate, [rule])
+        assert len(findings) == 1
+        f = findings[0]
+        assert f.check_id == "test_rule"
+        assert f.gpo_id == ""  # estate-wide, not per-GPO
+        assert "not found estate-wide" in f.detail
+
+    def test_absent_no_finding_when_setting_present(self) -> None:
+        gpo = _make_gpo()
+        gpo.settings.append(
+            _reg_setting(gpo.id, r"HKLM\Software\Present:Key", "1")
+        )
+        estate = Estate(gpos=[gpo])
+        rule = _rule("absent", "", identity=r"HKLM\Software\Present:Key")
+        findings = evaluate_danger_rules(estate, [rule])
+        assert findings == []
+
+    def test_absent_mixed_with_present_rule(self) -> None:
+        """An absent rule and a present (equals) rule in the same batch."""
+        gpo = _make_gpo()
+        gpo.settings.append(
+            _reg_setting(gpo.id, r"HKLM\Software\Present:Key", "1")
+        )
+        estate = Estate(gpos=[gpo])
+        rules = [
+            _rule("absent", "", identity=r"HKLM\Software\Missing:Key"),
+            _rule("equals", "1", identity=r"HKLM\Software\Present:Key"),
+        ]
+        findings = evaluate_danger_rules(estate, rules)
+        ids = {f.check_id for f in findings}
+        assert ids == {"test_rule"}
+        # One absent finding + one present finding
+        assert len(findings) == 2
+
+
+# ---------------------------------------------------------------------------
+# Malformed compliance entry handling (_parse_compliance warning path)
+# ---------------------------------------------------------------------------
+
+
+class TestParseComplianceMalformed:
+    def test_non_table_entry_warns_and_skipped(self) -> None:
+        import warnings
+
+        from gpo_lens.danger import _parse_compliance
+
+        raw = [
+            {"framework": "CIS", "control_id": "1.1"},
+            "not-a-table",  # should warn + skip
+            123,            # should warn + skip
+            {"framework": "STIG", "control_id": "SV-1"},
+        ]
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            result = _parse_compliance(raw, Path("test.toml"))
+        assert len(result) == 2
+        assert result[0].framework == "CIS"
+        assert result[1].framework == "STIG"
+        assert len(caught) == 2  # two warnings for the two bad entries
+
+    def test_non_list_returns_empty(self) -> None:
+        from gpo_lens.danger import _parse_compliance
+
+        assert _parse_compliance("not-a-list", Path("test.toml")) == ()
+        assert _parse_compliance(None, Path("test.toml")) == ()
+
+    def test_empty_framework_or_control_id_warns_and_skipped(self) -> None:
+        import warnings
+
+        from gpo_lens.danger import _parse_compliance
+
+        raw = [
+            {"framework": "", "control_id": "1.1"},       # empty framework
+            {"framework": "CIS", "control_id": ""},        # empty control_id
+            {"framework": "CIS"},                           # missing control_id
+            {"control_id": "SV-1"},                         # missing framework
+            {"framework": 123, "control_id": "SV-1"},       # non-string framework
+        ]
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            result = _parse_compliance(raw, Path("test.toml"))
+        assert result == ()  # all entries skipped
+        assert len(caught) == 5
+
+
+# ---------------------------------------------------------------------------
+# ADMX display-name identity resolution through evaluate_danger_rules
+# ---------------------------------------------------------------------------
+
+
+class TestAdmxIdentityResolution:
+    """When a rule's ``identity`` is a policy display name (not a raw registry
+    path), the evaluator resolves the setting's registry identity via the ADMX
+    crosswalk.  This exercises the second branch of ``_identity_matches``."""
+
+    def test_admx_resolves_policy_name_to_identity(self) -> None:
+        gpo = _make_gpo()
+        gpo.settings.append(
+            _reg_setting(gpo.id, r"HKLM\Software\Real:Key", "1")
+        )
+        estate = Estate(gpos=[gpo])
+
+        # Rule targets a policy display name, not the raw registry path.
+        rule = _rule("equals", "1", identity="Disable WDigest")
+
+        # Duck-typed AdmxResolver: maps the registry path to the policy name.
+        class FakeAdmx:
+            def resolve_display_name(self, identity: str) -> str | None:
+                if identity == r"HKLM\Software\Real:Key":
+                    return "Disable WDigest"
+                return None
+
+        findings = evaluate_danger_rules(estate, [rule], admx=FakeAdmx())  # type: ignore[arg-type]
+        assert len(findings) == 1
+        assert findings[0].detail.startswith(r"HKLM\Software\Real:Key")
+
+    def test_admx_returns_none_no_match(self) -> None:
+        """When the ADMX resolver returns None, no match via display name."""
+        gpo = _make_gpo()
+        gpo.settings.append(
+            _reg_setting(gpo.id, r"HKLM\Software\Other:Key", "1")
+        )
+        estate = Estate(gpos=[gpo])
+        rule = _rule("equals", "1", identity="Nonexistent Policy")
+
+        class FakeAdmx:
+            def resolve_display_name(self, identity: str) -> str | None:
+                return None
+
+        findings = evaluate_danger_rules(estate, [rule], admx=FakeAdmx())  # type: ignore[arg-type]
+        assert findings == []

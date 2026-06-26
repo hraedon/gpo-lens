@@ -48,13 +48,16 @@ kept as the historical record of what was sequenced.
 - Create the GitHub repo (private until WI-0.4 decides visibility) and a CI
   workflow: ruff, mypy --strict, pytest. Pin action SHAs (cert-watch
   `ci.yml` is the template).
-- **Blocker to solve:** sample-dependent calibration tests skip when `samples/`
+- ~~**Blocker to solve:** sample-dependent calibration tests skip when `samples/`
   is absent, so naive CI would pass while testing a fraction of the suite.
   Build a **synthetic fixture estate** (3–5 fake GPOs: one cpassword, one
   MS16-072 case, one version-skew, one broken UNC, an OU tree with one
   block-inheritance and one enforced link) committed under `tests/fixtures/`,
   and port the structural assertions to it. Real-sample calibration tests stay
-  as a local-only marker.
+  as a local-only marker.~~ **(Resolved: two synthetic fixture estates landed —
+  `tests/fixtures/` (14 GPOs, `fakefixture.local`) and `tests/golden_estate/`
+  (6 GPOs, `GOLDEN.local`) — driving CI coverage to ~92% without samples. The
+  coverage gate was raised from 20% to 85% to reflect this.)**
 - **AC:** CI green on push; CI test count within ~10% of local; no real-export
   data in the fixture.
 
