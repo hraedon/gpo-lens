@@ -160,6 +160,40 @@ _QUERIES: dict[str, QuerySpec] = {
             "computer_dn": str,
         },
     ),
+    "golden_diff": QuerySpec(
+        name="golden_diff",
+        func=lambda **kw: queries.golden_diff(
+            kw["estate"],
+            kw["golden_estate"],
+            admx=kw.get("admx"),
+        ),
+        description=(
+            "Golden-backup comparison — drift between live estate and a known-good "
+            'GPO backup (requires param: "golden_estate")'
+        ),
+        required_params=["golden_estate"],
+        optional_params=["admx"],
+        param_validators={"golden_estate": object, "admx": object},
+    ),
+    "admx_coverage": QuerySpec(
+        name="admx_coverage",
+        func=lambda **kw: queries.admx_coverage(
+            kw["estate"], admx=kw.get("admx"),
+        ),
+        description=(
+            "ADMX coverage view — estate-wide template inventory and gap detection"
+        ),
+        optional_params=["admx"],
+        param_validators={"admx": object},
+    ),
+    "delegation_rollup": QuerySpec(
+        name="delegation_rollup",
+        func=lambda **kw: queries.delegation_rollup(kw["estate"]),
+        description=(
+            "Estate-wide delegation rollup — trustee → editable-GPO matrix "
+            "with unknown-SID detection"
+        ),
+    ),
 }
 
 

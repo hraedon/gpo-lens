@@ -248,6 +248,92 @@ class TestCallLlm:
                 assert req.get_header("Authorization") is None
 
 
+class TestCallLlmDefaultModel:
+    """WI-073: per-provider default model when GPO_LENS_LLM_MODEL is unset."""
+
+    def _captured_model(self, mock_urlopen: object) -> str:
+        req = mock_urlopen.call_args[0][0]  # type: ignore[attr-defined]
+        body = json.loads(req.data.decode("utf-8"))
+        return str(body["model"])
+
+    def test_openai_endpoint_defaults_to_gpt_4o(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "GPO_LENS_API_KEY": "k",
+                "GPO_LENS_LLM_ENDPOINT": "https://api.openai.com/v1/chat/completions",
+            },
+            clear=True,
+        ):
+            with patch("gpo_lens.narration.urllib.request.urlopen") as mock_urlopen:
+                mock_resp = mock_urlopen.return_value.__enter__.return_value
+                mock_resp.read.return_value = _openai_response()
+                call_llm("sys", "user")
+                assert self._captured_model(mock_urlopen) == "gpt-4o"
+
+    def test_anthropic_endpoint_defaults_to_claude(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "GPO_LENS_API_KEY": "k",
+                "GPO_LENS_LLM_ENDPOINT": "https://api.anthropic.com/v1/messages",
+            },
+            clear=True,
+        ):
+            with patch("gpo_lens.narration.urllib.request.urlopen") as mock_urlopen:
+                mock_resp = mock_urlopen.return_value.__enter__.return_value
+                mock_resp.read.return_value = _anthropic_response()
+                call_llm("sys", "user")
+                assert self._captured_model(mock_urlopen) == "claude-sonnet-4-20250514"
+
+    def test_explicit_model_overrides_provider_default(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "GPO_LENS_API_KEY": "k",
+                "GPO_LENS_LLM_ENDPOINT": "https://api.openai.com/v1/chat/completions",
+            },
+            clear=True,
+        ):
+            with patch("gpo_lens.narration.urllib.request.urlopen") as mock_urlopen:
+                mock_resp = mock_urlopen.return_value.__enter__.return_value
+                mock_resp.read.return_value = _openai_response()
+                call_llm("sys", "user", model="gpt-4o-mini")
+                assert self._captured_model(mock_urlopen) == "gpt-4o-mini"
+
+    def test_env_model_overrides_provider_default(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "GPO_LENS_API_KEY": "k",
+                "GPO_LENS_LLM_ENDPOINT": "https://api.openai.com/v1/chat/completions",
+                "GPO_LENS_LLM_MODEL": "custom-model",
+            },
+            clear=True,
+        ):
+            with patch("gpo_lens.narration.urllib.request.urlopen") as mock_urlopen:
+                mock_resp = mock_urlopen.return_value.__enter__.return_value
+                mock_resp.read.return_value = _openai_response()
+                call_llm("sys", "user")
+                assert self._captured_model(mock_urlopen) == "custom-model"
+
+    def test_explicit_openai_provider_on_anthropic_host_uses_gpt_4o(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "GPO_LENS_API_KEY": "k",
+                "GPO_LENS_LLM_ENDPOINT": "https://api.anthropic.com/v1/messages",
+                "GPO_LENS_LLM_PROVIDER": "openai",
+            },
+            clear=True,
+        ):
+            with patch("gpo_lens.narration.urllib.request.urlopen") as mock_urlopen:
+                mock_resp = mock_urlopen.return_value.__enter__.return_value
+                mock_resp.read.return_value = _openai_response()
+                call_llm("sys", "user")
+                assert self._captured_model(mock_urlopen) == "gpt-4o"
+
+
 class TestCallLlmRequestBodyShape:
     """WI-071: the request body must follow the selected provider's shape."""
 

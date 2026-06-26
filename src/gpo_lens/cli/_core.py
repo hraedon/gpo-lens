@@ -11,6 +11,7 @@ from gpo_lens.cli._diff import (
     cmd_changelog,
     cmd_diff,
     cmd_diff_settings,
+    cmd_golden_diff,
     cmd_snapshots,
 )
 from gpo_lens.cli._estate import cmd_ingest, cmd_summary
@@ -35,6 +36,7 @@ from gpo_lens.cli._report import cmd_report
 from gpo_lens.cli._resultant import cmd_resultant
 from gpo_lens.cli._serve import cmd_serve
 from gpo_lens.cli._settings import (
+    cmd_admx_coverage,
     cmd_admx_gaps,
     cmd_conflicts,
     cmd_precedence_conflicts,
@@ -146,6 +148,10 @@ def main(argv: list[str] | None = None) -> int:
     p.set_defaults(func=cmd_perms)
 
     p = sub.add_parser("delegation", help="Delegation deep-dive audit")
+    p.add_argument(
+        "--rollup", action="store_true",
+        help="Show estate-wide trustee → GPO matrix (breadth-sorted)",
+    )
     _add_src(p)
     p.set_defaults(func=cmd_delegation)
 
@@ -259,6 +265,14 @@ def main(argv: list[str] | None = None) -> int:
     p.set_defaults(func=cmd_admx_gaps)
 
     p = sub.add_parser(
+        "admx-coverage",
+        help="Estate-wide ADMX template inventory and gap detection",
+    )
+    p.add_argument("--admx-dir", help="PolicyDefinitions directory for crosswalk")
+    _add_src(p)
+    p.set_defaults(func=cmd_admx_coverage)
+
+    p = sub.add_parser(
         "settings-at",
         help="Show effective settings at a SOM path",
     )
@@ -337,6 +351,18 @@ def main(argv: list[str] | None = None) -> int:
         "--admx-dir", help="PolicyDefinitions directory for registry-to-policy crosswalk",
     )
     p.set_defaults(func=cmd_baseline_diff)
+
+    # golden-diff
+    p = sub.add_parser(
+        "golden-diff",
+        help="Diff live estate against a known-good GPO backup (drift detection)",
+    )
+    _add_src(p)
+    p.add_argument("golden_dir", help="Golden backup GPO directory or .zip file")
+    p.add_argument(
+        "--admx-dir", help="PolicyDefinitions directory for registry-to-policy crosswalk",
+    )
+    p.set_defaults(func=cmd_golden_diff)
 
     # doctor
     p = sub.add_parser(

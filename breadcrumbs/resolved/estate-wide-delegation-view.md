@@ -1,8 +1,9 @@
 ---
-status: active
+status: resolved
 priority: medium
 kind: feature
 created: 2026-06-23
+resolved: 2026-06-26
 ---
 
 # Estate-wide delegation / "who can edit GPOs" view
@@ -31,3 +32,10 @@ Filed 2026-06-23 from the post-Conflicts assessment as item #3 of the
 estate-wide-views direction. Pairs conceptually with
 [[estate-wide-settings-search]] — both invert per-GPO data into an estate-wide
 lens.
+
+## Resolution
+Implemented in v0.8.0. `delegation_rollup()` in `queries/_delegation.py`
+inverts per-GPO delegation into a per-trustee view with unknown-SID detection,
+default-writer flagging, and breadth sorting. CLI `delegation --rollup` flag
+and `/delegation` web route with template. Deny entries and Read/Apply-only
+permissions excluded.

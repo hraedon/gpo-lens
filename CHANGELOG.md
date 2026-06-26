@@ -1,5 +1,79 @@
 # Changelog
 
+## v0.8.0 — 2026-06-26
+
+### Golden-backup comparison (WI-061)
+
+- New `golden-diff` CLI command compares the live estate against the org's own
+  known-good GPO backup (a .zip or directory). GPOs are matched by name;
+  settings within matched GPOs are compared by (side, cse, identity).
+- Reports: `compliant`, `changed` (value drift), `added` (new since backup),
+  `removed` (deleted since backup), `gpo_added`, `gpo_removed`.
+- `golden_diff()` and `golden_diff_summary()` in `queries/_golden.py`,
+  registered in `query_dispatch.py`, exported from `queries/__init__.py`.
+- Blocked extensions are skipped. Original casing is preserved in output.
+  Duplicate GPO names trigger a warning.
+
+### ADMX Central Store auto-detection (Plan 010 WI-B.2)
+
+- `find_admx_dir()` in `admx_parser.py` auto-detects the
+  `PolicyDefinitions` (Central Store) directory in the export — checks
+  `SYSVOL-Policies/PolicyDefinitions/` then `PolicyDefinitions/` directly.
+- New `_get_admx(args)` helper in `cli/_helpers.py` consolidates the 5
+  duplicated `--admx-dir` handling blocks across CLI commands into one
+  function with priority: explicit `--admx-dir` → auto-detect from `src` →
+  `None`.
+- Updated `admx-gaps`, `baseline-diff`, `danger`, `report`, and
+  `explain-setting` CLI commands and the web app to use auto-detection.
+  This resolves the dominant noise source in baseline diff (1,605
+  "missing" rows that were just unresolved registry paths).
+
+### ADMX coverage view (WI-062)
+
+- New `admx-coverage` CLI command shows estate-wide ADMX template inventory:
+  which policies are referenced by GPOs, which are defined but unused, and
+  which estate settings have no ADMX match (gaps).
+- `admx_coverage()` in `queries/_admx_coverage.py` returns an
+  `AdmxCoverageReport` with `summary`, `referenced`, `unreferenced`, and
+  `gaps` sections. Gap scanning runs even when no ADMX policies are loaded.
+- Registered in `query_dispatch.py`, exported from `queries/__init__.py`.
+
+### Delegation estate-wide rollup (breadcrumb: estate-wide-delegation-view)
+
+- New `delegation --rollup` CLI flag and `/delegation` web route provide a
+  per-trustee → editable-GPO matrix, sorted by breadth (most GPOs first).
+- `delegation_rollup()` in `queries/_delegation.py` inverts per-GPO
+  delegation entries into a per-trustee view with:
+  - Unknown-SID detection (not well-known, not in collected principals)
+  - Default-writer vs non-default-writer flagging
+  - Resolved name from `authz.resolve_principal`
+- Deny entries and Read/Apply-only permissions are excluded.
+- `DelegationRollupEntry` dataclass with trustee, SID, resolved name,
+  flags, GPO names, and permissions.
+
+### Design docs
+
+- `docs/design/per-user-rsop.md` — design for principal-group effective
+  policy: resolve security-filter SIDs against collected AD group membership
+  to compute "what does this user actually get" for the common case, with
+  a caveat banner for unsimulated mechanisms (loopback, WMI, ILT, sites).
+  Acknowledges existing `merge.principal_resultant` (Plan 021).
+- `docs/design/multi-domain-forest.md` — swimlane model for multi-domain
+  AD: per-domain `Estate` objects with a thin coordination layer that
+  detects cross-domain GPO links. Cheaper than a true multi-forest refactor.
+
+### Tests
+
+- 29 new tests in `tests/test_v080_features.py` covering golden_diff,
+  admx_coverage, delegation_rollup, and find_admx_dir edge cases.
+- 3 new routing corpus entries for `golden_diff`, `admx_coverage`,
+  `delegation_rollup`.
+- Adversarial review (glm) found 5 high-severity and 7 medium-severity
+  issues; all were fixed before release (delegation route crash on empty
+  DB, report auto-detection gating, fuzzy key matching false positives,
+  golden_diff summary undercount, duplicate GPO name handling, original
+  casing preservation, Protocol conformance, docstring accuracy).
+
 ## Unreleased
 
 ### Fix: CI coverage gate raised from 20% to 85% — synthetic estate already built (WI-074)

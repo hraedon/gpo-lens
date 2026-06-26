@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 from gpo_lens import snapshot_diff, store
-from gpo_lens.cli._helpers import _get_estate
+from gpo_lens.cli._helpers import _get_admx, _get_estate
 
 
 def cmd_report(args: argparse.Namespace) -> int:
@@ -53,17 +53,7 @@ def cmd_report(args: argparse.Namespace) -> int:
             for entry in data
         ]
 
-        admx = None
-        if admx_dir:
-            if not Path(admx_dir).is_dir():
-                print(
-                    f"Warning: --admx-dir not found or not a directory: {admx_dir}",
-                    file=sys.stderr,
-                )
-            else:
-                from gpo_lens.admx_parser import parse_admx_dir
-                admx = parse_admx_dir(admx_dir)
-
+        admx = _get_admx(args)
         baseline = baseline_diff(estate, baseline_settings, admx)
     if args.since is not None:
         db = Path(args.db)

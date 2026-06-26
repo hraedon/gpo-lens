@@ -325,6 +325,14 @@ def create_app(
         from gpo_lens.admx_parser import parse_admx_dir
 
         app.state.admx = parse_admx_dir(admx_path)
+    else:
+        from gpo_lens.admx_parser import find_admx_dir, parse_admx_dir
+
+        auto = find_admx_dir(Path.cwd())
+        if auto is None and db_path != ":memory:":
+            auto = find_admx_dir(Path(db_path).resolve().parent)
+        if auto is not None:
+            app.state.admx = parse_admx_dir(auto)
 
     # Ensure the DB file exists on first run to prevent OperationalError
     db_file = Path(db_path)
@@ -502,6 +510,7 @@ def create_app(
         changelog,
         conflicts,
         dashboard,
+        delegation,
         export,
         gpo,
         ingest,
@@ -521,6 +530,7 @@ def create_app(
     export.register(app, templates)
     resultant.register(app, templates)
     trends.register(app, templates)
+    delegation.register(app, templates)
     api.register(app, templates)
 
     return app

@@ -45,6 +45,12 @@ from gpo_lens.detection import (  # noqa: F401, I001
     unlinked_gpos,
     version_skew,
 )
+from gpo_lens.queries._admx_coverage import (  # noqa: F401
+    AdmxCoverageEntry,
+    AdmxCoverageReport,
+    AdmxCoverageSummary,
+    admx_coverage,
+)
 from gpo_lens.queries._baseline import (  # noqa: F401
     BaselineDiffEntry,
     BaselineSetting,
@@ -53,10 +59,18 @@ from gpo_lens.queries._baseline import (  # noqa: F401
 )
 from gpo_lens.queries._delegation import (  # noqa: F401
     DelegationAudit,
+    DelegationRollupEntry,
     delegation_deep_dive,
+    delegation_rollup,
     permissions_audit,
 )
 from gpo_lens.queries._doctor import DoctorFinding, estate_doctor  # noqa: F401
+from gpo_lens.queries._golden import (  # noqa: F401
+    GoldenDiffEntry,
+    GoldenDiffSummary,
+    golden_diff,
+    golden_diff_summary,
+)
 from gpo_lens.queries._search import (  # noqa: F401
     Conflict,
     SearchResult,
@@ -116,6 +130,9 @@ from gpo_lens.topology import (  # noqa: F401
 )
 
 __all__ = [
+    "AdmxCoverageEntry",
+    "AdmxCoverageReport",
+    "AdmxCoverageSummary",
     "AdmxGap",
     "BaselineDiffEntry",
     "BaselineSetting",
@@ -125,6 +142,7 @@ __all__ = [
     "ChangelogEntry",
     "Conflict",
     "DelegationAudit",
+    "DelegationRollupEntry",
     "DenyAce",
     "DangerFinding",
     "DoctorFinding",
@@ -135,6 +153,8 @@ __all__ = [
     "ExcessiveWriter",
     "GpoMetadataChange",
     "GateSummary",
+    "GoldenDiffEntry",
+    "GoldenDiffSummary",
     "SearchResult",
     "SecurityFiltering",
     "SettingsDiffRow",
@@ -149,6 +169,7 @@ __all__ = [
     "TopologyDiscrepancy",
     "VersionChangeLog",
     "WmiFilterScope",
+    "admx_coverage",
     "admx_gaps",
     "baseline_diff",
     "blocked_extensions",
@@ -159,12 +180,15 @@ __all__ = [
     "danger_findings",
     "dangling_links",
     "delegation_deep_dive",
+    "delegation_rollup",
     "deny_aces",
     "disabled_but_populated",
     "effective_scope",
     "empty_gpos",
     "enforced_links",
     "gate_summaries",
+    "golden_diff",
+    "golden_diff_summary",
     "has_site_links",
     "estate_doctor",
     "estate_summary",

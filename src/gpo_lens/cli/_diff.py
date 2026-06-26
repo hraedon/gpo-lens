@@ -4,10 +4,9 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import sqlite3
-import sys
 
 from gpo_lens import ingest, queries, snapshot_diff, store
-from gpo_lens.cli._helpers import _get_estate, _print_table, _render_json
+from gpo_lens.cli._helpers import _get_admx, _get_estate, _print_table, _render_json
 
 
 def cmd_diff(args: argparse.Namespace) -> None:
@@ -153,7 +152,6 @@ def cmd_snapshots(args: argparse.Namespace) -> None:
 def cmd_baseline_diff(args: argparse.Namespace) -> None:
     from pathlib import Path as _Path
 
-    from gpo_lens.admx_parser import parse_admx_dir
     from gpo_lens.ingest import load_baseline_from_zip
 
     estate = _get_estate(args)
@@ -166,16 +164,7 @@ def cmd_baseline_diff(args: argparse.Namespace) -> None:
         baseline_estate = ingest.load_estate(baseline_src)
     baseline = queries.load_baseline_from_estate(baseline_estate)
 
-    admx = None
-    admx_dir = getattr(args, "admx_dir", None)
-    if admx_dir:
-        if not _Path(admx_dir).is_dir():
-            print(
-                f"Warning: --admx-dir not found or not a directory: {admx_dir}",
-                file=sys.stderr,
-            )
-        else:
-            admx = parse_admx_dir(admx_dir)
+    admx = _get_admx(args)
 
     results = queries.baseline_diff(estate, baseline, admx)
     if args.json:
@@ -215,3 +204,64 @@ def cmd_baseline_diff(args: argparse.Namespace) -> None:
                         print(f"  [{r.cse}] {r.side}/{label}")
                         print(f"    actual: {r.actual_value}  (GPO: {r.gpo_id})")
                 print()
+
+
+def cmd_golden_diff(args: argparse.Namespace) -> None:
+    from pathlib import Path as _Path
+
+    from gpo_lens.ingest import load_baseline_from_zip
+    from gpo_lens.model import Estate as _Estate
+
+    live_estate = _get_estate(args)
+    golden_src = _Path(args.golden_dir)
+    if golden_src.suffix.lower() == ".zip":
+        golden_gpos = load_baseline_from_zip(golden_src)
+        golden_estate = _Estate(gpos=golden_gpos)
+    else:
+        golden_estate = ingest.load_estate(golden_src)
+
+    admx = _get_admx(args)
+    results = queries.golden_diff(live_estate, golden_estate, admx)
+    live_names = {g.name.lower() for g in live_estate.gpos}
+    golden_names = {g.name.lower() for g in golden_estate.gpos}
+    summary = queries.golden_diff_summary(
+        results, matched_gpo_count=len(live_names & golden_names),
+    )
+
+    if args.json:
+        _render_json({
+            "summary": dataclasses.asdict(summary),
+            "entries": [dataclasses.asdict(r) for r in results],
+        })
+    else:
+        print("Golden-Backup Diff")
+        print("=" * 60)
+        print(f"  GPOs matched: {summary.gpos_matched}  |  "
+              f"Added: {summary.gpos_added}  |  Removed: {summary.gpos_removed}")
+        print(f"  Settings — Compliant: {summary.settings_compliant}  |  "
+              f"Changed: {summary.settings_changed}  |  "
+              f"Added: {summary.settings_added}  |  Removed: {summary.settings_removed}")
+        print()
+
+        non_compliant = [r for r in results if r.status != "compliant"]
+        if not non_compliant:
+            print("No drift detected — estate matches golden backup.")
+            return
+
+        for r in non_compliant:
+            label = r.admx_name or r.display_name or r.identity
+            if r.status == "gpo_removed":
+                print(f"  [GPO REMOVED] {r.gpo_name}")
+            elif r.status == "gpo_added":
+                print(f"  [GPO ADDED] {r.gpo_name}")
+            elif r.status == "changed":
+                print(f"  [{r.cse}] {r.side}/{label}  (GPO: {r.gpo_name})")
+                print(f"    golden: {r.golden_value}")
+                print(f"    live:   {r.live_value}")
+            elif r.status == "removed":
+                print(f"  [{r.cse}] {r.side}/{label}  (GPO: {r.gpo_name})")
+                print(f"    golden: {r.golden_value}  (removed from live)")
+            elif r.status == "added":
+                print(f"  [{r.cse}] {r.side}/{label}  (GPO: {r.gpo_name})")
+                print(f"    live: {r.live_value}  (new since golden)")
+        print()

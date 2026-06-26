@@ -6,10 +6,9 @@ import dataclasses
 import json
 import os
 import sys
-from pathlib import Path
 
 from gpo_lens import queries
-from gpo_lens.cli._helpers import _get_estate, _render_json
+from gpo_lens.cli._helpers import _get_admx, _get_estate, _render_json
 from gpo_lens.detection import mask_cpassword
 from gpo_lens.display import serialize_result
 from gpo_lens.query_dispatch import (
@@ -112,13 +111,10 @@ def cmd_explain_setting(args: argparse.Namespace) -> int:
     API key is configured, fall back to an LLM narration clearly marked as
     unverified.  Without an API key, degrade to a factual "not available" note.
     """
-    from gpo_lens.admx_parser import parse_admx_dir
-
     identity: str = args.identity
-    admx_dir = getattr(args, "admx_dir", None)
+    admx = _get_admx(args)
 
-    if admx_dir and Path(admx_dir).is_dir():
-        admx = parse_admx_dir(admx_dir)
+    if admx is not None:
         parts = identity.split(":", 1)
         key = parts[0] if parts else identity
         value = parts[1] if len(parts) > 1 else ""
@@ -131,11 +127,6 @@ def cmd_explain_setting(args: argparse.Namespace) -> int:
             else:
                 print("\nNo ADMX explain text is available for this setting.")
             return 0
-    elif admx_dir:
-        print(
-            f"Warning: --admx-dir not found or not a directory: {admx_dir}",
-            file=sys.stderr,
-        )
 
     if not os.environ.get("GPO_LENS_API_KEY"):
         print(
