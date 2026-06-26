@@ -2,6 +2,37 @@
 
 ## Unreleased
 
+### Fix: CI coverage gate false-confidence hazard (WI-070)
+
+- The 85% coverage threshold in `pyproject.toml` `addopts` was unrealistic
+  for CI: `samples/` is gitignored, so sample-dependent calibration tests
+  (which push coverage to ~90%) are skipped on a fresh checkout, yielding
+  only ~20.7%. This meant CI could pass locally but fail on a fresh
+  checkout, or vice versa — a false-confidence hazard.
+- `--cov-fail-under` is now removed from `addopts` (local dev no longer
+  fails on coverage — it still reports). The CI workflow enforces a
+  realistic 20% floor that catches catastrophic regressions (e.g., tests
+  don't run at all) without false-failing on normal code. Building a
+  synthetic fixture estate to run calibration tests deterministically
+  everywhere is tracked as a future improvement.
+
+### Behavior change: load_danger_rules now raises RuntimeError on shipped-rules failure (WI-069)
+
+- `load_danger_rules()` in `src/gpo_lens/danger.py` previously returned an
+  empty list (`[]`) silently when the shipped `danger_rules.toml` failed to
+  load or contained no rules. This meant every curated danger check was
+  effectively disabled without any signal — a security tool that swallows
+  its own rule-set failure would report a clean estate while having no rules
+  to evaluate.
+- It now raises `RuntimeError` with a descriptive message when the shipped
+  rules file is missing, corrupt, or empty. This is a fail-fast policy: a
+  packaging bug, accidental deletion, or file corruption must be loud, not
+  silent.
+- **User-supplied rules via `GPO_LENS_DANGER_RULES_DIR` are unaffected.**
+  Malformed TOML in a drop-in directory produces a `warnings.warn` and is
+  skipped; the load does not abort. Only the shipped `danger_rules.toml`
+  (part of the package) is subject to the fail-fast contract.
+
 ### Fix: `narration.call_llm` no longer leaks Anthropic headers to non-Anthropic endpoints (WI-064)
 
 - `call_llm` previously sent `x-api-key` and `anthropic-version` headers

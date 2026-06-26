@@ -1332,8 +1332,8 @@ def _scan_sysvol_gaps(gpos: list[Gpo]) -> list[CoverageGap]:
     unreadable dirs (correct for resilience), which means a corrupt or
     invisible ``ScheduledTasks.xml`` is silently invisible — a coverage-honesty
     hazard for a security tool. This walker replaces the former two-pass design
-    (``_scan_sysvol_coverage`` + ``_scan_corrupt_gpp_xml``), which walked the
-    same Preferences tree twice per ingest; both now delegate here.
+    that walked the same Preferences tree twice per ingest; callers now filter
+    by ``kind`` directly.
     """
     gaps: list[CoverageGap] = []
     for gpo in gpos:
@@ -1415,39 +1415,6 @@ def _scan_sysvol_gaps(gpos: list[Gpo]) -> list[CoverageGap]:
                 ),
             ))
     return gaps
-
-
-def _scan_sysvol_coverage(gpos: list[Gpo]) -> list[CoverageGap]:
-    """Detect GPOs whose SYSVOL Preferences directories are unreadable.
-
-    Thin filter over :func:`_scan_sysvol_gaps` (the merged single-walk scanner)
-    so existing callers and tests see the same ``unreadable_sysvol`` records.
-    A Windows-produced zip extracted on Linux often drops the traversal (``x``)
-    bit on subdirectories; the parser skips these silently (correct — it must
-    not crash), but the charter demands coverage honesty: if GPP content is
-    invisible, surface it as a coverage_gap so the user knows the estate view
-    is partial and can fix permissions (``chmod -R +rX SYSVOL-Policies``).
-    """
-    return [
-        g for g in _scan_sysvol_gaps(gpos) if g.kind == "unreadable_sysvol"
-    ]
-
-
-def _scan_corrupt_gpp_xml(gpos: list[Gpo]) -> list[CoverageGap]:
-    """Detect GPOs whose SYSVOL Preferences XML files fail to parse.
-
-    Thin filter over :func:`_scan_sysvol_gaps` (the merged single-walk scanner)
-    so existing callers and tests see the same ``corrupt_gpp_xml`` records.
-    Flags *readable-but-corrupt* XML (truncated download, mid-copy snapshot, or
-    a tampered export): the GPP scanners in ``detection.py`` catch
-    ``ET.ParseError`` and continue, which is correct for resilience but means a
-    corrupt ``ScheduledTasks.xml`` is silently invisible — a coverage-honesty
-    hazard. Surfacing every unparseable file tells the user the cPassword /
-    scheduled-task / local-group views for that GPO are partial.
-    """
-    return [
-        g for g in _scan_sysvol_gaps(gpos) if g.kind == "corrupt_gpp_xml"
-    ]
 
 
 def _scan_missing_sysvol(

@@ -968,6 +968,28 @@ class TestSafeExtract:
             f"post-extract failure should clean up, but found: {remaining}"
         )
 
+    def test_cleanup_when_dest_does_not_exist(self, tmp_path: Path) -> None:
+        """Cleanup must gracefully handle a missing *dest* directory.
+
+        If extraction fails before any file is written (e.g., zip-slip
+        blocked during pre-extract checks), ``dest`` may not exist. The
+        cleanup path must not raise because the directory is absent.
+        """
+        from gpo_lens.web.app import _safe_extract
+
+        dest = tmp_path / "does_not_exist"
+        zip_path = tmp_path / "evil.zip"
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("/etc/passwd", "root:x:0:0:root:/root:/bin/bash")
+        zip_path.write_bytes(buf.getvalue())
+
+        with pytest.raises(ValueError, match="zip-slip blocked"):
+            _safe_extract(zip_path, dest)
+
+        assert not dest.exists()
+
 
 class TestSanitizeQuestion:
     def test_newlines_stripped(self) -> None:
