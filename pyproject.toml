@@ -36,9 +36,10 @@ packages = ["src/gpo_lens"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# --cov-fail-under is intentionally absent: samples/ is gitignored, so
-# sample-dependent calibration tests that push coverage to ~90% are skipped
-# on a fresh checkout (~20%). CI enforces a realistic floor via --cov-fail-under=20.
+# --cov-fail-under is intentionally absent from local dev: the floor is
+# enforced in CI (.github/workflows/ci.yml, currently 85%). The synthetic
+# fixture estates (tests/fixtures/ + tests/golden_estate/) drive coverage to
+# ~92% without the gitignored samples/ exports, so 85% is a realistic gate.
 addopts = "-q --cov=src --cov-report=term-missing"
 filterwarnings = [
     "ignore:.*plaintext.*:UserWarning",
