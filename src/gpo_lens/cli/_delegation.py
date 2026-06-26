@@ -26,6 +26,44 @@ def cmd_perms(args: argparse.Namespace) -> None:
 
 def cmd_delegation(args: argparse.Namespace) -> None:
     estate = _get_estate(args)
+
+    if getattr(args, "rollup", False):
+        rollup = queries.delegation_rollup(estate)
+        if args.json:
+            _render_json([
+                {
+                    "trustee": e.trustee,
+                    "trustee_sid": e.trustee_sid,
+                    "resolved_name": e.resolved_name,
+                    "is_resolved": e.is_resolved,
+                    "is_unknown_sid": e.is_unknown_sid,
+                    "is_default_writer": e.is_default_writer,
+                    "gpo_count": e.gpo_count,
+                    "gpo_names": list(e.gpo_names),
+                    "permissions": list(e.permissions),
+                }
+                for e in rollup
+            ])
+        else:
+            if not rollup:
+                print("No non-Read delegation entries found.")
+                return
+            print("Delegation Rollup (Trustee → Editable GPOs)")
+            print("=" * 60)
+            for e in rollup:
+                unknown = " [UNKNOWN SID]" if e.is_unknown_sid else ""
+                default = " [default writer]" if e.is_default_writer else ""
+                print(f"\n  {e.resolved_name}{unknown}{default}")
+                print(f"    SID: {e.trustee_sid or 'N/A'}")
+                print(f"    GPOs ({e.gpo_count}): {', '.join(e.gpo_names[:10])}")
+                if len(e.gpo_names) > 10:
+                    print(f"    ... and {len(e.gpo_names) - 10} more")
+                print(f"    Permissions: {', '.join(e.permissions)}")
+            unknown_count = sum(1 for e in rollup if e.is_unknown_sid)
+            if unknown_count:
+                print(f"\n  {unknown_count} unknown SID(s) detected.")
+        return
+
     audit = queries.delegation_deep_dive(estate)
     if args.json:
         _render_json({

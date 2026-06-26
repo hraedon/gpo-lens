@@ -116,6 +116,32 @@ def _parse_adml_strings(adml_path: Path) -> dict[str, str]:
     return strings
 
 
+def find_admx_dir(export_dir: str | Path) -> Path | None:
+    """Auto-detect a PolicyDefinitions (Central Store) directory in an export.
+
+    The collector copies ``\\\\domain\\SYSVOL\\domain\\Policies`` to
+    ``SYSVOL-Policies/`` in the export. The Central Store — if present — lives
+    at     ``SYSVOL-Policies/PolicyDefinitions/``. This function searches the
+    export directory for that path and returns it, or ``None`` if not
+    found. Matching is case-sensitive (matches the collector's output casing).
+
+    Also checks ``PolicyDefinitions/`` directly under the export root (for
+    standalone ADMX directories that aren't inside a SYSVOL copy).
+    """
+    base = Path(export_dir)
+    candidates = [
+        base / "SYSVOL-Policies" / "PolicyDefinitions",
+        base / "PolicyDefinitions",
+    ]
+    for c in candidates:
+        try:
+            if c.is_dir():
+                return c
+        except OSError:
+            continue
+    return None
+
+
 def parse_admx_dir(policy_defs_dir: str | Path) -> PolicyDefinitions:
     """Parse all ``.admx`` and ``.adml`` files in a PolicyDefinitions directory.
 

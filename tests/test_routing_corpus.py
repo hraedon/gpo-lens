@@ -210,6 +210,21 @@ _CORPUS: list[tuple[str, str, dict[str, object] | None]] = [
         "principal_resultant",
         {"principal_sid": "S-1-5-21-123-456-789-1001"},
     ),
+    (
+        "How does my estate compare to the golden backup?",
+        "golden_diff",
+        None,
+    ),
+    (
+        "Which ADMX policies are actually used by my GPOs?",
+        "admx_coverage",
+        None,
+    ),
+    (
+        "Who can edit GPOs in this domain?",
+        "delegation_rollup",
+        None,
+    ),
 ]
 
 _UNROUTABLE: list[tuple[str, str]] = [

@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+
+{% block title %}gpo-lens — Delegation{% endblock %}
+
+{% block content %}
+<div class="gp-page-head">
+  <div>
+    <div class="gp-eyebrow">Who can edit policy</div>
+    <h1>Delegation Rollup</h1>
+    <div class="sub">
+      {{ total_trustees }} trustees with non-Read rights across the estate.
+      {% if unknown_count %}{{ unknown_count }} unknown SID(s).{% endif %}
+      {% if non_default_count %}{{ non_default_count }} non-default writer(s).{% endif %}
+    </div>
+  </div>
+</div>
+
+{% if rollup %}
+<table class="gp-table">
+  <thead>
+    <tr>
+      <th>Trustee</th>
+      <th>SID</th>
+      <th>GPOs</th>
+      <th>Permissions</th>
+      <th>Flags</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for e in rollup %}
+    <tr>
+      <td>{{ e.resolved_name }}</td>
+      <td><code>{{ e.trustee_sid or 'N/A' }}</code></td>
+      <td>
+        <strong>{{ e.gpo_count }}</strong>
+        <div class="hint">{{ e.gpo_names[:10] | join(', ') }}{% if e.gpo_names | length > 10 %}, …{% endif %}</div>
+      </td>
+      <td>{{ e.permissions | join(', ') }}</td>
+      <td>
+        {% if e.is_unknown_sid %}<span class="gp-tag warn">unknown SID</span>{% endif %}
+        {% if not e.is_default_writer and not e.is_unknown_sid %}<span class="gp-tag crit">non-default writer</span>{% endif %}
+        {% if e.is_default_writer %}<span class="gp-tag info">default</span>{% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p>No non-Read delegation entries found in the estate.</p>
+{% endif %}
+{% endblock %}

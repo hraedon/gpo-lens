@@ -34,6 +34,12 @@ def _llm_provider_for_url(url: str) -> str:
     return "openai"
 
 
+_DEFAULT_MODELS: dict[str, str] = {
+    "anthropic": "claude-sonnet-4-20250514",
+    "openai": "gpt-4o",
+}
+
+
 def _llm_auth_headers(provider: str, key: str) -> dict[str, str]:
     headers = {"Content-Type": "application/json"}
     if provider == "anthropic":
@@ -136,6 +142,8 @@ def call_llm(
         "auto" chooses Anthropic headers for Anthropic hosts and Bearer
         headers for everything else.  The request body and response parsing
         follow the selected provider (Anthropic or OpenAI Chat Completions).
+      - Default model: per-provider (claude-sonnet-4-20250514 for Anthropic,
+        gpt-4o for OpenAI) when GPO_LENS_LLM_MODEL is unset.
     """
     key = api_key or os.environ.get("GPO_LENS_API_KEY")
     if not key:
@@ -162,7 +170,7 @@ def call_llm(
         provider = _llm_provider_for_url(url)
     model_name = model or os.environ.get(
         "GPO_LENS_LLM_MODEL",
-        "claude-sonnet-4-20250514",
+        _DEFAULT_MODELS.get(provider, "gpt-4o"),
     )
     payload = json.dumps(
         _build_request_body(provider, model_name, system_prompt, user_prompt, max_tokens)

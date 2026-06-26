@@ -4,10 +4,9 @@ from __future__ import annotations
 import argparse
 import sys
 from collections.abc import Sequence
-from pathlib import Path
 
 from gpo_lens import queries
-from gpo_lens.cli._helpers import _get_estate, _print_table, _render_json
+from gpo_lens.cli._helpers import _get_admx, _get_estate, _print_table, _render_json
 from gpo_lens.display import render_settings_diff
 
 
@@ -319,17 +318,7 @@ def cmd_settings_diff(args: argparse.Namespace) -> None:
 
 def cmd_admx_gaps(args: argparse.Namespace) -> None:
     estate = _get_estate(args)
-    admx = None
-    admx_dir = getattr(args, "admx_dir", None)
-    if admx_dir:
-        if not Path(admx_dir).is_dir():
-            print(
-                f"Warning: --admx-dir not found or not a directory: {admx_dir}",
-                file=sys.stderr,
-            )
-        else:
-            from gpo_lens.admx_parser import parse_admx_dir
-            admx = parse_admx_dir(admx_dir)
+    admx = _get_admx(args)
     result = queries.admx_gaps(estate, admx)
     if args.json:
         _render_json(
@@ -354,5 +343,47 @@ def cmd_admx_gaps(args: argparse.Namespace) -> None:
                 [
                     [r.gpo_id, r.gpo_name, r.side, r.key_path, r.value_name]
                     for r in result
+                ],
+            )
+
+
+def cmd_admx_coverage(args: argparse.Namespace) -> None:
+    estate = _get_estate(args)
+    admx = _get_admx(args)
+    report = queries.admx_coverage(estate, admx)
+    if args.json:
+        import dataclasses
+        _render_json({
+            "summary": dataclasses.asdict(report.summary),
+            "referenced": [dataclasses.asdict(e) for e in report.referenced],
+            "unreferenced": [dataclasses.asdict(e) for e in report.unreferenced],
+            "gaps": [dataclasses.asdict(e) for e in report.gaps],
+        })
+    else:
+        s = report.summary
+        print("ADMX Coverage")
+        print("=" * 60)
+        print(f"  Total policies: {s.total_policies}")
+        print(f"  Referenced:     {s.referenced_policies}")
+        print(f"  Unreferenced:   {s.unreferenced_policies}")
+        print(f"  Gap settings:   {s.gap_count}")
+        print()
+        if report.gaps:
+            print("--- Gap Settings (no ADMX match) ---")
+            _print_table(
+                ["GPO", "Side", "Key Path", "Value Name"],
+                [
+                    [e.referenced_gpos, e.class_scope, e.registry_key, e.value_name]
+                    for e in report.gaps
+                ],
+            )
+            print()
+        if report.referenced:
+            print("--- Referenced Policies ---")
+            _print_table(
+                ["Policy Name", "Display Name", "GPOs"],
+                [
+                    [e.policy_name, e.display_name, e.referenced_gpos]
+                    for e in report.referenced
                 ],
             )
