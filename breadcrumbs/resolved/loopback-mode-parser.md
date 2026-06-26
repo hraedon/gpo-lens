@@ -4,6 +4,7 @@ priority: medium
 kind: defect
 created: 2026-06-17
 resolved: 2026-06-18
+wi: WI-028
 ---
 
 # WI-028: Loopback mode parser classifies every real-world setting as 'unknown'

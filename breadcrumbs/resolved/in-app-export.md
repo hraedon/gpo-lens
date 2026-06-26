@@ -4,6 +4,7 @@ priority: medium
 kind: feature
 created: 2026-06-17
 resolved: 2026-06-17
+wi: WI-027
 ---
 
 # In-app export of findings and data

@@ -1,97 +1,197 @@
-"""Centralized query dispatch for CLI and web ask commands."""
+"""Centralized query dispatch for CLI and web ask commands.
+
+Single source of truth: the ``_QUERIES`` registry maps each query name to a
+:class:`QuerySpec` that colocates the callable, description, and parameter
+metadata. The legacy derived names (``_QUERY_DISPATCH``,
+``_QUERY_DESCRIPTIONS``, ``QUERY_REQUIRED_PARAMS``, ``QUERY_OPTIONAL_PARAMS``,
+``_PARAM_VALIDATORS``) are produced from this registry so adding a query only
+requires one edit. See ``docs/spec/wi_query_dispatch.md`` for the contract.
+"""
 
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from typing import Any
 
 from gpo_lens import merge as _merge
 from gpo_lens import queries
 
-_QUERY_DISPATCH: dict[str, Callable[..., Any]] = {
-    "estate_summary": lambda **kw: queries.estate_summary(kw["estate"]),
-    "estate_doctor": lambda **kw: queries.estate_doctor(kw["estate"]),
-    "cpassword_scan": lambda **kw: queries.cpassword_scan(kw["estate"]),
-    "unlinked_gpos": lambda **kw: queries.unlinked_gpos(kw["estate"]),
-    "empty_gpos": lambda **kw: queries.empty_gpos(kw["estate"]),
-    "version_skew": lambda **kw: queries.version_skew(kw["estate"]),
-    "broken_refs": lambda **kw: queries.broken_refs(kw["estate"]),
-    "enforced_links": lambda **kw: queries.enforced_links(kw["estate"]),
-    "dangling_links": lambda **kw: queries.dangling_links(kw["estate"]),
-    "ms16_072_vulnerable": lambda **kw: queries.ms16_072_vulnerable(kw["estate"]),
-    "topology_crosscheck": lambda **kw: queries.topology_crosscheck(kw["estate"]),
-    "disabled_but_populated": lambda **kw: queries.disabled_but_populated(kw["estate"]),
-    "settings_at_som": lambda **kw: queries.settings_at_som(kw["estate"], kw["ou_path"]),
-    "effective_scope": lambda **kw: queries.effective_scope(kw["estate"], kw["gpo_id"]),
-    "orphaned_wmi_filters": lambda **kw: queries.orphaned_wmi_filters(kw["estate"]),
-    "broken_wmi_refs": lambda **kw: queries.broken_wmi_refs(kw["estate"]),
-    "stale_gpos": lambda **kw: queries.stale_gpos(kw["estate"]),
-    "danger_findings": lambda **kw: queries.danger_findings(kw["estate"]),
-    "principal_resultant": lambda **kw: _merge.principal_resultant(
-        kw["estate"],
-        kw["principal_sid"],
-        computer_sid=kw.get("computer_sid") or None,
-        dn=kw.get("dn") or None,
-        computer_dn=kw.get("computer_dn") or None,
+
+@dataclass(frozen=True)
+class QuerySpec:
+    """Per-query metadata colocated with its callable (WI-063).
+
+    ``required_params``/``optional_params``/``param_validators`` list non-``estate``
+    parameters only; ``estate`` is always implicitly accepted by every query.
+    """
+
+    name: str
+    func: Callable[..., Any]
+    description: str
+    required_params: list[str] = field(default_factory=list)
+    optional_params: list[str] = field(default_factory=list)
+    param_validators: dict[str, type] = field(default_factory=dict)
+
+
+_QUERIES: dict[str, QuerySpec] = {
+    "estate_summary": QuerySpec(
+        name="estate_summary",
+        func=lambda **kw: queries.estate_summary(kw["estate"]),
+        description="Overview of the estate (GPO count, domain, SOM count, etc.)",
     ),
+    "estate_doctor": QuerySpec(
+        name="estate_doctor",
+        func=lambda **kw: queries.estate_doctor(kw["estate"]),
+        description=(
+            "Health and hygiene findings across GPOs "
+            "(cpassword, version skew, broken refs, etc.)"
+        ),
+    ),
+    "cpassword_scan": QuerySpec(
+        name="cpassword_scan",
+        func=lambda **kw: queries.cpassword_scan(kw["estate"]),
+        description="GPOs containing encrypted cpassword values",
+    ),
+    "unlinked_gpos": QuerySpec(
+        name="unlinked_gpos",
+        func=lambda **kw: queries.unlinked_gpos(kw["estate"]),
+        description="GPOs that are not linked to any SOM",
+    ),
+    "empty_gpos": QuerySpec(
+        name="empty_gpos",
+        func=lambda **kw: queries.empty_gpos(kw["estate"]),
+        description="GPOs that contain no settings",
+    ),
+    "version_skew": QuerySpec(
+        name="version_skew",
+        func=lambda **kw: queries.version_skew(kw["estate"]),
+        description="GPOs where Active Directory and SYSVOL versions differ",
+    ),
+    "broken_refs": QuerySpec(
+        name="broken_refs",
+        func=lambda **kw: queries.broken_refs(kw["estate"]),
+        description="GPOs with broken references (UNC paths, missing scripts, etc.)",
+    ),
+    "enforced_links": QuerySpec(
+        name="enforced_links",
+        func=lambda **kw: queries.enforced_links(kw["estate"]),
+        description="GPO links that are enforced (NoOverride)",
+    ),
+    "dangling_links": QuerySpec(
+        name="dangling_links",
+        func=lambda **kw: queries.dangling_links(kw["estate"]),
+        description="Links that point to GPOs which no longer exist",
+    ),
+    "ms16_072_vulnerable": QuerySpec(
+        name="ms16_072_vulnerable",
+        func=lambda **kw: queries.ms16_072_vulnerable(kw["estate"]),
+        description="GPOs vulnerable to MS16-072 (missing Authenticated Users Read)",
+    ),
+    "topology_crosscheck": QuerySpec(
+        name="topology_crosscheck",
+        func=lambda **kw: queries.topology_crosscheck(kw["estate"]),
+        description="Discrepancies between OU tree and SOM inheritance data",
+    ),
+    "disabled_but_populated": QuerySpec(
+        name="disabled_but_populated",
+        func=lambda **kw: queries.disabled_but_populated(kw["estate"]),
+        description="GPO sides that are disabled but still contain settings",
+    ),
+    "settings_at_som": QuerySpec(
+        name="settings_at_som",
+        func=lambda **kw: queries.settings_at_som(kw["estate"], kw["ou_path"]),
+        description="Effective settings applied to a specific SOM (Scope of Management) path",
+        required_params=["ou_path"],
+        param_validators={"ou_path": str},
+    ),
+    "effective_scope": QuerySpec(
+        name="effective_scope",
+        func=lambda **kw: queries.effective_scope(kw["estate"], kw["gpo_id"]),
+        description=(
+            "Effective scoping for a single GPO: links, security filtering, "
+            "WMI filter, loopback (requires param: \"gpo_id\")"
+        ),
+        required_params=["gpo_id"],
+        param_validators={"gpo_id": str},
+    ),
+    "orphaned_wmi_filters": QuerySpec(
+        name="orphaned_wmi_filters",
+        func=lambda **kw: queries.orphaned_wmi_filters(kw["estate"]),
+        description="WMI filters defined but not referenced by any GPO",
+    ),
+    "broken_wmi_refs": QuerySpec(
+        name="broken_wmi_refs",
+        func=lambda **kw: queries.broken_wmi_refs(kw["estate"]),
+        description="GPOs referencing a WMI filter that does not exist in the estate",
+    ),
+    "stale_gpos": QuerySpec(
+        name="stale_gpos",
+        func=lambda **kw: queries.stale_gpos(kw["estate"]),
+        description="GPOs that are linked but have not been modified in over 2 years",
+    ),
+    "danger_findings": QuerySpec(
+        name="danger_findings",
+        func=lambda **kw: queries.danger_findings(kw["estate"]),
+        description=(
+            "Curated, cited dangerous-configuration findings "
+            "(GPO hijack paths, local-admin push, over-broad scope, dangerous values)"
+        ),
+    ),
+    "principal_resultant": QuerySpec(
+        name="principal_resultant",
+        func=lambda **kw: _merge.principal_resultant(
+            kw["estate"],
+            kw["principal_sid"],
+            computer_sid=kw.get("computer_sid") or None,
+            dn=kw.get("dn") or None,
+            computer_dn=kw.get("computer_dn") or None,
+        ),
+        description=(
+            "Principal resultant (RSoP) — effective policy for a given principal SID "
+            "from the static snapshot (requires param: \"principal_sid\")"
+        ),
+        required_params=["principal_sid"],
+        optional_params=["computer_sid", "dn", "computer_dn"],
+        param_validators={
+            "principal_sid": str,
+            "computer_sid": str,
+            "dn": str,
+            "computer_dn": str,
+        },
+    ),
+}
+
+
+# --- Derived views (kept for backward compatibility with the existing API) ---
+# These are computed from the single ``_QUERIES`` registry so they cannot
+# drift out of sync (WI-063). Only entries with non-empty payloads are
+# included, matching the pre-refactor shapes consumed by callers/tests.
+
+_QUERY_DISPATCH: dict[str, Callable[..., Any]] = {
+    name: spec.func for name, spec in _QUERIES.items()
 }
 
 _QUERY_DESCRIPTIONS: dict[str, str] = {
-    "estate_summary": "Overview of the estate (GPO count, domain, SOM count, etc.)",
-    "estate_doctor": (
-        "Health and hygiene findings across GPOs "
-        "(cpassword, version skew, broken refs, etc.)"
-    ),
-    "cpassword_scan": "GPOs containing encrypted cpassword values",
-    "unlinked_gpos": "GPOs that are not linked to any SOM",
-    "empty_gpos": "GPOs that contain no settings",
-    "version_skew": "GPOs where Active Directory and SYSVOL versions differ",
-    "broken_refs": "GPOs with broken references (UNC paths, missing scripts, etc.)",
-    "enforced_links": "GPO links that are enforced (NoOverride)",
-    "dangling_links": "Links that point to GPOs which no longer exist",
-    "ms16_072_vulnerable": "GPOs vulnerable to MS16-072 (missing Authenticated Users Read)",
-    "topology_crosscheck": "Discrepancies between OU tree and SOM inheritance data",
-    "disabled_but_populated": "GPO sides that are disabled but still contain settings",
-    "settings_at_som": "Effective settings applied to a specific SOM (Scope of Management) path",
-    "effective_scope": (
-        "Effective scoping for a single GPO: links, security filtering, "
-        "WMI filter, loopback (requires param: \"gpo_id\")"
-    ),
-    "orphaned_wmi_filters": "WMI filters defined but not referenced by any GPO",
-    "broken_wmi_refs": "GPOs referencing a WMI filter that does not exist in the estate",
-    "stale_gpos": "GPOs that are linked but have not been modified in over 2 years",
-    "danger_findings": (
-        "Curated, cited dangerous-configuration findings "
-        "(GPO hijack paths, local-admin push, over-broad scope, dangerous values)"
-    ),
-    "principal_resultant": (
-        "Principal resultant (RSoP) — effective policy for a given principal SID "
-        "from the static snapshot (requires param: \"principal_sid\")"
-    ),
+    name: spec.description for name, spec in _QUERIES.items()
 }
 
 QUERY_REQUIRED_PARAMS: dict[str, list[str]] = {
-    "settings_at_som": ["ou_path"],
-    "effective_scope": ["gpo_id"],
-    "principal_resultant": ["principal_sid"],
+    name: list(spec.required_params)
+    for name, spec in _QUERIES.items()
+    if spec.required_params
 }
 
-# Optional params that a query accepts but does not require.  ``validate_params``
-# passes these through (when present) so callers like the REST API can forward
-# them without needing to know each query's signature individually.
 QUERY_OPTIONAL_PARAMS: dict[str, list[str]] = {
-    "principal_resultant": ["computer_sid", "dn", "computer_dn"],
+    name: list(spec.optional_params)
+    for name, spec in _QUERIES.items()
+    if spec.optional_params
 }
 
 _PARAM_VALIDATORS: dict[str, dict[str, type]] = {
-    "settings_at_som": {"ou_path": str},
-    "effective_scope": {"gpo_id": str},
-    "principal_resultant": {
-        "principal_sid": str,
-        "computer_sid": str,
-        "dn": str,
-        "computer_dn": str,
-    },
+    name: dict(spec.param_validators)
+    for name, spec in _QUERIES.items()
+    if spec.param_validators
 }
 
 

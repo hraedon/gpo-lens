@@ -4,6 +4,7 @@ priority: medium
 kind: design
 created: 2026-06-20
 resolved: 2026-06-20
+wi: WI-034
 ---
 
 # No coverage measurement in CI — coverage regressions are invisible

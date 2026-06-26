@@ -4,6 +4,7 @@ priority: low
 kind: design
 created: 2026-06-20
 resolved: 2026-06-22
+wi: WI-035
 ---
 
 # Post-Tier-1 modules lack formal spec documents (wi_*.md)
