@@ -44,6 +44,78 @@ def _llm_auth_headers(provider: str, key: str) -> dict[str, str]:
     return headers
 
 
+def _build_request_body(
+    provider: str,
+    model: str,
+    system_prompt: str,
+    user_prompt: str,
+    max_tokens: int,
+) -> dict[str, object]:
+    """Build the provider-shaped request body.
+
+    Anthropic uses a top-level ``system`` field and a ``messages`` array whose
+    ``content`` values are plain strings (Anthropic accepts string content for
+    a single user turn). OpenAI's Chat Completions API puts the system prompt
+    as the first message with ``role: "system"`` and uses plain-string
+    ``content`` values; there is no top-level ``system`` field.
+    """
+    if provider == "anthropic":
+        return {
+            "model": model,
+            "max_tokens": max_tokens,
+            "system": system_prompt,
+            "messages": [{"role": "user", "content": user_prompt}],
+        }
+    return {
+        "model": model,
+        "max_tokens": max_tokens,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+    }
+
+
+def _parse_response(provider: str, body: dict[str, object]) -> str:
+    """Extract the assistant text from a provider-shaped response body."""
+    if provider == "anthropic":
+        content = body.get("content")
+        if not isinstance(content, list) or not content:
+            raise NarrationUnavailable(
+                "Unexpected response: missing or empty content"
+            )
+        first = content[0]
+        if not isinstance(first, dict) or "text" not in first:
+            raise NarrationUnavailable(
+                "Unexpected response: first content block has no text"
+            )
+        text = first["text"]
+        if not isinstance(text, str):
+            raise NarrationUnavailable(
+                "Unexpected response: content text is not a string"
+            )
+        return text
+    choices = body.get("choices")
+    if not isinstance(choices, list) or not choices:
+        raise NarrationUnavailable(
+            "Unexpected response: missing or empty choices"
+        )
+    first_choice = choices[0]
+    if not isinstance(first_choice, dict):
+        raise NarrationUnavailable("Unexpected response: first choice is not an object")
+    message = first_choice.get("message")
+    if not isinstance(message, dict) or "content" not in message:
+        raise NarrationUnavailable(
+            "Unexpected response: choice has no message.content"
+        )
+    msg_content = message["content"]
+    if not isinstance(msg_content, str):
+        raise NarrationUnavailable(
+            "Unexpected response: message.content is not a string"
+        )
+    return msg_content
+
+
 def call_llm(
     system_prompt: str,
     user_prompt: str,
@@ -62,8 +134,8 @@ def call_llm(
       - GPO_LENS_LLM_MODEL: model name.
       - GPO_LENS_LLM_PROVIDER: "anthropic", "openai", or "auto" (default).
         "auto" chooses Anthropic headers for Anthropic hosts and Bearer
-        headers for everything else.  The request body is currently
-        Anthropic-shaped regardless of provider.
+        headers for everything else.  The request body and response parsing
+        follow the selected provider (Anthropic or OpenAI Chat Completions).
     """
     key = api_key or os.environ.get("GPO_LENS_API_KEY")
     if not key:
@@ -92,12 +164,9 @@ def call_llm(
         "GPO_LENS_LLM_MODEL",
         "claude-sonnet-4-20250514",
     )
-    payload = json.dumps({
-        "model": model_name,
-        "max_tokens": max_tokens,
-        "system": system_prompt,
-        "messages": [{"role": "user", "content": user_prompt}],
-    }).encode("utf-8")
+    payload = json.dumps(
+        _build_request_body(provider, model_name, system_prompt, user_prompt, max_tokens)
+    ).encode("utf-8")
     headers = _llm_auth_headers(provider, key)
     req = urllib.request.Request(
         url,
@@ -116,14 +185,7 @@ def call_llm(
         raise NarrationUnavailable(f"LLM transport error: {exc.reason}") from exc
     except json.JSONDecodeError as exc:
         raise NarrationUnavailable(f"Malformed response: {exc}") from exc
-    content = body.get("content")
-    if not isinstance(content, list) or not content:
-        raise NarrationUnavailable("Unexpected response: missing or empty content")
-    first = content[0]
-    if not isinstance(first, dict) or "text" not in first:
-        raise NarrationUnavailable("Unexpected response: first content block has no text")
-    text: str = first["text"]
-    return text
+    return _parse_response(provider, body)
 
 
 _ROUTING_HEADER = """You are a routing assistant for a Group Policy analysis tool.

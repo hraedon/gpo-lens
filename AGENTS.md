@@ -111,6 +111,43 @@ is UTF-16 encoded — `parse_report_xml` detects the encoding.
 Baseline settings are compared by `(cse, identity)` — the ADMX crosswalk
 in `admx_parser.py` resolves registry paths back to policy names for display.
 
-## Active breadcrumbs
+## Breadcrumbs and work items (triage policy)
 
-Check `breadcrumbs/active/` for active work items. Resolved items move to `breadcrumbs/resolved/`.
+There are two tracking surfaces and they mean different things. Knowing which
+to use prevents the drift that motivated WI-067 (markdown breadcrumbs with no
+link to their DB work item, leaving the relationship ambiguous).
+
+- **DB work items (`WI-NNN`)** — the canonical tracker. Filed and queried via
+  `agent-notes work-item` (see the `file-breadcrumb` / `find-breadcrumb`
+  skills). This is what `/start` and `/end` reconcile against. Every actionable
+  piece of work gets a `WI-NNN`.
+
+- **Markdown breadcrumbs (`breadcrumbs/active/*.md` → `breadcrumbs/resolved/`)** —
+  the long-form writeup of a problem: what you observed, where, why it matters,
+  and a first idea for the fix. They are the human-readable record; the DB WI is
+  the status record. Most WIs have a markdown breadcrumb; some breadcrumbs
+  predate the WI system and have no WI (legacy).
+
+**Linking them:** a markdown breadcrumb that corresponds to a DB work item
+carries a `wi:` field in its frontmatter, e.g. `wi: WI-063`. When you file a
+new breadcrumb via the `file-breadcrumb` skill, record the returned `WI-NNN`
+back into the markdown frontmatter so future readers can cross-reference in
+both directions. A breadcrumb with no corresponding WI omits the field.
+
+**Frontmatter schema** (fields in `status`/`priority`/`kind`/`created`, plus
+`resolved` once moved to `breadcrumbs/resolved/`, plus the optional `wi:`):
+
+```yaml
+---
+status: active          # or: resolved
+priority: low           # low | medium | high | critical
+kind: defect            # defect | design | feature | enhancement | ...
+created: 2026-06-23
+wi: WI-063              # optional — link to the DB work item
+---
+```
+
+Check `breadcrumbs/active/` for open problems. Resolved items move to
+`breadcrumbs/resolved/`. When moving a breadcrumb to resolved, also transition
+the linked `WI-NNN` to closed (via `agent-notes work-item`) — don't leave one
+surface green while the other stays open.

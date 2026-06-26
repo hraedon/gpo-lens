@@ -4,6 +4,7 @@ priority: medium
 kind: feature
 created: 2026-06-17
 resolved: 2026-06-17
+wi: WI-026
 ---
 
 # Pagination for large estates

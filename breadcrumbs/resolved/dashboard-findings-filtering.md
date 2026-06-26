@@ -4,6 +4,7 @@ priority: high
 kind: feature
 created: 2026-06-17
 resolved: 2026-06-17
+wi: WI-025
 ---
 
 # Dashboard findings table: filtering, search, and sort

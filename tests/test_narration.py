@@ -55,6 +55,16 @@ _EXPLAIN_ADML = """\
 """
 
 
+def _anthropic_response(text: str = "hello") -> bytes:
+    return json.dumps({"content": [{"type": "text", "text": text}]}).encode("utf-8")
+
+
+def _openai_response(text: str = "hello") -> bytes:
+    return json.dumps(
+        {"choices": [{"message": {"role": "assistant", "content": text}}]}
+    ).encode("utf-8")
+
+
 def _write_explain_policy_defs(tmp_path: Path) -> Path:
     """Create a minimal PolicyDefinitions directory for explain-setting tests."""
     pd = tmp_path / "PolicyDefinitions"
@@ -126,9 +136,7 @@ class TestCallLlm:
         ):
             with patch("gpo_lens.narration.urllib.request.urlopen") as mock_urlopen:
                 mock_resp = mock_urlopen.return_value.__enter__.return_value
-                mock_resp.read.return_value = json.dumps({
-                    "content": [{"type": "text", "text": "hello"}],
-                }).encode("utf-8")
+                mock_resp.read.return_value = _openai_response()
                 call_llm("sys", "user")
                 req = mock_urlopen.call_args[0][0]
                 assert req.get_header("Authorization") == "Bearer test-key-123"
@@ -167,9 +175,7 @@ class TestCallLlm:
         ):
             with patch("gpo_lens.narration.urllib.request.urlopen") as mock_urlopen:
                 mock_resp = mock_urlopen.return_value.__enter__.return_value
-                mock_resp.read.return_value = json.dumps({
-                    "content": [{"type": "text", "text": "hello"}],
-                }).encode("utf-8")
+                mock_resp.read.return_value = _openai_response()
                 call_llm("sys", "user")
                 req = mock_urlopen.call_args[0][0]
                 assert req.get_header("Authorization") == "Bearer test-key-123"
@@ -214,9 +220,7 @@ class TestCallLlm:
         ):
             with patch("gpo_lens.narration.urllib.request.urlopen") as mock_urlopen:
                 mock_resp = mock_urlopen.return_value.__enter__.return_value
-                mock_resp.read.return_value = json.dumps({
-                    "content": [{"type": "text", "text": "hello"}],
-                }).encode("utf-8")
+                mock_resp.read.return_value = _openai_response()
                 call_llm("sys", "user")
                 req = mock_urlopen.call_args[0][0]
                 assert req.get_header("Authorization") == "Bearer test-key-123"
@@ -242,6 +246,202 @@ class TestCallLlm:
                 req = mock_urlopen.call_args[0][0]
                 assert req.get_header("X-api-key") == "k"
                 assert req.get_header("Authorization") is None
+
+
+class TestCallLlmRequestBodyShape:
+    """WI-071: the request body must follow the selected provider's shape."""
+
+    def _captured_body(self, mock_urlopen: object) -> dict[str, object]:
+        req = mock_urlopen.call_args[0][0]  # type: ignore[attr-defined]
+        return json.loads(req.data.decode("utf-8"))
+
+    def test_openai_body_has_system_message_and_string_content(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "GPO_LENS_API_KEY": "k",
+                "GPO_LENS_LLM_ENDPOINT": "https://api.openai.com/v1/chat/completions",
+            },
+            clear=True,
+        ):
+            with patch("gpo_lens.narration.urllib.request.urlopen") as mock_urlopen:
+                mock_resp = mock_urlopen.return_value.__enter__.return_value
+                mock_resp.read.return_value = _openai_response()
+                call_llm("SYS", "USER", model="gpt-4o", max_tokens=128)
+                body = self._captured_body(mock_urlopen)
+        assert "system" not in body
+        messages = body["messages"]
+        assert isinstance(messages, list)
+        assert messages[0] == {"role": "system", "content": "SYS"}
+        assert messages[1] == {"role": "user", "content": "USER"}
+        assert body["model"] == "gpt-4o"
+        assert body["max_tokens"] == 128
+
+    def test_anthropic_body_has_top_level_system_and_structured_content(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "GPO_LENS_API_KEY": "k",
+                "GPO_LENS_LLM_ENDPOINT": "https://api.anthropic.com/v1/messages",
+            },
+            clear=True,
+        ):
+            with patch("gpo_lens.narration.urllib.request.urlopen") as mock_urlopen:
+                mock_resp = mock_urlopen.return_value.__enter__.return_value
+                mock_resp.read.return_value = _anthropic_response()
+                call_llm("SYS", "USER")
+                body = self._captured_body(mock_urlopen)
+        assert body["system"] == "SYS"
+        messages = body["messages"]
+        assert messages == [{"role": "user", "content": "USER"}]
+
+    def test_explicit_openai_provider_sends_openai_body_to_anthropic_host(
+        self,
+    ) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "GPO_LENS_API_KEY": "k",
+                "GPO_LENS_LLM_ENDPOINT": "https://api.anthropic.com/v1/messages",
+                "GPO_LENS_LLM_PROVIDER": "openai",
+            },
+            clear=True,
+        ):
+            with patch("gpo_lens.narration.urllib.request.urlopen") as mock_urlopen:
+                mock_resp = mock_urlopen.return_value.__enter__.return_value
+                mock_resp.read.return_value = _openai_response()
+                call_llm("SYS", "USER")
+                body = self._captured_body(mock_urlopen)
+        assert "system" not in body
+        assert body["messages"][0]["role"] == "system"
+
+
+class TestCallLlmResponseParsing:
+    """WI-071: response parsing must follow the selected provider's shape."""
+
+    def test_openai_response_extracts_message_content(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "GPO_LENS_API_KEY": "k",
+                "GPO_LENS_LLM_ENDPOINT": "https://api.openai.com/v1/chat/completions",
+            },
+            clear=True,
+        ):
+            with patch("gpo_lens.narration.urllib.request.urlopen") as mock_urlopen:
+                mock_resp = mock_urlopen.return_value.__enter__.return_value
+                mock_resp.read.return_value = _openai_response("the answer")
+                result = call_llm("sys", "user")
+        assert result == "the answer"
+
+    def test_anthropic_response_extracts_content_block_text(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "GPO_LENS_API_KEY": "k",
+                "GPO_LENS_LLM_ENDPOINT": "https://api.anthropic.com/v1/messages",
+            },
+            clear=True,
+        ):
+            with patch("gpo_lens.narration.urllib.request.urlopen") as mock_urlopen:
+                mock_resp = mock_urlopen.return_value.__enter__.return_value
+                mock_resp.read.return_value = _anthropic_response("block text")
+                result = call_llm("sys", "user")
+        assert result == "block text"
+
+    def test_anthropic_response_missing_content_raises(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "GPO_LENS_API_KEY": "k",
+                "GPO_LENS_LLM_ENDPOINT": "https://api.anthropic.com/v1/messages",
+            },
+            clear=True,
+        ):
+            with patch("gpo_lens.narration.urllib.request.urlopen") as mock_urlopen:
+                mock_resp = mock_urlopen.return_value.__enter__.return_value
+                mock_resp.read.return_value = json.dumps({"error": "x"}).encode("utf-8")
+                with pytest.raises(NarrationUnavailable, match="missing or empty content"):
+                    call_llm("sys", "user")
+
+    def test_anthropic_response_empty_content_raises(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "GPO_LENS_API_KEY": "k",
+                "GPO_LENS_LLM_ENDPOINT": "https://api.anthropic.com/v1/messages",
+            },
+            clear=True,
+        ):
+            with patch("gpo_lens.narration.urllib.request.urlopen") as mock_urlopen:
+                mock_resp = mock_urlopen.return_value.__enter__.return_value
+                mock_resp.read.return_value = json.dumps({"content": []}).encode("utf-8")
+                with pytest.raises(NarrationUnavailable, match="missing or empty content"):
+                    call_llm("sys", "user")
+
+    def test_anthropic_response_non_string_text_raises(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "GPO_LENS_API_KEY": "k",
+                "GPO_LENS_LLM_ENDPOINT": "https://api.anthropic.com/v1/messages",
+            },
+            clear=True,
+        ):
+            with patch("gpo_lens.narration.urllib.request.urlopen") as mock_urlopen:
+                mock_resp = mock_urlopen.return_value.__enter__.return_value
+                mock_resp.read.return_value = json.dumps(
+                    {"content": [{"type": "text", "text": 123}]}
+                ).encode("utf-8")
+                with pytest.raises(NarrationUnavailable, match="not a string"):
+                    call_llm("sys", "user")
+
+    def test_openai_response_missing_choices_raises(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "GPO_LENS_API_KEY": "k",
+                "GPO_LENS_LLM_ENDPOINT": "https://api.openai.com/v1/chat/completions",
+            },
+            clear=True,
+        ):
+            with patch("gpo_lens.narration.urllib.request.urlopen") as mock_urlopen:
+                mock_resp = mock_urlopen.return_value.__enter__.return_value
+                mock_resp.read.return_value = json.dumps({"error": "x"}).encode("utf-8")
+                with pytest.raises(NarrationUnavailable, match="choices"):
+                    call_llm("sys", "user")
+
+    def test_openai_response_empty_choices_raises(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "GPO_LENS_API_KEY": "k",
+                "GPO_LENS_LLM_ENDPOINT": "https://api.openai.com/v1/chat/completions",
+            },
+            clear=True,
+        ):
+            with patch("gpo_lens.narration.urllib.request.urlopen") as mock_urlopen:
+                mock_resp = mock_urlopen.return_value.__enter__.return_value
+                mock_resp.read.return_value = json.dumps({"choices": []}).encode("utf-8")
+                with pytest.raises(NarrationUnavailable, match="choices"):
+                    call_llm("sys", "user")
+
+    def test_openai_response_non_string_content_raises(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "GPO_LENS_API_KEY": "k",
+                "GPO_LENS_LLM_ENDPOINT": "https://api.openai.com/v1/chat/completions",
+            },
+            clear=True,
+        ):
+            with patch("gpo_lens.narration.urllib.request.urlopen") as mock_urlopen:
+                mock_resp = mock_urlopen.return_value.__enter__.return_value
+                mock_resp.read.return_value = json.dumps(
+                    {"choices": [{"message": {"content": 123}}]}
+                ).encode("utf-8")
+                with pytest.raises(NarrationUnavailable, match="not a string"):
+                    call_llm("sys", "user")
 
 
 class TestExplainFindings:
@@ -336,6 +536,88 @@ class TestArchitecture:
             f"dispatch-only={set(_QUERY_DISPATCH) - set(_QUERY_DESCRIPTIONS)}, "
             f"descriptions-only={set(_QUERY_DESCRIPTIONS) - set(_QUERY_DISPATCH)}"
         )
+
+    def test_query_dispatch_derived_views_track_registry(self) -> None:
+        """WI-063: every derived view must be a faithful projection of _QUERIES.
+
+        Adding a QuerySpec to the registry is the only edit needed; the public
+        dicts cannot drift because they are derived. This guards that property
+        against a future hand-revert.
+        """
+        from gpo_lens.query_dispatch import (
+            _PARAM_VALIDATORS,
+            _QUERIES,
+            _QUERY_DESCRIPTIONS,
+            _QUERY_DISPATCH,
+            QUERY_OPTIONAL_PARAMS,
+            QUERY_REQUIRED_PARAMS,
+            VALID_QUERIES,
+        )
+
+        assert set(_QUERIES) == set(_QUERY_DISPATCH)
+        assert set(_QUERIES) == set(_QUERY_DESCRIPTIONS)
+        assert VALID_QUERIES == frozenset(_QUERIES)
+        for name, spec in _QUERIES.items():
+            assert spec.name == name, (
+                f"registry key {name!r} != QuerySpec.name {spec.name!r}"
+            )
+            assert _QUERY_DISPATCH[name] is spec.func
+            assert _QUERY_DESCRIPTIONS[name] == spec.description
+            assert QUERY_REQUIRED_PARAMS.get(name, []) == list(spec.required_params)
+            assert QUERY_OPTIONAL_PARAMS.get(name, []) == list(spec.optional_params)
+            assert _PARAM_VALIDATORS.get(name, {}) == dict(spec.param_validators)
+            # Filter behavior: empty payloads must NOT appear in the derived dicts.
+            assert (name in QUERY_REQUIRED_PARAMS) == bool(spec.required_params), (
+                f"{name}: required_params membership mismatch"
+            )
+            assert (name in QUERY_OPTIONAL_PARAMS) == bool(spec.optional_params), (
+                f"{name}: optional_params membership mismatch"
+            )
+            assert (name in _PARAM_VALIDATORS) == bool(spec.param_validators), (
+                f"{name}: param_validators membership mismatch"
+            )
+
+    def test_query_dispatch_registry_is_single_source(self) -> None:
+        """WI-063: mutating _QUERIES must immediately reflect in derived views.
+
+        A hand-maintained derived dict would fail this because the new entry
+        would only land if derived lazily from the registry.
+        """
+        import gpo_lens.query_dispatch as qd
+
+        sentinel = lambda **kw: None  # noqa: E731
+        spec = qd.QuerySpec(
+            name="__wi063_probe__",
+            func=sentinel,
+            description="probe",
+            required_params=["probe_param"],
+            optional_params=["probe_opt"],
+            param_validators={"probe_param": str, "probe_opt": int},
+        )
+        qd._QUERIES["__wi063_probe__"] = spec
+        try:
+            # Re-derive to confirm the comprehension pulls from the registry.
+            assert "__wi063_probe__" not in qd._QUERY_DISPATCH
+            assert "__wi063_probe__" not in qd.VALID_QUERIES
+            derived_dispatch = {n: s.func for n, s in qd._QUERIES.items()}
+            derived_required = {
+                n: list(s.required_params) for n, s in qd._QUERIES.items() if s.required_params
+            }
+            assert "__wi063_probe__" in derived_dispatch
+            assert "__wi063_probe__" in derived_required
+            assert derived_required["__wi063_probe__"] == ["probe_param"]
+        finally:
+            qd._QUERIES.pop("__wi063_probe__", None)
+
+    def test_query_spec_required_params_have_validators(self) -> None:
+        """WI-063: every required param must have a declared type validator."""
+        from gpo_lens.query_dispatch import _QUERIES
+
+        for name, spec in _QUERIES.items():
+            for param in spec.required_params:
+                assert param in spec.param_validators, (
+                    f"{name}: required param {param!r} has no type validator"
+                )
 
 
 class TestRoutingPromptGeneration:
