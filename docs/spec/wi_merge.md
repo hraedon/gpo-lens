@@ -190,11 +190,20 @@ category; a foreign SID is just one cause of an unresolved-group caveat.
 
 ## AC-11: `_evaluate_security_gate` returns (passes, reason)
 
-A GPO passes the gate if the principal's `token_sids` intersects the set
-of SIDs granted Apply (Read+Apply Group Policy = `GA`, `GR`, `CC`, `CR`,
-or `RP` rights) on its DACL. `_gpo_apply_trustee_sids` expands
-domain-relative trustee names (via `name_to_sid` + `domain_sid`) before
-the intersection.
+The gate uses **deny-first evaluation**: if the principal's `token_sids`
+intersects any deny-ACE trustee set, the GPO is blocked — even if the
+token also intersects an allow trustee. This catches cross-trustee deny
+(e.g. GPO allows Authenticated Users but denies a group the principal is
+a member of). `_gpo_apply_trustee_sids` returns `(allow_sids, deny_sids)`
+independently; the SDDL path populates `deny_sids` for deny-only ACEs
+(those with read/apply rights but no corresponding allow), not just
+same-trustee cancellations.
+
+If the token does not intersect the deny set, the gate then checks
+whether `token_sids` intersects `allow_sids` (SIDs granted Apply via
+`GA`, `GR`, `CC`, `CR`, or `RP` rights). `_gpo_apply_trustee_sids`
+expands domain-relative trustee names (via `name_to_sid` + `domain_sid`)
+before the intersection.
 
 If the GPO has delegation/SDDL data but no resolvable Apply trustees,
 the gate **fails** with reason `"security filter: no resolvable Apply
@@ -214,8 +223,9 @@ evidence-of-deny.
 3. Build the chain via `som_effective_gpos`. For a user+computer pair,
    the user chain comes from `dn` and contributes User-side settings;
    the computer chain comes from `computer_dn` and contributes
-   Computer-side settings. Loopback (user-side from the computer's OU)
-   is **deferred** and recorded as a caveat.
+   Computer-side settings. Best-effort loopback (WI-028) is applied
+   when a GPO in the computer chain configures loopback processing —
+   see AC-15 for replace/merge semantics.
 4. For each chain entry, evaluate `_evaluate_security_gate`. Gated
    GPOs go to `excluded` (with the gate reason). Surviving GPOs feed
    `merge_settings_with_exclusions`.
@@ -243,8 +253,10 @@ callers (CLI and web).
 The summary covers counts, in this stable order:
 
 1. Header label `"Resultant given collected inputs"`.
-2. Free-form `(label)` parenthetical when present — currently only set
-   for loopback-deferred runs.
+2. Free-form `(label)` parenthetical when present — set for
+   loopback-active runs (`loopback=replace`, `loopback=merge`,
+   `loopback=mixed; best-effort, no simulation`) and no-loopback runs
+   (`no loopback`).
 3. Total surviving settings count.
 4. Approximate settings count (when > 0).
 5. Conditional settings count (always 0 today — AC-19).
@@ -263,15 +275,39 @@ detail.
 ## AC-15: User+computer pair semantics (decision 5)
 
 When `computer_sid is not None` and the principal type is `User`:
-- Token is the union of user-token and computer-token.
+- Token is the union of user-token and computer-token (combined token).
 - User-side chain from `dn`; computer-side chain from `computer_dn`.
-- Loopback (user-side from computer OU) is deferred and recorded as a
-  caveat, not silently merged.
+- **Best-effort loopback** (WI-028): when a GPO in the computer chain
+  (with an enabled link) configures loopback processing mode:
+  - **Replace mode:** User-side settings come ONLY from the computer's
+    chain (the user's own chain is ignored for User-side settings).
+    Security filtering on loopback user-side GPOs uses the computer's
+    token only (`comp_token_sids`), not the combined token (MS16-072).
+    Computer-side settings still use the combined token.
+  - **Merge mode:** Both the user chain and computer chain contribute
+    User-side settings. Computer-chain entries are offset to higher
+    orders (strictly greater than any user-chain order) so the computer
+    chain wins conflicts. Security filtering on computer-chain user-side
+    GPOs uses the computer's token only.
+  - **Mixed / unknown mode:** Falls back to non-loopback behavior
+    (user chain for User-side, computer chain for Computer-side, both
+    evaluated against the combined token). The label notes
+    `loopback=mixed` or `loopback=unknown` with "best-effort, no
+    simulation".
+  - **No loopback:** Existing behavior — both chains evaluated against
+    the combined token.
 - WMI/ILT gated contributors on either chain go to the same
-  `excluded` / `excluded_settings` buckets.
+  `excluded` / `excluded_settings` buckets. In loopback mode, the
+  `excluded` list is deduplicated by `(gpo_id, kind)` because different
+  token sets may exclude the same GPO for different reasons.
+- A GPO that fails the security gate for one side (e.g. User-side under
+  comp token) but passes for another side (Computer-side under combined
+  token) may appear in both `excluded` and `settings`. This is a known
+  semantic shift from the non-loopback disjointness invariant.
+- WMI/ILT on computer-chain user-side GPOs are still not simulated.
 - If a GPO is linked at a shared ancestor (e.g. the domain root) it
   appears in *both* chains; deduplication of `excluded` entries by
-  `gpo_id` keeps the output free of duplicate gate reasons.
+  `(gpo_id, kind)` keeps the output free of duplicate gate reasons.
 
 When the principal is a `Computer` (single-side run):
 - The chain is taken from `dn`.
