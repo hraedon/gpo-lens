@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+
+{% block title %}gpo-lens — Golden Backup{% endblock %}
+
+{% block content %}
+<div class="gp-page-head">
+  <div>
+    <div class="gp-eyebrow">Drift against your known-good backup</div>
+    <h1>Golden Backup Diff</h1>
+    <div class="sub">Upload a golden GPO backup .zip to compare it against the loaded estate.</div>
+  </div>
+</div>
+
+{% if error %}
+<div class="gp-callout crit" style="margin-bottom:14px">
+  <span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6M9 9l6 6"/></svg></span>
+  <p>{{ error }}</p>
+</div>
+{% endif %}
+
+<form id="golden-form" action="{{ url_for('golden_diff_post') }}" method="post" enctype="multipart/form-data">
+  <div id="drop-zone" class="gp-drop">
+    <div class="ico"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg></div>
+    <div>Drop a golden backup .zip here, or <strong>browse</strong></div>
+    <div class="hint">Uploads up to 500&nbsp;MB</div>
+    <input type="file" name="file" accept=".zip" id="file-input" style="display:none">
+    <button type="button" id="browse-btn" class="gp-btn" style="margin-top:12px">Browse files</button>
+  </div>
+</form>
+<script src="{{ url_for('static', path='upload.js') }}"></script>
+
+{% if summary is not none %}
+<section class="gp-section">
+  <h2>Summary</h2>
+  <div class="gp-dash-cards" style="margin-bottom:18px">
+    <div class="gp-card">
+      <div class="hint">GPOs matched</div>
+      <div class="value">{{ summary.gpos_matched }}</div>
+    </div>
+    <div class="gp-card">
+      <div class="hint">GPOs added</div>
+      <div class="value">{{ summary.gpos_added }}</div>
+    </div>
+    <div class="gp-card">
+      <div class="hint">GPOs removed</div>
+      <div class="value">{{ summary.gpos_removed }}</div>
+    </div>
+    <div class="gp-card">
+      <div class="hint">Settings compliant</div>
+      <div class="value">{{ summary.settings_compliant }}</div>
+    </div>
+    <div class="gp-card">
+      <div class="hint">Settings changed</div>
+      <div class="value">{{ summary.settings_changed }}</div>
+    </div>
+    <div class="gp-card">
+      <div class="hint">Settings added</div>
+      <div class="value">{{ summary.settings_added }}</div>
+    </div>
+    <div class="gp-card">
+      <div class="hint">Settings removed</div>
+      <div class="value">{{ summary.settings_removed }}</div>
+    </div>
+  </div>
+
+  {% set non_compliant = diff_entries | selectattr('status', 'ne', 'compliant') | list %}
+  {% if non_compliant %}
+  <h2>Differences <span class="count">{{ non_compliant | length }}</span></h2>
+  {% for status, entries in non_compliant | groupby('status') %}
+  {% if status in ('gpo_removed', 'gpo_added') %}
+    {% set tone = 'crit' if status == 'gpo_removed' else 'accent' %}
+  {% elif status == 'changed' %}
+    {% set tone = 'crit' %}
+  {% elif status == 'removed' %}
+    {% set tone = 'warn' %}
+  {% elif status == 'added' %}
+    {% set tone = 'accent' %}
+  {% else %}
+    {% set tone = 'muted' %}
+  {% endif %}
+  <h3><span class="gp-chip {{ tone }}">{{ status | upper }}</span> <span class="count">{{ entries | length }}</span></h3>
+  <div class="gp-table-wrap">
+    <table class="gp-table">
+      <thead>
+        <tr>
+          {% if status in ('gpo_removed', 'gpo_added') %}
+          <th style="width:120px">Status</th>
+          <th>GPO name</th>
+          <th>GPO ID</th>
+          {% else %}
+          <th style="width:120px">Status</th>
+          <th>Side</th>
+          <th>CSE</th>
+          <th>Name</th>
+          <th>Golden value</th>
+          <th>Live value</th>
+          <th>GPO name</th>
+          <th>ADMX</th>
+          {% endif %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for entry in entries %}
+        <tr>
+          {% if status in ('gpo_removed', 'gpo_added') %}
+          <td><span class="gp-chip {{ tone }}">{{ entry.status }}</span></td>
+          <td>{{ entry.gpo_name }}</td>
+          <td class="mono muted">{% if status == 'gpo_removed' %}{{ entry.golden_gpo_id }}{% else %}{{ entry.live_gpo_id }}{% endif %}</td>
+          {% else %}
+          <td><span class="gp-chip {{ tone }}">{{ entry.status }}</span></td>
+          <td>{{ entry.side }}</td>
+          <td>{{ entry.cse }}</td>
+          <td>{{ entry.admx_name or entry.display_name or entry.identity }}</td>
+          <td>{{ entry.golden_value }}</td>
+          <td>{{ entry.live_value }}</td>
+          <td class="mono muted">{{ entry.gpo_name }}</td>
+          <td>{{ entry.admx_name }}</td>
+          {% endif %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endfor %}
+  {% else %}
+  <p>No drift detected — the estate matches the golden backup.</p>
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}

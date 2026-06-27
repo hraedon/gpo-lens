@@ -310,3 +310,70 @@ class TestApiOptionalParams:
         body = resp.json()
         assert "optional_params" in body["queries"]["principal_resultant"]
         assert "computer_sid" in body["queries"]["principal_resultant"]["optional_params"]
+
+
+class TestApiAdmxThreading:
+    """ADMX resolver must be injected from app.state.admx (WI-075)."""
+
+    def test_admx_coverage_returns_ok(self, _client) -> None:
+        resp = _client.get("/api/v1/query/admx_coverage")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "ok"
+        assert "data" in body
+        summary = body["data"]["summary"]
+        assert "total_policies" in summary
+        assert "referenced_policies" in summary
+
+    def test_admx_coverage_with_admx_dir(self, _fixture_db, tmp_path, monkeypatch) -> None:
+        """When ADMX templates are available, admx_coverage should use them."""
+        from gpo_lens.web.app import create_app
+
+        pd = tmp_path / "PolicyDefinitions"
+        pd.mkdir()
+        admx = """\
+<?xml version="1.0" encoding="utf-8"?>
+<policyDefinitions
+    xmlns="http://schemas.microsoft.com/GroupPolicy/2006/07/PolicyDefinitions"
+    revision="1.0" schemaVersion="1.0">
+  <policyNamespaces>
+    <target prefix="test" namespace="Microsoft.Policies.Test" />
+  </policyNamespaces>
+  <resources minRequiredRevision="1.0" />
+  <policies>
+    <policy name="FakePolicy" class="Both"
+            displayName="$(string.FakePolicy)"
+            key="HKLM\\Software\\Fake"
+            valueName="FakeValue" />
+  </policies>
+</policyDefinitions>
+"""
+        adml = """\
+<?xml version="1.0" encoding="utf-8"?>
+<policyDefinitionResources
+    xmlns="http://schemas.microsoft.com/GroupPolicy/2006/07/PolicyDefinitions"
+    revision="1.0" schemaVersion="1.0">
+  <resources>
+    <stringTable>
+      <string id="FakePolicy">Fake Policy</string>
+    </stringTable>
+  </resources>
+</policyDefinitionResources>
+"""
+        (pd / "TestPolicies.admx").write_text(admx, encoding="utf-8")
+        en_us = pd / "en-US"
+        en_us.mkdir()
+        (en_us / "TestPolicies.adml").write_text(adml, encoding="utf-8")
+
+        monkeypatch.setenv("GPO_LENS_AUTH_TOKEN", "test-secret-token")
+        app = create_app(_fixture_db, admx_dir=str(pd))
+        c = TestClient(
+            app,
+            headers={"Authorization": "Bearer test-secret-token"},
+        )
+        resp = c.get("/api/v1/query/admx_coverage")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "ok"
+        summary = body["data"]["summary"]
+        assert summary["total_policies"] >= 1

@@ -151,7 +151,15 @@ def som_effective_gpos(
   First match wins.
 - If the `_som` kwarg is provided, it is used directly (no lookup) —
   internal optimization for callers that already hold the `Som`.
-- No SOM found → return `[]` (not an exception).
+- No SOM found → **parent-OU walk** (WI-076): the function walks up
+  the DN (stripping RDN components, respecting backslash escaping) to
+  find the closest non-site SOM that *is* in the estate. If a parent
+  SOM is found, its `InheritedGpoLinks` are returned. If no parent is
+  found either, return `[]` (not an exception).
+  - **Limitation:** `inheritance_blocked` on intermediate OUs that are
+    *not* in the estate cannot be checked. The returned chain is an
+    approximation — the parent's resolved links, which may not reflect
+    block-inheritance on uncollected intermediate OUs.
 - For each `SomLink` in `target_som.links` (in `links` list order),
   emit one `EffectiveGpo`:
   - `gpo_id=link.gpo_id`.
