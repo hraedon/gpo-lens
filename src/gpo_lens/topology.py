@@ -7,6 +7,7 @@ composition, diffing, and estate-wide scans.
 
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -70,10 +71,58 @@ class EffectiveGpo:
     target: str            # DN the link originates from
 
 
+def _split_dn(dn: str) -> list[str]:
+    """Split a DN on commas, respecting backslash escaping.
+
+    ``CN=Last\\,First,OU=Users,DC=test`` → ``['CN=Last\\,First', 'OU=Users', 'DC=test']``
+    """
+    return re.split(r'(?<!\\),', dn)
+
+
+def _find_parent_som(estate: Estate, dn: str) -> Som | None:
+    """Walk up a DN to find the closest non-site SOM in the estate.
+
+    Strips the leftmost RDN component repeatedly until a matching SOM is
+    found.  Sites are skipped — they are a parallel scoping axis, not
+    part of the OU-precedence chain.
+
+    **Limitation:** ``inheritance_blocked`` on intermediate OUs that are
+    *not* in the estate cannot be checked.  The returned chain is the
+    parent SOM's ``InheritedGpoLinks`` — which the collector already
+    resolved for the parent, but which may not reflect block-inheritance
+    on uncollected intermediate OUs.  Callers should surface this as an
+    approximation when the target SOM was absent (WI-076).
+    """
+    if not dn:
+        return None
+    som_by_path = {
+        som.path.lower(): som
+        for som in estate.soms
+        if som.container_type != "site"
+    }
+    parts = [p.strip() for p in _split_dn(dn)]
+    for i in range(1, len(parts)):
+        candidate = ",".join(parts[i:]).lower()
+        if candidate in som_by_path:
+            return som_by_path[candidate]
+    return None
+
+
 def som_effective_gpos(
     estate: Estate, som_path: str, *, _som: Som | None = None,
 ) -> list[EffectiveGpo]:
-    """Return the resolved, ordered GPO chain at a given SOM path."""
+    """Return the resolved, ordered GPO chain at a given SOM path.
+
+    When the SOM is found, its ``InheritedGpoLinks`` (captured by the
+    collector via ``Get-GPInheritance``) already include both direct and
+    parent-inherited links — the platform resolves inheritance upstream.
+
+    When the SOM is **not** found in the estate (e.g. a principal DN
+    whose OU was not captured by the collector), the function walks up
+    the DN to find the closest parent SOM that *is* in the estate and
+    returns its chain. This ensures GPOs linked at ancestor OUs are
+    surfaced even when the exact target is absent (WI-076).
+    """
     names = estate.gpo_names
     target_som = _som
     if target_som is None:
@@ -81,6 +130,8 @@ def som_effective_gpos(
             if som.path.lower() == som_path.lower():
                 target_som = som
                 break
+        if target_som is None:
+            target_som = _find_parent_som(estate, som_path)
     if target_som is None:
         return []
     return [

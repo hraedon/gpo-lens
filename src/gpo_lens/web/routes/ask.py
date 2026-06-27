@@ -14,7 +14,12 @@ from fastapi.templating import Jinja2Templates
 from gpo_lens import events as _events
 from gpo_lens import queries
 from gpo_lens.display import serialize_result
-from gpo_lens.query_dispatch import VALID_QUERIES, dispatch_query, validate_params
+from gpo_lens.query_dispatch import (
+    QUERY_OPTIONAL_PARAMS,
+    VALID_QUERIES,
+    dispatch_query,
+    validate_params,
+)
 from gpo_lens.web._helpers import get_ro_conn, get_rw_conn, sanitize_question
 from gpo_lens.web.auth import Permission, Principal, requires
 
@@ -99,6 +104,8 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
                     except ValueError as exc:
                         error = str(exc)
                     if error is None:
+                        if "admx" in QUERY_OPTIONAL_PARAMS.get(query_name, []):
+                            call_kw["admx"] = app.state.admx
                         query_result: object = dispatch_query(query_name, **call_kw)
                         if query_name == "cpassword_scan":
                             hits: list[queries.CpasswordHit] = query_result  # type: ignore[assignment]

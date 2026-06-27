@@ -465,6 +465,98 @@ def test_som_effective_gpos_case_insensitive():
     assert len(result) == 1
 
 
+def test_som_effective_gpos_parent_ou_walk():
+    """When the target SOM is not in the estate, walk up the DN to find a parent SOM."""
+    from gpo_lens.model import Som, SomLink
+
+    gpo = _make_gpo(id="gpo-1", name="Parent GPO")
+    parent_som = Som(
+        path="ou=parent,dc=test,dc=local",
+        name="Parent",
+        container_type="ou",
+        inheritance_blocked=False,
+        links=[
+            SomLink(
+                gpo_id="gpo-1", order=1, enabled=True,
+                enforced=False, target="ou=parent,dc=test,dc=local",
+            ),
+        ],
+    )
+    estate = Estate(gpos=[gpo], soms=[parent_som])
+
+    # Query for a child OU that is NOT in the estate — should fall back to parent.
+    result = queries.som_effective_gpos(
+        estate, "ou=child,ou=parent,dc=test,dc=local",
+    )
+    assert len(result) == 1
+    assert result[0].gpo_id == "gpo-1"
+    assert result[0].gpo_name == "Parent GPO"
+
+
+def test_som_effective_gpos_no_parent_found():
+    """When no parent SOM exists, return empty list."""
+    from gpo_lens.model import Som
+
+    estate = Estate(gpos=[], soms=[Som(
+        path="ou=other,dc=test,dc=local",
+        name="Other",
+        container_type="ou",
+        inheritance_blocked=False,
+        links=[],
+    )])
+    result = queries.som_effective_gpos(
+        estate, "ou=nonexistent,dc=test,dc=local",
+    )
+    assert result == []
+
+
+def test_som_effective_gpos_multi_level_parent_walk():
+    """Multi-level walk: skip multiple absent intermediate OUs to find grandparent."""
+    from gpo_lens.model import Som, SomLink
+
+    gpo = _make_gpo(id="gpo-1", name="Grandparent GPO")
+    grandparent_som = Som(
+        path="ou=grandparent,dc=test,dc=local",
+        name="Grandparent",
+        container_type="ou",
+        inheritance_blocked=False,
+        links=[
+            SomLink(
+                gpo_id="gpo-1", order=1, enabled=True,
+                enforced=False, target="ou=grandparent,dc=test,dc=local",
+            ),
+        ],
+    )
+    estate = Estate(gpos=[gpo], soms=[grandparent_som])
+
+    result = queries.som_effective_gpos(
+        estate, "ou=grandchild,ou=child,ou=grandparent,dc=test,dc=local",
+    )
+    assert len(result) == 1
+    assert result[0].gpo_id == "gpo-1"
+
+
+def test_som_effective_gpos_skips_site_som_in_parent_walk():
+    """Site SOMs should not be matched during parent-OU walk."""
+    from gpo_lens.model import Som, SomLink
+
+    gpo = _make_gpo(id="gpo-1", name="Site GPO")
+    # The site SOM's path IS a parent candidate of the target DN.
+    site_som = Som(
+        path="dc=test,dc=local",
+        name="Default-First-Site",
+        container_type="site",
+        inheritance_blocked=False,
+        links=[SomLink(gpo_id="gpo-1", order=1, enabled=True, enforced=False, target="")],
+    )
+    estate = Estate(gpos=[gpo], soms=[site_som])
+
+    result = queries.som_effective_gpos(
+        estate, "ou=child,dc=test,dc=local",
+    )
+    assert result == []
+
+
 def test_dangling_links():
     from gpo_lens.model import Som, SomLink
 

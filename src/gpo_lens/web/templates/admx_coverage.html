@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+
+{% block title %}gpo-lens — ADMX Coverage{% endblock %}
+
+{% block content %}
+<div class="gp-page-head">
+  <div>
+    <div class="gp-eyebrow">Template inventory and gaps</div>
+    <h1>ADMX Coverage</h1>
+    <div class="sub">
+      {{ report.summary.total_policies }} total policies;
+      {{ report.summary.referenced_policies }} referenced,
+      {{ report.summary.unreferenced_policies }} unreferenced,
+      {{ report.summary.gap_count }} estate settings with no ADMX match.
+    </div>
+  </div>
+</div>
+
+<section class="gp-section">
+  <h2>Referenced policies <span class="count">{{ report.referenced | length }}</span></h2>
+  {% if report.referenced %}
+  <div class="gp-table-wrap">
+    <table class="gp-table">
+      <thead>
+        <tr>
+          <th>Policy name</th>
+          <th>Display name</th>
+          <th>Scope</th>
+          <th>Registry key</th>
+          <th>Value name</th>
+          <th>Referenced GPOs</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for e in report.referenced %}
+        <tr>
+          <td class="mono">{{ e.policy_name }}</td>
+          <td>{{ e.display_name }}</td>
+          <td>{{ e.class_scope }}</td>
+          <td class="mono muted">{{ e.registry_key }}</td>
+          <td class="mono muted">{{ e.value_name }}</td>
+          <td>{{ e.referenced_gpos }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p>No referenced ADMX policies found.</p>
+  {% endif %}
+</section>
+
+<section class="gp-section">
+  <h2>Unreferenced policies <span class="count">{{ report.unreferenced | length }}</span></h2>
+  {% if report.unreferenced %}
+  <div class="gp-table-wrap">
+    <table class="gp-table">
+      <thead>
+        <tr>
+          <th>Policy name</th>
+          <th>Display name</th>
+          <th>Scope</th>
+          <th>Registry key</th>
+          <th>Value name</th>
+          <th>Referenced GPOs</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for e in report.unreferenced %}
+        <tr>
+          <td class="mono">{{ e.policy_name }}</td>
+          <td>{{ e.display_name }}</td>
+          <td>{{ e.class_scope }}</td>
+          <td class="mono muted">{{ e.registry_key }}</td>
+          <td class="mono muted">{{ e.value_name }}</td>
+          <td class="muted">—</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p>No unreferenced ADMX policies found.</p>
+  {% endif %}
+</section>
+
+<section class="gp-section">
+  <h2>Gaps <span class="count">{{ report.gaps | length }}</span></h2>
+  {% if report.gaps %}
+  <div class="gp-table-wrap">
+    <table class="gp-table">
+      <thead>
+        <tr>
+          <th>Display name</th>
+          <th>Scope</th>
+          <th>Registry key</th>
+          <th>Value name</th>
+          <th>GPO</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for e in report.gaps %}
+        <tr>
+          <td>{{ e.display_name }}</td>
+          <td>{{ e.class_scope }}</td>
+          <td class="mono muted">{{ e.registry_key }}</td>
+          <td class="mono muted">{{ e.value_name }}</td>
+          <td class="mono muted">{{ e.referenced_gpos }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p>No ADMX gaps found.</p>
+  {% endif %}
+</section>
+{% endblock %}

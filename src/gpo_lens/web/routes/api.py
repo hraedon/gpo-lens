@@ -137,6 +137,9 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
                 status_code=400,
             )
 
+        if "admx" in QUERY_OPTIONAL_PARAMS.get(query_name, []):
+            call_kw["admx"] = getattr(request.app.state, "admx", None)
+
         try:
             query_result: object = dispatch_query(query_name, **call_kw)
 

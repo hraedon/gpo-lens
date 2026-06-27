@@ -74,6 +74,11 @@
   {% endif %}
   <div class="gp-callout info" style="margin-bottom:14px">
     <p>{{ result.caveat_summary }}</p>
+    {% if result.caveat_mechanisms %}
+    <p class="muted" style="margin-top:6px"><strong>Non-simulated mechanisms:</strong>
+      {% for m in result.caveat_mechanisms %}<span class="gp-chip warn">{{ m }}</span> {% endfor %}
+    </p>
+    {% endif %}
   </div>
 
   {% if result.settings %}

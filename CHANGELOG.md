@@ -1,5 +1,86 @@
 # Changelog
 
+## v0.8.5 — 2026-06-26
+
+### Per-user RSoP caveat banner (design doc)
+
+- `PrincipalResultant` now carries a `caveat_mechanisms: list[str]` field that
+  explicitly lists the non-simulated mechanisms applicable to each resultant
+  (loopback, WMI, ILT, AD-site, deny-ACE, primary-group/foreign-SID).
+- CLI `resultant` command renders a "Non-simulated mechanisms" banner after
+  the caveat summary. JSON output includes the `caveat_mechanisms` array.
+- Web `/resultant` template shows caveat chips for each non-simulated mechanism.
+- Boundary tests (`tests/test_principal_resultant_boundary.py`) cover AC-1
+  through AC-9 from `docs/design/per-user-rsop.md`.
+
+### WI-073 — per-provider default model in call_llm
+
+- `call_llm` now defaults to `gpt-4o` for OpenAI providers and
+  `claude-sonnet-4-20250514` for Anthropic, instead of always defaulting to
+  the Anthropic model (which 400s on true OpenAI endpoints).
+
+### M4 — ADMX threaded through dispatch layer
+
+- `golden_diff` and `admx_coverage` in `query_dispatch.py` now accept an
+  optional `admx` parameter. The `/ask` NL routing path injects
+  `app.state.admx` for these queries, so ADMX resolution is no longer
+  silently absent when called via the web ask route.
+
+### H1 — /delegation route crash on empty DB
+
+- `create_app()` now always calls `init_db()` on the DB file, even when it
+  already exists (idempotent — `CREATE TABLE IF NOT EXISTS`). Previously an
+  empty/uninitialized DB file caused `sqlite3.OperationalError` in the
+  delegation route, which only caught `ValueError`.
+- Delegation route now catches `(ValueError, sqlite3.Error)`.
+
+### Loopback awareness in precedence-conflicts
+
+- `cmd_precedence_conflicts` CLI command now displays a loopback caveat banner
+  when any GPO in the estate has loopback processing enabled (merge/replace).
+  This makes the OU conflict view honest for estates using loopback (RDS/VDI).
+
+### Web UI — golden-diff and admx-coverage routes
+
+- New `/golden-diff` route with zip upload, mirroring the `/baseline` route.
+- New `/admx-coverage` route showing estate-wide ADMX template inventory and
+  gap detection (referenced, unreferenced, gaps).
+
+### CLI/web tests for v0.8.0 features (L1, L2)
+
+- `tests/test_cli_golden_diff.py` — CLI tests for `golden-diff` (text + JSON).
+- `tests/test_cli_admx_coverage.py` — CLI tests for `admx-coverage` (text + JSON).
+- `tests/test_web_delegation.py` — web tests for `/delegation` route on empty,
+  uninitialized, and populated DBs.
+- `tests/test_loopback_awareness.py` — loopback caveat in precedence-conflicts
+  and settings-at-som CLI output.
+
+### WI-075 — Web route tests for golden-diff and admx-coverage
+
+- `tests/test_web_golden_diff.py` — GET form, POST valid zip, POST invalid
+  zip, size-limit 413, empty DB.
+- `tests/test_web_admx_coverage.py` — GET with data, empty DB, blank file DB,
+  gap section rendering.
+- Route coverage: `golden.py` 47%→100%, `admx_coverage.py` 57%→100%.
+
+### ADMX threading through API dispatch layer
+
+- `/api/v1/query/{query_name}` now injects `app.state.admx` for queries
+  with an `admx` optional param (matching the `/ask` route pattern).
+  Previously `admx_coverage` via the API silently ran without ADMX
+  templates.
+
+### WI-076 — som_effective_gpos parent-OU walk fallback
+
+- When the target SOM is not in the estate (e.g. a principal DN whose
+  OU was not captured by the collector), the function walks up the DN to
+  find the closest parent SOM and returns its `InheritedGpoLinks`.
+- `_split_dn` respects backslash-escaped commas in LDAP DNs.
+- `_find_parent_som` uses O(n+m) dict lookup instead of O(n×m) scan.
+- Site SOMs are skipped during the walk (parallel scoping axis).
+- Spec AC-01 updated to document the fallback and its limitations
+  (`inheritance_blocked` on uncollected intermediate OUs).
+
 ## v0.8.0 — 2026-06-26
 
 ### Golden-backup comparison (WI-061)

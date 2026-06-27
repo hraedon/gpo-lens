@@ -82,12 +82,17 @@ def cmd_resultant(args: argparse.Namespace) -> int:
             ],
             "token_caveats": result.token_caveats,
             "caveat_summary": result.caveat_summary,
+            "caveat_mechanisms": result.caveat_mechanisms,
         })
     else:
         print(f"\n  Principal: {result.principal_name} ({result.principal_sid})")
         if result.computer_sid:
             print(f"  Computer: {result.computer_sid}")
         print(f"\n  {result.caveat_summary}")
+        if result.caveat_mechanisms:
+            print("\n  Non-simulated mechanisms:")
+            for m in result.caveat_mechanisms:
+                print(f"    - {m}")
         print(f"\n  Effective settings ({len(result.settings)}):")
         for s in result.settings:
             approx = " [APPROXIMATE]" if s.approximate else ""

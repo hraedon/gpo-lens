@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sqlite3
+
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
@@ -22,7 +24,7 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         try:
             estate = store.load_estate(conn)
             rollup = queries.delegation_rollup(estate)
-        except ValueError:
+        except (ValueError, sqlite3.Error):
             rollup = []
         finally:
             conn.close()

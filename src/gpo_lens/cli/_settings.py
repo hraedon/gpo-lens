@@ -200,6 +200,7 @@ def cmd_som_conflicts(args: argparse.Namespace) -> None:
 def cmd_precedence_conflicts(args: argparse.Namespace) -> None:
     estate = _get_estate(args)
     result = queries.precedence_conflicts(estate)
+    loopback_map = queries.loopback_awareness(estate)
     if args.json:
         _render_json(
             [
@@ -225,6 +226,14 @@ def cmd_precedence_conflicts(args: argparse.Namespace) -> None:
             ]
         )
     else:
+        if loopback_map:
+            print("\n  \u26a0 LOOPBACK CAVEAT:")
+            for gid, mode in sorted(loopback_map.items()):
+                gpo = estate.gpo_by_id(gid)
+                gpo_name = gpo.name if gpo else gid
+                print(f"    {gpo_name}: loopback={mode}")
+            print("    Precedence conflicts on the User side may be affected by")
+            print("    loopback processing (merge/replace) on affected computers.\n")
         rows: list[Sequence[str]] = []
         for som, conflicts in result:
             for c in conflicts:

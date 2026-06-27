@@ -334,12 +334,18 @@ def create_app(
         if auto is not None:
             app.state.admx = parse_admx_dir(auto)
 
-    # Ensure the DB file exists on first run to prevent OperationalError
-    db_file = Path(db_path)
-    if not db_file.exists():
+    # Ensure the DB file exists and is initialized. A file may exist but be
+    # empty (e.g. ``touch gpo-lens.sqlite3``) — init_db is idempotent
+    # (CREATE TABLE IF NOT EXISTS), so calling it on a valid DB is a no-op.
+    # Skip for ``:memory:`` — each connection gets its own private in-memory DB,
+    # so initializing here then closing would destroy it (pre-existing limitation).
+    if db_path != ":memory:":
+        db_file = Path(db_path)
         conn_init = _get_rw_conn(str(db_file))
-        _store.init_db(conn_init)
-        conn_init.close()
+        try:
+            _store.init_db(conn_init)
+        finally:
+            conn_init.close()
 
     from gpo_lens import __version__
 
@@ -504,6 +510,9 @@ def create_app(
     # / _MAX_UPLOAD_BYTES from this module, which must be fully loaded first.
     # ------------------------------------------------------------------
     from gpo_lens.web.routes import (
+        admx_coverage as admx_cov,
+    )
+    from gpo_lens.web.routes import (
         api,
         ask,
         baseline,
@@ -512,6 +521,7 @@ def create_app(
         dashboard,
         delegation,
         export,
+        golden,
         gpo,
         ingest,
         ou,
@@ -531,6 +541,8 @@ def create_app(
     resultant.register(app, templates)
     trends.register(app, templates)
     delegation.register(app, templates)
+    admx_cov.register(app, templates)
+    golden.register(app, templates)
     api.register(app, templates)
 
     return app
