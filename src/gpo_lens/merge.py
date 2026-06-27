@@ -35,7 +35,7 @@ from gpo_lens.authz import (
 )
 from gpo_lens.detection import scan_ilt
 from gpo_lens.model import Side
-from gpo_lens.topology import EffectiveGpo, som_effective_gpos
+from gpo_lens.topology import EffectiveGpo, loopback_awareness, som_effective_gpos
 
 ANONYMOUS_SID = "s-1-5-7"
 
@@ -579,26 +579,28 @@ def _gpo_apply_trustee_sids(
     gpo: Gpo,
     name_to_sid: dict[str, str],
     domain_sid: str | None = None,
-) -> set[str]:
-    """Collect SIDs that hold Apply Group Policy (or Read) rights on the GPO.
+) -> tuple[set[str], set[str]]:
+    """Collect (allow_sids, deny_sids) holding Apply/Read rights on the GPO.
 
-    Honors deny-ACE precedence in both the delegation and SDDL paths: a deny
-    on a trustee cancels its matching allow rights, mirroring the
-    ``applies_broadly`` pattern in :mod:`gpo_lens.authz`. A trustee that is
-    both allowed and denied Apply is therefore *not* included.
+    Returns two independent sets:
 
-    Domain-relative RID suffixes (e.g. ``-513`` for Domain Users, as carried
-    by the well-known name map) are expanded to full SIDs using
-    ``domain_sid`` so they match the full SIDs in a principal's token.
+    - **allow_sids** — trustees with a net allow for Read/Apply (after
+      same-trustee deny cancellation).
+    - **deny_sids** — trustees with a deny for Read/Apply, including
+      deny-only ACEs that have no corresponding allow. This is critical for
+      cross-trustee deny: a principal whose token independently intersects
+      the deny set must be blocked even if the denied trustee is not in the
+      allow set.
+
+    Domain-relative RID suffixes (e.g. ``-513`` for Domain Users) are
+    expanded to full SIDs using ``domain_sid`` so they match the full SIDs
+    in a principal's token.
     """
     allow_sids: set[str] = set()
     deny_sids: set[str] = set()
     has_data = False
 
     def _expand(sid: str) -> str:
-        # A well-known name may resolve to a domain-relative RID suffix
-        # (e.g. "-513"); expand it with the estate's domain SID so it can
-        # match the full SID in the token. Unresolvable → empty.
         if sid.startswith("-"):
             if domain_sid is None:
                 return ""
@@ -623,8 +625,6 @@ def _gpo_apply_trustee_sids(
     if not gpo.delegation and gpo.sddl:
         has_data = True
         acl = parse_sddl(gpo.sddl)
-        # Track allow vs deny rights per trustee so a deny ACE cancels the
-        # matching Apply/Read rights on that trustee (deny precedence).
         allow_rights: dict[str, set[str]] = defaultdict(set)
         deny_rights: dict[str, set[str]] = defaultdict(set)
         for ace in acl.dacl:
@@ -640,12 +640,13 @@ def _gpo_apply_trustee_sids(
             net = allowed - deny_rights.get(sid, set())
             if net & READ_OR_APPLY_RIGHTS:
                 allow_sids.add(sid)
+        for sid, denied in deny_rights.items():
+            if denied & READ_OR_APPLY_RIGHTS:
+                deny_sids.add(sid)
 
     if not has_data:
-        return set()
-    # Deny precedence: a trustee that is both allowed and denied Apply is
-    # excluded from the resultant's Apply set.
-    return allow_sids - deny_sids
+        return set(), set()
+    return allow_sids, deny_sids
 
 
 # ---------------------------------------------------------------------------
@@ -685,6 +686,11 @@ class PrincipalResultant:
     conditional_dangers: list[ConditionalDanger]
     token_caveats: list[str]
     caveat_summary: str
+    caveat_mechanisms: list[str] = None  # type: ignore[assignment]
+
+    def __post_init__(self) -> None:
+        if self.caveat_mechanisms is None:
+            object.__setattr__(self, "caveat_mechanisms", [])
 
 
 def _resolve_som_path_for_principal(estate: Estate, dn: str | None) -> str:
@@ -713,13 +719,21 @@ def _evaluate_security_gate(
     name_to_sid: dict[str, str],
     domain_sid: str | None = None,
 ) -> tuple[bool, str]:
-    """Return (passes, reason). passes=True if the token can Read+Apply the GPO."""
-    apply_sids = _gpo_apply_trustee_sids(gpo, name_to_sid, domain_sid)
-    if not apply_sids:
+    """Return (passes, reason). passes=True if the token can Read+Apply the GPO.
+
+    Deny-first evaluation: if the principal's token intersects any deny ACE
+    trustee, the GPO is blocked — even if the token also intersects an allow
+    trustee. This catches cross-trustee deny (e.g. GPO allows
+    Authenticated Users but denies a group the principal is a member of).
+    """
+    allow_sids, deny_sids = _gpo_apply_trustee_sids(gpo, name_to_sid, domain_sid)
+    if deny_sids & token_sids:
+        return False, "security filter: token intersects deny ACE"
+    if not allow_sids:
         if gpo.delegation or gpo.sddl:
             return False, "security filter: no resolvable Apply trustee SIDs in token"
         return True, "no delegation/SDDL data — security filtering state unknown"
-    if apply_sids & token_sids:
+    if allow_sids & token_sids:
         return True, ""
     return False, "security filter: token does not intersect Apply trustees"
 
@@ -768,6 +782,35 @@ def _build_conditional_dangers(
             ))
     out.sort(key=lambda c: (c.gpo_name.lower(), c.gpo_id))
     return out
+
+
+def _build_caveat_mechanisms(
+    excluded: list[ExcludedGpo],
+    excluded_settings: list[ExcludedSetting],
+    token_caveats: list[str],
+    is_user_side: bool,
+    has_site_soms: bool,
+) -> list[str]:
+    """Build the list of non-simulated mechanisms applicable to this resultant.
+
+    Per the per-user RSoP design (docs/design/per-user-rsop.md), these
+    mechanisms are surfaced explicitly — never silently assumed. Only
+    mechanisms that are *relevant* to this resultant are listed (e.g., WMI
+    is only listed when a WMI-filtered GPO was actually excluded).
+    """
+    mechanisms: list[str] = []
+    if is_user_side:
+        mechanisms.append("Loopback processing")
+    if any(e.kind == "wmi_filter" for e in excluded):
+        mechanisms.append("WMI filter evaluation")
+    if any(e.kind == "ilt" for e in excluded_settings):
+        mechanisms.append("Item-level targeting (ILT)")
+    if has_site_soms:
+        mechanisms.append("AD-site membership")
+    mechanisms.append("Deny-ACE interaction")
+    if token_caveats:
+        mechanisms.append("Primary-group / foreign-SID edge cases")
+    return mechanisms
 
 
 def _build_caveat_summary(
@@ -893,8 +936,17 @@ def principal_resultant(
     For a user+computer pair (decision 5), the user's chain (from ``dn``)
     contributes User-side settings and the computer's chain (from
     ``computer_dn``) contributes Computer-side settings; both are evaluated
-    against the combined user+computer token (post-MS16-072). Loopback is
-    deferred (WI-028) and surfaced as a caveat.
+    against the combined user+computer token (post-MS16-072).
+
+    Best-effort loopback (WI-028): when a GPO in the computer chain
+    configures loopback processing, user-side settings from the computer's
+    chain are merged into the resultant. In **replace** mode, the user's own
+    chain is ignored for User-side settings (the computer chain is the sole
+    source). In **merge** mode, both chains contribute, with the computer
+    chain winning conflicts (offset orders). Security filtering on loopback
+    user-side GPOs uses the computer's token only (MS16-072). WMI/ILT on
+    computer-chain user-side GPOs and ``mixed``/``unknown`` modes are still
+    not simulated — they fall back to the non-loopback path with a caveat.
 
     *danger* lets a caller that already computed ``danger_findings()`` pass
     the list in, avoiding a redundant re-evaluation (WI-031).
@@ -925,31 +977,88 @@ def principal_resultant(
     is_user_computer_pair = computer_sid is not None and side == "User"
 
     excluded: list[ExcludedGpo] = []
+    active_loopback: str | None = None
     if is_user_computer_pair:
-        # User-side settings come from the USER's chain (dn); Computer-side
-        # settings come from the COMPUTER's chain (computer_dn). Loopback
-        # (user-side from the computer's OU) is deferred — WI-028.
+        comp_token_sids = comp_token.token_sids
         comp_som = _resolve_som_path_for_principal(
             estate, computer_dn if computer_dn is not None else dn,
         )
         comp_chain = som_effective_gpos(estate, comp_som) if comp_som else []
-        # Track GPOs excluded from the user chain so the computer chain
-        # doesn't re-record them (WI-051: prevent duplicates at source
-        # rather than deduplicating after the fact).
+
+        loopback_map = loopback_awareness(estate)
+        comp_chain_ids = {eg.gpo_id for eg in comp_chain if eg.enabled}
+        loopback_modes = {
+            loopback_map[gid] for gid in comp_chain_ids if gid in loopback_map
+        }
+        if not loopback_modes:
+            active_loopback = None
+        elif len(loopback_modes) == 1:
+            active_loopback = loopback_modes.pop()
+        else:
+            active_loopback = "mixed"
+
         excluded_ids: set[str] = set()
-        chain_entries = _collect_chain_entries(
-            chain, "User", gpo_by_id, token_sids, name_to_sid, domain_sid,
-            excluded, _already_excluded=excluded_ids,
-        )
-        chain_entries += _collect_chain_entries(
-            comp_chain, "Computer", gpo_by_id, token_sids, name_to_sid,
-            domain_sid, excluded, _already_excluded=excluded_ids,
-        )
+        if active_loopback == "replace":
+            chain_entries = _collect_chain_entries(
+                comp_chain, "User", gpo_by_id, comp_token_sids,
+                name_to_sid, domain_sid, excluded,
+            )
+            chain_entries += _collect_chain_entries(
+                comp_chain, "Computer", gpo_by_id, token_sids,
+                name_to_sid, domain_sid, excluded,
+                _already_excluded=excluded_ids,
+            )
+        elif active_loopback == "merge":
+            user_entries = _collect_chain_entries(
+                chain, "User", gpo_by_id, token_sids,
+                name_to_sid, domain_sid, excluded,
+                _already_excluded=excluded_ids,
+            )
+            comp_user_entries = _collect_chain_entries(
+                comp_chain, "User", gpo_by_id, comp_token_sids,
+                name_to_sid, domain_sid, excluded,
+            )
+            max_user_order = max((e.order for e in user_entries), default=0)
+            offset = max_user_order + 1 if user_entries else 0
+            offset_comp_user = [
+                ChainEntry(
+                    gpo_id=e.gpo_id, gpo_name=e.gpo_name,
+                    order=e.order + offset, enforced=e.enforced,
+                    settings=e.settings,
+                )
+                for e in comp_user_entries
+            ]
+            chain_entries = user_entries + offset_comp_user
+            chain_entries += _collect_chain_entries(
+                comp_chain, "Computer", gpo_by_id, token_sids,
+                name_to_sid, domain_sid, excluded,
+                _already_excluded=excluded_ids,
+            )
+        else:
+            chain_entries = _collect_chain_entries(
+                chain, "User", gpo_by_id, token_sids, name_to_sid,
+                domain_sid, excluded, _already_excluded=excluded_ids,
+            )
+            chain_entries += _collect_chain_entries(
+                comp_chain, "Computer", gpo_by_id, token_sids,
+                name_to_sid, domain_sid, excluded,
+                _already_excluded=excluded_ids,
+            )
     else:
         chain_entries = _collect_chain_entries(
             chain, side, gpo_by_id, token_sids, name_to_sid, domain_sid,
             excluded,
         )
+
+    if is_user_computer_pair:
+        seen_exc: set[tuple[str, str]] = set()
+        deduped: list[ExcludedGpo] = []
+        for exc in excluded:
+            key = (exc.gpo_id, exc.kind)
+            if key not in seen_exc:
+                seen_exc.add(key)
+                deduped.append(exc)
+        excluded = deduped
 
     merge = merge_settings_with_exclusions(
         chain_entries, ilt_gpo_ids=ilt_gpo_ids,
@@ -973,7 +1082,17 @@ def principal_resultant(
     )
 
     if is_user_computer_pair:
-        label = "user resultant with computer pair (no loopback; WI-028)"
+        if active_loopback == "replace":
+            label = "user resultant with computer pair (loopback=replace)"
+        elif active_loopback == "merge":
+            label = "user resultant with computer pair (loopback=merge)"
+        elif active_loopback in ("mixed", "unknown"):
+            label = (
+                "user resultant with computer pair "
+                f"(loopback={active_loopback}; best-effort, no simulation)"
+            )
+        else:
+            label = "user resultant with computer pair (no loopback)"
     elif side == "User":
         label = "user in own OU, no loopback, no computer"
     else:
@@ -983,6 +1102,16 @@ def principal_resultant(
         settings, excluded, excluded_settings, conditional_dangers,
         token.token_caveats,
         has_computer=computer_sid is not None, label=label,
+    )
+
+    has_site_soms = any(
+        som.container_type == "site" and som.links
+        for som in estate.soms
+    )
+    caveat_mechanisms = _build_caveat_mechanisms(
+        excluded, excluded_settings, token.token_caveats,
+        is_user_side=side == "User",
+        has_site_soms=has_site_soms,
     )
 
     return PrincipalResultant(
@@ -995,4 +1124,5 @@ def principal_resultant(
         conditional_dangers=conditional_dangers,
         token_caveats=token.token_caveats,
         caveat_summary=caveat_summary,
+        caveat_mechanisms=caveat_mechanisms,
     )
