@@ -1506,6 +1506,102 @@ class TestRegistryIdentities:
         block = ET.fromstring(f'<Policy xmlns="{NS}"><State>Enabled</State></Policy>')
         assert ingest._parse_admin_template_policy(block) is None
 
+    # WI-080 — configured value surfaces in display_value, per option shape.
+
+    def _admx(self, inner: str) -> str:
+        return (
+            f'<Policy xmlns="{NS}"><Name>P</Name><State>Enabled</State>'
+            f"<Category>Cat</Category>{inner}</Policy>"
+        )
+
+    def test_admx_numeric_value(self):
+        block = ET.fromstring(self._admx(
+            "<Numeric><Name>Maximum Log Size (KB)</Name>"
+            "<State>Enabled</State><Value>2097120</Value></Numeric>"
+        ))
+        _i, _n, val = ingest._parse_admin_template_policy(block)
+        assert val == "Enabled — Maximum Log Size (KB): 2097120"
+
+    def test_admx_edittext_value(self):
+        block = ET.fromstring(self._admx(
+            "<EditText><Name>Application locale</Name>"
+            "<State>Enabled</State><Value>en-US</Value></EditText>"
+        ))
+        _i, _n, val = ingest._parse_admin_template_policy(block)
+        assert val == "Enabled — Application locale: en-US"
+
+    def test_admx_dropdownlist_value_text(self):
+        block = ET.fromstring(self._admx(
+            "<DropDownList><Name>Active Power Plan:</Name>"
+            "<State>Enabled</State><Value>High Performance</Value></DropDownList>"
+        ))
+        _i, _n, val = ingest._parse_admin_template_policy(block)
+        # trailing colon on the label is normalized away
+        assert val == "Enabled — Active Power Plan: High Performance"
+
+    def test_admx_dropdownlist_nested_name_value(self):
+        block = ET.fromstring(self._admx(
+            "<DropDownList><Name>Default for all apps:</Name><State>Enabled</State>"
+            "<Value><Name>Force Allow</Name></Value></DropDownList>"
+        ))
+        _i, _n, val = ingest._parse_admin_template_policy(block)
+        assert val == "Enabled — Default for all apps: Force Allow"
+
+    def test_admx_checkboxes_use_per_box_state(self):
+        block = ET.fromstring(self._admx(
+            "<CheckBox><Name>Allow slow link</Name><State>Disabled</State></CheckBox>"
+            "<CheckBox><Name>Process always</Name><State>Enabled</State></CheckBox>"
+        ))
+        _i, _n, val = ingest._parse_admin_template_policy(block)
+        assert val == "Enabled — Allow slow link: Disabled; Process always: Enabled"
+
+    def test_admx_listbox_counts_entries(self):
+        block = ET.fromstring(self._admx(
+            "<ListBox><Name>URLs to open</Name><State>Enabled</State>"
+            "<Value><Element/><Element/></Value></ListBox>"
+        ))
+        _i, _n, val = ingest._parse_admin_template_policy(block)
+        assert val == "Enabled — URLs to open: [2 entries]"
+
+    def test_admx_multitext_counts_strings_singular(self):
+        block = ET.fromstring(self._admx(
+            "<MultiText><Name>Apps</Name><State>Enabled</State>"
+            "<Value><string/></Value></MultiText>"
+        ))
+        _i, _n, val = ingest._parse_admin_template_policy(block)
+        assert val == "Enabled — Apps: [1 entry]"
+
+    def test_admx_text_element_is_ignored(self):
+        # <Text> is a display-only label, not a configured value.
+        block = ET.fromstring(self._admx(
+            "<Text><Name>Some explanatory label</Name></Text>"
+        ))
+        _i, _n, val = ingest._parse_admin_template_policy(block)
+        assert val == "Enabled"
+
+    def test_admx_no_options_keeps_bare_state(self):
+        block = ET.fromstring(self._admx(""))
+        _i, _n, val = ingest._parse_admin_template_policy(block)
+        assert val == "Enabled"
+
+    def test_admx_disabled_policy_keeps_state(self):
+        block = ET.fromstring(
+            f'<Policy xmlns="{NS}"><Name>P</Name><State>Disabled</State>'
+            "<Category>Cat</Category></Policy>"
+        )
+        _i, _n, val = ingest._parse_admin_template_policy(block)
+        assert val == "Disabled"
+
+    def test_admx_summary_is_length_capped(self):
+        long_label = "X" * 400
+        block = ET.fromstring(self._admx(
+            f"<EditText><Name>{long_label}</Name>"
+            "<State>Enabled</State><Value>v</Value></EditText>"
+        ))
+        _i, _n, val = ingest._parse_admin_template_policy(block)
+        assert len(val) <= len("Enabled — ") + ingest._ADMX_SUMMARY_MAX
+        assert val.endswith("…")
+
     def test_classic_registry_setting_uses_keypath_and_value_name(self):
         block = ET.fromstring(
             f'<RegistrySetting xmlns="{NS}">'

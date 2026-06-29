@@ -104,9 +104,28 @@
 
 <section class="gp-section">
   <h2>Effective settings
-    {% if settings_count %}<span class="count">{{ settings_count }}</span>{% endif %}
-    {% if settings_count %}<a class="gp-btn gp-export-btn" href="{{ url_for('export_ou', path=som.path) }}?format=csv">Export CSV</a>{% endif %}
+    {% if settings_total %}<span class="count">{% if settings_count != settings_total %}{{ settings_count }} / {% endif %}{{ settings_total }}</span>{% endif %}
+    {% if settings_total %}<a class="gp-btn gp-export-btn" href="{{ url_for('export_ou', path=som.path) }}?format=csv">Export CSV</a>{% endif %}
   </h2>
+  {% if settings_total %}
+  <form class="gp-filter-bar" method="get" action="{{ url_for('ou_detail', path=som.path) }}">
+    <div class="gp-field gp-filter-search">
+      <label class="gp-label" for="f-q">Search settings</label>
+      <input class="gp-input" id="f-q" name="q" type="search" value="{{ f_q }}" placeholder="Setting, identity or value" autocomplete="off">
+    </div>
+    <div class="gp-field">
+      <label class="gp-label" for="f-cse">CSE</label>
+      <select class="gp-input" id="f-cse" name="cse">
+        <option value="">All CSEs</option>
+        {% for c, n in cse_facets %}
+        <option value="{{ c }}" {% if c == f_cse %}selected{% endif %}>{{ c }} ({{ n }})</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button type="submit" class="gp-btn primary">Apply</button>
+    {% if f_q or f_cse %}<a class="gp-btn" href="{{ url_for('ou_detail', path=som.path) }}">Clear</a>{% endif %}
+  </form>
+  {% endif %}
   {% if settings %}
   <div class="gp-table-wrap">
     <table class="gp-table">
@@ -145,6 +164,8 @@
     </table>
   </div>
   {{ pg.pagination(pag, base_qs) }}
+  {% elif settings_total %}
+  <p class="muted">No settings match the current filter. <a href="{{ url_for('ou_detail', path=som.path) }}">Clear</a></p>
   {% else %}
   <p class="muted">No effective settings resolved at this scope.</p>
   {% endif %}

@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### WI-080 — configured values for Administrative-Templates settings
+
+- Admin-Template policies (Registry CSE) now show the data they configure, not
+  just `Enabled`/`Disabled`. The ingest parser summarizes each policy's option
+  sub-elements (`DropDownList`, `EditText`, `Numeric`, `CheckBox`, `ListBox`,
+  `MultiText`) into `display_value`, e.g.
+  `Enabled — Maximum Log Size (KB): 2097120`. Policies with no options keep the
+  bare state. On a real export, 395 of 1363 Registry settings now carry a value.
+
+### WI-083 — CSE filter + in-table search on the OU effective-settings view
+
+- The OU detail "Effective settings" table (up to ~1,000 rows on a real OU) gains
+  a CSE facet dropdown (CSEs present, with counts) and a text search over
+  identity / name / value, via a reusable `filter_settings` helper. The heading
+  badge shows `filtered / total`; filters round-trip through pagination.
+
 ### WI-082 — estate-wide settings search (web)
 
 - New `/search` route + nav entry: "which GPOs set X?" over the whole estate.

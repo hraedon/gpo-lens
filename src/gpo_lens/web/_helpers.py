@@ -304,6 +304,40 @@ def filter_gpos(gpos: list[Any], q: str, status: str, sort: str) -> list[Any]:
     return result
 
 
+def filter_settings(items: list[Any], q: str, cse: str) -> list[Any]:
+    """Apply a CSE facet + text search to a settings list (WI-083).
+
+    Works for any row exposing ``cse`` / ``identity`` / ``display_name`` /
+    ``display_value`` — both ``EffectiveSetting`` (resultant/OU view) and
+    ``Setting`` (GPO detail). *cse* is an exact (case-insensitive) match on the
+    CSE; *q* is a case-insensitive substring over identity, name, and value.
+    """
+    result = items
+    if cse:
+        cl = cse.lower()
+        result = [s for s in result if (s.cse or "").lower() == cl]
+    q = (q or "")[:_MAX_SEARCH_LEN]
+    if q:
+        needle = q.lower()
+        result = [
+            s for s in result
+            if needle in (s.identity or "").lower()
+            or needle in (s.display_name or "").lower()
+            or needle in (s.display_value or "").lower()
+        ]
+    return result
+
+
+def cse_facets(items: list[Any]) -> list[tuple[str, int]]:
+    """Distinct CSEs present in *items* with counts, sorted by name (WI-083)."""
+    counts: dict[str, int] = {}
+    for s in items:
+        c = s.cse or ""
+        if c:
+            counts[c] = counts.get(c, 0) + 1
+    return sorted(counts.items())
+
+
 # Characters that make spreadsheet apps (Excel/LibreOffice/Sheets) evaluate a
 # CSV cell as a formula. Exported data derives from semi-attacker-controllable
 # GPO content (GPO names, registry values, finding detail), so an unsanitized

@@ -259,6 +259,76 @@ def _parse_registry_setting(block: Element) -> tuple[str, str, str] | None:
     return None
 
 
+# Administrative-Templates option sub-elements that carry a configured value.
+# These sit directly under <Policy> (alongside Name/State/Category) and hold the
+# data the policy writes — dropped by the old parser, which surfaced only State
+# (WI-080). Each has a <Name> label; the value lives in <Value> (text, a nested
+# <Name>, or a collection of <Element>/<string> entries) or, for CheckBox, in a
+# per-box <State>. <Text> is a display-only label with no value (skipped).
+_ADMX_OPTION_TAGS = frozenset({
+    "DropDownList", "EditText", "EditTextBox", "Numeric",
+    "CheckBox", "ListBox", "MultiText",
+})
+_ADMX_SUMMARY_MAX = 160
+
+
+def _summarize_admx_option(opt: Element) -> str | None:
+    """Compact ``label: value`` summary for one Admin-Template option element.
+
+    Returns ``None`` when the element carries no usable value (so it is omitted
+    rather than rendered as an empty ``label:``).
+    """
+    tag = _localname(opt.tag)
+    label = (_text(_child_by_localname(opt, "Name")) or "").strip().rstrip(":")
+
+    if tag == "CheckBox":
+        # No <Value>; the box's own <State> (Enabled/Disabled) is the data.
+        st = (_text(_child_by_localname(opt, "State")) or "").strip()
+        if not (label or st):
+            return None
+        return f"{label}: {st}" if label else st
+
+    value_el = _child_by_localname(opt, "Value")
+    val = ""
+    if value_el is not None:
+        direct = (value_el.text or "").strip()
+        if direct:
+            val = direct
+        else:
+            # Collection forms: DropDownList -> <Value><Name>selected</Name>;
+            # ListBox -> <Value><Element>…; MultiText -> <Value><string>…
+            picked = _text(_child_by_localname(value_el, "Name"))
+            if picked and picked.strip():
+                val = picked.strip()
+            else:
+                entries = [
+                    c for c in value_el
+                    if _localname(c.tag) in ("Element", "string")
+                ]
+                if entries:
+                    plural = "entry" if len(entries) == 1 else "entries"
+                    val = f"[{len(entries)} {plural}]"
+
+    if not val:
+        return None
+    return f"{label}: {val}" if label else val
+
+
+def _summarize_admx_options(block: Element) -> str:
+    """Join the configured values of a policy's option elements, length-capped."""
+    parts: list[str] = []
+    for opt in block:
+        if _localname(opt.tag) not in _ADMX_OPTION_TAGS:
+            continue
+        summary = _summarize_admx_option(opt)
+        if summary:
+            parts.append(summary)
+    joined = "; ".join(parts)
+    if len(joined) > _ADMX_SUMMARY_MAX:
+        joined = joined[:_ADMX_SUMMARY_MAX - 1].rstrip() + "…"
+    return joined
+
+
 def _parse_admin_template_policy(block: Element) -> tuple[str, str, str] | None:
     """Administrative-Templates ``<Policy>`` block (Registry CSE) -> readable row.
 
@@ -266,6 +336,11 @@ def _parse_admin_template_policy(block: Element) -> tuple[str, str, str] | None:
     and a GPMC category path; the raw key is not in the report. Use the
     category-qualified name as identity so it is both human-readable and unique
     within a side, replacing the opaque ``Registry:Policy:<hash>`` fallback.
+
+    ``display_value`` is the policy ``State`` plus a compact summary of its
+    configured option values when present (WI-080), e.g.
+    ``Enabled — Maximum Log Size (KB): 2097120``. Policies with no options (or
+    simply Disabled) keep the bare state.
     """
     name = _text(_child_by_localname(block, "Name"))
     if not name:
@@ -273,7 +348,9 @@ def _parse_admin_template_policy(block: Element) -> tuple[str, str, str] | None:
     state = _text(_child_by_localname(block, "State")) or ""
     category = _text(_child_by_localname(block, "Category")) or ""
     identity = f"{category}/{name}" if category else name
-    return identity, name, state
+    options = _summarize_admx_options(block)
+    display_value = f"{state} — {options}" if options else state
+    return identity, name, display_value
 
 
 _HIVE_SHORT = {
