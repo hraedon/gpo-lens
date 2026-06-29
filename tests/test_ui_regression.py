@@ -29,12 +29,12 @@ pytestmark = pytest.mark.skipif(
 
 FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures"
 
-# The fixture estate's known GPO IDs (lowercase, braces stripped).
-_GPO_A = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"  # gpo-cpassword
-_GPO_B = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
-_GPO_C = "cccccccc-cccc-cccc-cccc-cccccccccccc"  # version skew
-_GPO_E = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"  # loopback
-_GPO_DISABLED = "11111111-1111-1111-1111-111111111111"
+# The fixture estate's known GPO IDs (lowercase, braces and hyphens stripped).
+_GPO_A = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"  # gpo-cpassword
+_GPO_B = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+_GPO_C = "cccccccccccccccccccccccccccccccc"  # version skew
+_GPO_E = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"  # loopback
+_GPO_DISABLED = "11111111111111111111111111111111"
 
 
 def _has_class(html: str, cls: str) -> bool:

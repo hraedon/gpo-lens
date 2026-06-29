@@ -421,6 +421,33 @@ class TestOverbroadApplyGroupPolicy:
         assert bare[0].check_id == resolved[0].check_id
         assert bare[0].gpo_id == resolved[0].gpo_id
 
+    def test_deny_cancels_allow_for_everyone(self) -> None:
+        """M-4: when Everyone has both allow and deny for Apply Group Policy,
+        the deny must cancel the allow (Windows deny-first evaluation)."""
+        gpo = _make_gpo(
+            delegation=[
+                DelegationEntry(
+                    gpo_id="g1", trustee="Everyone", trustee_sid="S-1-1-0",
+                    permission="Apply Group Policy", allowed=True,
+                ),
+                DelegationEntry(
+                    gpo_id="g1", trustee="Everyone", trustee_sid="S-1-1-0",
+                    permission="Apply Group Policy", allowed=False,
+                ),
+            ],
+        )
+        estate = Estate(gpos=[gpo])
+        assert overbroad_apply_group_policy(estate) == []
+
+    def test_sddl_deny_cancels_allow_for_everyone(self) -> None:
+        """M-4: SDDL fallback path — deny ACE for Everyone cancels allow ACE."""
+        gpo = _make_gpo(
+            sddl="D:(A;;GA;;;S-1-1-0)(D;;GA;;;S-1-1-0)",
+            delegation=[],
+        )
+        estate = Estate(gpos=[gpo])
+        assert overbroad_apply_group_policy(estate) == []
+
 
 # ---------------------------------------------------------------------------
 # Bucket 1 — setting-value dangers
@@ -581,6 +608,23 @@ class TestDangerRules:
         ])
         estate = Estate(gpos=[gpo])
         assert evaluate_danger_rules(estate, [rule]) == []
+
+    def test_lowercase_cse_name_matches(self) -> None:
+        """M-2: CSE name comparison must be case-insensitive so a lowercase
+        ``"registry"`` is still recognized."""
+        rule = DangerRule(
+            id="x", title="x", severity="high", applies="Machine",
+            identity=r"HKLM\Key:Val", predicate="equals", value="1", reference="ref",
+        )
+        gpo = _make_gpo(settings=[
+            Setting(
+                gpo_id=DEFAULT_GID, side="Computer", cse="registry",
+                identity=r"HKLM\Key:Val", display_name="Val", display_value="1",
+                raw={}, from_disabled_side=False,
+            ),
+        ])
+        estate = Estate(gpos=[gpo])
+        assert len(evaluate_danger_rules(estate, [rule])) == 1
 
     def test_malformed_toml_warns_and_returns_empty(self, tmp_path: Path) -> None:
         """Malformed TOML warns loudly; orchestrator escalates shipped-file failure."""
@@ -1858,6 +1902,33 @@ class TestAbsentPredicate:
         assert ids == {"test_rule"}
         # One absent finding + one present finding
         assert len(findings) == 2
+
+    def test_absent_machine_side_ignores_user_side_setting(self) -> None:
+        """C-1: A Machine-scoped absent rule must NOT be suppressed by a
+        matching setting on the User side only.  The absent loop must call
+        _side_matches(), just like the present path does."""
+        gpo = _make_gpo()
+        gpo.settings.append(
+            _reg_setting(gpo.id, r"HKLM\Software\Target:Key", "1", side="User")
+        )
+        estate = Estate(gpos=[gpo])
+        rule = _rule("absent", "", identity=r"HKLM\Software\Target:Key")
+        findings = evaluate_danger_rules(estate, [rule])
+        # The setting is on the User side; rule applies to Machine → finding fires.
+        assert len(findings) == 1
+        assert findings[0].check_id == "test_rule"
+
+    def test_absent_machine_side_no_finding_when_computer_side_present(self) -> None:
+        """C-1: A Machine-scoped absent rule is suppressed when a matching
+        setting exists on the Computer side."""
+        gpo = _make_gpo()
+        gpo.settings.append(
+            _reg_setting(gpo.id, r"HKLM\Software\Target:Key", "1", side="Computer")
+        )
+        estate = Estate(gpos=[gpo])
+        rule = _rule("absent", "", identity=r"HKLM\Software\Target:Key")
+        findings = evaluate_danger_rules(estate, [rule])
+        assert findings == []
 
 
 # ---------------------------------------------------------------------------

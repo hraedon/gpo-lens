@@ -18,16 +18,16 @@ FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures"
 ROOT_DN = "dc=fakefixture,dc=local"
 
 GPO_IDS = {
-    "cpassword": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
-    "version_skew": "cccccccc-cccc-cccc-cccc-cccccccccccc",
-    "loopback": "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee",
-    "loopback_merge": "33333333-3333-3333-3333-333333333333",
-    "loopback_unknown": "44444444-4444-4444-4444-444444444444",
-    "user_disabled": "11111111-1111-1111-1111-111111111111",
-    "security_filtered": "55555555-5555-5555-5555-555555555555",
-    "wmi_broken_ref": "66666666-6666-6666-6666-666666666666",
-    "gpp_ilt": "77777777-7777-7777-7777-777777777777",
-    "stale": "88888888-8888-8888-8888-888888888888",
+    "cpassword": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "version_skew": "cccccccccccccccccccccccccccccccc",
+    "loopback": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "loopback_merge": "33333333333333333333333333333333",
+    "loopback_unknown": "44444444444444444444444444444444",
+    "user_disabled": "11111111111111111111111111111111",
+    "security_filtered": "55555555555555555555555555555555",
+    "wmi_broken_ref": "66666666666666666666666666666666",
+    "gpp_ilt": "77777777777777777777777777777777",
+    "stale": "88888888888888888888888888888888",
 }
 
 

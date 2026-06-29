@@ -19,7 +19,7 @@ from fastapi.templating import Jinja2Templates
 
 from gpo_lens import store as _store
 from gpo_lens.web import _helpers as _h
-from gpo_lens.web.auth import Principal
+from gpo_lens.web.auth import Principal, _is_loopback
 
 _logger = logging.getLogger(__name__)
 
@@ -362,6 +362,10 @@ def create_app(
     def _is_localhost_origin(origin: str) -> bool:
         from urllib.parse import urlparse
         parsed = urlparse(origin)
+        # Reject non-http(s) schemes — ``data:``, ``javascript:``, ``ftp://``,
+        # etc. can carry a localhost hostname but are not browser navigations.
+        if parsed.scheme not in ("http", "https"):
+            return False
         # `0.0.0.0` is the bind-any wildcard, not a legitimate client Origin —
         # a cross-origin attacker can spoof it, so it must NOT be allow-listed.
         return parsed.hostname in (
@@ -455,8 +459,11 @@ def create_app(
         # that the https page blocks as mixed content (and nav to the wrong
         # scheme). uvicorn binds 127.0.0.1, so X-Forwarded-Proto can only come
         # from the local proxy; honor it for the scheme only, never the client.
+        # Gate on loopback peer so an external attacker cannot inject the
+        # header over a direct connection.
         proto = request.headers.get("x-forwarded-proto")
-        if proto in ("http", "https"):
+        client_host = request.client.host if request.client else None
+        if proto in ("http", "https") and _is_loopback(client_host):
             request.scope["scheme"] = proto
         return await call_next(request)
 
@@ -472,6 +479,27 @@ def create_app(
             "style-src 'self' 'unsafe-inline'"
         )
         return response
+
+    @app.middleware("http")
+    async def _body_size_limit(request: Request, call_next):  # type: ignore[no-untyped-def]
+        # Reject oversized POST bodies on form-only routes early, before the
+        # ASGI framework buffers the full body. Upload routes (/ingest,
+        # /baseline, /golden-diff) accept up to 500 MB and are excluded.
+        if request.method == "POST" and not any(
+            request.url.path.startswith(p)
+            for p in ("/ingest", "/baseline", "/golden-diff")
+        ):
+            cl = request.headers.get("content-length")
+            if cl:
+                try:
+                    if int(cl) > 10 * 1024 * 1024:  # 10MB
+                        return JSONResponse(
+                            {"detail": "Request body too large"},
+                            status_code=413,
+                        )
+                except ValueError:
+                    pass
+        return await call_next(request)
 
     @app.middleware("http")
     async def _csrf_check(request: Request, call_next):  # type: ignore[no-untyped-def]

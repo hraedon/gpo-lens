@@ -7,6 +7,7 @@ import os
 import ssl
 import sys
 import threading
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -58,10 +59,11 @@ class NdjsonSink:
                 self._fh.close()
 
     def __enter__(self) -> NdjsonSink:
-        if self._fh is not None and not self._closed:
-            self._fh.close()
-        self._closed = False
-        self._fh = open(self.path, "a", encoding="utf-8", newline="\n")
+        with self._lock:
+            if self._fh is not None and not self._closed:
+                self._fh.close()
+            self._closed = False
+            self._fh = open(self.path, "a", encoding="utf-8", newline="\n")
         return self
 
     def __exit__(self, *args: object) -> None:
@@ -106,7 +108,7 @@ class HecSink:
             warnings.warn(f"Invalid HEC URL configuration: {exc}", stacklevel=2)
             return None
 
-    def _post(self, payload: str) -> bool:
+    def _post(self, payload: str, max_retries: int = 3) -> bool:
         endpoint = f"{self.url}/services/collector/event"
         data = payload.encode("utf-8")
         req = urllib.request.Request(
@@ -124,25 +126,24 @@ class HecSink:
             ctx.verify_mode = ssl.CERT_NONE
         else:
             ctx = None
-        try:
-            kwargs: dict[str, Any] = {"timeout": self.timeout}
-            if ctx is not None:
-                kwargs["context"] = ctx
-            with urllib.request.urlopen(req, **kwargs) as resp:
-                code: int = resp.getcode()
-                return code == 200
-        except (ssl.SSLError, OSError) as exc:
-            print(f"Warning: HEC SSL/socket error: {exc}", file=sys.stderr)
-            return False
-        except urllib.error.HTTPError as exc:
-            print(f"Warning: HEC returned HTTP {exc.code}", file=sys.stderr)
-            return False
-        except urllib.error.URLError as exc:
-            print(f"Warning: HEC transport error: {exc.reason}", file=sys.stderr)
-            return False
-        except TimeoutError:
-            print("Warning: HEC request timed out", file=sys.stderr)
-            return False
+        kwargs: dict[str, Any] = {"timeout": self.timeout}
+        if ctx is not None:
+            kwargs["context"] = ctx
+        for attempt in range(max_retries):
+            try:
+                with urllib.request.urlopen(req, **kwargs) as resp:
+                    code: int = resp.getcode()
+                    return code == 200
+            except urllib.error.HTTPError as exc:
+                print(f"Warning: HEC returned HTTP {exc.code}", file=sys.stderr)
+                return False
+            except OSError as exc:
+                if attempt < max_retries - 1:
+                    time.sleep(2 ** attempt)
+                    continue
+                print(f"Warning: HEC transport error: {exc}", file=sys.stderr)
+                return False
+        return False
 
     def send(self, event: dict[str, Any]) -> bool:
         payload = json.dumps({"event": event, "sourcetype": "gpo_lens:change"})

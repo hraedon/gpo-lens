@@ -17,6 +17,14 @@ from typing import Any
 # Snapshot diff
 # ---------------------------------------------------------------------------
 
+_ALLOWED_DIFF_TABLES = frozenset({"setting", "gpo_link", "delegation"})
+_ALLOWED_DIFF_COLSETS = frozenset({
+    "side, cse, identity, display_value",
+    "som_path, link_enabled, enforced",
+    "trustee, permission, allowed",
+})
+
+
 @dataclass(frozen=True)
 class GpoMetadataChange:
     """One metadata field that changed for a GPO between snapshots."""
@@ -366,6 +374,10 @@ def snapshot_diff(
     def _load_row_sets(
         table: str, cols: str, snap_id: int,
     ) -> dict[str, set[tuple[Any, ...]]]:
+        if table not in _ALLOWED_DIFF_TABLES:
+            raise ValueError(f"unexpected table in snapshot diff: {table!r}")
+        if cols not in _ALLOWED_DIFF_COLSETS:
+            raise ValueError(f"unexpected column set in snapshot diff: {cols!r}")
         result: dict[str, set[tuple[Any, ...]]] = defaultdict(set)
         for chunk in _chunked_ids():
             ph = ",".join("?" * len(chunk))

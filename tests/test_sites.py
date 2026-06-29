@@ -27,7 +27,7 @@ def test_parse_gplink_flags():
         (False, True),
     ]
     assert [link.order for link in links] == [1, 2, 3, 4]
-    assert links[0].gpo_id == "11111111-1111-1111-1111-111111111111"
+    assert links[0].gpo_id == "11111111111111111111111111111111"
 
 
 def test_parse_gplink_empty():

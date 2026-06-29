@@ -31,16 +31,16 @@ from gpo_lens.topology import is_security_filtered as topology_is_security_filte
 
 GOLDEN_DIR = Path(__file__).resolve().parent / "golden_estate"
 
-# Canonical GUIDs (lowercase, braces stripped — the contract key)
+# Canonical GUIDs (lowercase, braces and hyphens stripped — the contract key)
 G = {
-    "v2task":    "aaaaaaaa-0001-0001-0001-aaaaaaaaaaaa",
-    "cpassword": "aaaaaaaa-0002-0002-0002-aaaaaaaaaaaa",
-    "blocked":   "aaaaaaaa-0003-0003-0003-aaaaaaaaaaaa",
-    "secfilt":   "aaaaaaaa-0004-0004-0004-aaaaaaaaaaaa",
-    "wmifilt":   "aaaaaaaa-0005-0005-0005-aaaaaaaaaaaa",
-    "invonly":   "aaaaaaaa-0006-0006-0006-aaaaaaaaaaaa",
-    "collerr":   "aaaaaaaa-0007-0007-0007-aaaaaaaaaaaa",
-    "drives":    "aaaaaaaa-0008-0008-0008-aaaaaaaaaaaa",
+    "v2task":    "aaaaaaaa000100010001aaaaaaaaaaaa",
+    "cpassword": "aaaaaaaa000200020002aaaaaaaaaaaa",
+    "blocked":   "aaaaaaaa000300030003aaaaaaaaaaaa",
+    "secfilt":   "aaaaaaaa000400040004aaaaaaaaaaaa",
+    "wmifilt":   "aaaaaaaa000500050005aaaaaaaaaaaa",
+    "invonly":   "aaaaaaaa000600060006aaaaaaaaaaaa",
+    "collerr":   "aaaaaaaa000700070007aaaaaaaaaaaa",
+    "drives":    "aaaaaaaa000800080008aaaaaaaaaaaa",
 }
 
 

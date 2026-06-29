@@ -72,7 +72,7 @@ def test_inventory_reconciliation_flags_inaccessible(tmp_path):
     est = ingest.load_estate(_export_with(tmp_path, inventory=inventory))
     gaps = [g for g in est.coverage_gaps if g.kind == "inaccessible"]
     assert len(gaps) == 1
-    assert gaps[0].gpo_id == "deadbeef-0000-0000-0000-000000000001"
+    assert gaps[0].gpo_id == "deadbeef000000000000000000000001"
     assert gaps[0].display_name == "Stripped GPO"
 
 

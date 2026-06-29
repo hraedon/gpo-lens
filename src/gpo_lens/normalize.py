@@ -28,17 +28,17 @@ def children_by_localname(parent: Element, name: str) -> list[Element]:
 
 
 def canonical_guid(raw: str) -> str:
-    """Lowercase and strip surrounding braces and whitespace.
+    """Lowercase and strip surrounding braces, whitespace, and hyphens.
 
     ``"{31B2F340-016D-11D2-945F-00C04FB984F9}"`` →
-    ``"31b2f340-016d-11d2-945f-00c04fb984f9"``.
+    ``"31b2f340016d11d2945f00c04fb984f9"``.
     """
     cleaned = raw.strip().strip("{}").strip()
     # Validate: 32 hex digits optionally with hyphens
     bare = cleaned.replace("-", "")
     if len(bare) != 32 or not all(c in "0123456789abcdefABCDEF" for c in bare):
         raise ValueError(f"Not a valid GUID: {raw!r}")
-    return cleaned.lower()
+    return bare.lower()
 
 
 def load_json(path: str | Path) -> Any:
@@ -59,7 +59,12 @@ def parse_dt(text: str | None) -> datetime | None:
     if not text:
         return None
     # The report uses e.g. 2026-03-10T16:32:00
-    return datetime.fromisoformat(text)
+    # A malformed timestamp in one GPO should not prevent loading the rest
+    # of the estate.
+    try:
+        return datetime.fromisoformat(text)
+    except ValueError:
+        return None
 
 
 def parse_int(text: str | None) -> int | None:
@@ -72,4 +77,9 @@ def parse_int(text: str | None) -> int | None:
     try:
         return int(text)
     except ValueError:
+        pass
+    # PowerShell's ConvertTo-Json can emit floats for integer fields.
+    try:
+        return int(float(text))
+    except (ValueError, OverflowError):
         return None

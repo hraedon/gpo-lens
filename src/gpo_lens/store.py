@@ -49,6 +49,8 @@ def _safe_json_loads(raw: str | None, default: Any) -> Any:
 def init_db(conn: sqlite3.Connection) -> None:
     """Create tables (idempotent, ``IF NOT EXISTS``)."""
     conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     restrict_db_permissions(conn)
     conn.execute(
         """
@@ -323,7 +325,10 @@ def _dt_to_iso(dt: datetime | None) -> str | None:
 def _iso_to_dt(text: str | None) -> datetime | None:
     if text is None:
         return None
-    return datetime.fromisoformat(text)
+    try:
+        return datetime.fromisoformat(text)
+    except ValueError:
+        return None
 
 
 def save_estate(conn: sqlite3.Connection, estate: Estate, taken_at: datetime | None = None) -> int:

@@ -96,9 +96,9 @@ async def stream_upload_to_file(
         while chunk := await file.read(1024 * 1024):
             total += len(chunk)
             if total > max_bytes:
-                # Drain remaining bytes to prevent slowloris
-                while await file.read(1024 * 1024):
-                    pass
+                # Do not drain remaining bytes — reading at the attacker's
+                # pace is a slowloris vector. Return immediately; the
+                # connection cleanup is handled by the ASGI server.
                 return True
             out.write(chunk)
     return False

@@ -68,11 +68,12 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
                 computer_dn=computer_dn.strip() or None,
             )
         except Exception as exc:
-            _logger.warning("resultant computation failed: %s", exc)
+            _logger.warning("resultant computation failed: %s", exc, exc_info=True)
             return templates.TemplateResponse(
                 request,
                 "resultant.html",
-                {"request": request, "result": None, "error": str(exc)},
+                {"request": request, "result": None,
+                 "error": "Computation failed. Check the server log for details."},
             )
         return templates.TemplateResponse(
             request,

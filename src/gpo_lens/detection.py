@@ -638,7 +638,7 @@ def admx_gaps(
     results: list[AdmxGap] = []
     for g in estate.gpos:
         for s in g.settings:
-            if s.cse not in ("Registry", "Windows Registry"):
+            if s.cse.strip().lower() not in ("registry", "windows registry"):
                 continue
             if s.source_state == "blocked":
                 continue

@@ -350,9 +350,9 @@ class TestDashboard:
     def test_dashboard_findings_link_to_gpo_detail(self, client) -> None:
         resp = client.get("/")
         html = resp.text
-        assert "/gpo/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa" in html
-        assert "/gpo/bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb" in html
-        assert "/gpo/cccccccc-cccc-cccc-cccc-cccccccccccc" in html
+        assert "/gpo/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" in html
+        assert "/gpo/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" in html
+        assert "/gpo/cccccccccccccccccccccccccccccccc" in html
 
     def test_posture_cards_deeplink_into_findings(self, client) -> None:
         html = client.get("/").text
@@ -1524,13 +1524,13 @@ class TestExport:
 
     def test_export_gpo_json(self, client) -> None:
         resp = client.get(
-            "/export/gpo/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa?format=json"
+            "/export/gpo/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa?format=json"
         )
         assert resp.status_code == 200
         assert resp.headers["content-type"].split(";")[0] == "application/json"
         data = json.loads(resp.text)
         assert data["name"] == "gpo-cpassword"
-        assert data["id"] == "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+        assert data["id"] == "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
     def test_export_gpo_unknown_404(self, client) -> None:
         resp = client.get(
@@ -1959,7 +1959,9 @@ class TestResultantRoute:
                 "principal_sid": "S-1-5-21-100-200-300-1001",
             })
         assert resp.status_code == 200
-        assert "test explosion" in resp.text
+        # L-3: exception details must not be disclosed to the client.
+        assert "test explosion" not in resp.text
+        assert "Computation failed" in resp.text
 
 
 
@@ -2100,3 +2102,16 @@ class TestSnapshotDelete:
         # dashboard still renders (empty estate), does not 500
         assert client.get("/").status_code == 200
         assert client.get("/ingest").status_code == 200
+
+    def test_delete_returns_409_when_lock_held(self, client) -> None:
+        """ingest_delete must acquire the ingest lock — returns 409 if held."""
+        # Acquire the lock from the app state (simulating a concurrent ingest)
+        app = client.app
+        lock = app.state.ingest_lock
+        assert lock.acquire(blocking=False)
+        try:
+            resp = client.post("/ingest/delete", data={"snapshot_id": 1})
+            assert resp.status_code == 409
+            assert "in progress" in resp.text.lower()
+        finally:
+            lock.release()
