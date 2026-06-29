@@ -55,3 +55,8 @@ plans/design/
 
 # Pester -CI output
 testResults.xml
+
+# Temporary holding pen for work items that could not be filed in regista
+# (e.g. CLI write blocked by a pending schema migration). Transient — drain
+# into regista once writes are unblocked, then delete. Never the source of truth.
+PENDING-REGISTA-WI.md
