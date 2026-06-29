@@ -26,6 +26,7 @@ from gpo_lens.authz import (
     DOMAIN_SID_PREFIX,
     EVERYONE_SID,
     READ_OR_APPLY_RIGHTS,
+    canonical_sddl_sid,
     is_allow_ace_type,
     is_deny_ace_type,
     parse_sddl,
@@ -633,7 +634,10 @@ def _gpo_apply_trustee_sids(
         allow_rights: dict[str, set[str]] = defaultdict(set)
         deny_rights: dict[str, set[str]] = defaultdict(set)
         for ace in acl.dacl:
-            sid = (ace.trustee_sid or "").strip().lower()
+            # Canonicalize alias forms (AU/WD/DA…) to the raw SID so an
+            # alias-form deny cancels a raw-SID allow for the same trustee and
+            # matches the canonical SIDs in a principal's token (WI-084).
+            sid = canonical_sddl_sid(ace.trustee_sid or "", domain_sid)
             if not sid:
                 continue
             rights = set(parse_sddl_rights(ace.rights))

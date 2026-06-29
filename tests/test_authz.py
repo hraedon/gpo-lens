@@ -413,3 +413,63 @@ def test_read_or_apply_rights_excludes_cc():
     assert "GR" in READ_OR_APPLY_RIGHTS
     assert "CR" in READ_OR_APPLY_RIGHTS
     assert "RP" in READ_OR_APPLY_RIGHTS
+
+
+# ---------------------------------------------------------------------------
+# WI-084: SDDL alias vs canonical SID must compare equal
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "alias,raw,key",
+    [
+        ("au", "s-1-5-11", "authenticated_users"),
+        ("wd", "s-1-1-0", "everyone"),
+    ],
+)
+def test_broad_trustee_key_alias_matches_raw_sid(alias, raw, key):
+    """An SDDL alias and its raw SID resolve to the same broad-trustee key."""
+    from gpo_lens.authz import broad_trustee_key
+
+    assert broad_trustee_key("", alias) == key
+    assert broad_trustee_key("", raw) == key
+
+
+def test_broad_trustee_key_domain_computers_alias_and_suffix():
+    """Domain Computers via the ``DC`` alias and the -515 SID suffix agree."""
+    from gpo_lens.authz import broad_trustee_key
+
+    assert broad_trustee_key("", "dc") == "domain_computers"
+    assert broad_trustee_key("", "s-1-5-21-1-2-3-515") == "domain_computers"
+
+
+def test_applies_broadly_alias_deny_cancels_raw_allow():
+    """A deny in alias form cancels an allow in raw-SID form (WI-084).
+
+    Before the fix the two trustee forms produced different keys, so the deny
+    never canceled the allow and a broad-apply finding fired falsely.
+    """
+    from gpo_lens.authz import applies_broadly, broad_trustee_key
+
+    allow = broad_trustee_key("", "s-1-5-11")  # raw SID
+    deny = broad_trustee_key("", "au")         # alias
+    assert allow == deny  # same key is the whole point
+    assert applies_broadly([(allow, True), (deny, False)]) is False
+
+
+@pytest.mark.parametrize(
+    "token,domain_sid,expected",
+    [
+        ("AU", None, "s-1-5-11"),
+        ("WD", None, "s-1-1-0"),
+        ("BA", None, "s-1-5-32-544"),
+        ("DA", "s-1-5-21-1-2-3", "s-1-5-21-1-2-3-512"),
+        ("DC", "s-1-5-21-1-2-3", "s-1-5-21-1-2-3-515"),
+        ("da", None, "da"),                     # domain-relative, no domain SID
+        ("s-1-5-11", None, "s-1-5-11"),          # raw SID passes through
+        ("S-1-5-11", None, "s-1-5-11"),          # lowercased
+    ],
+)
+def test_canonical_sddl_sid(token, domain_sid, expected):
+    from gpo_lens.authz import canonical_sddl_sid
+
+    assert canonical_sddl_sid(token, domain_sid) == expected

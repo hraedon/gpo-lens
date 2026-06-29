@@ -1,5 +1,35 @@
 # Changelog
 
+## Unreleased
+
+### WI-081 — precedence-conflict rollup deduplicated by chain signature
+
+- `precedence_conflict_rollup` now resolves conflicts once per *distinct*
+  enabled link chain instead of once per SOM. On a real ~1,500-SOM estate this
+  is a ~12× speedup (4.6s → 0.4s, 66 distinct chains) with byte-identical
+  output. The `/conflicts` "Resolved (who wins)" tab and its pagination no
+  longer pay the full per-OU walk on every visit.
+
+### WI-084 — SDDL alias and raw-SID trustee forms now compare equal
+
+- `broad_trustee_key` resolves the SID through `resolve_well_known`, so an SDDL
+  alias (`AU`/`WD`) and the corresponding raw SID (`S-1-5-11`/`S-1-1-0`) yield
+  the same key. A deny in alias form now cancels an allow in raw-SID form in
+  `applies_broadly` (fixes a latent false positive in `overbroad_apply_gp`).
+- New `authz.canonical_sddl_sid` canonicalizes ACE trustee tokens (absolute and
+  domain-relative aliases) to comparable SIDs. The principal-resultant security
+  gate (`_gpo_apply_trustee_sids`) applies it when grouping SDDL ACEs, so an
+  alias-form deny correctly excludes a principal whose token holds the canonical
+  SID — closing a gate over-grant on alias-form SDDL.
+
+### Supply-chain hardening (CI)
+
+- CI installs from the `uv.lock` (`uv sync --locked`) instead of resolving
+  fresh from version floors, so builds are reproducible and lock drift fails
+  the build.
+- New `supply-chain` job runs `pip-audit` (`--strict`) against the locked
+  runtime + web dependency set on every push and PR.
+
 ## v0.8.5 — 2026-06-26
 
 ### Per-user RSoP caveat banner (design doc)

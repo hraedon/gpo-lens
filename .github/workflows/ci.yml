@@ -50,10 +50,8 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Create venv and install dependencies
-        run: |
-          uv venv
-          uv pip install -e ".[dev,web]"
+      - name: Install dependencies (from lockfile)
+        run: uv sync --locked --extra dev --extra web
 
       - name: Ruff lint
         run: .venv/bin/ruff check .
@@ -84,10 +82,8 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Create venv and install dependencies
-        run: |
-          uv venv
-          uv pip install -e ".[dev,web]"
+      - name: Install dependencies (from lockfile)
+        run: uv sync --locked --extra dev --extra web
 
       - name: Run tests with coverage gate
         # samples/ is gitignored, so sample-dependent calibration tests are
@@ -96,6 +92,33 @@ jobs:
         # floor catches real regressions while leaving headroom for CLI/web
         # presentation-layer evolution.
         run: .venv/bin/pytest -q --cov-fail-under=85
+
+  supply-chain:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          enable-cache: true
+
+      # Audit the deployable surface (runtime + web extra) against the pinned
+      # lockfile. Dev-only tooling is excluded to keep the signal on what ships.
+      - name: Export locked dependencies
+        run: uv export --locked --extra web --no-emit-project --format requirements-txt -o requirements-audit.txt
+
+      - name: pip-audit
+        run: uvx pip-audit --strict --requirement requirements-audit.txt
 
   pester:
     runs-on: windows-latest

@@ -635,6 +635,73 @@ class TestSecurityGateReadVsApply:
 
 
 # ---------------------------------------------------------------------------
+# WI-084 — SDDL alias-form deny must cancel a raw-SID allow in the gate
+# ---------------------------------------------------------------------------
+
+def _sddl_sec_estate(sddl: str) -> Estate:
+    """Estate with one SDDL-only GPO (no delegation) linked at the domain root."""
+    gpo_id = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    principals = {
+        _USER_SID: ResolvedPrincipal(
+            sid=_USER_SID, name="TEST\\user", sam="user",
+            principal_type="User", domain="TEST", resolved=True,
+        ),
+    }
+    gpos = [
+        Gpo(
+            id=gpo_id, name="gpo-sddl", domain="test.local",
+            created=None, modified=None, read=None,
+            computer_enabled=True, user_enabled=True,
+            computer_ver_ds=None, computer_ver_sysvol=None,
+            user_ver_ds=None, user_ver_sysvol=None,
+            sddl=sddl, owner=None, filter_data_available=False,
+            wmi_filter=None, sysvol_path=None,
+            settings=[
+                Setting(
+                    gpo_id=gpo_id, side="User", cse="Registry",
+                    identity=r"HKCU\Software\Test", display_name="Test",
+                    display_value="1", raw={}, from_disabled_side=False,
+                ),
+            ],
+            delegation=[],
+        ),
+    ]
+    som = Som(
+        path=_ROOT_DN, name="test", container_type="domain",
+        inheritance_blocked=False,
+        links=[SomLink(gpo_id=gpo_id, order=1, enabled=True,
+                       enforced=False, target=_ROOT_DN)],
+    )
+    return Estate(
+        domain="test.local", gpos=gpos, soms=[som], principals=principals,
+    )
+
+
+class TestSddlAliasDenyGate:
+    def test_alias_deny_cancels_raw_allow(self) -> None:
+        """SDDL allow to ``S-1-5-11`` + deny to ``AU`` must exclude the GPO.
+
+        Before WI-084 the two forms keyed differently, so the deny landed under
+        ``au`` and never canceled the allow under ``s-1-5-11`` — the principal
+        (whose token holds the canonical SID) wrongly received the GPO.
+        """
+        estate = _sddl_sec_estate("O:DAG:DAD:(A;;GR;;;S-1-5-11)(D;;GR;;;AU)")
+        result = principal_resultant(estate, _USER_SID, dn=_ROOT_DN)
+        idents = {m.identity for m in result.settings}
+        assert r"HKCU\Software\Test" not in idents
+        assert any(e.kind == "security_filter" for e in result.excluded)
+
+    def test_alias_allow_applies(self) -> None:
+        """Sanity: an alias-only allow (no deny) still grants apply, so the
+        canonicalization didn't break the normal path.
+        """
+        estate = _sddl_sec_estate("O:DAG:DAD:(A;;GR;;;AU)")
+        result = principal_resultant(estate, _USER_SID, dn=_ROOT_DN)
+        idents = {m.identity for m in result.settings}
+        assert r"HKCU\Software\Test" in idents
+
+
+# ---------------------------------------------------------------------------
 # L-13 / WI-078 — ExcludedGpo.side populated in loopback mode
 # ---------------------------------------------------------------------------
 
