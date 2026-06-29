@@ -15,6 +15,7 @@ never unqualified "effective" (decision 4).
 
 from __future__ import annotations
 
+import re
 from collections import defaultdict, deque
 from dataclasses import dataclass
 from enum import Enum
@@ -29,6 +30,7 @@ from gpo_lens.authz import (
     is_deny_ace_type,
     parse_sddl,
     parse_sddl_rights,
+    permission_implies_apply,
     permission_implies_read,
     resolve_principal,
     resolve_well_known,
@@ -609,7 +611,10 @@ def _gpo_apply_trustee_sids(
 
     for entry in gpo.delegation:
         has_data = True
-        if not permission_implies_read(entry.permission):
+        if entry.allowed:
+            if not permission_implies_apply(entry.permission):
+                continue
+        elif not permission_implies_read(entry.permission):
             continue
         sid = (entry.trustee_sid or "").strip().lower()
         if not sid and entry.trustee:
@@ -661,6 +666,7 @@ class ExcludedGpo:
     gpo_name: str
     reason: str
     kind: str
+    side: str = ""
 
 
 @dataclass(frozen=True)
@@ -686,7 +692,7 @@ class PrincipalResultant:
     conditional_dangers: list[ConditionalDanger]
     token_caveats: list[str]
     caveat_summary: str
-    caveat_mechanisms: list[str] = None  # type: ignore[assignment]
+    caveat_mechanisms: list[str] | None = None
 
     def __post_init__(self) -> None:
         if self.caveat_mechanisms is None:
@@ -696,7 +702,7 @@ class PrincipalResultant:
 def _resolve_som_path_for_principal(estate: Estate, dn: str | None) -> str:
     """Find the most specific SOM path for a principal's DN, or the domain root."""
     if dn:
-        parts = [p.strip() for p in dn.split(",")]
+        parts = [p.strip() for p in re.split(r"(?<!\\),", dn)]
         for i in range(len(parts)):
             candidate = ",".join(parts[i:])
             for som in estate.soms:
@@ -886,6 +892,7 @@ def _collect_chain_entries(
             excluded.append(ExcludedGpo(
                 gpo_id=gpo.id, gpo_name=gpo.name,
                 reason=reason, kind="security_filter",
+                side=target_side,
             ))
             continue
         if gpo.wmi_filter:
@@ -895,6 +902,7 @@ def _collect_chain_entries(
                 gpo_id=gpo.id, gpo_name=gpo.name,
                 reason=f"WMI filter attached: {gpo.wmi_filter}",
                 kind="wmi_filter",
+                side=target_side,
             ))
             continue
         side_settings = [

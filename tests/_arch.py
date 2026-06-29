@@ -20,6 +20,8 @@ import importlib.util
 from collections.abc import Collection
 from pathlib import Path
 
+import pytest
+
 CORE_MODULES: tuple[str, ...] = (
     "model",
     "normalize",
@@ -130,3 +132,37 @@ def forbidden_imports_in(
         for imp in imported_module_paths(module_name)
         if _is_forbidden(imp, forbidden)
     }
+
+
+def test_no_dynamic_imports_of_forbidden_modules() -> None:
+    """Verify no core module uses importlib or __import__ to load narration/web."""
+    forbidden_substrings = (
+        "gpo_lens.narration", "gpo_lens.web",
+        ".narration", ".web",
+    )
+    for module_name in CORE_MODULES:
+        for module_path in module_source_paths(module_name):
+            source = module_path.read_text(encoding="utf-8")
+            tree = ast.parse(source, filename=str(module_path))
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                func = node.func
+                # Check importlib.import_module("...")
+                if isinstance(func, ast.Attribute) and func.attr == "import_module":
+                    for arg in node.args:
+                        if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                            if any(s in arg.value for s in forbidden_substrings):
+                                pytest.fail(
+                                    f"{module_path} uses importlib.import_module "
+                                    f"to load forbidden module: {arg.value}"
+                                )
+                # Check __import__("...")
+                if isinstance(func, ast.Name) and func.id == "__import__":
+                    for arg in node.args:
+                        if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                            if any(s in arg.value for s in forbidden_substrings):
+                                pytest.fail(
+                                    f"{module_path} uses __import__ "
+                                    f"to load forbidden module: {arg.value}"
+                                )

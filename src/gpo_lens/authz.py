@@ -57,7 +57,10 @@ DOMAIN_SID_PREFIX = "s-1-5-21-"
 # The name READ_OR_APPLY_RIGHTS (not APPLY_RIGHTS) reflects that the set
 # includes GR (Generic Read) and RP (Read Property), which are read-only
 # rights, not "apply" rights. GA (Generic All) also includes write.
-READ_OR_APPLY_RIGHTS = frozenset({"GA", "GR", "CC", "CR", "RP"})
+# CC (Create Child / ADS_RIGHT_DS_CREATE_CHILD) is excluded because it is
+# a write right, not a read/apply right — including it caused false MS16-072
+# compliance and missed security-filtering findings.
+READ_OR_APPLY_RIGHTS = frozenset({"GA", "GR", "CR", "RP"})
 DOMAIN_COMPUTERS_RID_SUFFIX = "-515"
 _BUILTIN_PREFIX = "s-1-5-32-"
 _MANDATORY_PREFIX = "s-1-16-"
@@ -158,6 +161,11 @@ ACE_TYPE_MAP = {
     "D": "deny",
     "OA": "object_allow",
     "OD": "object_deny",
+    # Callback ACE types (Windows 8+) — used for conditional ACEs where the
+    # 7th+ field is a conditional expression. Treated as allow/deny for
+    # permission evaluation.
+    "XA": "allow",
+    "XD": "deny",
     "AU": "audit_success",
     "OU": "audit_object",
     "AL": "alarm",
@@ -168,6 +176,29 @@ _VALID_SDDL_RIGHTS = {
     "CC", "DC", "LC", "LO", "DT", "CR", "FA", "FR", "FW", "FX",
     "KA", "KR", "KW", "KX",
 }
+
+# Mapping of ADS_RIGHTS_ENUM bit values to SDDL 2-letter right codes.
+# Used to decode hex rights masks (e.g. 0x1200a9) that some tools emit
+# instead of the mnemonic 2-letter codes. Values from Microsoft's
+# iads.h ADS_RIGHTS_ENUM documentation.
+_HEX_RIGHTS_MAP: tuple[tuple[int, str], ...] = (
+    (0x80000000, "GR"),   # ADS_RIGHT_GENERIC_READ
+    (0x40000000, "GW"),   # ADS_RIGHT_GENERIC_WRITE
+    (0x20000000, "GX"),   # ADS_RIGHT_GENERIC_EXECUTE
+    (0x10000000, "GA"),   # ADS_RIGHT_GENERIC_ALL
+    (0x00080000, "WO"),   # ADS_RIGHT_WRITE_OWNER
+    (0x00040000, "WD"),   # ADS_RIGHT_WRITE_DAC
+    (0x00020000, "RC"),   # ADS_RIGHT_READ_CONTROL
+    (0x00010000, "SD"),   # ADS_RIGHT_DELETE
+    (0x00000080, "LO"),   # ADS_RIGHT_DS_LIST_OBJECT
+    (0x00000040, "DT"),   # ADS_RIGHT_DS_DELETE_TREE
+    (0x00000020, "WP"),   # ADS_RIGHT_DS_WRITE_PROP
+    (0x00000010, "RP"),   # ADS_RIGHT_DS_READ_PROP
+    (0x00000008, "CR"),   # ADS_RIGHT_DS_SELF (Control Access)
+    (0x00000004, "LC"),   # ADS_RIGHT_ACTRL_DS_LIST
+    (0x00000002, "DC"),   # ADS_RIGHT_DS_DELETE_CHILD
+    (0x00000001, "CC"),   # ADS_RIGHT_DS_CREATE_CHILD
+)
 
 _SDDL_SID_ALIASES: dict[str, str] = {
     "wd": "Everyone",
@@ -464,10 +495,23 @@ def parse_sddl_rights(rights: str) -> list[str]:
     SDDL rights may be pipe-separated (``GR|GW``) or concatenated
     (``RPWP``) or both. We split on ``|`` first, then walk each part
     extracting consecutive 2-letter codes from the known set.
+
+    Hex masks (e.g. ``0x1200a9``) are also accepted: each set bit is
+    mapped to the corresponding SDDL 2-letter code via the standard
+    ADS_RIGHTS_ENUM values.
     """
     result: list[str] = []
     for part in rights.split("|"):
         part = part.strip().upper()
+        if part.startswith("0X"):
+            try:
+                mask = int(part, 16)
+            except ValueError:
+                continue
+            for bit, code in _HEX_RIGHTS_MAP:
+                if mask & bit:
+                    result.append(code)
+            continue
         i = 0
         while i + 1 < len(part):
             code = part[i:i + 2]
@@ -481,7 +525,11 @@ def parse_sddl_rights(rights: str) -> list[str]:
 
 def _parse_ace_string(ace_str: str) -> SddlAce | None:
     parts = ace_str.split(";")
-    if len(parts) != 6:
+    # SDDL conditional ACEs (Windows 8+) have 7+ fields where the 7th+
+    # is a conditional expression (e.g. ``(XA;;GW;;;S-1-5-11;(WIN://OAFD))``).
+    # We accept the ACE using the first 6 fields and ignore the conditional
+    # expression — SddlAce has no field for it.
+    if len(parts) < 6:
         return None
     ace_type_raw = parts[0].strip()
     ace_type = ACE_TYPE_MAP.get(ace_type_raw.upper())

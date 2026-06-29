@@ -111,43 +111,26 @@ is UTF-16 encoded — `parse_report_xml` detects the encoding.
 Baseline settings are compared by `(cse, identity)` — the ADMX crosswalk
 in `admx_parser.py` resolves registry paths back to policy names for display.
 
-## Breadcrumbs and work items (triage policy)
+## Work tracking (issues)
 
-There are two tracking surfaces and they mean different things. Knowing which
-to use prevents the drift that motivated WI-067 (markdown breadcrumbs with no
-link to their DB work item, leaving the relationship ambiguous).
+Work-items for this project live in **regista** — the single source of truth. regista is the authoritative, signed, hash-chained event log; the local agent-notes store is a read projection of it. **Do not create physical breadcrumb files** (`breadcrumbs/`, `breadcrumbs/active/`, `*.breadcrumb.md`) — those are retired. This collapses the old two-surface split (markdown breadcrumb + DB `WI-NNN` with a `wi:` link field) that produced the WI-067 drift (breadcrumbs with no link to their work item). There is now one surface only.
 
-- **DB work items (`WI-NNN`)** — the canonical tracker. Filed and queried via
-  `agent-notes work-item` (see the `file-breadcrumb` / `find-breadcrumb`
-  skills). This is what `/start` and `/end` reconcile against. Every actionable
-  piece of work gets a `WI-NNN`.
+**Agent face — the `agent-notes` CLI (and the `/file-breadcrumb` etc. skills).** Run from the project root so `--path .` resolves this project; the CLI routes to this project's regista schema automatically (you never set the schema).
 
-- **Markdown breadcrumbs (`breadcrumbs/active/*.md` → `breadcrumbs/resolved/`)** —
-  the long-form writeup of a problem: what you observed, where, why it matters,
-  and a first idea for the fix. They are the human-readable record; the DB WI is
-  the status record. Most WIs have a markdown breadcrumb; some breadcrumbs
-  predate the WI system and have no WI (legacy).
+```
+# File an issue
+agent-notes breadcrumb file --path . --title "<short title>" \
+    --type <kind> [--severity low|medium|high|critical] [--body "<details>"]
 
-**Linking them:** a markdown breadcrumb that corresponds to a DB work item
-carries a `wi:` field in its frontmatter, e.g. `wi: WI-063`. When you file a
-new breadcrumb via the `file-breadcrumb` skill, record the returned `WI-NNN`
-back into the markdown frontmatter so future readers can cross-reference in
-both directions. A breadcrumb with no corresponding WI omits the field.
-
-**Frontmatter schema** (fields in `status`/`priority`/`kind`/`created`, plus
-`resolved` once moved to `breadcrumbs/resolved/`, plus the optional `wi:`):
-
-```yaml
----
-status: active          # or: resolved
-priority: low           # low | medium | high | critical
-kind: defect            # defect | design | feature | enhancement | ...
-created: 2026-06-23
-wi: WI-063              # optional — link to the DB work item
----
+# Find / show / update
+agent-notes breadcrumb find  --path . [--status open] [--type bug] [--text "<q>"]
+agent-notes breadcrumb get   --path . <WI-id>
+agent-notes breadcrumb update --path . <WI-id> [--status <state>] [--title ...] [--body ...]
 ```
 
-Check `breadcrumbs/active/` for open problems. Resolved items move to
-`breadcrumbs/resolved/`. When moving a breadcrumb to resolved, also transition
-the linked `WI-NNN` to closed (via `agent-notes work-item`) — don't leave one
-surface green while the other stays open.
+- **`--type` (kind):** todo, observation, decision, risk, task, bug, feature, improvement, question, experiment, spike, refactor, docs, ci, job.
+- **`--severity`:** low, medium, high, critical.
+
+**Lifecycle (canonical workflow):** `open → in_progress → (blocked | deferred) → in_review → in_human_review → done`. `done` is reachable only through the two-stage review gate (a cross-lineage adversarial-review pass, then accept), except a pre-work `close_from_open` dismissal (won't-fix / duplicate). "Who's working this" is a regista **claim** (a separate liveness axis), not a lifecycle state.
+
+**Search before filing** — dedup is the store's main failure mode (the lesson of WI-067). Run `find` with `--text` before `file`. **Human face:** dossier — the web window onto these same items (when deployed).

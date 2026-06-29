@@ -289,3 +289,127 @@ def test_extract_aces_normal_balanced():
     assert len(aces) == 2
     assert aces[0].trustee_sid == "S-1-5-11"
     assert aces[1].trustee_sid == "S-1-1-0"
+
+
+# ---- SDDL conditional ACE parsing (H-3) -----------------------------------
+
+
+def test_parse_ace_string_conditional_ace_returns_ace():
+    """Conditional ACEs (7+ fields) must not be silently dropped."""
+    from gpo_lens.authz import _parse_ace_string
+
+    # XA = callback allow with a conditional expression in the 7th field.
+    ace = _parse_ace_string("XA;;GW;;;S-1-5-11;(WIN://OAFD)")
+    assert ace is not None
+    assert ace.trustee_sid == "S-1-5-11"
+    assert ace.rights == "GW"
+    assert ace.ace_type == "allow"
+
+
+def test_parse_ace_string_six_fields_still_works():
+    """Standard 6-field ACEs are still parsed correctly."""
+    from gpo_lens.authz import _parse_ace_string
+
+    ace = _parse_ace_string("A;;GA;;;S-1-5-11")
+    assert ace is not None
+    assert ace.trustee_sid == "S-1-5-11"
+    assert ace.rights == "GA"
+
+
+def test_parse_ace_string_too_few_fields_returns_none():
+    """ACEs with fewer than 6 fields are still rejected."""
+    from gpo_lens.authz import _parse_ace_string
+
+    assert _parse_ace_string("A;;GA;;") is None   # 5 fields
+    assert _parse_ace_string("A;;GA") is None      # 3 fields
+
+
+def test_parse_sddl_with_conditional_ace():
+    """parse_sddl correctly extracts conditional ACEs from a full SDDL string."""
+    from gpo_lens.authz import parse_sddl
+
+    sddl = "O:SYG:SYD:(A;;GA;;;S-1-5-11)(XA;;GW;;;S-1-1-0;(WIN://OAFD))"
+    acl = parse_sddl(sddl)
+    assert len(acl.dacl) == 2
+    assert acl.dacl[0].trustee_sid == "S-1-5-11"
+    assert acl.dacl[1].trustee_sid == "S-1-1-0"
+    assert acl.dacl[1].ace_type == "allow"
+
+
+# ---- Hex rights mask parsing (H-4) ----------------------------------------
+
+
+def test_parse_sddl_rights_hex_mask_generic_read():
+    """0x80000000 = GENERIC_READ → ["GR"]."""
+    from gpo_lens.authz import parse_sddl_rights
+
+    assert parse_sddl_rights("0x80000000") == ["GR"]
+
+
+def test_parse_sddl_rights_hex_mask_0x1200a9():
+    """0x1200a9 is a common GPO read mask — must decode to known codes.
+
+    0x1200a9 = SYNCHRONIZE(0x100000) | READ_CONTROL(0x20000) |
+               DS_LIST_OBJECT(0x80) | DS_WRITE_PROP(0x20) |
+               DS_SELF(0x08) | DS_CREATE_CHILD(0x01)
+    SYNCHRONIZE has no SDDL 2-letter code and is skipped.
+    """
+    from gpo_lens.authz import parse_sddl_rights
+
+    codes = parse_sddl_rights("0x1200a9")
+    assert "RC" in codes   # READ_CONTROL (0x00020000)
+    assert "LO" in codes   # DS_LIST_OBJECT (0x00000080)
+    assert "WP" in codes   # DS_WRITE_PROP (0x00000020)
+    assert "CR" in codes   # DS_SELF (0x00000008)
+    assert "CC" in codes   # DS_CREATE_CHILD (0x00000001)
+
+
+def test_parse_sddl_rights_hex_mask_uppercase():
+    """Hex masks should be case-insensitive."""
+    from gpo_lens.authz import parse_sddl_rights
+
+    assert parse_sddl_rights("0X80000000") == ["GR"]
+
+
+def test_parse_sddl_rights_hex_mask_with_pipe():
+    """Hex masks can be pipe-separated with 2-letter codes."""
+    from gpo_lens.authz import parse_sddl_rights
+
+    codes = parse_sddl_rights("0x80000000|GW")
+    assert "GR" in codes
+    assert "GW" in codes
+
+
+def test_parse_sddl_rights_hex_mask_generic_all():
+    """0x10000000 = GENERIC_ALL → ["GA"]."""
+    from gpo_lens.authz import parse_sddl_rights
+
+    assert parse_sddl_rights("0x10000000") == ["GA"]
+
+
+def test_parse_sddl_rights_hex_mask_zero():
+    """0x0 produces an empty list (no rights)."""
+    from gpo_lens.authz import parse_sddl_rights
+
+    assert parse_sddl_rights("0x0") == []
+
+
+def test_parse_sddl_rights_invalid_hex_ignored():
+    """Invalid hex values are silently skipped, not crashed on."""
+    from gpo_lens.authz import parse_sddl_rights
+
+    assert parse_sddl_rights("0xZZZZ") == []
+
+
+# ---- READ_OR_APPLY_RIGHTS excludes CC (M-1) -------------------------------
+
+
+def test_read_or_apply_rights_excludes_cc():
+    """CC (Create Child) is a write right, not read/apply — must be excluded."""
+    from gpo_lens.authz import READ_OR_APPLY_RIGHTS
+
+    assert "CC" not in READ_OR_APPLY_RIGHTS
+    assert "GA" in READ_OR_APPLY_RIGHTS
+    assert "GR" in READ_OR_APPLY_RIGHTS
+    assert "CR" in READ_OR_APPLY_RIGHTS
+    assert "RP" in READ_OR_APPLY_RIGHTS

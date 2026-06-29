@@ -25,10 +25,14 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from gpo_lens.authz import (
+    READ_OR_APPLY_RIGHTS,
+    applies_broadly,
+    broad_trustee_key,
     is_allow_ace_type,
     is_default_writer_sid,
-    iter_sddl_apply_aces,
+    is_deny_ace_type,
     parse_sddl,
+    parse_sddl_rights,
     resolve_principal,
 )
 from gpo_lens.detection import (
@@ -276,40 +280,76 @@ def overbroad_apply_group_policy(estate: Estate) -> list[DangerFinding]:
     """
     findings: list[DangerFinding] = []
     for g in estate.gpos:
-        found = False
-        for d in g.delegation:
-            if not d.allowed:
+        if g.delegation:
+            # Collect grants (allow and deny) for broad trustees, then use
+            # applies_broadly() so a deny ACE cancels an allow for the same
+            # trustee (Windows deny-first evaluation).
+            grants: list[tuple[str | None, bool]] = []
+            for d in g.delegation:
+                if "apply group policy" not in (d.permission or "").lower():
+                    continue
+                sid = (d.trustee_sid or "").lower()
+                key = broad_trustee_key(d.trustee, d.trustee_sid)
+                if key is None and sid not in _BROAD_APPLY_SIDS:
+                    continue
+                if key is None:
+                    key = sid
+                grants.append((key, d.allowed))
+            if not applies_broadly(grants):
                 continue
-            if "apply group policy" not in (d.permission or "").lower():
-                continue
-            sid = (d.trustee_sid or "").lower()
-            if sid not in _BROAD_APPLY_SIDS:
-                continue
-            findings.append(DangerFinding(
-                check_id="overbroad_apply_gp",
-                severity="medium",
-                title="GPO apply scope is over-broad (Everyone/Anonymous)",
-                gpo_id=g.id,
-                gpo_name=g.name,
-                detail=(
-                    f"'Apply Group Policy' granted to {d.trustee or sid} ({sid})"
-                ),
-                reference=_APPLY_GP_REF,
-                compliance=_BUCKET2_COMPLIANCE.get("overbroad_apply_gp", ()),
-                remediation=_BUCKET2_REMEDIATION.get("overbroad_apply_gp", ""),
-            ))
-            found = True
-            break
-
-        if found:
-            continue
-
-        if not g.delegation and g.sddl:
-            for entry in iter_sddl_apply_aces(g.sddl):
-                sid = (entry.ace.trustee_sid or "").lower()
+            # Find the specific broad trustee for the detail message.
+            for d in g.delegation:
+                if not d.allowed:
+                    continue
+                if "apply group policy" not in (d.permission or "").lower():
+                    continue
+                sid = (d.trustee_sid or "").lower()
                 if sid not in _BROAD_APPLY_SIDS:
                     continue
-                trustee_display = _format_trustee(estate, entry.ace.trustee_sid)
+                findings.append(DangerFinding(
+                    check_id="overbroad_apply_gp",
+                    severity="medium",
+                    title="GPO apply scope is over-broad (Everyone/Anonymous)",
+                    gpo_id=g.id,
+                    gpo_name=g.name,
+                    detail=(
+                        f"'Apply Group Policy' granted to {d.trustee or sid} ({sid})"
+                    ),
+                    reference=_APPLY_GP_REF,
+                    compliance=_BUCKET2_COMPLIANCE.get("overbroad_apply_gp", ()),
+                    remediation=_BUCKET2_REMEDIATION.get("overbroad_apply_gp", ""),
+                ))
+                break
+        elif g.sddl:
+            # SDDL fallback: collect allow and deny ACEs for broad trustees,
+            # then use applies_broadly() for deny-first net-access evaluation.
+            acl = parse_sddl(g.sddl)
+            grants = []
+            for ace in acl.dacl:
+                if not (is_allow_ace_type(ace.ace_type) or is_deny_ace_type(ace.ace_type)):
+                    continue
+                rights = frozenset(parse_sddl_rights(ace.rights))
+                if not (rights & READ_OR_APPLY_RIGHTS):
+                    continue
+                sid = (ace.trustee_sid or "").lower()
+                key = broad_trustee_key("", ace.trustee_sid)
+                if key is None and sid not in _BROAD_APPLY_SIDS:
+                    continue
+                if key is None:
+                    key = sid
+                grants.append((key, is_allow_ace_type(ace.ace_type)))
+            if not applies_broadly(grants):
+                continue
+            for ace in acl.dacl:
+                if not is_allow_ace_type(ace.ace_type):
+                    continue
+                rights = frozenset(parse_sddl_rights(ace.rights))
+                if not (rights & READ_OR_APPLY_RIGHTS):
+                    continue
+                sid = (ace.trustee_sid or "").lower()
+                if sid not in _BROAD_APPLY_SIDS:
+                    continue
+                trustee_display = _format_trustee(estate, ace.trustee_sid)
                 findings.append(DangerFinding(
                     check_id="overbroad_apply_gp",
                     severity="medium",
@@ -318,7 +358,7 @@ def overbroad_apply_group_policy(estate: Estate) -> list[DangerFinding]:
                     gpo_name=g.name,
                     detail=(
                         f"SDDL grants apply rights to {trustee_display} "
-                        f"({entry.ace.rights})"
+                        f"({ace.rights})"
                     ),
                     reference=_APPLY_GP_REF,
                     compliance=_BUCKET2_COMPLIANCE.get("overbroad_apply_gp", ()),
@@ -332,7 +372,7 @@ def overbroad_apply_group_policy(estate: Estate) -> list[DangerFinding]:
 # Bucket 1 — setting-value dangers (data table + pure evaluator)
 # ---------------------------------------------------------------------------
 
-_REGISTRY_CSES = ("Registry", "Windows Registry")
+_REGISTRY_CSES = frozenset({"registry", "windows registry"})
 
 
 def _resolve_display_name(admx: AdmxResolver, identity: str) -> str | None:
@@ -384,7 +424,7 @@ def _identity_matches(
     if admx is None:
         return False
     resolved = _resolve_display_name(admx, setting_identity)
-    return resolved is not None and resolved == rule.identity
+    return resolved is not None and resolved.lower() == rule.identity.lower()
 
 
 def evaluate_danger_rules(
@@ -410,7 +450,7 @@ def evaluate_danger_rules(
             for s in g.settings:
                 if s.source_state == "blocked":
                     continue
-                if s.cse not in _REGISTRY_CSES:
+                if s.cse.strip().lower() not in _REGISTRY_CSES:
                     continue
                 if not _side_matches(rule.applies, s.side):
                     continue
@@ -434,7 +474,11 @@ def evaluate_danger_rules(
         found_any = False
         for g in estate.gpos:
             for s in g.settings:
-                if s.cse not in _REGISTRY_CSES:
+                if s.source_state == "blocked":
+                    continue
+                if s.cse.strip().lower() not in _REGISTRY_CSES:
+                    continue
+                if not _side_matches(rule.applies, s.side):
                     continue
                 if _identity_matches(rule, s.identity, admx):
                     found_any = True

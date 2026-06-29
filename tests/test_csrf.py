@@ -455,3 +455,59 @@ class TestCsrfStateChangingMethods:
         resp = csrf_client.request(method, "/ingest")
         assert resp.status_code == 403
         assert "CSRF" in resp.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# L-1: _is_localhost_origin rejects non-http(s) schemes
+# ---------------------------------------------------------------------------
+
+
+class TestNonHttpSchemeOriginRejected:
+    """An Origin with a non-http(s) scheme (ftp, data, javascript) must be
+    rejected even if the hostname is localhost — such schemes cannot originate
+    from a legitimate browser navigation."""
+
+    @pytest.mark.parametrize("origin", [
+        "ftp://localhost",
+        "data:text/html,<script>1</script>",
+        "javascript:alert(1)",
+        "file:///etc/passwd",
+    ])
+    def test_non_http_scheme_origin_rejected(self, csrf_client, origin: str) -> None:
+        resp = csrf_client.post("/ingest", headers={"origin": origin})
+        assert resp.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# L-5: Body size limit on form-only POST routes
+# ---------------------------------------------------------------------------
+
+
+class TestBodySizeLimit:
+    """POST bodies >10MB on non-upload routes are rejected with 413.
+    Upload routes (/ingest, /baseline, /golden-diff) are excluded."""
+
+    def test_form_post_over_10mb_returns_413(self, csrf_client) -> None:
+        """An 11MB POST to a form-only route is rejected."""
+        # /resultant is a form-only POST route (not an upload route)
+        big_body = "x" * (11 * 1024 * 1024)
+        resp = csrf_client.post(
+            "/resultant",
+            data={"principal_sid": "S-1-1-0", "padding": big_body},
+            headers={"origin": "http://localhost"},
+        )
+        assert resp.status_code == 413
+
+    def test_upload_route_over_10mb_not_rejected(self, csrf_client) -> None:
+        """An 11MB POST to /ingest (upload route) is NOT rejected by the
+        body-size middleware — it has its own 500MB limit."""
+        # 11MB upload to /ingest — should pass the body-size gate
+        data = b"\0" * (11 * 1024 * 1024)
+        resp = csrf_client.post(
+            "/ingest",
+            files={"file": ("test.zip", data, "application/zip")},
+            headers={"origin": "http://localhost"},
+        )
+        # The upload will fail (not a valid zip), but should NOT be a 413
+        # from the body-size middleware. It should be 400 (malformed zip).
+        assert resp.status_code != 413

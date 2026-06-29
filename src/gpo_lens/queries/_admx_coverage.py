@@ -90,7 +90,7 @@ def admx_coverage(
         for s in g.settings:
             if s.source_state == "blocked":
                 continue
-            if s.cse not in ("Registry", "Windows Registry"):
+            if s.cse.strip().lower() not in ("registry", "windows registry"):
                 continue
             norm_key = s.identity.split(":", 1)[0].lower().strip("\\")
             if ":" in s.identity:
@@ -138,7 +138,7 @@ def admx_coverage(
         for s in g.settings:
             if s.source_state == "blocked":
                 continue
-            if s.cse not in ("Registry", "Windows Registry"):
+            if s.cse.strip().lower() not in ("registry", "windows registry"):
                 continue
             if not _is_raw_registry_path(s.identity, s.display_name):
                 continue

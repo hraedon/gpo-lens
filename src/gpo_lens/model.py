@@ -161,10 +161,16 @@ class Gpo:
 
     @property
     def computer_version_skew(self) -> bool:
+        # Unknown vs known is not skew.
+        if self.computer_ver_ds is None or self.computer_ver_sysvol is None:
+            return False
         return self.computer_ver_ds != self.computer_ver_sysvol
 
     @property
     def user_version_skew(self) -> bool:
+        # Unknown vs known is not skew.
+        if self.user_ver_ds is None or self.user_ver_sysvol is None:
+            return False
         return self.user_ver_ds != self.user_ver_sysvol
 
 

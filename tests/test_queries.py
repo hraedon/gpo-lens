@@ -70,10 +70,11 @@ def test_version_skew_equal_versions():
 
 
 def test_version_skew_one_none():
-    """If one version is None and the other is not, that counts as skew."""
+    """If one version is None (not collected) and the other is known,
+    that is not skew — unknown vs known is not a mismatch."""
     gpo = _make_gpo(computer_ver_ds=5, computer_ver_sysvol=None)
     estate = Estate(gpos=[gpo])
-    assert queries.version_skew(estate) == [(gpo, "Computer")]
+    assert queries.version_skew(estate) == []
 
 
 # ---- ms16_072 --------------------------------------------------------------
@@ -3748,7 +3749,7 @@ def test_settings_diff_filter_gpo_id(tmp_path):
     fb.write_text(json.dumps(data_b))
     result = queries.settings_diff(str(fa), str(fb), gpo_id="31b2f340")
     assert len(result) == 1
-    assert result[0].gpo_id == "31b2f340-016d-11d2-945f-00c04fb984f9"
+    assert result[0].gpo_id == "31b2f340016d11d2945f00c04fb984f9"
 
 
 def test_settings_diff_bom_json(tmp_path):

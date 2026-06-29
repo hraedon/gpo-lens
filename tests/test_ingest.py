@@ -56,7 +56,7 @@ class TestParseReport:
         gpos = ingest.parse_report(xml_path)
         assert len(gpos) == 1
         gpo = gpos[0]
-        assert gpo.id == "31b2f340-016d-11d2-945f-00c04fb984f9"
+        assert gpo.id == "31b2f340016d11d2945f00c04fb984f9"
         assert gpo.name == "Test GPO"
         assert gpo.domain == "test.local"
         assert gpo.computer_enabled is True
@@ -159,7 +159,7 @@ class TestParseReport:
         gpos = ingest.parse_report(xml_path)
         assert len(gpos) == 1
         assert gpos[0].name == "SoloGpo"
-        assert gpos[0].id == "22222222-2222-2222-2222-222222222222"
+        assert gpos[0].id == "22222222222222222222222222222222"
 
     def test_parse_wrapper_still_finds_inner_gpos(self, tmp_path: Path) -> None:
         """Wrapper shape (root localname GPO + nested GPO) must still work."""
@@ -195,10 +195,9 @@ class TestParseSingleGpoEdgeCases:
         )
         xml_path = tmp_path / "report.xml"
         xml_path.write_text(xml, encoding="utf-8")
-        gpos = ingest.parse_report(xml_path)
-        assert len(gpos) == 1
-        assert gpos[0].id == ""
-        assert gpos[0].name == "NoID"
+        with pytest.warns(UserWarning, match="no valid identifier"):
+            gpos = ingest.parse_report(xml_path)
+        assert len(gpos) == 0
 
     def test_no_sides(self, tmp_path: Path) -> None:
         xml = (
@@ -547,7 +546,7 @@ class TestParseInheritanceEdgeCases:
         )
         soms = ingest.parse_inheritance(json_path)
         assert len(soms[0].links) == 1
-        assert soms[0].links[0].gpo_id == "31b2f340-016d-11d2-945f-00c04fb984f9"
+        assert soms[0].links[0].gpo_id == "31b2f340016d11d2945f00c04fb984f9"
 
     def test_missing_gpo_id_skipped(self, tmp_path: Path) -> None:
         json_path = tmp_path / "inheritance.json"
@@ -1202,7 +1201,7 @@ class TestStreamingBaselineZip:
         zip_path = tmp_path / "baseline.zip"
         zip_path.write_bytes(outer_buf.getvalue())
 
-        with unittest.mock.patch("gpo_lens.ingest._MAX_DECOMPRESSED_BYTES", 200):
+        with unittest.mock.patch("gpo_lens.ingest._MAX_BASELINE_UNCOMPRESSED_BYTES", 200):
             with pytest.warns(UserWarning, match="exceeds limit"):
                 gpos = ingest.load_baseline_from_zip(zip_path)
         assert gpos == []
@@ -1221,7 +1220,7 @@ class TestStreamingBaselineZip:
         zip_path = tmp_path / "baseline.zip"
         zip_path.write_bytes(buf.getvalue())
 
-        with unittest.mock.patch("gpo_lens.ingest._MAX_DECOMPRESSED_BYTES", 200):
+        with unittest.mock.patch("gpo_lens.ingest._MAX_BASELINE_UNCOMPRESSED_BYTES", 200):
             with pytest.warns(UserWarning, match="exceeds limit"):
                 gpos = ingest.load_baseline_from_zip(zip_path)
         assert gpos == []
@@ -1305,7 +1304,7 @@ class TestLoadBaselineFromZipErrorHandling:
         zip_path = tmp_path / "baseline.zip"
         zip_path.write_bytes(outer_buf.getvalue())
 
-        with unittest.mock.patch("gpo_lens.ingest._MAX_DECOMPRESSED_BYTES", 2000):
+        with unittest.mock.patch("gpo_lens.ingest._MAX_BASELINE_UNCOMPRESSED_BYTES", 2000):
             with pytest.warns(UserWarning, match="exceeds limit"):
                 gpos = ingest.load_baseline_from_zip(zip_path)
         good_ids = [g.name for g in gpos if g.name == "Good GPO"]
@@ -1334,7 +1333,7 @@ class TestLoadBaselineFromZipErrorHandling:
         zip_path = tmp_path / "baseline.zip"
         zip_path.write_bytes(buf.getvalue())
 
-        with unittest.mock.patch("gpo_lens.ingest._MAX_DECOMPRESSED_BYTES", 200):
+        with unittest.mock.patch("gpo_lens.ingest._MAX_BASELINE_UNCOMPRESSED_BYTES", 200):
             with pytest.warns(UserWarning, match="exceeds limit"):
                 gpos = ingest.load_baseline_from_zip(zip_path)
         assert gpos == []
@@ -1740,3 +1739,109 @@ def test_flat_permission_no_sid_resolves_to_none() -> None:
     assert entries[0].trustee == "Unknown Trustee"
     assert entries[0].trustee_sid is None
     assert entries[0].permission == "GPO Custom"
+
+
+# ---------------------------------------------------------------------------
+# L-7: _GPLINK_RE case-insensitivity
+# ---------------------------------------------------------------------------
+
+
+def test_gplink_re_matches_lowercase_ldap() -> None:
+    """``ldap://`` (lowercase) must match — the regex uses re.IGNORECASE."""
+    from gpo_lens.ingest import _GPLINK_RE, _parse_gplink
+
+    raw = "[ldap://CN={11111111-1111-1111-1111-111111111111},...;0]"
+    assert _GPLINK_RE.search(raw) is not None
+    links = _parse_gplink(raw, "CN=Site,...")
+    assert len(links) == 1
+    assert links[0].gpo_id == "11111111111111111111111111111111"
+    assert links[0].enabled is True
+
+
+def test_gplink_re_matches_lowercase_cn() -> None:
+    """``cn=`` (lowercase CN) must also match."""
+    from gpo_lens.ingest import _parse_gplink
+
+    raw = "[LDAP://cn={22222222-2222-2222-2222-222222222222},...;0]"
+    links = _parse_gplink(raw, "CN=Site,...")
+    assert len(links) == 1
+    assert links[0].gpo_id == "22222222222222222222222222222222"
+
+
+# ---------------------------------------------------------------------------
+# M-8: _parse_single_gpo returns None for empty identifier
+# ---------------------------------------------------------------------------
+
+
+def test_parse_single_gpo_no_identifier_returns_none() -> None:
+    """A GPO element with no <Identifier> child returns None with a warning."""
+    xml = """<?xml version="1.0" encoding="utf-8"?>
+<GPO xmlns="http://www.microsoft.com/GroupPolicy/Settings">
+  <GPO>
+    <Name>Orphan</Name>
+    <Computer><Enabled>false</Enabled></Computer>
+    <User><Enabled>false</Enabled></User>
+  </GPO>
+</GPO>"""
+    root = ET.fromstring(xml)
+    gpo_elem = next(c for c in root if c.tag.split("}")[-1] == "GPO")
+    with pytest.warns(UserWarning, match="no valid identifier"):
+        result = ingest._parse_single_gpo(gpo_elem)
+    assert result is None
+
+
+def test_parse_single_gpo_empty_identifier_returns_none() -> None:
+    """A GPO element with an empty <Identifier> text returns None."""
+    xml = """<?xml version="1.0" encoding="utf-8"?>
+<GPO xmlns="http://www.microsoft.com/GroupPolicy/Settings">
+  <GPO>
+    <Identifier><Identifier></Identifier></Identifier>
+    <Name>EmptyId</Name>
+    <Computer><Enabled>false</Enabled></Computer>
+    <User><Enabled>false</Enabled></User>
+  </GPO>
+</GPO>"""
+    root = ET.fromstring(xml)
+    gpo_elem = next(c for c in root if c.tag.split("}")[-1] == "GPO")
+    with pytest.warns(UserWarning, match="no valid identifier"):
+        result = ingest._parse_single_gpo(gpo_elem)
+    assert result is None
+
+
+# ---------------------------------------------------------------------------
+# M-5: load_baseline_from_zip respects the 256MB baseline cap
+# ---------------------------------------------------------------------------
+
+
+def test_baseline_zip_exceeds_256mb_raises(tmp_path: Path) -> None:
+    """A baseline zip whose total decompressed size exceeds 256MB must raise."""
+    import unittest.mock
+
+    # Create a zip with content that exceeds a patched-low limit (simulating
+    # the 256MB cap at a small scale).
+    gpo_xml = (
+        '<?xml version="1.0" encoding="utf-8"?>\n'
+        "<GPO>\n"
+        "  <Identifier><Identifier>{99999999-9999-9999-9999-999999999999}</Identifier>"
+        "<Domain>test.local</Domain></Identifier>\n"
+        "  <Name>Big</Name>\n"
+        "  <Computer><Enabled>true</Enabled></Computer>\n"
+        "  <User><Enabled>true</Enabled></User>\n"
+        "  <FilterDataAvailable>false</FilterDataAvailable>\n"
+        "</GPO>\n"
+    )
+    padded = gpo_xml + " " * 5000
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("GPOs/big/gpreport.xml", padded)
+
+    zip_path = tmp_path / "baseline.zip"
+    zip_path.write_bytes(buf.getvalue())
+
+    with unittest.mock.patch(
+        "gpo_lens.ingest._MAX_BASELINE_UNCOMPRESSED_BYTES", 200
+    ):
+        with pytest.warns(UserWarning, match="exceeds limit"):
+            gpos = ingest.load_baseline_from_zip(zip_path)
+    assert gpos == []

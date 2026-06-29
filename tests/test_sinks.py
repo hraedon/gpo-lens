@@ -79,6 +79,32 @@ class TestNdjsonSink:
         for line in lines:
             assert "worker" in json.loads(line)
 
+    def test_enter_thread_safety(self, tmp_path: Path) -> None:
+        """Two threads calling __enter__ concurrently must not leak file handles."""
+        path = tmp_path / "events.ndjson"
+        sink = NdjsonSink(str(path))
+        errors: list[Exception] = []
+
+        def enter_and_write() -> None:
+            try:
+                with sink:
+                    sink.write({"thread": threading.current_thread().name})
+            except Exception as exc:
+                errors.append(exc)
+
+        threads = [threading.Thread(target=enter_and_write) for _ in range(2)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert errors == [], f"Unexpected errors: {errors}"
+        # File should exist and contain valid NDJSON lines.
+        lines = path.read_text(encoding="utf-8").strip().split("\n")
+        assert len(lines) >= 1
+        for line in lines:
+            json.loads(line)
+
 
 class _StubHandler(BaseHTTPRequestHandler):
     def __init__(self, response_code: int = 200, *args: Any, **kwargs: Any):

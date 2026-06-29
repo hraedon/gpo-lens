@@ -50,6 +50,9 @@ from gpo_lens.registry_pol import parse_registry_pol
 
 # Decompression bomb guard: refuse to expand zip contents beyond this total.
 _MAX_DECOMPRESSED_BYTES = 2 * 1024 * 1024 * 1024
+# Lower cap for the in-memory baseline/golden zip path — baselines are
+# typically <100 MB, so 256 MB is generous while preventing memory exhaustion.
+_MAX_BASELINE_UNCOMPRESSED_BYTES = 256 * 1024 * 1024
 
 
 @runtime_checkable
@@ -687,13 +690,17 @@ def parse_report(xml_path: str | Path) -> list[Gpo]:
     # an empty wrapper so it returns [] instead of yielding a phantom GPO.
     has_content = any(_localname(child.tag) != "GPO" for child in root)
     if root_is_gpo and not has_nested_gpo and has_content:
-        gpos.append(_parse_single_gpo(root))
+        gpo = _parse_single_gpo(root)
+        if gpo is not None:
+            gpos.append(gpo)
         return gpos
     for gpo_elem in root.iter():
         if gpo_elem is root:
             continue
         if _localname(gpo_elem.tag) == "GPO":
-            gpos.append(_parse_single_gpo(gpo_elem))
+            gpo = _parse_single_gpo(gpo_elem)
+            if gpo is not None:
+                gpos.append(gpo)
     return gpos
 
 
@@ -714,13 +721,17 @@ def parse_report_xml(xml_bytes: bytes) -> list[Gpo]:
         # Single-GPO document (per-GPO backup, baseline gpreport.xml): root
         # itself is the GPO. Without this branch, the loop below would skip
         # it via the ``gpo_elem is root`` guard.
-        gpos.append(_parse_single_gpo(root))
+        gpo = _parse_single_gpo(root)
+        if gpo is not None:
+            gpos.append(gpo)
     else:
         for gpo_elem in root.iter():
             if gpo_elem is root:
                 continue
             if _localname(gpo_elem.tag) == "GPO":
-                gpos.append(_parse_single_gpo(gpo_elem))
+                gpo = _parse_single_gpo(gpo_elem)
+                if gpo is not None:
+                    gpos.append(gpo)
     return gpos
 
 
@@ -750,26 +761,44 @@ def load_baseline_from_zip(zip_path: str | Path) -> list[Gpo]:
         for name in outer.namelist():
             if name.endswith(".zip"):
                 try:
-                    inner_data = _streaming_zip_read(outer, name, total_bytes)
+                    inner_data = _streaming_zip_read(
+                        outer, name, total_bytes,
+                        max_bytes=_MAX_BASELINE_UNCOMPRESSED_BYTES,
+                    )
                     with zipfile.ZipFile(io.BytesIO(inner_data)) as inner:
-                        gpos.extend(_extract_gpos_from_zip(inner, total_bytes))
+                        gpos.extend(
+                            _extract_gpos_from_zip(
+                                inner, total_bytes,
+                                max_bytes=_MAX_BASELINE_UNCOMPRESSED_BYTES,
+                            )
+                        )
                 except (ValueError, zipfile.BadZipFile, KeyError) as exc:
                     warnings.warn(f"Skipping inner zip {name}: {exc}", stacklevel=1)
             elif name.endswith("gpreport.xml"):
                 try:
-                    raw = _streaming_zip_read(outer, name, total_bytes)
+                    raw = _streaming_zip_read(
+                        outer, name, total_bytes,
+                        max_bytes=_MAX_BASELINE_UNCOMPRESSED_BYTES,
+                    )
                     gpos.extend(parse_report_xml(raw))
                 except (ET.ParseError, KeyError, ValueError, UnicodeDecodeError) as exc:
                     warnings.warn(f"Skipping entry in zip: {exc}", stacklevel=1)
 
         if not gpos:
-            gpos.extend(_extract_gpos_from_zip(outer, total_bytes))
+            gpos.extend(
+                _extract_gpos_from_zip(
+                    outer, total_bytes,
+                    max_bytes=_MAX_BASELINE_UNCOMPRESSED_BYTES,
+                )
+            )
 
     return gpos
 
 
 def _extract_gpos_from_zip(
-    zf: zipfile.ZipFile, total_counter: list[int] | None = None
+    zf: zipfile.ZipFile,
+    total_counter: list[int] | None = None,
+    max_bytes: int | None = None,
 ) -> list[Gpo]:
     """Extract GPOs from gpreport.xml files in a zip.
 
@@ -781,7 +810,7 @@ def _extract_gpos_from_zip(
     for name in zf.namelist():
         if name.endswith("gpreport.xml"):
             try:
-                raw = _streaming_zip_read(zf, name, _total)
+                raw = _streaming_zip_read(zf, name, _total, max_bytes=max_bytes)
                 gpos.extend(parse_report_xml(raw))
             except (ET.ParseError, KeyError, ValueError, UnicodeDecodeError) as exc:
                 warnings.warn(f"Skipping entry in zip: {exc}", stacklevel=1)
@@ -801,11 +830,22 @@ def _side_int(side_elem: Element | None, child_name: str) -> int | None:
     return parse_int(text)
 
 
-def _parse_single_gpo(gpo_elem: Element) -> Gpo:
-    """Parse a single GPO element."""
+def _parse_single_gpo(gpo_elem: Element) -> Gpo | None:
+    """Parse a single GPO element.
+
+    Returns ``None`` (with a warning) when the element has no valid
+    identifier — callers should skip ``None`` results.
+    """
     id_elem = _child_by_localname(gpo_elem, "Identifier")
     raw_id = _text(_child_by_localname(id_elem, "Identifier")) if id_elem is not None else ""
     gpo_id = canonical_guid(raw_id) if raw_id else ""
+    if not gpo_id:
+        name = _text(_child_by_localname(gpo_elem, "Name")) or ""
+        warnings.warn(
+            f"GPO '{name}' has no valid identifier; skipping",
+            stacklevel=1,
+        )
+        return None
     domain = (_text(_child_by_localname(id_elem, "Domain")) or "") if id_elem is not None else ""
     name = _text(_child_by_localname(gpo_elem, "Name")) or ""
     created = parse_dt(_text(_child_by_localname(gpo_elem, "CreatedTime")))
@@ -978,11 +1018,17 @@ def attach_sysvol_paths(sysvol_dir: str | Path, gpos: list[Gpo]) -> None:
     base_resolved = base.resolve()
     unmatched = 0
     for gpo in gpos:
-        candidates = [
-            base / f"{{{gpo.id.upper()}}}",
-            base / gpo.id,
-            base / gpo.id.upper(),
-        ]
+        # SYSVOL directories use the standard 8-4-4-4-12 hyphenated GUID form;
+        # the canonical id is bare (no hyphens), so generate both forms.
+        gid = gpo.id
+        candidates = [base / gid, base / gid.upper()]
+        if len(gid) == 32:
+            hyphenated = f"{gid[0:8]}-{gid[8:12]}-{gid[12:16]}-{gid[16:20]}-{gid[20:32]}"
+            candidates[:0] = [
+                base / f"{{{hyphenated.upper()}}}",
+                base / hyphenated,
+                base / hyphenated.upper(),
+            ]
         matched = False
         for cand in candidates:
             if cand.exists():
@@ -1206,7 +1252,7 @@ def parse_group_members(json_path: str | Path) -> dict[str, GroupMembership]:
 
 # gPLink segment: ``[LDAP://CN={guid},...;flags]``. flags bit 0 = link
 # disabled, bit 1 = enforced (NoOverride).
-_GPLINK_RE = re.compile(r"\[LDAP://[Cc][Nn]=(\{[^}]+\}|[^,;]+),[^;]*;(\d+)\]")
+_GPLINK_RE = re.compile(r"\[LDAP://CN=(\{[^}]+\}|[^,;]+),[^;]*;(\d+)\]", re.IGNORECASE)
 
 
 def _parse_gplink(raw: str | None, target_dn: str) -> list[SomLink]:

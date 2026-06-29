@@ -78,11 +78,18 @@ class TestForwardedProtoMiddleware:
         [
             (None, "http"),
             ("http", "http"),
-            ("https", "https"),
+            # L-2: X-Forwarded-Proto is now gated on loopback peer.
+            # The TestClient's client.host is "testclient" (not loopback),
+            # so "https" is NOT honored — scheme stays "http".
+            ("https", "http"),
         ],
     )
     def test_scheme_upgraded(self, forwarded_client, header, expected_scheme):
-        """Only valid http/https values change the scheme visible to templates."""
+        """Only valid http/https values change the scheme visible to templates.
+
+        L-2: The header is now gated on loopback peer. The TestClient's
+        client.host is "testclient" (not loopback), so even a valid "https"
+        value is ignored — the scheme stays "http"."""
         headers = {"X-Forwarded-Proto": header} if header else {}
         resp = forwarded_client.get("/", headers=headers)
         assert resp.status_code == 200
@@ -96,6 +103,17 @@ class TestForwardedProtoMiddleware:
             )
             assert resp.status_code == 200
             assert 'href="http://testserver/' in resp.text
+
+    def test_non_loopback_peer_ignores_forwarded_proto(self, forwarded_client):
+        """L-2: A non-loopback peer must not influence the scheme via header.
+
+        The TestClient's client.host is "testclient" (not loopback), so the
+        X-Forwarded-Proto header is ignored even with a valid "https" value.
+        """
+        resp = forwarded_client.get("/", headers={"X-Forwarded-Proto": "https"})
+        assert resp.status_code == 200
+        # Scheme stays http because the peer is not loopback
+        assert 'href="http://testserver/' in resp.text
 
 
 class TestForwardedProtoAuth:

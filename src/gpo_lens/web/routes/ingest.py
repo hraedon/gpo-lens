@@ -132,21 +132,11 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         # Removing an import is destructive but recoverable (re-upload the zip),
         # and the snapshot's rows cascade away. Gated on INGEST (same right as
         # creating one) and the same-origin CSRF middleware.
-        rw_conn = get_rw_conn(app.state.db_path)
-        try:
-            deleted = _store.delete_snapshot(rw_conn, snapshot_id)
-            if deleted:
-                _events.append_event(
-                    rw_conn, "audit.snapshot_delete",
-                    {"principal": principal.name, "snapshot_id": snapshot_id},
-                )
-        finally:
-            rw_conn.close()
-
-        if not deleted:
+        lock = app.state.ingest_lock
+        if not lock.acquire(blocking=False):
             _audit(
                 "snapshot_delete", principal, "failure",
-                f"snapshot {snapshot_id} not found", request,
+                "another ingest in progress", request,
             )
             conn = get_ro_conn(app.state.db_path)
             try:
@@ -156,12 +146,43 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
             return templates.TemplateResponse(
                 request, "ingest.html",
                 {"snapshots": snapshots,
-                 "error": f"Snapshot {snapshot_id} not found."},
-                status_code=404,
+                 "error": "Another ingest operation is in progress. Try again."},
+                status_code=409,
             )
 
-        _audit(
-            "snapshot_delete", principal, "success",
-            f"snapshot {snapshot_id}", request,
-        )
-        return RedirectResponse(url=request.url_for("ingest_get"), status_code=303)
+        try:
+            rw_conn = get_rw_conn(app.state.db_path)
+            try:
+                deleted = _store.delete_snapshot(rw_conn, snapshot_id)
+                if deleted:
+                    _events.append_event(
+                        rw_conn, "audit.snapshot_delete",
+                        {"principal": principal.name, "snapshot_id": snapshot_id},
+                    )
+            finally:
+                rw_conn.close()
+
+            if not deleted:
+                _audit(
+                    "snapshot_delete", principal, "failure",
+                    f"snapshot {snapshot_id} not found", request,
+                )
+                conn = get_ro_conn(app.state.db_path)
+                try:
+                    snapshots = _store.list_snapshots(conn)
+                finally:
+                    conn.close()
+                return templates.TemplateResponse(
+                    request, "ingest.html",
+                    {"snapshots": snapshots,
+                     "error": f"Snapshot {snapshot_id} not found."},
+                    status_code=404,
+                )
+
+            _audit(
+                "snapshot_delete", principal, "success",
+                f"snapshot {snapshot_id}", request,
+            )
+            return RedirectResponse(url=request.url_for("ingest_get"), status_code=303)
+        finally:
+            lock.release()
