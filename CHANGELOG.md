@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### WI-082 — estate-wide settings search (web)
+
+- New `/search` route + nav entry: "which GPOs set X?" over the whole estate.
+  Searches settings by policy name / registry identity / value (`queries.who_sets`),
+  groups hits by GPO with deep-links, and offers CSE + side facets with counts.
+  An empty query renders a prompt instead of dumping the estate; results
+  paginate by GPO. Closes the cross-cutting-lookup gap the CLI already covered
+  but the web UI did not.
+
 ### WI-081 — precedence-conflict rollup deduplicated by chain signature
 
 - `precedence_conflict_rollup` now resolves conflicts once per *distinct*

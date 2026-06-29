@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% import '_pagination.html' as pg %}
+
+{% block title %}gpo-lens — Search{% endblock %}
+
+{% block content %}
+<div class="gp-page-head">
+  <div>
+    <div class="gp-eyebrow">Which GPOs set this?</div>
+    <h1>Settings search</h1>
+    <div class="sub">
+      Find every GPO that sets a given setting — by policy name, registry key /
+      identity, or value. Matches are grouped by GPO; narrow with the CSE and
+      side facets.
+    </div>
+  </div>
+</div>
+
+<form class="gp-filter-bar" method="get" action="{{ url_for('search') }}">
+  <div class="gp-field gp-filter-search">
+    <label class="gp-label" for="f-q">Search</label>
+    <input class="gp-input" id="f-q" name="q" type="search" value="{{ f_q }}"
+           placeholder="e.g. MaxTokenSize, HKLM\Software\…, or a value" autocomplete="off" autofocus>
+  </div>
+  {% if f_cse %}<input type="hidden" name="cse" value="{{ f_cse }}">{% endif %}
+  {% if f_side %}<input type="hidden" name="side" value="{{ f_side }}">{% endif %}
+  <button type="submit" class="gp-btn primary">Search</button>
+  {% if f_q %}<a class="gp-btn" href="{{ url_for('search') }}">Clear</a>{% endif %}
+</form>
+
+{% if f_q %}
+  {% if total_hits %}
+  <div class="gp-result-summary muted" style="margin:8px 0 4px">
+    {{ filtered_hits }}{% if filtered_hits != total_hits %} of {{ total_hits }}{% endif %}
+    setting{{ '' if filtered_hits == 1 else 's' }} across {{ gpo_count }}
+    GPO{{ '' if gpo_count == 1 else 's' }} match “{{ f_q }}”.
+  </div>
+
+  {% if cse_facets or side_facets %}
+  <div class="gp-facets" style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:6px 0 14px">
+    {% if f_cse %}
+      <a class="gp-chip" href="{{ url_for('search') }}?q={{ f_q|urlencode }}{% if f_side %}&side={{ f_side|urlencode }}{% endif %}">CSE: {{ f_cse }} ✕</a>
+    {% else %}
+      {% for c, n in cse_facets %}
+      <a class="gp-chip muted" href="{{ url_for('search') }}?q={{ f_q|urlencode }}&cse={{ c|urlencode }}{% if f_side %}&side={{ f_side|urlencode }}{% endif %}">{{ c }} <span class="count">{{ n }}</span></a>
+      {% endfor %}
+    {% endif %}
+    {% if f_side %}
+      <a class="gp-chip" href="{{ url_for('search') }}?q={{ f_q|urlencode }}{% if f_cse %}&cse={{ f_cse|urlencode }}{% endif %}">Side: {{ f_side }} ✕</a>
+    {% else %}
+      {% for s, n in side_facets %}
+      <a class="gp-chip muted" href="{{ url_for('search') }}?q={{ f_q|urlencode }}&side={{ s|urlencode }}{% if f_cse %}&cse={{ f_cse|urlencode }}{% endif %}">{{ s }} <span class="count">{{ n }}</span></a>
+      {% endfor %}
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% if groups %}
+    {% for grp in groups %}
+    <section class="gp-search-group" style="margin-bottom:18px">
+      <h2 style="font-size:14px;margin:0 0 6px">
+        <a href="{{ url_for('gpo_detail', gpo_id=grp.gpo_id) }}">{{ grp.gpo_name }}</a>
+        <span class="count">{{ grp.results | length }}</span>
+      </h2>
+      <div class="gp-table-wrap">
+        <table class="gp-table">
+          <thead>
+            <tr>
+              <th style="width:120px">CSE</th>
+              <th style="width:70px">Side</th>
+              <th>Setting</th>
+              <th>Value</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for s in grp.results %}
+            <tr>
+              <td class="muted">{{ s.cse }}</td>
+              <td class="muted mono" style="font-size:11px">{{ s.side }}</td>
+              <td class="mono">{{ s.display_name or s.identity }}{% if s.display_name and s.identity and s.display_name != s.identity %}<div class="muted" style="font-size:11px">{{ s.identity }}</div>{% endif %}</td>
+              <td class="mono muted">{{ s.display_value }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+    {% endfor %}
+    {{ pg.pagination(pag, f_base_qs) }}
+  {% else %}
+  <div class="gp-callout">
+    <p>No settings match “{{ f_q }}”{% if f_cse or f_side %} with the active facets — <a href="{{ url_for('search') }}?q={{ f_q|urlencode }}">clear facets</a>{% endif %}.</p>
+  </div>
+  {% endif %}
+
+  {% else %}
+  <div class="gp-callout">
+    <p>No settings match “{{ f_q }}” anywhere in the estate.</p>
+  </div>
+  {% endif %}
+
+{% else %}
+<div class="gp-callout">
+  <p>Enter a setting name, registry key/identity, or value to find every GPO that sets it. Try a policy name (<span class="mono">MaxTokenSize</span>), a registry path, or a value.</p>
+</div>
+{% endif %}
+{% endblock %}
