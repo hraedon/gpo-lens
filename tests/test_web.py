@@ -448,6 +448,41 @@ class TestOuBrowser:
         assert resp.status_code == 200
         assert "Loopback processing" in resp.text
 
+    # WI-083 — CSE facet + in-table search on the effective-settings table.
+
+    def test_ou_detail_has_settings_filter_bar(self, client) -> None:
+        resp = client.get("/ou/dc=fakefixture,dc=local")
+        assert resp.status_code == 200
+        assert 'name="cse"' in resp.text
+        # facet dropdown lists the CSEs present (6 Registry, 2 Security)
+        assert "Registry (6)" in resp.text
+        assert "Security (2)" in resp.text
+
+    def test_ou_detail_cse_facet_narrows(self, client) -> None:
+        resp = client.get(
+            "/ou/dc=fakefixture,dc=local", params={"cse": "Security", "per_page": "all"}
+        )
+        assert resp.status_code == 200
+        assert 'value="Security" selected' in resp.text
+        # Count badge reflects the narrowing: 2 of 8 effective settings. (The
+        # identity won't do — settings also surface in the conflicts table,
+        # which is intentionally not filtered.)
+        assert "2 / 8" in resp.text
+
+    def test_ou_detail_search_narrows(self, client) -> None:
+        resp = client.get(
+            "/ou/dc=fakefixture,dc=local", params={"q": "BadValue", "per_page": "all"}
+        )
+        assert resp.status_code == 200
+        assert "1 / 8" in resp.text
+
+    def test_ou_detail_no_match_shows_empty_state(self, client) -> None:
+        resp = client.get(
+            "/ou/dc=fakefixture,dc=local", params={"q": "zzz-no-such-setting"}
+        )
+        assert resp.status_code == 200
+        assert "No settings match" in resp.text
+
 
 class TestIngest:
     def _make_fixture_zip(self) -> bytes:

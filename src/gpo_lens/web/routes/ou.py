@@ -12,6 +12,8 @@ from gpo_lens.web._helpers import (
     _VALID_OU_SORTS,
     _VALID_OU_TYPES,
     base_qs,
+    cse_facets,
+    filter_settings,
     filter_soms,
     get_ro_conn,
     paginate,
@@ -64,6 +66,8 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
     async def ou_detail(
         request: Request,
         path: str,
+        q: str = "",
+        cse: str = "",
         _principal: Principal = Depends(requires(Permission.VIEW)),
     ) -> HTMLResponse:
         conn = get_ro_conn(app.state.db_path)
@@ -81,7 +85,7 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         if target_som is None:
             raise HTTPException(status_code=404, detail="OU not found")
 
-        settings = queries.settings_at_som(estate, target_som.path)
+        all_settings = queries.settings_at_som(estate, target_som.path)
         conflicts = queries.som_conflicts(estate, target_som.path)
         caveats = queries.scope_caveats(estate, target_som.path)
 
@@ -89,6 +93,11 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         effective_gpos = [eg for eg, _ in gate_pairs]
 
         loopback_warning = any(gs.loopback_mode for _, gs in gate_pairs)
+
+        # WI-083: CSE facet (computed from the full set so the dropdown shows
+        # all CSEs even while one is selected) + text search over the table.
+        facets = cse_facets(all_settings)
+        settings = filter_settings(all_settings, q, cse)
 
         page, per_page_int, per_page_raw = parse_pagination(request)
         page_settings, pag = paginate(settings, page, per_page_int, per_page_raw)
@@ -102,6 +111,10 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
                 "gate_summaries": gate_pairs,
                 "settings": page_settings,
                 "settings_count": len(settings),
+                "settings_total": len(all_settings),
+                "cse_facets": facets,
+                "f_q": q,
+                "f_cse": cse,
                 "conflicts": conflicts,
                 "loopback_warning": loopback_warning,
                 "caveats": caveats,
