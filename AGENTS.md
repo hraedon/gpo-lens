@@ -105,7 +105,7 @@ a DC/RSAT box). The tool consumes its output dir.
 | `merge.py` | Per-CSE merge-resolution model + principal resultant (Plan 021). Token, security-gate eval, CSE merge modes |
 | `trend.py` | Posture-over-time metrics from snapshot history — `compute_trend`, `changes_only`, `sparkline`, `TrendPoint` |
 | `narration.py` | Tier 3 — LLM narration (`call_llm`, `explain_findings`, `route_question`). Optional; core never imports this |
-| `web/` | FastAPI web UI — dashboard, GPO detail, ingest, ask, changelog, baseline diff |
+| `web/` | FastAPI web UI — dashboard, GPO detail, ingest, ask, changelog, baseline diff, conflicts, estate-wide settings search (`/search`) |
 | `cli/` | CLI package — argparse subcommands. Entry point: `cli._core:main` |
 
 ## Baseline diff

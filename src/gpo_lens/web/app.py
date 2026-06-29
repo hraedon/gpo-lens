@@ -554,12 +554,14 @@ def create_app(
         ingest,
         ou,
         resultant,
+        search,
         trends,
     )
 
     dashboard.register(app, templates)
     gpo.register(app, templates)
     conflicts.register(app, templates)
+    search.register(app, templates)
     ou.register(app, templates)
     ingest.register(app, templates)
     ask.register(app, templates)

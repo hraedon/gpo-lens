@@ -30,6 +30,7 @@
             <a href="{{ url_for('gpo_list') }}" {% if path.startswith('/inventory') %}class="active"{% endif %}>Inventory</a>
             <a href="{{ url_for('danger_list') }}" {% if path.startswith('/danger') %}class="active"{% endif %}>Danger</a>
             <a href="{{ url_for('conflicts') }}" {% if path.startswith('/conflicts') %}class="active"{% endif %}>Conflicts</a>
+            <a href="{{ url_for('search') }}" {% if path.startswith('/search') %}class="active"{% endif %}>Search</a>
             <a href="{{ url_for('ou_list') }}" {% if path.startswith('/ou') %}class="active"{% endif %}>Directory</a>
             <a href="{{ url_for('changelog') }}" {% if path.startswith('/changelog') %}class="active"{% endif %}>Changelog</a>
             <a href="{{ url_for('trends') }}" {% if path.startswith('/trends') %}class="active"{% endif %}>Trends</a>
