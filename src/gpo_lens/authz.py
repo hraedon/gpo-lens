@@ -33,6 +33,7 @@ __all__ = [
     "SddlApplyAce",
     "applies_broadly",
     "broad_trustee_key",
+    "canonical_sddl_sid",
     "is_allow_ace_type",
     "is_default_writer",
     "is_default_writer_sid",
@@ -265,6 +266,75 @@ def resolve_well_known(sid: str) -> str | None:
     return None
 
 
+# SDDL 2-letter aliases → canonical SID. ``_ABS`` aliases resolve to a fixed
+# well-known SID; ``_DOMREL`` aliases are domain-relative and resolve to
+# ``{domain_sid}-{rid}`` when the domain SID is known. Used by
+# :func:`canonical_sddl_sid` so alias and raw-SID forms of the same trustee
+# compare equal in the security gate (WI-084).
+_SDDL_ALIAS_ABS_SID: dict[str, str] = {
+    "wd": EVERYONE_SID,        # Everyone               S-1-1-0
+    "an": "s-1-5-7",           # Anonymous
+    "au": AU_SID,              # Authenticated Users    S-1-5-11
+    "sy": "s-1-5-18",          # SYSTEM
+    "ns": "s-1-5-20",          # Network Service
+    "ls": "s-1-5-19",          # Local Service
+    "iu": "s-1-5-4",           # Interactive
+    "nu": "s-1-5-2",           # Network
+    "su": "s-1-5-6",           # Service
+    "wr": "s-1-5-33",          # Write Restricted
+    "rc": "s-1-5-12",          # Restricted Code
+    "ed": "s-1-5-9",           # Enterprise Domain Controllers
+    "co": "s-1-3-0",           # Creator Owner
+    "cg": "s-1-3-1",           # Creator Group
+    "ow": "s-1-3-4",           # Owner Rights
+    "ba": "s-1-5-32-544",      # BUILTIN\\Administrators
+    "bu": "s-1-5-32-545",      # BUILTIN\\Users
+    "bg": "s-1-5-32-546",      # BUILTIN\\Guests
+    "bo": "s-1-5-32-551",      # Backup Operators
+    "bf": "s-1-5-32-549",      # Server Operators
+    "br": "s-1-5-32-548",      # Account Operators
+    "bp": "s-1-5-32-550",      # Print Operators
+    "ps": "s-1-5-32-554",      # Pre-Windows 2000 Compatible Access
+    "rd": "s-1-5-32-555",      # Remote Desktop Users
+}
+
+_SDDL_ALIAS_DOMREL_RID: dict[str, str] = {
+    "da": "512",  # Domain Admins
+    "dg": "514",  # Domain Guests
+    "du": "513",  # Domain Users
+    "dd": "516",  # Domain Controllers
+    "dc": "515",  # Domain Computers
+    "ea": "519",  # Enterprise Admins
+    "sa": "518",  # Schema Admins
+    "ca": "517",  # Cert Publishers
+    "pa": "520",  # Group Policy Creator Owners
+    "la": "500",  # Administrator (RID)
+    "lg": "501",  # Guest (RID)
+    "ro": "498",  # Enterprise Read-only Domain Controllers
+}
+
+
+def canonical_sddl_sid(token: str, domain_sid: str | None = None) -> str:
+    """Canonicalize an SDDL trustee token (alias or SID) to a comparable SID.
+
+    SDDL emits 2-letter aliases (``AU``, ``WD``, ``DA``) interchangeably with
+    raw SIDs. Without canonicalization an allow against ``S-1-5-11`` and a deny
+    against ``AU`` are different keys, so the deny never cancels the allow and a
+    principal can be wrongly granted a security-filtered GPO (WI-084).
+
+    Absolute aliases resolve to a fixed SID. Domain-relative aliases resolve to
+    ``{domain_sid}-{rid}`` when *domain_sid* is known (matching the full SIDs in
+    a principal's token); without it they are returned unchanged. Non-alias
+    input (raw SIDs, names) is lowercased and returned as-is.
+    """
+    s = token.strip().lower()
+    if s in _SDDL_ALIAS_ABS_SID:
+        return _SDDL_ALIAS_ABS_SID[s]
+    if s in _SDDL_ALIAS_DOMREL_RID and domain_sid:
+        return f"{domain_sid}-{_SDDL_ALIAS_DOMREL_RID[s]}"
+    return s
+
+
 def resolve_principal(estate: Estate, sid: str) -> ResolvedPrincipal:
     """Resolve a SID to a :class:`ResolvedPrincipal`.
 
@@ -305,16 +375,31 @@ def broad_trustee_key(
 ) -> str | None:
     """Canonical key for a broad-application trustee, or None.
 
-    Collapses name and SID forms of Authenticated Users, Domain Computers,
-    and (optionally) Everyone to a single key. Domain Computers is only
-    recognized by SID when it matches ``S-1-5-21-...-515``.
+    Collapses name, SDDL-alias, and raw-SID forms of Authenticated Users,
+    Domain Computers, and (optionally) Everyone to a single key. Domain
+    Computers is recognized by SID when it matches ``S-1-5-21-...-515``.
+
+    The SID is resolved through :func:`resolve_well_known` so an SDDL alias
+    (``AU``/``WD``) and the corresponding raw SID (``S-1-5-11``/``S-1-1-0``)
+    yield the *same* key — without this, a deny written against one form does
+    not cancel an allow written against the other in ``applies_broadly``
+    (WI-084).
     """
     names = set(broad_names)
     t = trustee.strip().lower()
     s = (sid or "").strip().lower()
-    name_key = _NAME_TO_KEY.get(t)
-    if name_key is not None and t in names:
-        return name_key
+    # Unify the trustee-name argument with the name the SID resolves to, so
+    # alias and raw-SID forms collapse to one key.
+    candidate_names = {t}
+    resolved = resolve_well_known(s) if s else None
+    if resolved is not None:
+        candidate_names.add(resolved.lower())
+    for name in candidate_names:
+        name_key = _NAME_TO_KEY.get(name)
+        if name_key is not None and name in names:
+            return name_key
+    # Raw canonical-SID fast paths (resolve_well_known also covers these, but
+    # keep them explicit for the absolute well-knowns and the -515 suffix).
     if s == AU_SID and "authenticated users" in names:
         return "authenticated_users"
     if s == EVERYONE_SID and "everyone" in names:

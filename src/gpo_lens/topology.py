@@ -439,19 +439,56 @@ class ConflictRollup:
     scopes: tuple[str, ...]                     # som_paths resolving identically
 
 
+def _enabled_chain_signature(som: Som) -> tuple[tuple[str, int, bool], ...]:
+    """Order-independent signature of a SOM's enabled link chain.
+
+    Two SOMs with the same enabled ``(gpo_id, order, enforced)`` set resolve to
+    the *identical* conflict set, because ``som_conflicts`` derives everything
+    (buckets, winner, entries) from the chain alone — the only path-dependent
+    field is ``SomConflict.som_path``, which the rollup does not key on. Sorting
+    makes the signature independent of link iteration order.
+    """
+    return tuple(sorted(
+        (link.gpo_id, link.order, link.enforced)
+        for link in som.links
+        if link.enabled
+    ))
+
+
 def precedence_conflict_rollup(estate: Estate) -> list[ConflictRollup]:
     """Collapse :func:`precedence_conflicts` to distinct root causes.
 
     Two per-OU conflicts are "the same" when the setting, the competing
     (GPO, value, status) entries, and the winner all match. Sorted by blast
     radius (most scopes first) so the worst-spread conflicts lead.
+
+    Performance (WI-081): conflicts are resolved once per *distinct* enabled
+    link chain, not once per SOM. On a real estate hundreds of leaf OUs share
+    one chain, so this collapses ~900 chain resolutions down to the handful of
+    distinct chains — an order-of-magnitude win — while producing byte-identical
+    output to the naive per-SOM walk.
     """
+    # 1. Bucket every OU/domain SOM by its resolved-chain signature. Site SOMs
+    #    are a parallel axis (see precedence_conflicts) and are excluded.
+    sig_to_scopes: dict[tuple[tuple[str, int, bool], ...], list[str]] = defaultdict(list)
+    sig_repr: dict[tuple[tuple[str, int, bool], ...], str] = {}
+    for som in estate.soms:
+        if not som.links or som.container_type == "site":
+            continue
+        sig = _enabled_chain_signature(som)
+        if not sig:  # no enabled links — som_conflicts would return []
+            continue
+        sig_to_scopes[sig].append(som.path)
+        sig_repr.setdefault(sig, som.path)
+
+    # 2. Resolve conflicts once per distinct chain, fanning the blast radius
+    #    out to every SOM that shares the chain.
     groups: dict[tuple[Any, ...], list[str]] = defaultdict(list)
     meta: dict[tuple[Any, ...], SomConflict] = {}
-    for som, scs in precedence_conflicts(estate):
-        for sc in scs:
+    for sig, scopes in sig_to_scopes.items():
+        for sc in som_conflicts(estate, sig_repr[sig]):
             key = (sc.cse, sc.side, sc.identity, sc.winner, tuple(sc.entries))
-            groups[key].append(som.path)
+            groups[key].extend(scopes)
             meta[key] = sc
     out: list[ConflictRollup] = []
     for key, scopes in groups.items():

@@ -62,12 +62,18 @@ narrates facts the core computed. See `README.md` for the full charter.
 ## Build / test / lint
 
 ```bash
-uv venv && uv pip install -e ".[dev]"
+uv venv && uv pip install -e ".[dev]"   # local dev
 .venv/bin/pytest -q            # unit + calibration tests (sample tests skip if samples/ absent)
 .venv/bin/pytest -q -m samples # calibration tests against the real exports (needs samples/)
 .venv/bin/ruff check .
 .venv/bin/mypy src
 ```
+
+CI installs from the lockfile (`uv sync --locked --extra dev --extra web`), so
+**regenerate `uv.lock` (`uv lock`) and commit it whenever you touch
+`[project] dependencies` or the `[project.optional-dependencies]` extras** —
+stale-lock drift fails the build. A `supply-chain` CI job runs `pip-audit`
+against the locked runtime + web set.
 
 Slice 1 is **stdlib-only** (`xml.etree.ElementTree`, `json`, `sqlite3`,
 `argparse`) — keep it dependency-free so the core stays portable/air-gappable.

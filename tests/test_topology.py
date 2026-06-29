@@ -7,12 +7,20 @@ loopback merge/replace/unknown, a disabled computer/user side, and an ILT GPO.
 
 from __future__ import annotations
 
+from collections import defaultdict
 from pathlib import Path
 
 import pytest
 
 from gpo_lens.ingest import load_estate
-from gpo_lens.topology import effective_scope, gate_summaries
+from gpo_lens.model import Estate, Gpo, Setting, Som, SomLink
+from gpo_lens.topology import (
+    _enabled_chain_signature,
+    effective_scope,
+    gate_summaries,
+    precedence_conflict_rollup,
+    precedence_conflicts,
+)
 
 FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures"
 ROOT_DN = "dc=fakefixture,dc=local"
@@ -170,3 +178,104 @@ def test_gate_summaries_match_effective_scope(fixture_estate, gpo_key):
         assert gs.side_disabled == "user"
     else:
         assert gs.side_disabled is None
+
+
+# ---------------------------------------------------------------------------
+# WI-081 — precedence_conflict_rollup signature-dedup optimization
+# ---------------------------------------------------------------------------
+
+def _conflicting_gpo(gpo_id: str, value: str) -> Gpo:
+    return Gpo(
+        id=gpo_id, name=f"gpo-{gpo_id[:4]}", domain="test.local",
+        created=None, modified=None, read=None,
+        computer_enabled=True, user_enabled=True,
+        computer_ver_ds=None, computer_ver_sysvol=None,
+        user_ver_ds=None, user_ver_sysvol=None,
+        sddl=None, owner=None, filter_data_available=False,
+        wmi_filter=None, sysvol_path=None,
+        settings=[
+            Setting(
+                gpo_id=gpo_id, side="User", cse="Registry",
+                identity=r"HKCU\Software\Test", display_name="Test",
+                display_value=value, raw={}, from_disabled_side=False,
+            ),
+        ],
+        delegation=[],
+    )
+
+
+def _shared_chain_estate(n_ous: int) -> Estate:
+    """``n_ous`` OUs that all link the same two conflicting GPOs in the same
+    order — every OU resolves to the identical conflict."""
+    g1 = "11111111-1111-1111-1111-111111111111"
+    g2 = "22222222-2222-2222-2222-222222222222"
+    gpos = [_conflicting_gpo(g1, "A"), _conflicting_gpo(g2, "B")]
+    soms = []
+    for i in range(n_ous):
+        dn = f"ou=unit{i},dc=test,dc=local"
+        soms.append(Som(
+            path=dn, name=f"unit{i}", container_type="ou",
+            inheritance_blocked=False,
+            links=[
+                SomLink(gpo_id=g1, order=1, enabled=True, enforced=False, target=dn),
+                SomLink(gpo_id=g2, order=2, enabled=True, enforced=False, target=dn),
+            ],
+        ))
+    return Estate(domain="test.local", gpos=gpos, soms=soms, principals={})
+
+
+def _naive_rollup(estate):
+    """Reference: the pre-WI-081 per-SOM rollup, as comparable tuples."""
+    groups = defaultdict(list)
+    meta = {}
+    for som, scs in precedence_conflicts(estate):
+        for sc in scs:
+            key = (sc.cse, sc.side, sc.identity, sc.winner, tuple(sc.entries))
+            groups[key].append(som.path)
+            meta[key] = sc
+    return sorted(
+        (k[0], k[1], k[2], k[3], k[4], tuple(sorted(v)))
+        for k, v in groups.items()
+    )
+
+
+def _opt_rollup(estate):
+    return sorted(
+        (r.cse, r.side, r.identity, r.winner, tuple(r.entries), tuple(sorted(r.scopes)))
+        for r in precedence_conflict_rollup(estate)
+    )
+
+
+def test_rollup_collapses_shared_chain_to_one_row():
+    estate = _shared_chain_estate(50)
+    rows = precedence_conflict_rollup(estate)
+    assert len(rows) == 1
+    # one root cause, blast radius = all 50 OUs
+    assert len(rows[0].scopes) == 50
+    assert rows[0].identity == r"HKCU\Software\Test"
+
+
+def test_rollup_matches_naive_per_som_walk():
+    estate = _shared_chain_estate(30)
+    assert _opt_rollup(estate) == _naive_rollup(estate)
+
+
+def test_chain_signature_is_order_independent():
+    g1 = "11111111-1111-1111-1111-111111111111"
+    g2 = "22222222-2222-2222-2222-222222222222"
+    a = Som(path="ou=a,dc=t", name="a", container_type="ou", inheritance_blocked=False,
+            links=[SomLink(gpo_id=g1, order=1, enabled=True, enforced=False, target="a"),
+                   SomLink(gpo_id=g2, order=2, enabled=True, enforced=False, target="a")])
+    b = Som(path="ou=b,dc=t", name="b", container_type="ou", inheritance_blocked=False,
+            links=[SomLink(gpo_id=g2, order=2, enabled=True, enforced=False, target="b"),
+                   SomLink(gpo_id=g1, order=1, enabled=True, enforced=False, target="b")])
+    assert _enabled_chain_signature(a) == _enabled_chain_signature(b)
+
+
+def test_chain_signature_excludes_disabled_links():
+    g1 = "11111111-1111-1111-1111-111111111111"
+    g2 = "22222222-2222-2222-2222-222222222222"
+    s = Som(path="ou=a,dc=t", name="a", container_type="ou", inheritance_blocked=False,
+            links=[SomLink(gpo_id=g1, order=1, enabled=True, enforced=False, target="a"),
+                   SomLink(gpo_id=g2, order=2, enabled=False, enforced=False, target="a")])
+    assert _enabled_chain_signature(s) == ((g1, 1, False),)
