@@ -33,6 +33,7 @@ from gpo_lens.authz import (
     is_deny_ace_type,
     parse_sddl,
     parse_sddl_rights,
+    permission_implies_apply,
     resolve_principal,
 )
 from gpo_lens.detection import (
@@ -286,7 +287,7 @@ def overbroad_apply_group_policy(estate: Estate) -> list[DangerFinding]:
             # trustee (Windows deny-first evaluation).
             grants: list[tuple[str | None, bool]] = []
             for d in g.delegation:
-                if "apply group policy" not in (d.permission or "").lower():
+                if not permission_implies_apply(d.permission or ""):
                     continue
                 sid = (d.trustee_sid or "").lower()
                 key = broad_trustee_key(d.trustee, d.trustee_sid)
@@ -301,7 +302,7 @@ def overbroad_apply_group_policy(estate: Estate) -> list[DangerFinding]:
             for d in g.delegation:
                 if not d.allowed:
                     continue
-                if "apply group policy" not in (d.permission or "").lower():
+                if not permission_implies_apply(d.permission or ""):
                     continue
                 sid = (d.trustee_sid or "").lower()
                 if sid not in _BROAD_APPLY_SIDS:

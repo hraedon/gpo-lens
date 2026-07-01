@@ -915,7 +915,10 @@ def _parse_single_gpo(gpo_elem: Element) -> Gpo | None:
     """
     id_elem = _child_by_localname(gpo_elem, "Identifier")
     raw_id = _text(_child_by_localname(id_elem, "Identifier")) if id_elem is not None else ""
-    gpo_id = canonical_guid(raw_id) if raw_id else ""
+    try:
+        gpo_id = canonical_guid(raw_id) if raw_id else ""
+    except ValueError:
+        gpo_id = ""
     if not gpo_id:
         name = _text(_child_by_localname(gpo_elem, "Name")) or ""
         warnings.warn(
@@ -1152,7 +1155,7 @@ def augment_blocked_registry_from_pol(gpos: list[Gpo]) -> None:
             continue
         # Group blocked placeholders by side; one placeholder per blocked side.
         blocked_sides = {gpo.settings[i].side for i in blocked_idxs}
-        resolved_any = False
+        resolved_sides: set[str] = set()
         additions: list[Setting] = []
         for side in blocked_sides:
             # Side dir casing varies on a real SYSVOL (default GPOs use MACHINE);
@@ -1166,7 +1169,7 @@ def augment_blocked_registry_from_pol(gpos: list[Gpo]) -> None:
                 continue
             if not records:
                 continue
-            resolved_any = True
+            resolved_sides.add(side)
             for rec in records:
                 identity = (
                     f"{rec.key}:{rec.value_name}"
@@ -1191,11 +1194,13 @@ def augment_blocked_registry_from_pol(gpos: list[Gpo]) -> None:
                     from_disabled_side=False,
                     source_state="registry_pol",
                 ))
-        if resolved_any:
+        if resolved_sides:
             # Drop the blocked placeholders for the sides we resolved; keep the
             # real settings. Unresolved sides keep their placeholder.
             gpo.settings = [
-                s for i, s in enumerate(gpo.settings) if i not in set(blocked_idxs)
+                s for i, s in enumerate(gpo.settings)
+                if i not in set(blocked_idxs)
+                or gpo.settings[i].side not in resolved_sides
             ]
             gpo.settings.extend(additions)
 

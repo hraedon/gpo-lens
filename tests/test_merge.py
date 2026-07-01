@@ -633,6 +633,72 @@ class TestSecurityGateReadVsApply:
         allow, _deny = _gpo_apply_trustee_sids(gpo, {})
         assert "s-1-5-11" in allow
 
+    def test_deny_read_blocks_gpo(self) -> None:
+        """A deny entry granting only 'Read' must block the GPO (deny-Read
+        gates the principal — they cannot read the GPO to apply it).
+        """
+        estate = _sec_estate_with_deny("Apply Group Policy", "Read")
+        result = principal_resultant(estate, _USER_SID, dn=_ROOT_DN)
+        assert any(e.kind == "security_filter" for e in result.excluded)
+
+    def test_deny_apply_blocks_gpo(self) -> None:
+        """A deny entry granting 'Apply Group Policy' must also block."""
+        estate = _sec_estate_with_deny("Apply Group Policy", "Apply Group Policy")
+        result = principal_resultant(estate, _USER_SID, dn=_ROOT_DN)
+        assert any(e.kind == "security_filter" for e in result.excluded)
+
+
+def _sec_estate_with_deny(
+    allow_perm: str, deny_perm: str,
+) -> Estate:
+    """Estate with one allow + one deny delegation entry for the same trustee."""
+    gpo_id = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"
+    principals = {
+        _USER_SID: ResolvedPrincipal(
+            sid=_USER_SID, name="TEST\\user", sam="user",
+            principal_type="User", domain="TEST", resolved=True,
+        ),
+    }
+    gpos = [
+        Gpo(
+            id=gpo_id, name="gpo-deny", domain="test.local",
+            created=None, modified=None, read=None,
+            computer_enabled=True, user_enabled=True,
+            computer_ver_ds=None, computer_ver_sysvol=None,
+            user_ver_ds=None, user_ver_sysvol=None,
+            sddl=None, owner=None, filter_data_available=False,
+            wmi_filter=None, sysvol_path=None,
+            settings=[
+                Setting(
+                    gpo_id=gpo_id, side="User", cse="Registry",
+                    identity=r"HKCU\Software\Test", display_name="Test",
+                    display_value="1", raw={}, from_disabled_side=False,
+                ),
+            ],
+            delegation=[
+                DelegationEntry(
+                    gpo_id="", trustee="Authenticated Users",
+                    trustee_sid="S-1-5-11",
+                    permission=allow_perm, allowed=True,
+                ),
+                DelegationEntry(
+                    gpo_id="", trustee="Authenticated Users",
+                    trustee_sid="S-1-5-11",
+                    permission=deny_perm, allowed=False,
+                ),
+            ],
+        ),
+    ]
+    som = Som(
+        path=_ROOT_DN, name="test", container_type="domain",
+        inheritance_blocked=False,
+        links=[SomLink(gpo_id=gpo_id, order=1, enabled=True,
+                       enforced=False, target=_ROOT_DN)],
+    )
+    return Estate(
+        domain="test.local", gpos=gpos, soms=[som], principals=principals,
+    )
+
 
 # ---------------------------------------------------------------------------
 # WI-084 — SDDL alias-form deny must cancel a raw-SID allow in the gate
@@ -828,9 +894,8 @@ class TestExcludedGpoSide:
         assert exc.side == ""
 
     def test_loopback_excluded_gpo_side_populated(self) -> None:
-        """In loopback replace mode, a GPO excluded during the user-side
-        evaluation of the computer chain must have side='User'.
-        """
+        """In loopback replace mode, a GPO excluded on both sides now
+        produces one ExcludedGpo per side (dedup keys on side, WI-078)."""
         estate, comp_sid, user_dn, comp_dn, filtered_gpo = (
             self._setup_loopback_estate()
         )
@@ -839,9 +904,9 @@ class TestExcludedGpoSide:
             dn=user_dn, computer_dn=comp_dn,
         )
         exc = [e for e in result.excluded if e.gpo_id == filtered_gpo]
-        assert len(exc) == 1
-        assert exc[0].side == "User"
-        assert exc[0].kind == "security_filter"
+        sides = {e.side for e in exc}
+        assert sides == {"User", "Computer"}
+        assert all(e.kind == "security_filter" for e in exc)
 
     def test_non_loopback_excluded_gpo_side_populated(self) -> None:
         """Outside loopback, an excluded GPO must carry the principal's side.
@@ -851,3 +916,215 @@ class TestExcludedGpoSide:
         exc = [e for e in result.excluded if e.kind == "security_filter"]
         assert len(exc) == 1
         assert exc[0].side == "User"
+
+    def test_loopback_gpo_excluded_one_side_applied_other(self) -> None:
+        """In loopback replace, a GPO can be excluded on the User side
+        (computer-token gate) while its Computer-side setting is applied
+        (combined-token gate). The same gpo_id must appear in BOTH
+        ``excluded`` (side='User') and ``settings`` (WI-078 disjointness).
+        """
+        comp_sid = f"{_DOM_SID}-5001"
+        principals = {
+            _USER_SID: ResolvedPrincipal(
+                sid=_USER_SID, name="TEST\\user", sam="user",
+                principal_type="User", domain="TEST", resolved=True,
+            ),
+            comp_sid: ResolvedPrincipal(
+                sid=comp_sid, name="TEST\\WKS$", sam="WKS$",
+                principal_type="Computer", domain="TEST", resolved=True,
+            ),
+        }
+        comp_dn = f"ou=computers,{_ROOT_DN}"
+        dual_gpo = "dddddddd-dddd-dddd-dddd-dddddddddddd"
+        gpos = [
+            Gpo(
+                id=dual_gpo, name="gpo-dual", domain="test.local",
+                created=None, modified=None, read=None,
+                computer_enabled=True, user_enabled=True,
+                computer_ver_ds=None, computer_ver_sysvol=None,
+                user_ver_ds=None, user_ver_sysvol=None,
+                sddl=None, owner=None, filter_data_available=False,
+                wmi_filter=None, sysvol_path=None,
+                settings=[
+                    _loopback_setting(dual_gpo, "Replace"),
+                    Setting(
+                        gpo_id=dual_gpo, side="User", cse="Registry",
+                        identity=r"HKCU\Software\Dual", display_name="Dual-U",
+                        display_value="1", raw={}, from_disabled_side=False,
+                    ),
+                    Setting(
+                        gpo_id=dual_gpo, side="Computer", cse="Registry",
+                        identity=r"HKLM\Software\Dual", display_name="Dual-C",
+                        display_value="1", raw={}, from_disabled_side=False,
+                    ),
+                ],
+                # Delegated ONLY to the user's SID. In replace mode the
+                # User-side gate uses comp_token_sids (no user SID) → excluded.
+                # The Computer-side gate uses combined token_sids (has user
+                # SID) → passes, so the Computer setting is applied.
+                delegation=[
+                    DelegationEntry(
+                        gpo_id="", trustee="user",
+                        trustee_sid=_USER_SID,
+                        permission="Apply Group Policy", allowed=True,
+                    ),
+                ],
+            ),
+        ]
+        soms = [
+            Som(
+                path=_ROOT_DN, name="test", container_type="domain",
+                inheritance_blocked=False, links=[],
+            ),
+            Som(
+                path=comp_dn, name="computers", container_type="ou",
+                inheritance_blocked=False,
+                links=[SomLink(gpo_id=dual_gpo, order=1, enabled=True,
+                               enforced=False, target=comp_dn)],
+            ),
+        ]
+        estate = Estate(
+            domain="test.local", gpos=gpos, soms=soms, principals=principals,
+        )
+        result = principal_resultant(
+            estate, _USER_SID, computer_sid=comp_sid, computer_dn=comp_dn,
+        )
+        excluded_ids = {e.gpo_id for e in result.excluded}
+        applied_gpo_ids = {s.winning_gpo_id for s in result.settings}
+        assert dual_gpo in excluded_ids, "GPO should be excluded on User side"
+        assert dual_gpo in applied_gpo_ids, "GPO should be applied on Computer side"
+        excl = next(e for e in result.excluded if e.gpo_id == dual_gpo)
+        assert excl.side == "User"
+        comp_settings = [s for s in result.settings if s.winning_gpo_id == dual_gpo]
+        assert all(s.side == "Computer" for s in comp_settings)
+
+
+def test_principal_resultant_parent_walk_caveat():
+    """When the principal's OU is absent from the estate and the chain is
+    resolved from an ancestor, a caveat must be surfaced (WI-076 contract).
+    """
+    gpo_id = "ffffffff-ffff-ffff-ffff-ffffffffffff"
+    principals = {
+        _USER_SID: ResolvedPrincipal(
+            sid=_USER_SID, name="TEST\\user", sam="user",
+            principal_type="User", domain="TEST", resolved=True,
+        ),
+    }
+    gpos = [
+        Gpo(
+            id=gpo_id, name="gpo-root", domain="test.local",
+            created=None, modified=None, read=None,
+            computer_enabled=True, user_enabled=True,
+            computer_ver_ds=None, computer_ver_sysvol=None,
+            user_ver_ds=None, user_ver_sysvol=None,
+            sddl=None, owner=None, filter_data_available=False,
+            wmi_filter=None, sysvol_path=None,
+            settings=[
+                Setting(
+                    gpo_id=gpo_id, side="User", cse="Registry",
+                    identity=r"HKCU\Software\Root", display_name="Root",
+                    display_value="1", raw={}, from_disabled_side=False,
+                ),
+            ],
+            delegation=[
+                DelegationEntry(
+                    gpo_id="", trustee="Authenticated Users",
+                    trustee_sid="S-1-5-11",
+                    permission="Apply Group Policy", allowed=True,
+                ),
+            ],
+        ),
+    ]
+    # Only the domain-root SOM is in the estate; the principal's OU is absent.
+    soms = [
+        Som(
+            path=_ROOT_DN, name="test", container_type="domain",
+            inheritance_blocked=False,
+            links=[SomLink(gpo_id=gpo_id, order=1, enabled=True,
+                           enforced=False, target=_ROOT_DN)],
+        ),
+    ]
+    estate = Estate(
+        domain="test.local", gpos=gpos, soms=soms, principals=principals,
+    )
+    # Query with a DN whose OU is not collected — parent walk to domain root.
+    result = principal_resultant(
+        estate, _USER_SID, dn=f"ou=missing,{_ROOT_DN}",
+    )
+    assert any("not in the collected estate" in m for m in result.caveat_mechanisms)
+
+
+def test_principal_resultant_no_caveat_when_ou_present():
+    """When the principal's OU IS in the estate, no parent-walk caveat fires."""
+    estate = _sec_estate("Apply Group Policy")
+    result = principal_resultant(estate, _USER_SID, dn=_ROOT_DN)
+    assert not any(
+        "not in the collected estate" in m for m in result.caveat_mechanisms
+    )
+
+
+def test_build_token_no_forward_expansion_of_individual_principals():
+    """build_token must NOT add other principals who share a group.
+
+    A Windows access token contains groups the principal is a member of
+    (upward closure), not other principals in the same groups. Forward
+    expansion of individual principals is a security gate bypass: if
+    User2 is in the token, a GPO filtered to User2 would also apply to
+    User1.
+    """
+    from gpo_lens.model import GroupMembership
+    user2 = "s-1-5-21-100-200-300-1002"
+    estate = Estate(
+        domain="test.local",
+        gpos=[],
+        soms=[],
+        principals={
+            _USER_SID: ResolvedPrincipal(
+                sid=_USER_SID, name="TEST\\user1", sam="user1",
+                principal_type="User", domain="TEST", resolved=True,
+            ),
+            user2: ResolvedPrincipal(
+                sid=user2, name="TEST\\user2", sam="user2",
+                principal_type="User", domain="TEST", resolved=True,
+            ),
+        },
+        group_members={
+            "s-1-5-21-100-200-300-5001": GroupMembership(
+                sid="s-1-5-21-100-200-300-5001",
+                name="TEST\\SharedGroup",
+                members=(_USER_SID, user2),
+                member_count=2,
+            ),
+        },
+    )
+    token = build_token(estate, _USER_SID)
+    assert _USER_SID in token.token_sids
+    assert "s-1-5-21-100-200-300-5001" in token.token_sids
+    assert user2 not in token.token_sids
+
+
+def test_restricted_groups_members_dominates_regardless_of_order():
+    """_restricted_groups_mode must return AUTHORITATIVE_REPLACE when both
+    Members and MemberOf are present, regardless of XML element order.
+    """
+    from gpo_lens.merge import _restricted_groups_mode
+    s_members_first = Setting(
+        gpo_id="g", side="Computer", cse="RestrictedGroups",
+        identity="Administrators", display_name="Administrators",
+        display_value="", raw={"children": [
+            {"tag": "Members", "text": "S-1-5-32-544"},
+            {"tag": "MemberOf", "text": "S-1-5-32-544"},
+        ]},
+        from_disabled_side=False,
+    )
+    s_memberof_first = Setting(
+        gpo_id="g", side="Computer", cse="RestrictedGroups",
+        identity="Administrators", display_name="Administrators",
+        display_value="", raw={"children": [
+            {"tag": "MemberOf", "text": "S-1-5-32-544"},
+            {"tag": "Members", "text": "S-1-5-32-544"},
+        ]},
+        from_disabled_side=False,
+    )
+    assert _restricted_groups_mode(s_members_first) is CseMergeMode.AUTHORITATIVE_REPLACE
+    assert _restricted_groups_mode(s_memberof_first) is CseMergeMode.AUTHORITATIVE_REPLACE

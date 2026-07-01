@@ -124,3 +124,34 @@ def test_user_side_blocked_resolved_from_user_pol(tmp_path):
     resolved = [s for s in gpo.settings if s.source_state == "registry_pol"]
     assert len(resolved) == 1
     assert resolved[0].side == "User"
+
+
+def test_partial_resolution_keeps_unresolved_side(tmp_path):
+    """When only one side's .pol exists, the other side's placeholder is kept.
+
+    This is the data-loss regression: previously, resolving ANY side dropped
+    ALL blocked placeholders, including unresolved sides.
+    """
+    base = tmp_path / "gpo-5"
+    machine = base / "Machine"
+    machine.mkdir(parents=True)
+    pol = _HEADER + _preg_record(
+        r"Software\Policies\Acme", "Enable", 4, struct.pack("<I", 0),
+    )
+    (machine / "Registry.pol").write_bytes(pol)
+
+    gpo = _make_gpo(str(base), blocked_sides=("Computer", "User"))
+    augment_blocked_registry_from_pol([gpo])
+
+    # Computer side resolved → placeholder removed, real settings added.
+    comp_resolved = [
+        s for s in gpo.settings
+        if s.source_state == "registry_pol" and s.side == "Computer"
+    ]
+    assert len(comp_resolved) == 1
+    # User side NOT resolved → placeholder KEPT.
+    user_blocked = [
+        s for s in gpo.settings
+        if s.source_state == "blocked" and s.side == "User"
+    ]
+    assert len(user_blocked) == 1

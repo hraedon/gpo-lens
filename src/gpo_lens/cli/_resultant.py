@@ -58,6 +58,7 @@ def cmd_resultant(args: argparse.Namespace) -> int:
                     "gpo_name": e.gpo_name,
                     "kind": e.kind,
                     "reason": e.reason,
+                    "side": e.side,
                 }
                 for e in result.excluded
             ],
@@ -101,7 +102,8 @@ def cmd_resultant(args: argparse.Namespace) -> int:
         if result.excluded:
             print(f"\n  Excluded GPOs ({len(result.excluded)}):")
             for e in result.excluded:
-                print(f"    {e.gpo_name}: {e.reason}")
+                side_tag = f" [{e.side}]" if e.side else ""
+                print(f"    {e.gpo_name}{side_tag}: {e.reason}")
         if result.excluded_settings:
             print(f"\n  Excluded settings ({len(result.excluded_settings)}):")
             for es in result.excluded_settings:

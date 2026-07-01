@@ -2027,3 +2027,24 @@ class TestAdmxIdentityResolution:
 
         findings = evaluate_danger_rules(estate, [rule], admx=FakeAdmx())  # type: ignore[arg-type]
         assert findings == []
+
+
+def test_overbroad_apply_gp_detects_full_control():
+    """overbroad_apply_group_policy must flag GPOs where 'Full Control'
+    (which implies Apply) is granted to Everyone, not just literal
+    'Apply Group Policy' permissions.
+    """
+    gpo = _make_gpo(id="fc-gpo", name="FC GPO")
+    gpo.delegation = [
+        DelegationEntry(
+            gpo_id="fc-gpo",
+            trustee="Everyone",
+            trustee_sid="S-1-1-0",
+            permission="Full control",
+            allowed=True,
+        ),
+    ]
+    estate = Estate(gpos=[gpo])
+    findings = overbroad_apply_group_policy(estate)
+    assert len(findings) == 1
+    assert findings[0].check_id == "overbroad_apply_gp"

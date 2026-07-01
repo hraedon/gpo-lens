@@ -314,6 +314,16 @@ def restrict_db_permissions(conn: sqlite3.Connection) -> None:
         os.chmod(path, 0o600)
     except (OSError, ValueError) as exc:
         warnings.warn(f"Could not restrict DB permissions on {path}: {exc}", stacklevel=1)
+    for suffix in ("-wal", "-shm"):
+        sidecar = f"{path}{suffix}"
+        if os.path.exists(sidecar):
+            try:
+                os.chmod(sidecar, 0o600)
+            except (OSError, ValueError) as exc:
+                warnings.warn(
+                    f"Could not restrict DB permissions on {sidecar}: {exc}",
+                    stacklevel=1,
+                )
 
 
 def _dt_to_iso(dt: datetime | None) -> str | None:

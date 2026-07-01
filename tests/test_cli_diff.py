@@ -528,7 +528,7 @@ class TestChangelogDirect:
 
         ret = main([
             "--db", str(db), "changelog", str(sid_a), str(sid_b),
-            "--gpo-id", GPO_DELTA,
+            "--gpo-id", "99999999-9999-9999-9999-999999999999",
         ])
         assert ret == 0
         captured = capsys.readouterr()
@@ -674,3 +674,86 @@ class TestBaselineDiffDirect:
         captured = capsys.readouterr()
         assert "Baseline Diff" in captured.out
         assert "DRIFT" in captured.out
+
+
+def test_snapshot_diff_none_version_not_treated_as_skew(tmp_path):
+    """Version-skew: None vs int must NOT be reported as a skew change.
+
+    A GPO whose version counter moved from None to an integer is a metadata
+    backfill, not a skew change (matching model.py's version_skew property).
+    """
+    from gpo_lens import model, store
+    from gpo_lens.snapshot_diff import snapshot_diff
+
+    db = tmp_path / "noneskew.db"
+    conn = sqlite3.connect(str(db))
+    store.init_db(conn)
+
+    estate_a = model.Estate(
+        domain="test.local",
+        gpos=[
+            _make_gpo(
+                GPO_ALPHA, "Alpha",
+                computer_ver_ds=None, computer_ver_sysvol=None,
+                user_ver_ds=1, user_ver_sysvol=1,
+            ),
+        ],
+    )
+    sid_a = store.save_estate(conn, estate_a)
+
+    estate_b = model.Estate(
+        domain="test.local",
+        gpos=[
+            _make_gpo(
+                GPO_ALPHA, "Alpha",
+                computer_ver_ds=5, computer_ver_sysvol=5,
+                user_ver_ds=1, user_ver_sysvol=1,
+            ),
+        ],
+    )
+    sid_b = store.save_estate(conn, estate_b)
+    conn.close()
+
+    conn = sqlite3.connect(str(db))
+    diff = snapshot_diff(conn, sid_a, sid_b)
+    conn.close()
+    assert GPO_ALPHA not in diff.version_skew_changed
+
+
+def test_snapshot_changelog_gpo_removed(tmp_path):
+    """snapshot_changelog must emit a gpo_removed entry for GPOs that
+    existed in snapshot A but not B.
+    """
+    from gpo_lens import model, queries, store
+
+    db = tmp_path / "removed.db"
+    conn = sqlite3.connect(str(db))
+    store.init_db(conn)
+
+    estate_a = model.Estate(
+        domain="test.local",
+        gpos=[
+            _make_gpo(
+                GPO_DELTA, "GPO Delta",
+                settings=[_setting(GPO_DELTA, "User", "Registry", "Delta:Setting", "val")],
+            ),
+        ],
+    )
+    sid_a = store.save_estate(conn, estate_a)
+
+    estate_b = model.Estate(
+        domain="test.local",
+        gpos=[
+            _make_gpo(GPO_ALPHA, "GPO Alpha"),
+        ],
+    )
+    sid_b = store.save_estate(conn, estate_b)
+    conn.close()
+
+    conn = sqlite3.connect(str(db))
+    entries = queries.snapshot_changelog(conn, sid_a, sid_b)
+    conn.close()
+    removed = [e for e in entries if e.kind == "gpo_removed"]
+    assert len(removed) == 1
+    assert removed[0].gpo_id == GPO_DELTA
+    assert removed[0].gpo_name == "GPO Delta"

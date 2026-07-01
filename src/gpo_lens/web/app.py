@@ -113,9 +113,9 @@ def _safe_extract(zip_path: Path, dest: Path) -> None:
                     total_bytes_read += wrapped._total
                     if total_bytes_read > _MAX_UNCOMPRESSED_BYTES:
                         raise ValueError("zip uncompressed size exceeds limit")
-                extracted = target.resolve()
-                if extracted.is_symlink():
+                if target.is_symlink():
                     raise ValueError(f"zip symlink blocked: {member}")
+                extracted = target.resolve()
                 if not extracted.is_relative_to(dest_root):
                     raise ValueError(f"zip-slip blocked: {member}")
     except BaseException:
@@ -129,10 +129,10 @@ def _safe_extract(zip_path: Path, dest: Path) -> None:
         if dest.is_dir():
             for child in dest.iterdir():
                 try:
-                    if child.is_dir():
-                        shutil.rmtree(child)
-                    else:
+                    if child.is_symlink() or not child.is_dir():
                         child.unlink()
+                    else:
+                        shutil.rmtree(child)
                 except OSError as cleanup_exc:
                     _logger.warning(
                         "cleanup of %s after extraction failure failed: %s",

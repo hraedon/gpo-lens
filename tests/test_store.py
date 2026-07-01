@@ -312,10 +312,9 @@ def test_snapshot_changelog_batched_query_shape(tmp_path):
     entries = queries.snapshot_changelog(conn, sid_a, sid_b)
     conn.close()
 
-    # We expect exactly two changelog lines, one per changed side, in sorted
-    # GPO id order (alpha before beta). Gamma is new and not in the common
-    # set, so it is excluded from the version-aware log.
-    assert len(entries) == 2
+    # We expect three changelog lines: gpo-gamma added, plus one per changed
+    # side for the common GPOs, in sorted GPO id order (alpha, beta, gamma).
+    assert len(entries) == 3
 
     e_alpha = entries[0]
     assert e_alpha.gpo_id == "gpo-alpha"
@@ -346,6 +345,11 @@ def test_snapshot_changelog_batched_query_shape(tmp_path):
     assert e_beta.version_change.new_sysvol == 2
     assert e_beta.version_change.edit_count == 1
     assert e_beta.setting_changes == []
+
+    e_gamma = entries[2]
+    assert e_gamma.gpo_id == "gpo-gamma"
+    assert e_gamma.gpo_name == "Gamma"
+    assert e_gamma.kind == "gpo_added"
 
 
 # ---------------------------------------------------------------------------
@@ -518,3 +522,23 @@ def test_delete_snapshot_cascades_and_reports(tmp_path):
     # deleting a non-existent snapshot is a no-op that reports False
     assert store.delete_snapshot(conn, 9999) is False
     conn.close()
+
+
+def test_restrict_db_permissions_also_restricts_wal_shm(tmp_path):
+    """restrict_db_permissions must chmod WAL and SHM sidecar files, not
+    just the main DB file. These files contain the same sensitive estate data.
+    """
+    db = tmp_path / "waltest.db"
+    conn = sqlite3.connect(str(db))
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("CREATE TABLE t (x)")
+    conn.execute("INSERT INTO t VALUES (1)")
+    conn.commit()
+    store.restrict_db_permissions(conn)
+    conn.close()
+
+    for suffix in ("", "-wal", "-shm"):
+        path = str(db) + suffix
+        if os.path.exists(path):
+            mode = stat.S_IMODE(os.stat(path).st_mode)
+            assert mode == 0o600, f"{path} has mode {oct(mode)}, expected 0o600"

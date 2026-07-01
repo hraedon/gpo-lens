@@ -7,7 +7,6 @@ composition, diffing, and estate-wide scans.
 
 from __future__ import annotations
 
-import re
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -75,8 +74,28 @@ def _split_dn(dn: str) -> list[str]:
     """Split a DN on commas, respecting backslash escaping.
 
     ``CN=Last\\,First,OU=Users,DC=test`` → ``['CN=Last\\,First', 'OU=Users', 'DC=test']``
+
+    A comma is a separator only when preceded by an *even* number of
+    backslashes (zero or a complete escaped-backslash run). An odd run
+    means the comma itself is escaped (``\\,``) and is part of the RDN
+    value. This also keeps ``\\\\,`` (literal backslash + separator) correct.
     """
-    return re.split(r'(?<!\\),', dn)
+    parts: list[str] = []
+    start = 0
+    i = 0
+    while i < len(dn):
+        if dn[i] == ",":
+            bs = 0
+            j = i - 1
+            while j >= 0 and dn[j] == "\\":
+                bs += 1
+                j -= 1
+            if bs % 2 == 0:
+                parts.append(dn[start:i])
+                start = i + 1
+        i += 1
+    parts.append(dn[start:])
+    return parts
 
 
 def _find_parent_som(estate: Estate, dn: str) -> Som | None:

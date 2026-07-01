@@ -1941,3 +1941,41 @@ def test_baseline_zip_exceeds_256mb_raises(tmp_path: Path) -> None:
         with pytest.warns(UserWarning, match="exceeds limit"):
             gpos = ingest.load_baseline_from_zip(zip_path)
     assert gpos == []
+
+
+def test_parse_report_skips_malformed_guid(tmp_path: Path) -> None:
+    """A malformed GPO GUID must not crash the entire report parse."""
+    xml = (
+        '<?xml version="1.0" encoding="utf-8"?>\n'
+        '<GPO xmlns="http://www.microsoft.com/GroupPolicy/Settings">\n'
+        "  <GPO>\n"
+        "    <Identifier>\n"
+        "      <Identifier>not-a-valid-guid</Identifier>\n"
+        "      <Domain>test.local</Domain>\n"
+        "    </Identifier>\n"
+        "    <Name>Bad GUID GPO</Name>\n"
+        "    <Computer><VersionDirectory>1</VersionDirectory>"
+        "    <VersionSysvol>1</VersionSysvol><Enabled>true</Enabled></Computer>\n"
+        "    <User><VersionDirectory>1</VersionDirectory>"
+        "    <VersionSysvol>1</VersionSysvol><Enabled>true</Enabled></User>\n"
+        "    <FilterDataAvailable>false</FilterDataAvailable>\n"
+        "  </GPO>\n"
+        '  <GPO>\n'
+        "    <Identifier>\n"
+        "      <Identifier>{31B2F340-016D-11D2-945F-00C04FB984F9}</Identifier>\n"
+        "      <Domain>test.local</Domain>\n"
+        "    </Identifier>\n"
+        "    <Name>Good GPO</Name>\n"
+        "    <Computer><VersionDirectory>1</VersionDirectory>"
+        "    <VersionSysvol>1</VersionSysvol><Enabled>true</Enabled></Computer>\n"
+        "    <User><VersionDirectory>1</VersionDirectory>"
+        "    <VersionSysvol>1</VersionSysvol><Enabled>true</Enabled></User>\n"
+        "    <FilterDataAvailable>false</FilterDataAvailable>\n"
+        "  </GPO>\n"
+        "</GPO>\n"
+    )
+    xml_path = tmp_path / "report.xml"
+    xml_path.write_text(xml, encoding="utf-8")
+    gpos = ingest.parse_report(xml_path)
+    assert len(gpos) == 1
+    assert gpos[0].name == "Good GPO"
