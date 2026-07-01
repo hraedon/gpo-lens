@@ -99,7 +99,7 @@ _BUILTIN_WELL_KNOWN: dict[str, str] = {
     "552": "BUILTIN\\Replicator",
     "553": "BUILTIN\\All Users",
     "554": "BUILTIN\\Pre-Windows 2000 Compatible Access",
-    "555": "BUILTIN\\Pre-Windows 2000 Compatible Access",
+    "555": "BUILTIN\\Remote Desktop Users",
     "556": "BUILTIN\\Remote Management Users",
     "557": "BUILTIN\\Network Configuration Operators",
     "558": "BUILTIN\\Incoming Forest Trust Builders",
@@ -174,7 +174,7 @@ ACE_TYPE_MAP = {
 
 _VALID_SDDL_RIGHTS = {
     "GA", "GR", "GW", "GX", "RC", "SD", "WD", "WO", "RP", "WP",
-    "CC", "DC", "LC", "LO", "DT", "CR", "FA", "FR", "FW", "FX",
+    "CC", "DC", "LC", "LO", "DT", "CR", "SW", "FA", "FR", "FW", "FX",
     "KA", "KR", "KW", "KX",
 }
 
@@ -191,11 +191,13 @@ _HEX_RIGHTS_MAP: tuple[tuple[int, str], ...] = (
     (0x00040000, "WD"),   # ADS_RIGHT_WRITE_DAC
     (0x00020000, "RC"),   # ADS_RIGHT_READ_CONTROL
     (0x00010000, "SD"),   # ADS_RIGHT_DELETE
+    (0x00000100, "CR"),   # ADS_RIGHT_DS_CONTROL_ACCESS (extended rights,
+                          # e.g. Apply Group Policy)
     (0x00000080, "LO"),   # ADS_RIGHT_DS_LIST_OBJECT
     (0x00000040, "DT"),   # ADS_RIGHT_DS_DELETE_TREE
     (0x00000020, "WP"),   # ADS_RIGHT_DS_WRITE_PROP
     (0x00000010, "RP"),   # ADS_RIGHT_DS_READ_PROP
-    (0x00000008, "CR"),   # ADS_RIGHT_DS_SELF (Control Access)
+    (0x00000008, "SW"),   # ADS_RIGHT_DS_SELF (validated write)
     (0x00000004, "LC"),   # ADS_RIGHT_ACTRL_DS_LIST
     (0x00000002, "DC"),   # ADS_RIGHT_DS_DELETE_CHILD
     (0x00000001, "CC"),   # ADS_RIGHT_DS_CREATE_CHILD
@@ -213,7 +215,11 @@ _SDDL_SID_ALIASES: dict[str, str] = {
     "bf": "BUILTIN\\Server Operators",
     "br": "BUILTIN\\Account Operators",
     "bp": "BUILTIN\\Print Operators",
-    "ps": "BUILTIN\\Pre-Windows 2000 Compatible Access",
+    # Per sddl.h, PS is SDDL_PERSONAL_SELF (S-1-5-10), not Pre-Windows 2000
+    # Compatible Access (that is RU) — confirmed against RawSecurityDescriptor
+    # in the reference corpus (tests/fixtures/sddl/).
+    "ps": "Self",
+    "ru": "BUILTIN\\Pre-Windows 2000 Compatible Access",
     "ao": "BUILTIN\\Account Operators",
     "so": "BUILTIN\\Server Operators",
     "po": "BUILTIN\\Print Operators",
@@ -294,7 +300,8 @@ _SDDL_ALIAS_ABS_SID: dict[str, str] = {
     "bf": "s-1-5-32-549",      # Server Operators
     "br": "s-1-5-32-548",      # Account Operators
     "bp": "s-1-5-32-550",      # Print Operators
-    "ps": "s-1-5-32-554",      # Pre-Windows 2000 Compatible Access
+    "ps": "s-1-5-10",          # Principal Self (sddl.h SDDL_PERSONAL_SELF)
+    "ru": "s-1-5-32-554",      # Pre-Windows 2000 Compatible Access
     "rd": "s-1-5-32-555",      # Remote Desktop Users
 }
 
@@ -678,6 +685,18 @@ def _extract_aces(text: str) -> list[SddlAce]:
     return aces
 
 
+def _acl_control_flags(raw: str) -> str:
+    """Extract the ACL control flags preceding the ACE list.
+
+    In ``D:PAI(A;;GR;;;WD)`` the flags are ``PAI`` (``P`` = protected /
+    inheritance blocked, ``AI`` = auto-inherited, ``AR`` = auto-inherit
+    required). GPMC emits flags on nearly every GPO DACL; a flagless ACL
+    (``D:(A;;...)``) yields ``""``.
+    """
+    head, _, _ = raw.partition("(")
+    return head.strip()
+
+
 def parse_sddl(sddl: str) -> SddlAcl:
     """Parse an SDDL string into owner, group, DACL, and SACL ACEs."""
     if len(sddl) > 1_048_576:
@@ -691,6 +710,8 @@ def parse_sddl(sddl: str) -> SddlAcl:
     group_sid: str | None = None
     dacl: list[SddlAce] = []
     sacl: list[SddlAce] = []
+    dacl_flags = ""
+    sacl_flags = ""
 
     sections = _find_section_starts(sddl)
     section_order = sorted(sections.items(), key=lambda kv: kv[1])
@@ -709,12 +730,16 @@ def parse_sddl(sddl: str) -> SddlAcl:
             group_sid = raw.strip() or None
         elif sec_type == "D":
             dacl = _extract_aces(raw)
+            dacl_flags = _acl_control_flags(raw)
         elif sec_type == "S":
             sacl = _extract_aces(raw)
+            sacl_flags = _acl_control_flags(raw)
 
     return SddlAcl(
         owner_sid=owner_sid,
         group_sid=group_sid,
         dacl=tuple(dacl),
         sacl=tuple(sacl),
+        dacl_flags=dacl_flags,
+        sacl_flags=sacl_flags,
     )

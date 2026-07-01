@@ -61,6 +61,11 @@ class SddlAcl:
     group_sid: str | None
     dacl: tuple[SddlAce, ...]
     sacl: tuple[SddlAce, ...]
+    # ACL control flags preceding the ACE list, e.g. "PAI" from ``D:PAI(...)``.
+    # "P" (protected) blocks inheritance from the parent container — a
+    # posture-relevant signal the parser previously discarded.
+    dacl_flags: str = ""
+    sacl_flags: str = ""
 
 
 @dataclass(frozen=True)
