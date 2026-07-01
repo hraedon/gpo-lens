@@ -1838,6 +1838,81 @@ def test_flat_permission_no_sid_resolves_to_none() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Owner extraction from <SecurityDescriptor><Owner>
+# ---------------------------------------------------------------------------
+
+
+def test_owner_read_from_owner_children_not_element_text() -> None:
+    """GPMC's <Owner> holds <SID>/<Name> children; its own .text is the
+    whitespace between them. Reading elem.text stored '\\n      ' as the
+    owner for every GPO (blank Owner row in the UI, found on the real
+    estate export)."""
+    xml = """<?xml version="1.0" encoding="utf-8"?>
+<GPO xmlns="http://www.microsoft.com/GroupPolicy/Settings">
+  <GPO>
+    <Identifier><Identifier>{CCCCCCCC-CCCC-CCCC-CCCC-CCCCCCCCCCCC}</Identifier>
+    <Domain>fakefixture.local</Domain></Identifier>
+    <Name>owner-gpo</Name>
+    <Computer><Enabled>true</Enabled></Computer>
+    <User><Enabled>true</Enabled></User>
+    <SecurityDescriptor>
+      <SDDL>O:DAG:DAD:PAI(A;;GR;;;WD)</SDDL>
+      <Owner>
+        <SID>S-1-5-21-1-2-3-512</SID>
+        <Name>FAKEFIXTURE\\Domain Admins</Name>
+      </Owner>
+    </SecurityDescriptor>
+  </GPO>
+</GPO>"""
+    elem = ET.fromstring(xml)
+    gpo_elem = next(c for c in elem if c.tag.split("}")[-1] == "GPO")
+    gpo = ingest._parse_single_gpo(gpo_elem)
+    assert gpo is not None
+    assert gpo.owner == "FAKEFIXTURE\\Domain Admins"
+
+
+def test_owner_falls_back_to_sid_child() -> None:
+    xml = """<?xml version="1.0" encoding="utf-8"?>
+<GPO xmlns="http://www.microsoft.com/GroupPolicy/Settings">
+  <GPO>
+    <Identifier><Identifier>{DDDDDDDD-DDDD-DDDD-DDDD-DDDDDDDDDDDD}</Identifier>
+    <Domain>fakefixture.local</Domain></Identifier>
+    <Name>owner-sid-only-gpo</Name>
+    <Computer><Enabled>true</Enabled></Computer>
+    <User><Enabled>true</Enabled></User>
+    <SecurityDescriptor>
+      <Owner>
+        <SID>S-1-5-21-1-2-3-512</SID>
+      </Owner>
+    </SecurityDescriptor>
+  </GPO>
+</GPO>"""
+    elem = ET.fromstring(xml)
+    gpo_elem = next(c for c in elem if c.tag.split("}")[-1] == "GPO")
+    gpo = ingest._parse_single_gpo(gpo_elem)
+    assert gpo is not None
+    assert gpo.owner == "S-1-5-21-1-2-3-512"
+
+
+def test_owner_absent_is_none() -> None:
+    xml = """<?xml version="1.0" encoding="utf-8"?>
+<GPO xmlns="http://www.microsoft.com/GroupPolicy/Settings">
+  <GPO>
+    <Identifier><Identifier>{EEEEEEEE-EEEE-EEEE-EEEE-EEEEEEEEEEEE}</Identifier>
+    <Domain>fakefixture.local</Domain></Identifier>
+    <Name>no-owner-gpo</Name>
+    <Computer><Enabled>true</Enabled></Computer>
+    <User><Enabled>true</Enabled></User>
+  </GPO>
+</GPO>"""
+    elem = ET.fromstring(xml)
+    gpo_elem = next(c for c in elem if c.tag.split("}")[-1] == "GPO")
+    gpo = ingest._parse_single_gpo(gpo_elem)
+    assert gpo is not None
+    assert gpo.owner is None
+
+
+# ---------------------------------------------------------------------------
 # L-7: _GPLINK_RE case-insensitivity
 # ---------------------------------------------------------------------------
 

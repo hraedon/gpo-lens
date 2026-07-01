@@ -2,6 +2,52 @@
 
 ## Unreleased
 
+### SDDL parser — reference-validated fixes (from the 2026-07-01 differential review)
+
+- **`SW` (validated write / `ADS_RIGHT_DS_SELF`) joins the valid rights set.**
+  It appears in the canonical AD rights string on essentially every GPO DACL
+  (386 of 767 ACEs in the real-estate corpus) and was silently dropped; worse,
+  the 1-char resync could fabricate a phantom `WD` (Write DAC) from `SWDT`.
+- **Hex rights mask decoding corrected:** `0x8` is `SW`, not `CR`; `0x100`
+  (`ADS_RIGHT_DS_CONTROL_ACCESS` — the bit Apply Group Policy actually uses)
+  was missing entirely. Hex masks never occur in GPMC XML output (corpus-
+  confirmed), so no live verdicts change; the code path is now correct for
+  other producers.
+- **SDDL alias fixes per sddl.h:** `PS` is Principal Self (`S-1-5-10`), not
+  Pre-Windows 2000 Compatible Access (that alias is `RU`, now added); BUILTIN
+  RID 555 is Remote Desktop Users, not a duplicate of 554.
+- **ACL control flags are preserved:** `SddlAcl` gains `dacl_flags` /
+  `sacl_flags` (e.g. `PAI` — `P` = inheritance-protected, posture-relevant);
+  previously discarded.
+- **New differential regression corpus** (`tests/fixtures/sddl/` +
+  `test_sddl_reference_corpus.py`): 27 SDDL strings (5 real lab GPMC strings +
+  22 synthetic grammar-coverage strings) decoded by .NET
+  `RawSecurityDescriptor` on a real Windows host; the tests assert field-level
+  agreement (ACE count/order/type/flags, trustee SID, rights, read-or-apply
+  and write verdicts, owner/group, protected flag). The `PS` and RID-555
+  fixes above were caught by this corpus, not by review.
+
+### Web UI — navigation, attribution, and readability
+
+- **Nav grouped by workflow** (Estate / Posture / Change / Tools) with
+  hairline dividers, and three previously orphaned pages — `/delegation`,
+  `/admx-coverage`, `/golden-diff` — are now linked (they were reachable only
+  by typing the URL).
+- **Per-user audit attribution behind a reverse proxy** (opt-in): set
+  `GPO_LENS_FORWARDED_USER_HEADER=X-Forwarded-User` and have the same-host
+  proxy set that header from the authenticated user (IIS URL Rewrite wiring
+  documented in `deploy/iis/README.md`). Audit-log entries then carry the real
+  operator (role `forwarded`) instead of `local-analyst`. Loopback-gated;
+  grants no permissions beyond the loopback set; ignored from remote peers.
+- **GPO owner extraction fixed:** GPMC's `<Owner>` element holds `<SID>`/
+  `<Name>` children, so reading its own text stored whitespace as the owner of
+  every GPO — the GPO-detail Owner row has been blank on real estates. Owner
+  now reads `Name` (fallback `SID`); the template also tolerates historical
+  whitespace values.
+- **Readability:** the Conflicts "Setting" and Danger "Finding"/"Remediation"
+  columns get minimum widths so long registry paths and remediation prose stop
+  wrapping into unreadable 15-character shards.
+
 ### WI-080 — configured values for Administrative-Templates settings
 
 - Admin-Template policies (Registry CSE) now show the data they configure, not

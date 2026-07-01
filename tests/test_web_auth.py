@@ -167,8 +167,9 @@ class FakeClient:
 
 
 class FakeRequest:
-    def __init__(self, host: str | None):
+    def __init__(self, host: str | None, headers: dict[str, str] | None = None):
         self.client = FakeClient(host) if host else None
+        self.headers = headers or {}
 
 
 class TestLoopbackAuth:
@@ -231,6 +232,71 @@ class TestLoopbackAuth:
             assert client.post("/ingest").status_code != 403
         finally:
             app.dependency_overrides.clear()
+
+
+class TestForwardedUser:
+    """GPO_LENS_FORWARDED_USER_HEADER — proxy-forwarded audit identity.
+
+    Behind the documented IIS deployment every request arrives from loopback
+    as ``local-analyst``, so audit entries cannot distinguish operators even
+    though IIS *knows* who they are (Windows Auth). When the operator opts in,
+    the same-host proxy forwards the authenticated username in a header and
+    the principal is named after it — permissions stay exactly the loopback
+    set, and the header is never trusted from a non-loopback peer.
+    """
+
+    def test_forwarded_user_names_principal(self, monkeypatch):
+        monkeypatch.delenv("GPO_LENS_AUTH_TOKEN", raising=False)
+        monkeypatch.setenv("GPO_LENS_FORWARDED_USER_HEADER", "X-Forwarded-User")
+        req = FakeRequest("127.0.0.1", {"X-Forwarded-User": "CONTOSO\\alice"})
+        principal = get_principal(req)
+        assert principal.name == "CONTOSO\\alice"
+        assert principal.role == "forwarded"
+        assert principal.permissions == LOOPBACK_PRINCIPAL.permissions
+        assert not principal.has(Permission.ADMIN)
+
+    def test_header_ignored_when_env_unset(self, monkeypatch):
+        monkeypatch.delenv("GPO_LENS_AUTH_TOKEN", raising=False)
+        monkeypatch.delenv("GPO_LENS_FORWARDED_USER_HEADER", raising=False)
+        req = FakeRequest("127.0.0.1", {"X-Forwarded-User": "CONTOSO\\mallory"})
+        assert get_principal(req) == LOOPBACK_PRINCIPAL
+
+    def test_header_ignored_from_remote_peer(self, monkeypatch):
+        # A remote client presenting the header must NOT gain loopback trust —
+        # the loopback check runs first and still 401s.
+        monkeypatch.delenv("GPO_LENS_AUTH_TOKEN", raising=False)
+        monkeypatch.setenv("GPO_LENS_FORWARDED_USER_HEADER", "X-Forwarded-User")
+        req = FakeRequest("10.0.0.5", {"X-Forwarded-User": "CONTOSO\\mallory"})
+        with pytest.raises(HTTPException) as exc:
+            get_principal(req)
+        assert exc.value.status_code == 401
+
+    def test_empty_or_missing_header_falls_back(self, monkeypatch):
+        monkeypatch.delenv("GPO_LENS_AUTH_TOKEN", raising=False)
+        monkeypatch.setenv("GPO_LENS_FORWARDED_USER_HEADER", "X-Forwarded-User")
+        assert get_principal(FakeRequest("127.0.0.1")) == LOOPBACK_PRINCIPAL
+        req = FakeRequest("127.0.0.1", {"X-Forwarded-User": "   "})
+        assert get_principal(req) == LOOPBACK_PRINCIPAL
+
+    def test_forwarded_name_is_sanitized_and_capped(self, monkeypatch):
+        monkeypatch.delenv("GPO_LENS_AUTH_TOKEN", raising=False)
+        monkeypatch.setenv("GPO_LENS_FORWARDED_USER_HEADER", "X-Forwarded-User")
+        req = FakeRequest(
+            "127.0.0.1", {"X-Forwarded-User": "al\x00ice\r\n" + "x" * 400}
+        )
+        principal = get_principal(req)
+        assert "\x00" not in principal.name
+        assert "\n" not in principal.name
+        assert len(principal.name) <= 256
+
+    def test_token_mode_unaffected_by_forwarded_header(self, monkeypatch):
+        # Explicit bearer auth wins; the forwarded header only applies on the
+        # no-token loopback path.
+        monkeypatch.setenv("GPO_LENS_AUTH_TOKEN", "secret")
+        monkeypatch.setenv("GPO_LENS_FORWARDED_USER_HEADER", "X-Forwarded-User")
+        req = FakeRequest("127.0.0.1", {"X-Forwarded-User": "CONTOSO\\alice"})
+        principal = get_principal(req, authorization="Bearer secret")
+        assert principal == LOCAL_PRINCIPAL
 
 
 

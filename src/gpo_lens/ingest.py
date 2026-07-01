@@ -944,7 +944,17 @@ def _parse_single_gpo(gpo_elem: Element) -> Gpo | None:
 
     sd = _child_by_localname(gpo_elem, "SecurityDescriptor")
     sddl = _text(_child_by_localname(sd, "SDDL")) if sd is not None else None
-    owner = _text(_child_by_localname(sd, "Owner")) if sd is not None else None
+    # <Owner> holds <Name>/<SID> children, so its own .text is just the
+    # whitespace between them — read the children (Name preferred).
+    owner: str | None = None
+    if sd is not None:
+        owner_elem = _child_by_localname(sd, "Owner")
+        if owner_elem is not None:
+            for child_name in ("Name", "SID"):
+                child_text = _text(_child_by_localname(owner_elem, child_name))
+                if child_text and child_text.strip():
+                    owner = child_text.strip()
+                    break
     filter_data = parse_bool(_text(_child_by_localname(gpo_elem, "FilterDataAvailable")))
     description = _text(_child_by_localname(gpo_elem, "Description"))
 
