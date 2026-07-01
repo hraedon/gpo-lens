@@ -26,18 +26,32 @@
             <span class="gp-ver">v{{ app_version }}</span>
         </a>
         <nav class="gp-nav" aria-label="Primary">
-            <a href="{{ url_for('home') }}" {% if path == '/' %}class="active"{% endif %}>Dashboard</a>
-            <a href="{{ url_for('gpo_list') }}" {% if path.startswith('/inventory') %}class="active"{% endif %}>Inventory</a>
-            <a href="{{ url_for('danger_list') }}" {% if path.startswith('/danger') %}class="active"{% endif %}>Danger</a>
-            <a href="{{ url_for('conflicts') }}" {% if path.startswith('/conflicts') %}class="active"{% endif %}>Conflicts</a>
-            <a href="{{ url_for('search') }}" {% if path.startswith('/search') %}class="active"{% endif %}>Search</a>
-            <a href="{{ url_for('ou_list') }}" {% if path.startswith('/ou') %}class="active"{% endif %}>Directory</a>
-            <a href="{{ url_for('changelog') }}" {% if path.startswith('/changelog') %}class="active"{% endif %}>Changelog</a>
-            <a href="{{ url_for('trends') }}" {% if path.startswith('/trends') %}class="active"{% endif %}>Trends</a>
-            <a href="{{ url_for('baseline_get') }}" {% if path.startswith('/baseline') %}class="active"{% endif %}>Baseline</a>
-            <a href="{{ url_for('resultant_form') }}" {% if path.startswith('/resultant') %}class="active"{% endif %}>Resultant</a>
-            <a href="{{ url_for('ask_get') }}" {% if path.startswith('/ask') %}class="active"{% endif %}>Ask</a>
-            <a href="{{ url_for('ingest_get') }}" {% if path.startswith('/ingest') %}class="active"{% endif %}>Ingest</a>
+            <span class="gp-nav-group" aria-label="Estate">
+                <a href="{{ url_for('home') }}" {% if path == '/' %}class="active"{% endif %}>Dashboard</a>
+                <a href="{{ url_for('gpo_list') }}" {% if path.startswith('/inventory') %}class="active"{% endif %}>Inventory</a>
+                <a href="{{ url_for('ou_list') }}" {% if path.startswith('/ou') %}class="active"{% endif %}>Directory</a>
+                <a href="{{ url_for('search') }}" {% if path.startswith('/search') %}class="active"{% endif %}>Search</a>
+            </span>
+            <span class="gp-nav-sep" aria-hidden="true"></span>
+            <span class="gp-nav-group" aria-label="Posture">
+                <a href="{{ url_for('danger_list') }}" {% if path.startswith('/danger') %}class="active"{% endif %}>Danger</a>
+                <a href="{{ url_for('conflicts') }}" {% if path.startswith('/conflicts') %}class="active"{% endif %}>Conflicts</a>
+                <a href="{{ url_for('delegation') }}" {% if path.startswith('/delegation') %}class="active"{% endif %}>Delegation</a>
+                <a href="{{ url_for('admx_coverage') }}" {% if path.startswith('/admx-coverage') %}class="active"{% endif %}>Coverage</a>
+            </span>
+            <span class="gp-nav-sep" aria-hidden="true"></span>
+            <span class="gp-nav-group" aria-label="Change">
+                <a href="{{ url_for('changelog') }}" {% if path.startswith('/changelog') %}class="active"{% endif %}>Changelog</a>
+                <a href="{{ url_for('trends') }}" {% if path.startswith('/trends') %}class="active"{% endif %}>Trends</a>
+                <a href="{{ url_for('baseline_get') }}" {% if path.startswith('/baseline') %}class="active"{% endif %}>Baseline</a>
+                <a href="{{ url_for('golden_diff_get') }}" {% if path.startswith('/golden-diff') %}class="active"{% endif %}>Golden</a>
+            </span>
+            <span class="gp-nav-sep" aria-hidden="true"></span>
+            <span class="gp-nav-group" aria-label="Tools">
+                <a href="{{ url_for('resultant_form') }}" {% if path.startswith('/resultant') %}class="active"{% endif %}>Resultant</a>
+                <a href="{{ url_for('ask_get') }}" {% if path.startswith('/ask') %}class="active"{% endif %}>Ask</a>
+                <a href="{{ url_for('ingest_get') }}" {% if path.startswith('/ingest') %}class="active"{% endif %}>Ingest</a>
+            </span>
         </nav>
         <span class="gp-spacer"></span>
         <button class="gp-iconbtn" id="theme-toggle" type="button" title="Toggle light / dark" aria-label="Toggle light or dark theme">

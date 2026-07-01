@@ -58,6 +58,27 @@ def _get_auth_token() -> str:
     return os.environ.get("GPO_LENS_AUTH_TOKEN", "")
 
 
+def _forwarded_user(request: Request) -> str | None:
+    """Authenticated username forwarded by a trusted same-host reverse proxy.
+
+    Opt-in via ``GPO_LENS_FORWARDED_USER_HEADER`` (the header name, e.g.
+    ``X-Forwarded-User``). Only consulted on the loopback-trust path, so a
+    remote client can never mint an identity by setting the header itself —
+    the TCP peer must be the same-host proxy documented in ``deploy/iis/``.
+    The proxy MUST set/overwrite the header on every request (never pass a
+    client-supplied value through); see the IIS README for the URL Rewrite
+    wiring. The value only *names* the principal so audit-log entries carry
+    the real operator instead of ``local-analyst``; it grants nothing beyond
+    the loopback permission set.
+    """
+    header_name = os.environ.get("GPO_LENS_FORWARDED_USER_HEADER", "")
+    if not header_name:
+        return None
+    raw = request.headers.get(header_name, "")
+    cleaned = "".join(ch for ch in raw if ord(ch) >= 32).strip()
+    return cleaned[:256] or None
+
+
 def _is_loopback(host: str | None) -> bool:
     if host is None:
         return False
@@ -83,6 +104,13 @@ def get_principal(
     # If no token configured, allow loopback only (local dev mode)
     if not auth_token:
         if _is_loopback(request.client.host if request.client else None):
+            fwd = _forwarded_user(request)
+            if fwd is not None:
+                return Principal(
+                    name=fwd,
+                    role="forwarded",
+                    permissions=LOOPBACK_PRINCIPAL.permissions,
+                )
             return LOOPBACK_PRINCIPAL
         raise HTTPException(
             status_code=401,

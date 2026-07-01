@@ -95,6 +95,29 @@ access at the IIS layer:
 - An **IP allow-list** (IIS "IP Address and Domain Restrictions").
 - Or keep the site on an **isolated/management network**.
 
+### Optional: per-user audit attribution
+
+With Windows Auth on, IIS knows who each caller is — but the app sees only
+loopback, so `audit.log` records every ingest/delete as `local-analyst`. To
+put the real operator in the audit trail, forward the authenticated username
+in a request header and tell gpo-lens to trust it:
+
+1. Install the IIS **URL Rewrite** module.
+2. In the site's URL Rewrite config, allow the server variable
+   `HTTP_X_FORWARDED_USER`, then add an inbound rule (match `.*`, action
+   "None") that **sets** `HTTP_X_FORWARDED_USER = {LOGON_USER}` on every
+   request. Setting (not conditionally appending) is what makes this safe:
+   any client-supplied `X-Forwarded-User` is overwritten before it reaches
+   the app. Do **not** configure a pass-through.
+3. Set `GPO_LENS_FORWARDED_USER_HEADER=X-Forwarded-User` in the site's
+   `web.config` `<httpPlatform><environmentVariables>` block.
+
+The forwarded name only labels the principal in `audit.log` (role
+`forwarded`); it grants exactly the same permissions as the loopback
+analyst and is ignored entirely when the request does not arrive from the
+same-host proxy. Without Windows Auth, `{LOGON_USER}` is empty and the app
+falls back to `local-analyst` — so enable `-WindowsAuth` first.
+
 ## Why a shared Python install
 
 The Python Install Manager installs runtimes per-user (under

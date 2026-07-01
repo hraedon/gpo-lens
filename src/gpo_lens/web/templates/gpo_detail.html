@@ -32,7 +32,7 @@
         <tr><th>Domain</th><td>{{ gpo.domain }}</td></tr>
         <tr><th>Created</th><td>{{ gpo.created or "—" }}</td></tr>
         <tr><th>Modified</th><td>{{ gpo.modified or "—" }}</td></tr>
-        <tr><th>Owner</th><td>{{ gpo.owner or "—" }}</td></tr>
+        <tr><th>Owner</th><td>{{ (gpo.owner or "").strip() or "—" }}</td></tr>
         <tr><th>Description</th><td>{{ gpo.description or "—" }}</td></tr>
       </tbody>
     </table>

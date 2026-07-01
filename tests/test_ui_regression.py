@@ -194,15 +194,23 @@ class TestNavigationStructure:
     """The base template renders the same nav scaffold on every page."""
 
     _NAV_LINKS = [
+        # Estate
         ("Dashboard", "/"),
         ("Inventory", "/inventory"),
+        ("Directory", "/ou"),
+        ("Search", "/search"),
+        # Posture
         ("Danger", "/danger"),
         ("Conflicts", "/conflicts"),
-        ("Directory", "/ou"),
+        ("Delegation", "/delegation"),
+        ("Coverage", "/admx-coverage"),
+        # Change
         ("Changelog", "/changelog"),
-        ("Baseline", "/baseline"),
-        ("Resultant", "/resultant"),
         ("Trends", "/trends"),
+        ("Baseline", "/baseline"),
+        ("Golden", "/golden-diff"),
+        # Tools
+        ("Resultant", "/resultant"),
         ("Ask", "/ask"),
         ("Ingest", "/ingest"),
     ]
@@ -369,7 +377,7 @@ class TestDangerPageRendering:
 
     def test_danger_page_has_remediation_column(self, _client) -> None:
         html = _client.get("/danger").text
-        assert "<th>Remediation</th>" in html
+        assert ">Remediation</th>" in html
 
 
 # ---------------------------------------------------------------------------
