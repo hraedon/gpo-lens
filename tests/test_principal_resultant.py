@@ -225,8 +225,8 @@ class TestBuildToken:
             member_count=2,
         )
         token = build_token(estate, USER_SID)
-        assert "s-1-5-21-9999999999-9999999999-9999999999-1234" in token.token_sids
-        assert any("unresolved" in c.lower() for c in token.token_caveats)
+        assert GROUP_SID in token.token_sids
+        assert "s-1-5-21-9999999999-9999999999-9999999999-1234" not in token.token_sids
 
 
 # ---------------------------------------------------------------------------

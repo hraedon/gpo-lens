@@ -15,7 +15,6 @@ never unqualified "effective" (decision 4).
 
 from __future__ import annotations
 
-import re
 from collections import defaultdict, deque
 from dataclasses import dataclass
 from enum import Enum
@@ -38,7 +37,12 @@ from gpo_lens.authz import (
 )
 from gpo_lens.detection import scan_ilt
 from gpo_lens.model import Side
-from gpo_lens.topology import EffectiveGpo, loopback_awareness, som_effective_gpos
+from gpo_lens.topology import (
+    EffectiveGpo,
+    _split_dn,
+    loopback_awareness,
+    som_effective_gpos,
+)
 
 ANONYMOUS_SID = "s-1-5-7"
 
@@ -126,13 +130,15 @@ def _restricted_groups_mode(setting: Setting) -> CseMergeMode:
         return CseMergeMode.AUTHORITATIVE_REPLACE
     children = raw.get("children")
     if isinstance(children, list):
-        for child in children:
-            if isinstance(child, dict):
-                tag = str(child.get("tag", "")).lower()
-                if tag == "members":
-                    return CseMergeMode.AUTHORITATIVE_REPLACE
-                if tag == "memberof":
-                    return CseMergeMode.ADDITIVE
+        tags = {
+            str(child.get("tag", "")).lower()
+            for child in children
+            if isinstance(child, dict)
+        }
+        if "members" in tags:
+            return CseMergeMode.AUTHORITATIVE_REPLACE
+        if "memberof" in tags:
+            return CseMergeMode.ADDITIVE
     return CseMergeMode.AUTHORITATIVE_REPLACE
 
 
@@ -500,10 +506,10 @@ def build_token(estate: Estate, principal_sid: str) -> PrincipalToken:
     """Expand a principal's transitive group membership into a token SID set.
 
     Adds well-known groups (Authenticated Users, Everyone; Domain Users or
-    Domain Computers based on principal type). Expands nested groups via
-    ``estate.group_members`` (Plan 020 B) in both directions: a group's
-    members (forward) and the groups a principal belongs to (reverse).
-    Records what could not be expanded (foreign SIDs, unresolved) as caveats.
+    Domain Computers based on principal type). Expands nested groups
+    upward-only (member → parent groups via ``estate.group_members``,
+    Plan 020 B). Records what could not be expanded (foreign SIDs,
+    unresolved groups) as caveats.
     """
     sid = principal_sid.strip().lower()
     rp = resolve_principal(estate, sid)
@@ -535,12 +541,6 @@ def build_token(estate: Estate, principal_sid: str) -> PrincipalToken:
             continue
         visited.add(current)
         gm = estate.group_members.get(current)
-        if gm is not None:
-            for member_sid in gm.members:
-                member = member_sid.strip().lower()
-                if member and member not in token:
-                    token.add(member)
-                    queue.append(member)
         for group_sid in member_to_groups.get(current, ()):
             if group_sid not in token:
                 token.add(group_sid)
@@ -706,7 +706,7 @@ class PrincipalResultant:
 def _resolve_som_path_for_principal(estate: Estate, dn: str | None) -> str:
     """Find the most specific SOM path for a principal's DN, or the domain root."""
     if dn:
-        parts = [p.strip() for p in re.split(r"(?<!\\),", dn)]
+        parts = [p.strip() for p in _split_dn(dn)]
         for i in range(len(parts)):
             candidate = ",".join(parts[i:])
             for som in estate.soms:
@@ -990,12 +990,32 @@ def principal_resultant(
 
     excluded: list[ExcludedGpo] = []
     active_loopback: str | None = None
+
+    approx_msgs: list[str] = []
+    if dn and som_path and chain:
+        dn_norm = ",".join(p.strip() for p in _split_dn(dn)).lower()
+        if dn_norm != som_path.lower():
+            approx_msgs.append(
+                "Principal's OU is not in the collected estate; the chain was "
+                "resolved from the nearest ancestor OU. inheritance_blocked on "
+                "uncollected intermediate OUs could not be checked."
+            )
     if is_user_computer_pair:
         comp_token_sids = comp_token.token_sids
         comp_som = _resolve_som_path_for_principal(
             estate, computer_dn if computer_dn is not None else dn,
         )
         comp_chain = som_effective_gpos(estate, comp_som) if comp_som else []
+        comp_dn_resolved = computer_dn if computer_dn is not None else dn
+        if comp_dn_resolved and comp_som and comp_chain:
+            comp_dn_norm = ",".join(
+                p.strip() for p in _split_dn(comp_dn_resolved)
+            ).lower()
+            if comp_dn_norm != comp_som.lower():
+                approx_msgs.append(
+                    "Computer's OU is not in the collected estate; its chain "
+                    "was resolved from the nearest ancestor OU."
+                )
 
         loopback_map = loopback_awareness(estate)
         comp_chain_ids = {eg.gpo_id for eg in comp_chain if eg.enabled}
@@ -1063,10 +1083,10 @@ def principal_resultant(
         )
 
     if is_user_computer_pair:
-        seen_exc: set[tuple[str, str]] = set()
+        seen_exc: set[tuple[str, str, str]] = set()
         deduped: list[ExcludedGpo] = []
         for exc in excluded:
-            key = (exc.gpo_id, exc.kind)
+            key = (exc.gpo_id, exc.kind, exc.side)
             if key not in seen_exc:
                 seen_exc.add(key)
                 deduped.append(exc)
@@ -1125,6 +1145,7 @@ def principal_resultant(
         is_user_side=side == "User",
         has_site_soms=has_site_soms,
     )
+    caveat_mechanisms = approx_msgs + caveat_mechanisms
 
     return PrincipalResultant(
         principal_sid=sid,

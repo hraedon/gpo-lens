@@ -558,6 +558,102 @@ def test_som_effective_gpos_skips_site_som_in_parent_walk():
     assert result == []
 
 
+def test_split_dn_escaped_backslash_before_separator():
+    """_split_dn must treat a comma after an even backslash run as a separator.
+
+    ``CN=test\\\\`` is a literal backslash at the end of the value; the following
+    comma is a real DN separator. The old regex ``(?<!\\\\),`` saw one backslash
+    before the comma and wrongly treated it as escaped.
+    """
+    from gpo_lens.topology import _split_dn
+
+    parts = _split_dn(r"CN=test\\,OU=Servers,DC=test")
+    assert parts == [r"CN=test\\", "OU=Servers", "DC=test"]
+
+
+def test_split_dn_escaped_comma_in_rdn():
+    """A backslash-escaped comma stays inside the RDN value."""
+    from gpo_lens.topology import _split_dn
+
+    parts = _split_dn(r"CN=Last\,First,OU=Users,DC=test")
+    assert parts == [r"CN=Last\,First", "OU=Users", "DC=test"]
+
+
+def test_split_dn_plain_dn():
+    from gpo_lens.topology import _split_dn
+
+    assert _split_dn("OU=Users,DC=test,DC=local") == [
+        "OU=Users", "DC=test", "DC=local",
+    ]
+
+
+def test_split_dn_three_backslashes():
+    """Three backslashes = escaped-backslash + escaped-comma (odd run)."""
+    from gpo_lens.topology import _split_dn
+
+    parts = _split_dn(r"CN=test\\\,x,OU=Users,DC=test")
+    assert parts == [r"CN=test\\\,x", "OU=Users", "DC=test"]
+
+
+def test_split_dn_empty_string():
+    from gpo_lens.topology import _split_dn
+
+    assert _split_dn("") == [""]
+
+
+def test_som_effective_gpos_target_present_empty_links_no_walk():
+    """When the target SOM exists but has no links, return its empty chain —
+    do NOT walk up to a parent."""
+    from gpo_lens.model import Som, SomLink
+
+    gpo = _make_gpo(id="gpo-1", name="Parent GPO")
+    parent_som = Som(
+        path="ou=parent,dc=test,dc=local",
+        name="Parent",
+        container_type="ou",
+        inheritance_blocked=False,
+        links=[
+            SomLink(gpo_id="gpo-1", order=1, enabled=True,
+                    enforced=False, target="ou=parent,dc=test,dc=local"),
+        ],
+    )
+    child_som = Som(
+        path="ou=child,ou=parent,dc=test,dc=local",
+        name="Child",
+        container_type="ou",
+        inheritance_blocked=False,
+        links=[],
+    )
+    estate = Estate(gpos=[gpo], soms=[parent_som, child_som])
+    result = queries.som_effective_gpos(
+        estate, "ou=child,ou=parent,dc=test,dc=local",
+    )
+    assert result == []
+
+
+def test_som_effective_gpos_parent_walk_case_insensitive():
+    """Parent-OU matching is case-insensitive."""
+    from gpo_lens.model import Som, SomLink
+
+    gpo = _make_gpo(id="gpo-1", name="Parent GPO")
+    parent_som = Som(
+        path="OU=Parent,DC=Test,DC=Local",
+        name="Parent",
+        container_type="ou",
+        inheritance_blocked=False,
+        links=[
+            SomLink(gpo_id="gpo-1", order=1, enabled=True,
+                    enforced=False, target="OU=Parent,DC=Test,DC=Local"),
+        ],
+    )
+    estate = Estate(gpos=[gpo], soms=[parent_som])
+    result = queries.som_effective_gpos(
+        estate, "ou=child,ou=parent,dc=test,dc=local",
+    )
+    assert len(result) == 1
+    assert result[0].gpo_id == "gpo-1"
+
+
 def test_dangling_links():
     from gpo_lens.model import Som, SomLink
 

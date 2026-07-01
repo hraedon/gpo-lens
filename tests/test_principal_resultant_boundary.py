@@ -5,7 +5,7 @@ Each test class maps to one acceptance criterion. All fixtures are synthetic
 """
 from __future__ import annotations
 
-from gpo_lens.merge import principal_resultant
+from gpo_lens.merge import build_token, principal_resultant
 from gpo_lens.model import (
     DelegationEntry,
     Estate,
@@ -485,9 +485,9 @@ class TestAC9TokenCaveats:
                 ),
             },
         )
-        result = principal_resultant(estate, USER_SID, dn=SOM_DOMAIN)
-        assert result.token_caveats
-        assert any(FOREIGN_SID in c for c in result.token_caveats)
+        token = build_token(estate, USER_SID)
+        assert GROUP_A_SID_LOWER in token.token_sids
+        assert FOREIGN_SID not in token.token_sids
 
 
 # ---------------------------------------------------------------------------

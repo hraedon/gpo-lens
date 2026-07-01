@@ -127,6 +127,30 @@ def snapshot_changelog(
 
     results: list[ChangelogEntry] = []
 
+    # GPOs added or removed between snapshots.
+    for gpo_id in sorted(b_ids - a_ids):
+        name = name_map.get(gpo_id, gpo_id)
+        results.append(ChangelogEntry(
+            gpo_id=gpo_id,
+            gpo_name=name,
+            kind="gpo_added",
+            side="",
+            version_change=None,
+            setting_changes=[],
+            summary=f"GPO added: {name}",
+        ))
+    for gpo_id in sorted(a_ids - b_ids):
+        name = name_map.get(gpo_id, gpo_id)
+        results.append(ChangelogEntry(
+            gpo_id=gpo_id,
+            gpo_name=name,
+            kind="gpo_removed",
+            side="",
+            version_change=None,
+            setting_changes=[],
+            summary=f"GPO removed: {name}",
+        ))
+
     # Fetch version rows for all common GPOs in one query per snapshot instead
     # of the previous per-GPO N+1 loop.
     def _load_versions(
@@ -210,6 +234,7 @@ def snapshot_changelog(
                         )
                     )
 
+    results.sort(key=lambda e: (e.gpo_id, e.side))
     return results
 
 
@@ -447,8 +472,14 @@ def snapshot_diff(
         # Version skew — columns 7..10 (already in the meta row)
         old_ds_c, old_sv_c, old_ds_u, old_sv_u = old_row[7], old_row[8], old_row[9], old_row[10]
         new_ds_c, new_sv_c, new_ds_u, new_sv_u = new_row[7], new_row[8], new_row[9], new_row[10]
-        old_skew = (old_ds_c != old_sv_c) or (old_ds_u != old_sv_u)
-        new_skew = (new_ds_c != new_sv_c) or (new_ds_u != new_sv_u)
+        old_skew = (
+            (old_ds_c is not None and old_sv_c is not None and old_ds_c != old_sv_c)
+            or (old_ds_u is not None and old_sv_u is not None and old_ds_u != old_sv_u)
+        )
+        new_skew = (
+            (new_ds_c is not None and new_sv_c is not None and new_ds_c != new_sv_c)
+            or (new_ds_u is not None and new_sv_u is not None and new_ds_u != new_sv_u)
+        )
         if old_skew != new_skew:
             version_skew_changed.append(gpo_id)
 
