@@ -1,0 +1,1030 @@
+[
+ {
+  "sddl": "O:DAG:DAD:PAI(A;;CCLCSWRPWPLORCWDWO;;;DA)(A;CIIO;CCDCLCSWRPWPDTLOSDRCWDWO;;;DA)(A;;CCLCSWRPWPLORCWDWO;;;S-1-5-21-3780865419-4207977281-163478896-519)(A;CIIO;CCDCLCSWRPWPDTLOSDRCWDWO;;;S-1-5-21-3780865419-4207977281-163478896-519)(A;;CCLCSWRPWPLORCWDWO;;;DA)(A;CIIO;CCDCLCSWRPWPDTLOSDRCWDWO;;;CO)(A;CI;CCDCLCSWRPWPDTLOSDRCWDWO;;;SY)(A;CI;LCRPLORC;;;AU)(OA;CI;CR;edacfd8f-ffb3-11d1-b41d-00a0c968f939;;AU)(A;CI;LCRPLORC;;;ED)S:AI(OU;CIIDSA;WPWD;;f30e3bc2-9ff0-11d1-b603-0000f80367c1;WD)(OU;CIIOIDSA;WP;f30e3bbe-9ff0-11d1-b603-0000f80367c1;bf967aa5-0de6-11d0-a285-00aa003049e2;WD)(OU;CIIOIDSA;WP;f30e3bbf-9ff0-11d1-b603-0000f80367c1;bf967aa5-0de6-11d0-a285-00aa003049e2;WD)",
+  "owner": "S-1-5-21-3780865419-4207977281-163478896-512",
+  "group": "S-1-5-21-3780865419-4207977281-163478896-512",
+  "control": "DiscretionaryAclPresent, SystemAclPresent, DiscretionaryAclAutoInherited, SystemAclAutoInherited, DiscretionaryAclProtected, SelfRelative",
+  "DiscretionaryAcl": [
+   {
+    "type": "AccessAllowed",
+    "flags": "None",
+    "mask": 917693,
+    "sid": "S-1-5-21-3780865419-4207977281-163478896-512"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "ContainerInherit, InheritOnly",
+    "mask": 983295,
+    "sid": "S-1-5-21-3780865419-4207977281-163478896-512"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "None",
+    "mask": 917693,
+    "sid": "S-1-5-21-3780865419-4207977281-163478896-519"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "ContainerInherit, InheritOnly",
+    "mask": 983295,
+    "sid": "S-1-5-21-3780865419-4207977281-163478896-519"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "None",
+    "mask": 917693,
+    "sid": "S-1-5-21-3780865419-4207977281-163478896-512"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "ContainerInherit, InheritOnly",
+    "mask": 983295,
+    "sid": "S-1-3-0"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "ContainerInherit",
+    "mask": 983295,
+    "sid": "S-1-5-18"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "ContainerInherit",
+    "mask": 131220,
+    "sid": "S-1-5-11"
+   },
+   {
+    "type": "AccessAllowedObject",
+    "flags": "ContainerInherit",
+    "mask": 256,
+    "sid": "S-1-5-11",
+    "object_type": "edacfd8f-ffb3-11d1-b41d-00a0c968f939",
+    "inherited_object_type": "00000000-0000-0000-0000-000000000000",
+    "object_flags": "ObjectAceTypePresent"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "ContainerInherit",
+    "mask": 131220,
+    "sid": "S-1-5-9"
+   }
+  ],
+  "SystemAcl": [
+   {
+    "type": "SystemAuditObject",
+    "flags": "ContainerInherit, Inherited, SuccessfulAccess",
+    "mask": 262176,
+    "sid": "S-1-1-0",
+    "object_type": "00000000-0000-0000-0000-000000000000",
+    "inherited_object_type": "f30e3bc2-9ff0-11d1-b603-0000f80367c1",
+    "object_flags": "InheritedObjectAceTypePresent"
+   },
+   {
+    "type": "SystemAuditObject",
+    "flags": "ContainerInherit, InheritOnly, Inherited, SuccessfulAccess",
+    "mask": 32,
+    "sid": "S-1-1-0",
+    "object_type": "f30e3bbe-9ff0-11d1-b603-0000f80367c1",
+    "inherited_object_type": "bf967aa5-0de6-11d0-a285-00aa003049e2",
+    "object_flags": "ObjectAceTypePresent, InheritedObjectAceTypePresent"
+   },
+   {
+    "type": "SystemAuditObject",
+    "flags": "ContainerInherit, InheritOnly, Inherited, SuccessfulAccess",
+    "mask": 32,
+    "sid": "S-1-1-0",
+    "object_type": "f30e3bbf-9ff0-11d1-b603-0000f80367c1",
+    "inherited_object_type": "bf967aa5-0de6-11d0-a285-00aa003049e2",
+    "object_flags": "ObjectAceTypePresent, InheritedObjectAceTypePresent"
+   }
+  ]
+ },
+ {
+  "sddl": "O:DAG:DAD:PAI(OA;CI;CR;edacfd8f-ffb3-11d1-b41d-00a0c968f939;;AU)(A;;CCDCLCSWRPWPDTLOSDRCWDWO;;;DA)(A;CI;CCDCLCSWRPWPDTLOSDRCWDWO;;;DA)(A;CI;CCDCLCSWRPWPDTLOSDRCWDWO;;;S-1-5-21-3780865419-4207977281-163478896-519)(A;CI;LCRPLORC;;;ED)(A;CI;LCRPLORC;;;AU)(A;CI;CCDCLCSWRPWPDTLOSDRCWDWO;;;SY)(A;CIIO;CCDCLCSWRPWPDTLOSDRCWDWO;;;CO)S:AI(OU;CIIDSA;WPWD;;f30e3bc2-9ff0-11d1-b603-0000f80367c1;WD)(OU;CIIOIDSA;WP;f30e3bbe-9ff0-11d1-b603-0000f80367c1;bf967aa5-0de6-11d0-a285-00aa003049e2;WD)(OU;CIIOIDSA;WP;f30e3bbf-9ff0-11d1-b603-0000f80367c1;bf967aa5-0de6-11d0-a285-00aa003049e2;WD)",
+  "owner": "S-1-5-21-3780865419-4207977281-163478896-512",
+  "group": "S-1-5-21-3780865419-4207977281-163478896-512",
+  "control": "DiscretionaryAclPresent, SystemAclPresent, DiscretionaryAclAutoInherited, SystemAclAutoInherited, DiscretionaryAclProtected, SelfRelative",
+  "DiscretionaryAcl": [
+   {
+    "type": "AccessAllowedObject",
+    "flags": "ContainerInherit",
+    "mask": 256,
+    "sid": "S-1-5-11",
+    "object_type": "edacfd8f-ffb3-11d1-b41d-00a0c968f939",
+    "inherited_object_type": "00000000-0000-0000-0000-000000000000",
+    "object_flags": "ObjectAceTypePresent"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "None",
+    "mask": 983295,
+    "sid": "S-1-5-21-3780865419-4207977281-163478896-512"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "ContainerInherit",
+    "mask": 983295,
+    "sid": "S-1-5-21-3780865419-4207977281-163478896-512"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "ContainerInherit",
+    "mask": 983295,
+    "sid": "S-1-5-21-3780865419-4207977281-163478896-519"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "ContainerInherit",
+    "mask": 131220,
+    "sid": "S-1-5-9"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "ContainerInherit",
+    "mask": 131220,
+    "sid": "S-1-5-11"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "ContainerInherit",
+    "mask": 983295,
+    "sid": "S-1-5-18"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "ContainerInherit, InheritOnly",
+    "mask": 983295,
+    "sid": "S-1-3-0"
+   }
+  ],
+  "SystemAcl": [
+   {
+    "type": "SystemAuditObject",
+    "flags": "ContainerInherit, Inherited, SuccessfulAccess",
+    "mask": 262176,
+    "sid": "S-1-1-0",
+    "object_type": "00000000-0000-0000-0000-000000000000",
+    "inherited_object_type": "f30e3bc2-9ff0-11d1-b603-0000f80367c1",
+    "object_flags": "InheritedObjectAceTypePresent"
+   },
+   {
+    "type": "SystemAuditObject",
+    "flags": "ContainerInherit, InheritOnly, Inherited, SuccessfulAccess",
+    "mask": 32,
+    "sid": "S-1-1-0",
+    "object_type": "f30e3bbe-9ff0-11d1-b603-0000f80367c1",
+    "inherited_object_type": "bf967aa5-0de6-11d0-a285-00aa003049e2",
+    "object_flags": "ObjectAceTypePresent, InheritedObjectAceTypePresent"
+   },
+   {
+    "type": "SystemAuditObject",
+    "flags": "ContainerInherit, InheritOnly, Inherited, SuccessfulAccess",
+    "mask": 32,
+    "sid": "S-1-1-0",
+    "object_type": "f30e3bbf-9ff0-11d1-b603-0000f80367c1",
+    "inherited_object_type": "bf967aa5-0de6-11d0-a285-00aa003049e2",
+    "object_flags": "ObjectAceTypePresent, InheritedObjectAceTypePresent"
+   }
+  ]
+ },
+ {
+  "sddl": "O:DAG:DAD:PAI(OA;CI;CR;edacfd8f-ffb3-11d1-b41d-00a0c968f939;;AU)(A;;CCDCLCSWRPWPDTLOSDRCWDWO;;;DA)(A;CI;LCRPRC;;;DC)(A;CI;CCDCLCSWRPWPDTLOSDRCWDWO;;;DA)(A;CI;CCDCLCSWRPWPDTLOSDRCWDWO;;;S-1-5-21-3780865419-4207977281-163478896-519)(A;CI;LCRPLORC;;;ED)(A;CI;LCRPLORC;;;AU)(A;CI;CCDCLCSWRPWPDTLOSDRCWDWO;;;SY)(A;CIIO;CCDCLCSWRPWPDTLOSDRCWDWO;;;CO)S:AI(OU;CIIDSA;WPWD;;f30e3bc2-9ff0-11d1-b603-0000f80367c1;WD)(OU;CIIOIDSA;WP;f30e3bbe-9ff0-11d1-b603-0000f80367c1;bf967aa5-0de6-11d0-a285-00aa003049e2;WD)(OU;CIIOIDSA;WP;f30e3bbf-9ff0-11d1-b603-0000f80367c1;bf967aa5-0de6-11d0-a285-00aa003049e2;WD)",
+  "owner": "S-1-5-21-3780865419-4207977281-163478896-512",
+  "group": "S-1-5-21-3780865419-4207977281-163478896-512",
+  "control": "DiscretionaryAclPresent, SystemAclPresent, DiscretionaryAclAutoInherited, SystemAclAutoInherited, DiscretionaryAclProtected, SelfRelative",
+  "DiscretionaryAcl": [
+   {
+    "type": "AccessAllowedObject",
+    "flags": "ContainerInherit",
+    "mask": 256,
+    "sid": "S-1-5-11",
+    "object_type": "edacfd8f-ffb3-11d1-b41d-00a0c968f939",
+    "inherited_object_type": "00000000-0000-0000-0000-000000000000",
+    "object_flags": "ObjectAceTypePresent"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "None",
+    "mask": 983295,
+    "sid": "S-1-5-21-3780865419-4207977281-163478896-512"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "ContainerInherit",
+    "mask": 131092,
+    "sid": "S-1-5-21-3780865419-4207977281-163478896-515"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "ContainerInherit",
+    "mask": 983295,
+    "sid": "S-1-5-21-3780865419-4207977281-163478896-512"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "ContainerInherit",
+    "mask": 983295,
+    "sid": "S-1-5-21-3780865419-4207977281-163478896-519"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "ContainerInherit",
+    "mask": 131220,
+    "sid": "S-1-5-9"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "ContainerInherit",
+    "mask": 131220,
+    "sid": "S-1-5-11"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "ContainerInherit",
+    "mask": 983295,
+    "sid": "S-1-5-18"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "ContainerInherit, InheritOnly",
+    "mask": 983295,
+    "sid": "S-1-3-0"
+   }
+  ],
+  "SystemAcl": [
+   {
+    "type": "SystemAuditObject",
+    "flags": "ContainerInherit, Inherited, SuccessfulAccess",
+    "mask": 262176,
+    "sid": "S-1-1-0",
+    "object_type": "00000000-0000-0000-0000-000000000000",
+    "inherited_object_type": "f30e3bc2-9ff0-11d1-b603-0000f80367c1",
+    "object_flags": "InheritedObjectAceTypePresent"
+   },
+   {
+    "type": "SystemAuditObject",
+    "flags": "ContainerInherit, InheritOnly, Inherited, SuccessfulAccess",
+    "mask": 32,
+    "sid": "S-1-1-0",
+    "object_type": "f30e3bbe-9ff0-11d1-b603-0000f80367c1",
+    "inherited_object_type": "bf967aa5-0de6-11d0-a285-00aa003049e2",
+    "object_flags": "ObjectAceTypePresent, InheritedObjectAceTypePresent"
+   },
+   {
+    "type": "SystemAuditObject",
+    "flags": "ContainerInherit, InheritOnly, Inherited, SuccessfulAccess",
+    "mask": 32,
+    "sid": "S-1-1-0",
+    "object_type": "f30e3bbf-9ff0-11d1-b603-0000f80367c1",
+    "inherited_object_type": "bf967aa5-0de6-11d0-a285-00aa003049e2",
+    "object_flags": "ObjectAceTypePresent, InheritedObjectAceTypePresent"
+   }
+  ]
+ },
+ {
+  "sddl": "O:DAG:DAD:PAI(OA;CI;CR;edacfd8f-ffb3-11d1-b41d-00a0c968f939;;AU)(A;;CCLCSWRPWPLORCWDWO;;;DA)(A;;CCLCSWRPWPLORCWDWO;;;S-1-5-21-3780865419-4207977281-163478896-519)(A;CI;LCRPRC;;;DC)(A;CIIO;CCDCLCSWRPWPDTLOSDRCWDWO;;;DA)(A;CIIO;CCDCLCSWRPWPDTLOSDRCWDWO;;;S-1-5-21-3780865419-4207977281-163478896-519)(A;CI;LCRPLORC;;;ED)(A;CI;LCRPLORC;;;AU)(A;CI;CCDCLCSWRPWPDTLOSDRCWDWO;;;SY)(A;CIIO;CCDCLCSWRPWPDTLOSDRCWDWO;;;CO)S:AI(OU;CIIDSA;WPWD;;f30e3bc2-9ff0-11d1-b603-0000f80367c1;WD)(OU;CIIOIDSA;WP;f30e3bbe-9ff0-11d1-b603-0000f80367c1;bf967aa5-0de6-11d0-a285-00aa003049e2;WD)(OU;CIIOIDSA;WP;f30e3bbf-9ff0-11d1-b603-0000f80367c1;bf967aa5-0de6-11d0-a285-00aa003049e2;WD)",
+  "owner": "S-1-5-21-3780865419-4207977281-163478896-512",
+  "group": "S-1-5-21-3780865419-4207977281-163478896-512",
+  "control": "DiscretionaryAclPresent, SystemAclPresent, DiscretionaryAclAutoInherited, SystemAclAutoInherited, DiscretionaryAclProtected, SelfRelative",
+  "DiscretionaryAcl": [
+   {
+    "type": "AccessAllowedObject",
+    "flags": "ContainerInherit",
+    "mask": 256,
+    "sid": "S-1-5-11",
+    "object_type": "edacfd8f-ffb3-11d1-b41d-00a0c968f939",
+    "inherited_object_type": "00000000-0000-0000-0000-000000000000",
+    "object_flags": "ObjectAceTypePresent"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "None",
+    "mask": 917693,
+    "sid": "S-1-5-21-3780865419-4207977281-163478896-512"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "None",
+    "mask": 917693,
+    "sid": "S-1-5-21-3780865419-4207977281-163478896-519"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "ContainerInherit",
+    "mask": 131092,
+    "sid": "S-1-5-21-3780865419-4207977281-163478896-515"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "ContainerInherit, InheritOnly",
+    "mask": 983295,
+    "sid": "S-1-5-21-3780865419-4207977281-163478896-512"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "ContainerInherit, InheritOnly",
+    "mask": 983295,
+    "sid": "S-1-5-21-3780865419-4207977281-163478896-519"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "ContainerInherit",
+    "mask": 131220,
+    "sid": "S-1-5-9"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "ContainerInherit",
+    "mask": 131220,
+    "sid": "S-1-5-11"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "ContainerInherit",
+    "mask": 983295,
+    "sid": "S-1-5-18"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "ContainerInherit, InheritOnly",
+    "mask": 983295,
+    "sid": "S-1-3-0"
+   }
+  ],
+  "SystemAcl": [
+   {
+    "type": "SystemAuditObject",
+    "flags": "ContainerInherit, Inherited, SuccessfulAccess",
+    "mask": 262176,
+    "sid": "S-1-1-0",
+    "object_type": "00000000-0000-0000-0000-000000000000",
+    "inherited_object_type": "f30e3bc2-9ff0-11d1-b603-0000f80367c1",
+    "object_flags": "InheritedObjectAceTypePresent"
+   },
+   {
+    "type": "SystemAuditObject",
+    "flags": "ContainerInherit, InheritOnly, Inherited, SuccessfulAccess",
+    "mask": 32,
+    "sid": "S-1-1-0",
+    "object_type": "f30e3bbe-9ff0-11d1-b603-0000f80367c1",
+    "inherited_object_type": "bf967aa5-0de6-11d0-a285-00aa003049e2",
+    "object_flags": "ObjectAceTypePresent, InheritedObjectAceTypePresent"
+   },
+   {
+    "type": "SystemAuditObject",
+    "flags": "ContainerInherit, InheritOnly, Inherited, SuccessfulAccess",
+    "mask": 32,
+    "sid": "S-1-1-0",
+    "object_type": "f30e3bbf-9ff0-11d1-b603-0000f80367c1",
+    "inherited_object_type": "bf967aa5-0de6-11d0-a285-00aa003049e2",
+    "object_flags": "ObjectAceTypePresent, InheritedObjectAceTypePresent"
+   }
+  ]
+ },
+ {
+  "sddl": "O:DAG:DAD:PAI(OA;CI;CR;edacfd8f-ffb3-11d1-b41d-00a0c968f939;;DC)(OA;CI;CR;edacfd8f-ffb3-11d1-b41d-00a0c968f939;;AU)(A;;CCDCLCSWRPWPDTLOSDRCWDWO;;;DA)(A;CI;LCRPRC;;;DC)(A;CI;CCDCLCSWRPWPDTLOSDRCWDWO;;;DA)(A;CI;CCDCLCSWRPWPDTLOSDRCWDWO;;;S-1-5-21-3780865419-4207977281-163478896-519)(A;CI;LCRPLORC;;;ED)(A;CI;LCRPLORC;;;AU)(A;CI;CCDCLCSWRPWPDTLOSDRCWDWO;;;SY)(A;CIIO;CCDCLCSWRPWPDTLOSDRCWDWO;;;CO)S:AI(OU;CIIDSA;WPWD;;f30e3bc2-9ff0-11d1-b603-0000f80367c1;WD)(OU;CIIOIDSA;WP;f30e3bbe-9ff0-11d1-b603-0000f80367c1;bf967aa5-0de6-11d0-a285-00aa003049e2;WD)(OU;CIIOIDSA;WP;f30e3bbf-9ff0-11d1-b603-0000f80367c1;bf967aa5-0de6-11d0-a285-00aa003049e2;WD)",
+  "owner": "S-1-5-21-3780865419-4207977281-163478896-512",
+  "group": "S-1-5-21-3780865419-4207977281-163478896-512",
+  "control": "DiscretionaryAclPresent, SystemAclPresent, DiscretionaryAclAutoInherited, SystemAclAutoInherited, DiscretionaryAclProtected, SelfRelative",
+  "DiscretionaryAcl": [
+   {
+    "type": "AccessAllowedObject",
+    "flags": "ContainerInherit",
+    "mask": 256,
+    "sid": "S-1-5-21-3780865419-4207977281-163478896-515",
+    "object_type": "edacfd8f-ffb3-11d1-b41d-00a0c968f939",
+    "inherited_object_type": "00000000-0000-0000-0000-000000000000",
+    "object_flags": "ObjectAceTypePresent"
+   },
+   {
+    "type": "AccessAllowedObject",
+    "flags": "ContainerInherit",
+    "mask": 256,
+    "sid": "S-1-5-11",
+    "object_type": "edacfd8f-ffb3-11d1-b41d-00a0c968f939",
+    "inherited_object_type": "00000000-0000-0000-0000-000000000000",
+    "object_flags": "ObjectAceTypePresent"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "None",
+    "mask": 983295,
+    "sid": "S-1-5-21-3780865419-4207977281-163478896-512"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "ContainerInherit",
+    "mask": 131092,
+    "sid": "S-1-5-21-3780865419-4207977281-163478896-515"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "ContainerInherit",
+    "mask": 983295,
+    "sid": "S-1-5-21-3780865419-4207977281-163478896-512"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "ContainerInherit",
+    "mask": 983295,
+    "sid": "S-1-5-21-3780865419-4207977281-163478896-519"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "ContainerInherit",
+    "mask": 131220,
+    "sid": "S-1-5-9"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "ContainerInherit",
+    "mask": 131220,
+    "sid": "S-1-5-11"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "ContainerInherit",
+    "mask": 983295,
+    "sid": "S-1-5-18"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "ContainerInherit, InheritOnly",
+    "mask": 983295,
+    "sid": "S-1-3-0"
+   }
+  ],
+  "SystemAcl": [
+   {
+    "type": "SystemAuditObject",
+    "flags": "ContainerInherit, Inherited, SuccessfulAccess",
+    "mask": 262176,
+    "sid": "S-1-1-0",
+    "object_type": "00000000-0000-0000-0000-000000000000",
+    "inherited_object_type": "f30e3bc2-9ff0-11d1-b603-0000f80367c1",
+    "object_flags": "InheritedObjectAceTypePresent"
+   },
+   {
+    "type": "SystemAuditObject",
+    "flags": "ContainerInherit, InheritOnly, Inherited, SuccessfulAccess",
+    "mask": 32,
+    "sid": "S-1-1-0",
+    "object_type": "f30e3bbe-9ff0-11d1-b603-0000f80367c1",
+    "inherited_object_type": "bf967aa5-0de6-11d0-a285-00aa003049e2",
+    "object_flags": "ObjectAceTypePresent, InheritedObjectAceTypePresent"
+   },
+   {
+    "type": "SystemAuditObject",
+    "flags": "ContainerInherit, InheritOnly, Inherited, SuccessfulAccess",
+    "mask": 32,
+    "sid": "S-1-1-0",
+    "object_type": "f30e3bbf-9ff0-11d1-b603-0000f80367c1",
+    "inherited_object_type": "bf967aa5-0de6-11d0-a285-00aa003049e2",
+    "object_flags": "ObjectAceTypePresent, InheritedObjectAceTypePresent"
+   }
+  ]
+ },
+ {
+  "sddl": "D:(A;;GR;;;WD)(A;;GR;;;AN)(A;;GR;;;AU)(A;;GR;;;SY)(A;;GR;;;NS)(A;;GR;;;LS)(A;;GR;;;IU)(A;;GR;;;NU)(A;;GR;;;SU)(A;;GR;;;WR)(A;;GR;;;RC)(A;;GR;;;ED)(A;;GR;;;CO)(A;;GR;;;CG)(A;;GR;;;OW)",
+  "owner": null,
+  "group": null,
+  "control": "DiscretionaryAclPresent, SelfRelative",
+  "DiscretionaryAcl": [
+   {
+    "type": "AccessAllowed",
+    "flags": "None",
+    "mask": -2147483648,
+    "sid": "S-1-1-0"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "None",
+    "mask": -2147483648,
+    "sid": "S-1-5-7"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "None",
+    "mask": -2147483648,
+    "sid": "S-1-5-11"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "None",
+    "mask": -2147483648,
+    "sid": "S-1-5-18"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "None",
+    "mask": -2147483648,
+    "sid": "S-1-5-20"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "None",
+    "mask": -2147483648,
+    "sid": "S-1-5-19"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "None",
+    "mask": -2147483648,
+    "sid": "S-1-5-4"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "None",
+    "mask": -2147483648,
+    "sid": "S-1-5-2"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "None",
+    "mask": -2147483648,
+    "sid": "S-1-5-6"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "None",
+    "mask": -2147483648,
+    "sid": "S-1-5-33"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "None",
+    "mask": -2147483648,
+    "sid": "S-1-5-12"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "None",
+    "mask": -2147483648,
+    "sid": "S-1-5-9"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "None",
+    "mask": -2147483648,
+    "sid": "S-1-3-0"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "None",
+    "mask": -2147483648,
+    "sid": "S-1-3-1"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "None",
+    "mask": -2147483648,
+    "sid": "S-1-3-4"
+   }
+  ],
+  "SystemAcl": []
+ },
+ {
+  "sddl": "D:(A;;GR;;;BA)(A;;GR;;;BU)(A;;GR;;;BG)(A;;GR;;;BO)(A;;GR;;;PS)(A;;GR;;;RD)",
+  "owner": null,
+  "group": null,
+  "control": "DiscretionaryAclPresent, SelfRelative",
+  "DiscretionaryAcl": [
+   {
+    "type": "AccessAllowed",
+    "flags": "None",
+    "mask": -2147483648,
+    "sid": "S-1-5-32-544"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "None",
+    "mask": -2147483648,
+    "sid": "S-1-5-32-545"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "None",
+    "mask": -2147483648,
+    "sid": "S-1-5-32-546"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "None",
+    "mask": -2147483648,
+    "sid": "S-1-5-32-551"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "None",
+    "mask": -2147483648,
+    "sid": "S-1-5-10"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "None",
+    "mask": -2147483648,
+    "sid": "S-1-5-32-555"
+   }
+  ],
+  "SystemAcl": []
+ },
+ {
+  "sddl": "O:DAG:EAD:(A;;GR;;;DA)(A;;GR;;;DG)(A;;GR;;;DU)(A;;GR;;;DD)(A;;GR;;;DC)(A;;GR;;;EA)(A;;GR;;;SA)(A;;GR;;;CA)(A;;GR;;;PA)(A;;GR;;;RO)",
+  "owner": "S-1-5-21-3780865419-4207977281-163478896-512",
+  "group": "S-1-5-21-3780865419-4207977281-163478896-519",
+  "control": "DiscretionaryAclPresent, SelfRelative",
+  "DiscretionaryAcl": [
+   {
+    "type": "AccessAllowed",
+    "flags": "None",
+    "mask": -2147483648,
+    "sid": "S-1-5-21-3780865419-4207977281-163478896-512"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "None",
+    "mask": -2147483648,
+    "sid": "S-1-5-21-3780865419-4207977281-163478896-514"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "None",
+    "mask": -2147483648,
+    "sid": "S-1-5-21-3780865419-4207977281-163478896-513"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "None",
+    "mask": -2147483648,
+    "sid": "S-1-5-21-3780865419-4207977281-163478896-516"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "None",
+    "mask": -2147483648,
+    "sid": "S-1-5-21-3780865419-4207977281-163478896-515"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "None",
+    "mask": -2147483648,
+    "sid": "S-1-5-21-3780865419-4207977281-163478896-519"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "None",
+    "mask": -2147483648,
+    "sid": "S-1-5-21-3780865419-4207977281-163478896-518"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "None",
+    "mask": -2147483648,
+    "sid": "S-1-5-21-3780865419-4207977281-163478896-517"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "None",
+    "mask": -2147483648,
+    "sid": "S-1-5-21-3780865419-4207977281-163478896-520"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "None",
+    "mask": -2147483648,
+    "sid": "S-1-5-21-3780865419-4207977281-163478896-498"
+   }
+  ],
+  "SystemAcl": []
+ },
+ {
+  "sddl": "D:(D;;GA;;;WD)(OA;CI;CR;edacfd8f-ffb3-11d1-b41d-00a0c968f939;;AU)(OD;;CR;edacfd8f-ffb3-11d1-b41d-00a0c968f939;;DC)S:(AU;SA;GA;;;WD)(OU;CISA;WP;f30e3bc2-9ff0-11d1-b603-0000f80367c1;bf967aa5-0de6-11d0-a285-00aa003049e2;WD)",
+  "owner": null,
+  "group": null,
+  "control": "DiscretionaryAclPresent, SystemAclPresent, SelfRelative",
+  "DiscretionaryAcl": [
+   {
+    "type": "AccessDenied",
+    "flags": "None",
+    "mask": 268435456,
+    "sid": "S-1-1-0"
+   },
+   {
+    "type": "AccessAllowedObject",
+    "flags": "ContainerInherit",
+    "mask": 256,
+    "sid": "S-1-5-11",
+    "object_type": "edacfd8f-ffb3-11d1-b41d-00a0c968f939",
+    "inherited_object_type": "00000000-0000-0000-0000-000000000000",
+    "object_flags": "ObjectAceTypePresent"
+   },
+   {
+    "type": "AccessDeniedObject",
+    "flags": "None",
+    "mask": 256,
+    "sid": "S-1-5-21-3780865419-4207977281-163478896-515",
+    "object_type": "edacfd8f-ffb3-11d1-b41d-00a0c968f939",
+    "inherited_object_type": "00000000-0000-0000-0000-000000000000",
+    "object_flags": "ObjectAceTypePresent"
+   }
+  ],
+  "SystemAcl": [
+   {
+    "type": "SystemAudit",
+    "flags": "SuccessfulAccess",
+    "mask": 268435456,
+    "sid": "S-1-1-0"
+   },
+   {
+    "type": "SystemAuditObject",
+    "flags": "ContainerInherit, SuccessfulAccess",
+    "mask": 32,
+    "sid": "S-1-1-0",
+    "object_type": "f30e3bc2-9ff0-11d1-b603-0000f80367c1",
+    "inherited_object_type": "bf967aa5-0de6-11d0-a285-00aa003049e2",
+    "object_flags": "ObjectAceTypePresent, InheritedObjectAceTypePresent"
+   }
+  ]
+ },
+ {
+  "sddl": "D:P(A;;GR;;;AU)",
+  "owner": null,
+  "group": null,
+  "control": "DiscretionaryAclPresent, DiscretionaryAclProtected, SelfRelative",
+  "DiscretionaryAcl": [
+   {
+    "type": "AccessAllowed",
+    "flags": "None",
+    "mask": -2147483648,
+    "sid": "S-1-5-11"
+   }
+  ],
+  "SystemAcl": []
+ },
+ {
+  "sddl": "D:AR(A;;GR;;;AU)",
+  "owner": null,
+  "group": null,
+  "control": "DiscretionaryAclPresent, DiscretionaryAclAutoInheritRequired, SelfRelative",
+  "DiscretionaryAcl": [
+   {
+    "type": "AccessAllowed",
+    "flags": "None",
+    "mask": -2147483648,
+    "sid": "S-1-5-11"
+   }
+  ],
+  "SystemAcl": []
+ },
+ {
+  "sddl": "D:AI(A;;GR;;;AU)",
+  "owner": null,
+  "group": null,
+  "control": "DiscretionaryAclPresent, DiscretionaryAclAutoInherited, SelfRelative",
+  "DiscretionaryAcl": [
+   {
+    "type": "AccessAllowed",
+    "flags": "None",
+    "mask": -2147483648,
+    "sid": "S-1-5-11"
+   }
+  ],
+  "SystemAcl": []
+ },
+ {
+  "sddl": "D:PAI(A;;GR;;;AU)S:AI(AU;SA;GA;;;WD)",
+  "owner": null,
+  "group": null,
+  "control": "DiscretionaryAclPresent, SystemAclPresent, DiscretionaryAclAutoInherited, SystemAclAutoInherited, DiscretionaryAclProtected, SelfRelative",
+  "DiscretionaryAcl": [
+   {
+    "type": "AccessAllowed",
+    "flags": "None",
+    "mask": -2147483648,
+    "sid": "S-1-5-11"
+   }
+  ],
+  "SystemAcl": [
+   {
+    "type": "SystemAudit",
+    "flags": "SuccessfulAccess",
+    "mask": 268435456,
+    "sid": "S-1-1-0"
+   }
+  ]
+ },
+ {
+  "sddl": "O:BAG:BAD:",
+  "owner": "S-1-5-32-544",
+  "group": "S-1-5-32-544",
+  "control": "DiscretionaryAclPresent, SelfRelative",
+  "DiscretionaryAcl": [],
+  "SystemAcl": []
+ },
+ {
+  "sddl": "O:BAG:BAD:P",
+  "owner": "S-1-5-32-544",
+  "group": "S-1-5-32-544",
+  "control": "DiscretionaryAclPresent, DiscretionaryAclProtected, SelfRelative",
+  "DiscretionaryAcl": [],
+  "SystemAcl": []
+ },
+ {
+  "sddl": "O:S-1-5-18G:S-1-5-32-544D:(A;CIIO;CCDCLCSWRPWPDTLOSDRCWDWO;;;S-1-5-32-544)(A;OICINP;GR;;;S-1-5-11)",
+  "owner": "S-1-5-18",
+  "group": "S-1-5-32-544",
+  "control": "DiscretionaryAclPresent, SelfRelative",
+  "DiscretionaryAcl": [
+   {
+    "type": "AccessAllowed",
+    "flags": "ContainerInherit, InheritOnly",
+    "mask": 983295,
+    "sid": "S-1-5-32-544"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "ObjectInherit, ContainerInherit, NoPropagateInherit",
+    "mask": -2147483648,
+    "sid": "S-1-5-11"
+   }
+  ],
+  "SystemAcl": []
+ },
+ {
+  "sddl": "D:(A;;0x100;;;AU)",
+  "owner": null,
+  "group": null,
+  "control": "DiscretionaryAclPresent, SelfRelative",
+  "DiscretionaryAcl": [
+   {
+    "type": "AccessAllowed",
+    "flags": "None",
+    "mask": 256,
+    "sid": "S-1-5-11"
+   }
+  ],
+  "SystemAcl": []
+ },
+ {
+  "sddl": "D:(A;;0x8;;;AU)",
+  "owner": null,
+  "group": null,
+  "control": "DiscretionaryAclPresent, SelfRelative",
+  "DiscretionaryAcl": [
+   {
+    "type": "AccessAllowed",
+    "flags": "None",
+    "mask": 8,
+    "sid": "S-1-5-11"
+   }
+  ],
+  "SystemAcl": []
+ },
+ {
+  "sddl": "D:(A;;0x1200a9;;;WD)",
+  "owner": null,
+  "group": null,
+  "control": "DiscretionaryAclPresent, SelfRelative",
+  "DiscretionaryAcl": [
+   {
+    "type": "AccessAllowed",
+    "flags": "None",
+    "mask": 1179817,
+    "sid": "S-1-1-0"
+   }
+  ],
+  "SystemAcl": []
+ },
+ {
+  "sddl": "D:(A;;0x10000000;;;BA)",
+  "owner": null,
+  "group": null,
+  "control": "DiscretionaryAclPresent, SelfRelative",
+  "DiscretionaryAcl": [
+   {
+    "type": "AccessAllowed",
+    "flags": "None",
+    "mask": 268435456,
+    "sid": "S-1-5-32-544"
+   }
+  ],
+  "SystemAcl": []
+ },
+ {
+  "sddl": "D:(A;;0xF01FF;;;BA)",
+  "owner": null,
+  "group": null,
+  "control": "DiscretionaryAclPresent, SelfRelative",
+  "DiscretionaryAcl": [
+   {
+    "type": "AccessAllowed",
+    "flags": "None",
+    "mask": 983551,
+    "sid": "S-1-5-32-544"
+   }
+  ],
+  "SystemAcl": []
+ },
+ {
+  "sddl": "D:(A;;SWDT;;;AU)",
+  "owner": null,
+  "group": null,
+  "control": "DiscretionaryAclPresent, SelfRelative",
+  "DiscretionaryAcl": [
+   {
+    "type": "AccessAllowed",
+    "flags": "None",
+    "mask": 72,
+    "sid": "S-1-5-11"
+   }
+  ],
+  "SystemAcl": []
+ },
+ {
+  "sddl": "D:(A;;SWRP;;;AU)",
+  "owner": null,
+  "group": null,
+  "control": "DiscretionaryAclPresent, SelfRelative",
+  "DiscretionaryAcl": [
+   {
+    "type": "AccessAllowed",
+    "flags": "None",
+    "mask": 24,
+    "sid": "S-1-5-11"
+   }
+  ],
+  "SystemAcl": []
+ },
+ {
+  "sddl": "D:(A;;CCSW;;;AU)",
+  "owner": null,
+  "group": null,
+  "control": "DiscretionaryAclPresent, SelfRelative",
+  "DiscretionaryAcl": [
+   {
+    "type": "AccessAllowed",
+    "flags": "None",
+    "mask": 9,
+    "sid": "S-1-5-11"
+   }
+  ],
+  "SystemAcl": []
+ },
+ {
+  "sddl": "D:(A;;SW;;;AU)",
+  "owner": null,
+  "group": null,
+  "control": "DiscretionaryAclPresent, SelfRelative",
+  "DiscretionaryAcl": [
+   {
+    "type": "AccessAllowed",
+    "flags": "None",
+    "mask": 8,
+    "sid": "S-1-5-11"
+   }
+  ],
+  "SystemAcl": []
+ },
+ {
+  "sddl": "D:(A;;GRGW;;;AU)(A;;GXGA;;;BA)(A;;CCDCLCSWRPWPDTLOSDRCWDWO;;;SY)",
+  "owner": null,
+  "group": null,
+  "control": "DiscretionaryAclPresent, SelfRelative",
+  "DiscretionaryAcl": [
+   {
+    "type": "AccessAllowed",
+    "flags": "None",
+    "mask": -1073741824,
+    "sid": "S-1-5-11"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "None",
+    "mask": 805306368,
+    "sid": "S-1-5-32-544"
+   },
+   {
+    "type": "AccessAllowed",
+    "flags": "None",
+    "mask": 983295,
+    "sid": "S-1-5-18"
+   }
+  ],
+  "SystemAcl": []
+ },
+ {
+  "sddl": "D:(XA;;GW;;;AU;(WIN://OAFD))",
+  "owner": null,
+  "group": null,
+  "control": "DiscretionaryAclPresent, SelfRelative",
+  "DiscretionaryAcl": [
+   {
+    "type": "AccessAllowedCallback",
+    "flags": "None",
+    "mask": 1073741824,
+    "sid": "S-1-5-11"
+   }
+  ],
+  "SystemAcl": []
+ }
+]

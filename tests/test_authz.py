@@ -47,7 +47,7 @@ def test_resolve_absolute_well_known_sids(sid: str, name: str):
         ("552", "BUILTIN\\Replicator"),
         ("553", "BUILTIN\\All Users"),
         ("554", "BUILTIN\\Pre-Windows 2000 Compatible Access"),
-        ("555", "BUILTIN\\Pre-Windows 2000 Compatible Access"),
+        ("555", "BUILTIN\\Remote Desktop Users"),
         ("556", "BUILTIN\\Remote Management Users"),
         ("557", "BUILTIN\\Network Configuration Operators"),
         ("558", "BUILTIN\\Incoming Forest Trust Builders"),
@@ -336,6 +336,66 @@ def test_parse_sddl_with_conditional_ace():
     assert acl.dacl[1].ace_type == "allow"
 
 
+# ---- SW (DS_SELF) letter-form rights parsing ------------------------------
+
+
+def test_parse_sddl_rights_sw_in_full_ad_rights_string():
+    """The canonical AD full-rights string must parse losslessly.
+
+    GPMC emits ``CCDCLCSWRPWPDTLOCRSDRCWDWO`` on essentially every GPO DACL.
+    Before SW joined the valid set, the tokenizer dropped it (386 of 767 ACEs
+    in the real-estate corpus contained SW).
+    """
+    from gpo_lens.authz import parse_sddl_rights
+
+    codes = parse_sddl_rights("CCDCLCSWRPWPDTLOCRSDRCWDWO")
+    assert codes == [
+        "CC", "DC", "LC", "SW", "RP", "WP", "DT", "LO", "CR", "SD",
+        "RC", "WD", "WO",
+    ]
+
+
+def test_parse_sddl_rights_sw_dt_does_not_fabricate_wd():
+    """``SWDT`` must parse as [SW, DT], never a phantom WD.
+
+    With SW unknown, the 1-char resync re-tokenized ``SWDT`` at offset 1 and
+    produced ``WD`` (Write DAC) — a fabricated write right that would flip
+    excessive-writer / danger verdicts for a trustee holding only
+    self-write + delete-tree.
+    """
+    from gpo_lens.authz import parse_sddl_rights
+
+    codes = parse_sddl_rights("SWDT")
+    assert codes == ["SW", "DT"]
+    assert "WD" not in codes
+
+
+# ---- ACL control flags (D:PAI / S:AI) --------------------------------------
+
+
+def test_parse_sddl_captures_dacl_and_sacl_flags():
+    """Control flags before the ACE list are preserved, not discarded.
+
+    ``P`` (protected) means inheritance is blocked — posture-relevant.
+    GPMC emits ``D:PAI(...)`` / ``S:AI(...)`` on nearly every GPO.
+    """
+    from gpo_lens.authz import parse_sddl
+
+    acl = parse_sddl("O:DAG:DAD:PAI(A;;GR;;;WD)S:AI(AU;SA;GA;;;WD)")
+    assert acl.dacl_flags == "PAI"
+    assert acl.sacl_flags == "AI"
+    assert len(acl.dacl) == 1
+    assert len(acl.sacl) == 1
+
+
+def test_parse_sddl_flagless_acl_has_empty_flags():
+    from gpo_lens.authz import parse_sddl
+
+    acl = parse_sddl("O:SYG:SYD:(A;;GA;;;S-1-5-11)")
+    assert acl.dacl_flags == ""
+    assert acl.sacl_flags == ""
+
+
 # ---- Hex rights mask parsing (H-4) ----------------------------------------
 
 
@@ -360,8 +420,24 @@ def test_parse_sddl_rights_hex_mask_0x1200a9():
     assert "RC" in codes   # READ_CONTROL (0x00020000)
     assert "LO" in codes   # DS_LIST_OBJECT (0x00000080)
     assert "WP" in codes   # DS_WRITE_PROP (0x00000020)
-    assert "CR" in codes   # DS_SELF (0x00000008)
+    assert "SW" in codes   # DS_SELF (0x00000008)
     assert "CC" in codes   # DS_CREATE_CHILD (0x00000001)
+    # DS_SELF must NOT decode to CR: CR is ADS_RIGHT_DS_CONTROL_ACCESS
+    # (0x100). Mapping 0x8 → CR made a self-write mask count as an apply
+    # right (READ_OR_APPLY_RIGHTS includes CR) — a false "applies".
+    assert "CR" not in codes
+
+
+def test_parse_sddl_rights_hex_mask_control_access():
+    """0x100 = ADS_RIGHT_DS_CONTROL_ACCESS → ["CR"].
+
+    This is the bit Apply Group Policy actually uses. Before the fix it was
+    absent from the map entirely, so a hex mask granting apply decoded to
+    nothing — a missed apply right.
+    """
+    from gpo_lens.authz import parse_sddl_rights
+
+    assert parse_sddl_rights("0x100") == ["CR"]
 
 
 def test_parse_sddl_rights_hex_mask_uppercase():
