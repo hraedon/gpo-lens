@@ -1,4 +1,9 @@
-"""Delegation rollup route — estate-wide trustee → GPO matrix."""
+"""Delegation rollup route — estate-wide trustee → GPO matrix.
+
+Handlers are plain ``def`` (not ``async def``) so FastAPI runs them in its
+threadpool, preventing synchronous SQLite from blocking the event loop
+(Plan 022 WI-1).
+"""
 
 from __future__ import annotations
 
@@ -16,7 +21,7 @@ from gpo_lens.web.auth import Permission, Principal, requires
 def register(app: FastAPI, templates: Jinja2Templates) -> None:
 
     @app.get("/delegation", response_class=HTMLResponse, name="delegation")
-    async def delegation(
+    def delegation(
         request: Request,
         _principal: Principal = Depends(requires(Permission.VIEW)),
     ) -> HTMLResponse:

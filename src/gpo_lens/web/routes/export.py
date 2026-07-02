@@ -1,4 +1,9 @@
-"""Export (data download) routes — WI-027."""
+"""Export (data download) routes — WI-027.
+
+Handlers are plain ``def`` (not ``async def``) so FastAPI runs them in its
+threadpool, preventing synchronous SQLite from blocking the event loop
+(Plan 022 WI-1).
+"""
 
 from __future__ import annotations
 
@@ -25,7 +30,7 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
     # ------------------------------------------------------------------
 
     @app.get("/export/findings", name="export_findings")
-    async def export_findings(
+    def export_findings(
         request: Request,
         format: str = "csv",
         _principal: Principal = Depends(requires(Permission.VIEW)),
@@ -63,7 +68,7 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         )
 
     @app.get("/export/gpo/{gpo_id}", name="export_gpo")
-    async def export_gpo(
+    def export_gpo(
         request: Request,
         gpo_id: str,
         format: str = "json",
@@ -98,7 +103,7 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         return json_attachment(payload, f"gpo-lens-{gpo_id}.json")
 
     @app.get("/export/ou/{path:path}", name="export_ou")
-    async def export_ou(
+    def export_ou(
         request: Request,
         path: str,
         format: str = "csv",

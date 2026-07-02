@@ -331,16 +331,22 @@ class TestDashboardRendering:
 # ---------------------------------------------------------------------------
 
 class TestDangerPageRendering:
-    def test_danger_page_has_findings_table(self, _client) -> None:
+    def test_danger_page_has_findings_cards(self, _client) -> None:
         html = _client.get("/danger").text
-        assert _has_class(html, "gp-table")
-        assert "<thead>" in html
+        assert _has_class(html, "gp-danger-group")
+        assert _has_class(html, "gp-danger-group-head")
 
-    def test_danger_table_has_expected_columns(self, _client) -> None:
+    def test_danger_cards_have_expected_info(self, _client) -> None:
         html = _client.get("/danger").text
-        for col in ("Severity", "GPO", "Finding", "Check", "Compliance",
-                    "Reference", "Remediation"):
-            assert f">{col}<" in html, f"Missing column: {col}"
+        # Each card surfaces severity (pill), check title, check_id (code),
+        # compliance (badge), citation link, GPO name, and detail.
+        assert _has_class(html, "gp-pill")
+        assert _has_class(html, "gp-badge")
+        assert "<code>" in html
+        assert "citation" in html
+        assert 'target="_blank"' in html
+        assert _has_class(html, "gp-danger-finding")
+        assert _has_class(html, "gp-danger-finding-gpo")
 
     def test_danger_page_has_severity_filter(self, _client) -> None:
         html = _client.get("/danger").text
@@ -375,9 +381,10 @@ class TestDangerPageRendering:
         html = _client.get("/danger").text
         assert _has_class(html, "gp-page-head")
 
-    def test_danger_page_has_remediation_column(self, _client) -> None:
+    def test_danger_page_has_remediation_details(self, _client) -> None:
         html = _client.get("/danger").text
-        assert ">Remediation</th>" in html
+        assert "<details" in html
+        assert ">Remediation<" in html
 
 
 # ---------------------------------------------------------------------------
@@ -717,9 +724,9 @@ class TestCssClassRegression:
         html = _client.get("/danger").text
         assert _has_class(html, "gp-badge")
 
-    def test_danger_page_has_gp_table(self, _client) -> None:
+    def test_danger_page_has_gp_danger_group(self, _client) -> None:
         html = _client.get("/danger").text
-        assert _has_class(html, "gp-table")
+        assert _has_class(html, "gp-danger-group")
 
     def test_danger_page_has_gp_filter_bar(self, _client) -> None:
         html = _client.get("/danger").text
@@ -918,3 +925,14 @@ class TestOuDetailRendering:
         html = resp.text
         assert _has_class(html, "gp-table")
         assert "Effective precedence" in html
+
+    def test_ou_detail_has_caveat_summary(self, _client) -> None:
+        """WI-9: the caveat callout shows a count summary, not a bullet wall."""
+        resp = _client.get("/ou/dc=fakefixture,dc=local")
+        assert resp.status_code == 200
+        html = resp.text
+        # The callout should always be present (either with counts or "None detected").
+        assert "Scope caveats" in html
+        # When caveats exist, the summary chips and details element should appear.
+        # When no caveats, the "None detected" message shows instead.
+        assert "gp-caveat-summary" in html or "None detected" in html

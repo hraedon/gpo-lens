@@ -1,7 +1,14 @@
-"""Baseline diff routes."""
+"""Baseline diff routes.
+
+DB-touching handlers are plain ``def`` (not ``async def``) so FastAPI runs them
+in its threadpool, preventing synchronous SQLite from blocking the event loop
+(Plan 022 WI-1). ``baseline_post`` stays ``async def`` because it streams the
+upload body via ``await``.
+"""
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import zipfile
 from pathlib import Path
@@ -27,7 +34,7 @@ _logger = logging.getLogger(__name__)
 def register(app: FastAPI, templates: Jinja2Templates) -> None:
 
     @app.get("/baseline", response_class=HTMLResponse, name="baseline_get")
-    async def baseline_get(
+    def baseline_get(
         request: Request,
         _principal: Principal = Depends(requires(Permission.VIEW)),
     ) -> HTMLResponse:
@@ -59,22 +66,27 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
                         },
                         status_code=413,
                     )
-                baseline_gpos = _ingest.load_baseline_from_zip(zip_path)
+                baseline_gpos = await asyncio.to_thread(
+                    _ingest.load_baseline_from_zip, zip_path
+                )
 
-            baseline_estate = _Estate(domain="baseline", gpos=baseline_gpos)
-            baseline_settings = queries.load_baseline_from_estate(baseline_estate)
+            def _compute_diff():  # type: ignore[no-untyped-def]
+                baseline_estate = _Estate(domain="baseline", gpos=baseline_gpos)
+                baseline_settings = queries.load_baseline_from_estate(baseline_estate)
+                conn = get_ro_conn(app.state.db_path)
+                try:
+                    estate = _store.load_estate(conn)
+                finally:
+                    conn.close()
+                diff = queries.baseline_diff(
+                    estate, baseline_settings, admx=app.state.admx
+                )
+                unresolved = sum(1 for e in diff if not e.admx_name)
+                return diff, len(diff), unresolved
 
-            conn = get_ro_conn(app.state.db_path)
-            try:
-                estate = _store.load_estate(conn)
-            finally:
-                conn.close()
-
-            diff_entries = queries.baseline_diff(
-                estate, baseline_settings, admx=app.state.admx
+            diff_entries, total_count, unresolved_count = (
+                await asyncio.to_thread(_compute_diff)
             )
-            total_count = len(diff_entries)
-            unresolved_count = sum(1 for e in diff_entries if not e.admx_name)
             _audit("baseline_diff", _principal, "success", f"{total_count} entries", request)
         except (
             ValueError, zipfile.BadZipFile, FileNotFoundError,

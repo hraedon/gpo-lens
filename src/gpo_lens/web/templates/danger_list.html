@@ -46,59 +46,44 @@
 {% endif %}
 
 {% if findings %}
-<div class="gp-table-wrap">
-  <table class="gp-table">
-    <thead>
-      <tr>
-        <th style="width:120px">Severity</th>
-        <th>GPO</th>
-        <th style="min-width:200px">Finding</th>
-        <th style="width:90px">Check</th>
-        <th>Compliance</th>
-        <th>Reference</th>
-        <th style="min-width:220px">Remediation</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for f in findings %}
-      <tr>
-        <td><span class="gp-pill {{ f.severity }}"><span class="dot"></span>{{ f.severity }}</span></td>
-        <td>
-          {% if f.gpo_id and f.gpo_id in resolvable_gpo_ids %}
-          <a href="{{ url_for('gpo_detail', gpo_id=f.gpo_id) }}">{{ f.gpo_name }}</a>
-          {% else %}
-          <span class="mono muted">{{ f.gpo_name or "—" }}</span>
-          {% endif %}
-        </td>
-        <td>
-          <div><b>{{ f.title }}</b></div>
-          <div class="mono muted" style="font-size:.85em">{{ f.detail }}</div>
-        </td>
-        <td><code>{{ f.check_id }}</code></td>
-        <td>
-          {% if f.compliance %}
-          {% for c in f.compliance %}
-          <span class="gp-badge">{{ c.framework }} {{ c.control_id }}</span>
-          {% endfor %}
-          {% else %}
-          &mdash;
-          {% endif %}
-        </td>
-        <td>
-          <a href="{{ f.reference }}" rel="noopener noreferrer" target="_blank">citation ↗</a>
-        </td>
-        <td>
-          {% if f.remediation %}
-          <div class="mono muted" style="font-size:.85em">{{ f.remediation }}</div>
-          {% else %}
-          &mdash;
-          {% endif %}
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+{% for check_id, group_findings in findings | groupby('check_id') %}
+{% set f0 = group_findings[0] %}
+<div class="gp-danger-group">
+  <div class="gp-danger-group-head">
+    <span class="gp-pill {{ f0.severity }}"><span class="dot"></span>{{ f0.severity }}</span>
+    <h3>{{ f0.title }}</h3>
+    <code>{{ f0.check_id }}</code>
+    {% if f0.compliance %}
+    {% for c in f0.compliance %}
+    <span class="gp-badge">{{ c.framework }} {{ c.control_id }}</span>
+    {% endfor %}
+    {% endif %}
+    <a class="gp-danger-citation" href="{{ f0.reference }}" rel="noopener noreferrer" target="_blank">citation ↗</a>
+  </div>
+  {% if f0.remediation %}
+  <details open class="gp-danger-remediation">
+    <summary>Remediation</summary>
+    <div class="mono muted" style="font-size: var(--fs-xs)">{{ f0.remediation }}</div>
+  </details>
+  {% endif %}
+  <div class="gp-danger-findings">
+    {% for f in group_findings %}
+    <div class="gp-danger-finding">
+      <span class="gp-danger-finding-gpo">
+        {% if f.gpo_id and f.gpo_id in resolvable_gpo_ids %}
+        <a href="{{ url_for('gpo_detail', gpo_id=f.gpo_id) }}">{{ f.gpo_name }}</a>
+        {% elif f.gpo_name %}
+        <span class="mono muted">{{ f.gpo_name }}</span>
+        {% else %}
+        <span class="mono muted">Estate-wide</span>
+        {% endif %}
+      </span>
+      <span class="mono muted gp-danger-finding-detail" style="font-size: var(--fs-xs)">{{ f.detail }}</span>
+    </div>
+    {% endfor %}
+  </div>
 </div>
+{% endfor %}
 {{ pg.pagination(pag, f_base_qs) }}
 {% elif all_findings_count %}
 <div class="gp-callout info" style="border-color: color-mix(in srgb, var(--info) 30%, transparent); background: var(--info-soft);">

@@ -1355,7 +1355,9 @@ class TestDangerWebRoute:
         resp = _client.get("/danger")
         assert resp.status_code == 200
         assert "gp-badge" in resp.text
-        assert "Compliance" in resp.text
+        # The card layout shows compliance badges inline in the group header,
+        # not in a "Compliance" table column.
+        assert "gp-danger-group" in resp.text
         # Strengthened: actual framework names and control_ids must appear inside
         # <span class="gp-badge"> elements.
         badges = re.findall(

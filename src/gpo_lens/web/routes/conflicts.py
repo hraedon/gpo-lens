@@ -10,6 +10,10 @@ Two lenses on the same data the per-OU view drills into:
 
 The resolved lens resolves every OU chain, so it is computed only when its tab
 is the active view; the (cheap) defined lens backs the other tab.
+
+Handlers are plain ``def`` (not ``async def``) so FastAPI runs them in its
+threadpool, preventing synchronous SQLite from blocking the event loop
+(Plan 022 WI-1).
 """
 
 from __future__ import annotations
@@ -36,7 +40,7 @@ _VALID_CONFLICT_VIEWS = {"resolved", "defined"}
 def register(app: FastAPI, templates: Jinja2Templates) -> None:
 
     @app.get("/conflicts", response_class=HTMLResponse, name="conflicts")
-    async def conflicts_page(
+    def conflicts_page(
         request: Request,
         view: str = "resolved",
         q: str = "",

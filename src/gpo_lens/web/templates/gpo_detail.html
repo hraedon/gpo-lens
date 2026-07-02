@@ -133,7 +133,7 @@
           <td>
             {{ label }}
             {% if raw_id != s.display_name and raw_id != label %}
-            <div class="mono muted" style="font-size:11px;margin-top:2px">{{ raw_id }}</div>
+            <div class="mono muted" style="font-size:var(--fs-xs);margin-top:2px">{{ raw_id }}</div>
             {% endif %}
           </td>
           <td>{{ s.display_value }}</td>

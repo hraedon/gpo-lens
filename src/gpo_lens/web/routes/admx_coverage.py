@@ -1,4 +1,9 @@
-"""ADMX coverage route — estate-wide template inventory and gap detection."""
+"""ADMX coverage route — estate-wide template inventory and gap detection.
+
+Handlers are plain ``def`` (not ``async def``) so FastAPI runs them in its
+threadpool, preventing synchronous SQLite from blocking the event loop
+(Plan 022 WI-1).
+"""
 
 from __future__ import annotations
 
@@ -19,7 +24,7 @@ _logger = logging.getLogger(__name__)
 def register(app: FastAPI, templates: Jinja2Templates) -> None:
 
     @app.get("/admx-coverage", response_class=HTMLResponse, name="admx_coverage")
-    async def admx_coverage_route(
+    def admx_coverage_route(
         request: Request,
         _principal: Principal = Depends(requires(Permission.VIEW)),
     ) -> HTMLResponse:

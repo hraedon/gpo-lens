@@ -1,4 +1,9 @@
-"""Ask (narration) routes."""
+"""Ask (narration) routes.
+
+Handlers are plain ``def`` (not ``async def``) so FastAPI runs them in its
+threadpool, preventing synchronous SQLite from blocking the event loop
+(Plan 022 WI-1).
+"""
 
 from __future__ import annotations
 
@@ -33,7 +38,7 @@ def _narration_available() -> bool:
 def register(app: FastAPI, templates: Jinja2Templates) -> None:
 
     @app.get("/ask", response_class=HTMLResponse, name="ask_get")
-    async def ask_get(
+    def ask_get(
         request: Request,
         _principal: Principal = Depends(requires(Permission.VIEW)),
     ) -> HTMLResponse:
@@ -47,7 +52,7 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         )
 
     @app.post("/ask", response_class=HTMLResponse, response_model=None, name="ask_post")
-    async def ask_post(
+    def ask_post(
         request: Request,
         question: str = Form(...),
         principal: Principal = Depends(requires(Permission.NARRATE)),

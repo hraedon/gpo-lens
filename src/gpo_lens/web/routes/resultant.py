@@ -1,4 +1,9 @@
-"""Principal resultant (Plan 021) routes."""
+"""Principal resultant (Plan 021) routes.
+
+Handlers are plain ``def`` (not ``async def``) so FastAPI runs them in its
+threadpool, preventing synchronous SQLite from blocking the event loop
+(Plan 022 WI-1).
+"""
 
 from __future__ import annotations
 
@@ -21,7 +26,7 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
     # ------------------------------------------------------------------
 
     @app.get("/resultant", response_class=HTMLResponse, name="resultant_form")
-    async def resultant_form(
+    def resultant_form(
         request: Request,
         _principal: Principal = Depends(requires(Permission.VIEW)),
     ) -> HTMLResponse:
@@ -37,7 +42,7 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         response_model=None,
         name="resultant_compute",
     )
-    async def resultant_compute(
+    def resultant_compute(
         request: Request,
         principal_sid: str = Form(""),
         computer_sid: str = Form(""),

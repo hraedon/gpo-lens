@@ -1,4 +1,9 @@
-"""GPO detail and danger-list routes."""
+"""GPO detail and danger-list routes.
+
+Handlers are plain ``def`` (not ``async def``) so FastAPI runs them in its
+threadpool, preventing synchronous SQLite from blocking the event loop
+(Plan 022 WI-1).
+"""
 
 from __future__ import annotations
 
@@ -26,7 +31,7 @@ from gpo_lens.web.auth import Permission, Principal, requires
 def register(app: FastAPI, templates: Jinja2Templates) -> None:
 
     @app.get("/inventory", response_class=HTMLResponse, name="gpo_list")
-    async def gpo_list(
+    def gpo_list(
         request: Request,
         q: str = "",
         status: str = "",
@@ -71,7 +76,7 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         )
 
     @app.get("/gpo/{gpo_id}", response_class=HTMLResponse, name="gpo_detail")
-    async def gpo_detail(
+    def gpo_detail(
         request: Request,
         gpo_id: str,
         _principal: Principal = Depends(requires(Permission.VIEW)),
@@ -132,7 +137,7 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         )
 
     @app.get("/danger", response_class=HTMLResponse, name="danger_list")
-    async def danger_list(
+    def danger_list(
         request: Request,
         severity: str = "",
         q: str = "",

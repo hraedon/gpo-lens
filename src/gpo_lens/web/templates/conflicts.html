@@ -54,7 +54,7 @@
       {% for r in rows %}
       {% set winner_id = gpo_id_by_name.get(r.winner) %}
       <tr>
-        <td class="muted">{{ r.cse }} <span class="mono" style="font-size:11px">{{ r.side[0] }}</span></td>
+        <td class="muted">{{ r.cse }} <span class="mono" style="font-size:var(--fs-xs)">{{ r.side[0] }}</span></td>
         <td class="mono">{{ r.identity }}</td>
         <td>
           {% if winner_id and winner_id in resolvable_gpo_ids %}
@@ -65,14 +65,14 @@
         <td>
           {% for n, v, s in r.entries if n != r.winner %}
           {% set lid = gpo_id_by_name.get(n) %}
-          <div class="mono muted" style="font-size:12px">
+          <div class="mono muted" style="font-size:var(--fs-xs)">
             {% if lid and lid in resolvable_gpo_ids %}<a href="{{ url_for('gpo_detail', gpo_id=lid) }}">{{ n }}</a>{% else %}{{ n }}{% endif %} = {{ v }}
           </div>
           {% endfor %}
         </td>
         <td class="num">
           <details>
-            <summary>{{ r.scopes | length }}</summary>
+            <summary title="Click to expand the list of OUs where this conflict applies">{{ r.scopes | length }} scopes</summary>
             <div class="gp-scope-list mono">
               {% for path in r.scopes[:60] %}<div>{{ path }}</div>{% endfor %}
               {% if r.scopes | length > 60 %}<div class="muted">… and {{ r.scopes | length - 60 }} more</div>{% endif %}
@@ -93,11 +93,11 @@
     <tbody>
       {% for r in rows %}
       <tr>
-        <td class="muted">{{ r.cse }} <span class="mono" style="font-size:11px">{{ r.side[0] }}</span></td>
+        <td class="muted">{{ r.cse }} <span class="mono" style="font-size:var(--fs-xs)">{{ r.side[0] }}</span></td>
         <td class="mono">{{ r.identity }}</td>
         <td>
           {% for gid, val in r.entries %}
-          <div class="mono muted" style="font-size:12px">
+          <div class="mono muted" style="font-size:var(--fs-xs)">
             {% if gid in resolvable_gpo_ids %}<a href="{{ url_for('gpo_detail', gpo_id=gid) }}">{{ gpo_names.get(gid, gid) }}</a>{% else %}{{ gpo_names.get(gid, gid) }}{% endif %} = {{ val }}
           </div>
           {% endfor %}

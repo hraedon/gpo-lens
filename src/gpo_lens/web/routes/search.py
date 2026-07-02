@@ -5,6 +5,10 @@ CLI-only. This surfaces it in the web UI: a settings-scoped search over
 identity / display name / value, grouped by GPO with deep-links, plus CSE and
 side facets. Mirrors the Conflicts/Inventory route shape (filter bar +
 pagination). An empty query renders a prompt rather than dumping the estate.
+
+Handlers are plain ``def`` (not ``async def``) so FastAPI runs them in its
+threadpool, preventing synchronous SQLite from blocking the event loop
+(Plan 022 WI-1).
 """
 
 from __future__ import annotations
@@ -42,7 +46,7 @@ class _GpoGroup:
 def register(app: FastAPI, templates: Jinja2Templates) -> None:
 
     @app.get("/search", response_class=HTMLResponse, name="search")
-    async def search_page(
+    def search_page(
         request: Request,
         q: str = "",
         cse: str = "",

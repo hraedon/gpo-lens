@@ -1,4 +1,9 @@
-"""OU list and detail routes."""
+"""OU list and detail routes.
+
+Handlers are plain ``def`` (not ``async def``) so FastAPI runs them in its
+threadpool, preventing synchronous SQLite from blocking the event loop
+(Plan 022 WI-1).
+"""
 
 from __future__ import annotations
 
@@ -25,7 +30,7 @@ from gpo_lens.web.auth import Permission, Principal, requires
 def register(app: FastAPI, templates: Jinja2Templates) -> None:
 
     @app.get("/ou", response_class=HTMLResponse, name="ou_list")
-    async def ou_list(
+    def ou_list(
         request: Request,
         q: str = "",
         type: str = "",
@@ -63,7 +68,7 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         )
 
     @app.get("/ou/{path:path}", response_class=HTMLResponse, name="ou_detail")
-    async def ou_detail(
+    def ou_detail(
         request: Request,
         path: str,
         q: str = "",
@@ -94,6 +99,16 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
 
         loopback_warning = any(gs.loopback_mode for _, gs in gate_pairs)
 
+        # WI-9: mechanism counts for the one-line caveat summary (the full
+        # per-GPO detail stays in the caveats list, shown behind <details>).
+        caveat_counts = {
+            "security_filtered": sum(1 for _, gs in gate_pairs if gs.is_security_filtered),
+            "wmi": sum(1 for _, gs in gate_pairs if gs.wmi_filter_name),
+            "loopback": sum(1 for _, gs in gate_pairs if gs.loopback_mode),
+            "ilt": sum(1 for _, gs in gate_pairs if gs.has_ilt),
+        }
+        has_site_links_caveat = topology.has_site_links(estate)
+
         # WI-083: CSE facet (computed from the full set so the dropdown shows
         # all CSEs even while one is selected) + text search over the table.
         facets = cse_facets(all_settings)
@@ -118,6 +133,8 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
                 "conflicts": conflicts,
                 "loopback_warning": loopback_warning,
                 "caveats": caveats,
+                "caveat_counts": caveat_counts,
+                "has_site_links_caveat": has_site_links_caveat,
                 "pag": pag,
                 "base_qs": settings_qs,
                 "admx": app.state.admx,

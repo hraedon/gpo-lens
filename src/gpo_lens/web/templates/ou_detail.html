@@ -43,11 +43,24 @@
   <span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg></span>
   <div>
     <h4>Scope caveats — flagged, not simulated</h4>
-    <p>Effective settings are resolved at the OU level. These mechanisms can change what actually applies to a given user or computer and are <em>not</em> evaluated here:</p>
     {% if caveats %}
-    <ul>
-      {% for c in caveats %}<li>{{ c.strip() }}</li>{% endfor %}
-    </ul>
+    <p>
+      Effective settings are resolved at the OU level. These scoping mechanisms
+      can change what actually applies and are <em>not</em> evaluated here:
+    </p>
+    <div class="gp-caveat-summary">
+      {% if caveat_counts.security_filtered %}<span class="gp-chip warn">{{ caveat_counts.security_filtered }} security-filtered</span>{% endif %}
+      {% if caveat_counts.wmi %}<span class="gp-chip warn">{{ caveat_counts.wmi }} WMI filter{{ 's' if caveat_counts.wmi != 1 }}</span>{% endif %}
+      {% if caveat_counts.loopback %}<span class="gp-chip warn">{{ caveat_counts.loopback }} loopback</span>{% endif %}
+      {% if caveat_counts.ilt %}<span class="gp-chip muted">{{ caveat_counts.ilt }} item-level targeting</span>{% endif %}
+      {% if has_site_links_caveat %}<span class="gp-chip muted">site links (not resolved)</span>{% endif %}
+    </div>
+    <details class="gp-caveat-details">
+      <summary>Show per-GPO detail</summary>
+      <ul>
+        {% for c in caveats %}<li>{{ c.strip() }}</li>{% endfor %}
+      </ul>
+    </details>
     {% else %}
     <p style="margin-top:6px">None detected for the GPOs in scope (no loopback, security filtering, WMI filters, item-level targeting, or site links).</p>
     {% endif %}
@@ -66,7 +79,7 @@
           <div class="gp-chain-name">
             {% if eg.gpo_id %}<a href="{{ url_for('gpo_detail', gpo_id=eg.gpo_id) }}">{{ eg.gpo_name }}</a>{% else %}{{ eg.gpo_name }}{% endif %}
           </div>
-          <div class="muted mono" style="font-size:11px;margin-top:2px">{{ eg.target }}</div>
+          <div class="muted mono" style="font-size:var(--fs-xs);margin-top:2px">{{ eg.target }}</div>
           <div class="gp-chain-gates">
             {% if gs.is_security_filtered %}
             <span class="gp-chip warn" title="Security filtering: group membership, nested groups, and inherited/default ACEs not modeled">filtered → {{ gs.apply_trustees|join(", ") }}</span>
@@ -149,7 +162,7 @@
           <td>
             {{ label }}
             {% if raw_id != s.display_name and raw_id != label %}
-            <div class="mono muted" style="font-size:11px;margin-top:2px">{{ raw_id }}</div>
+            <div class="mono muted" style="font-size:var(--fs-xs);margin-top:2px">{{ raw_id }}</div>
             {% endif %}
           </td>
           {% else %}
@@ -191,7 +204,7 @@
           <td>
             {{ label }}
             {% if raw_id != c.display_name and raw_id != label %}
-            <div class="mono muted" style="font-size:11px;margin-top:2px">{{ raw_id }}</div>
+            <div class="mono muted" style="font-size:var(--fs-xs);margin-top:2px">{{ raw_id }}</div>
             {% endif %}
           </td>
           {% else %}

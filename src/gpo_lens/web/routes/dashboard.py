@@ -1,4 +1,9 @@
-"""Dashboard, health, and version routes."""
+"""Dashboard, health, and version routes.
+
+Handlers are plain ``def`` (not ``async def``) so FastAPI runs them in its
+threadpool, preventing synchronous SQLite from blocking the event loop
+(Plan 022 WI-1).
+"""
 
 from __future__ import annotations
 
@@ -24,13 +29,13 @@ from gpo_lens.web.auth import Permission, Principal, requires
 def register(app: FastAPI, templates: Jinja2Templates) -> None:
 
     @app.get("/healthz", name="healthz")
-    async def healthz() -> JSONResponse:
+    def healthz() -> JSONResponse:
         # Unauthenticated liveness probe. Reveals nothing but liveness, so it
         # is safe for IIS/app-pool supervisors to poll without credentials.
         return JSONResponse({"status": "ok"})
 
     @app.get("/api/version", name="api_version")
-    async def api_version() -> JSONResponse:
+    def api_version() -> JSONResponse:
         # Unauthenticated version surface. The version is already public via
         # pyproject.toml and the ``--version`` CLI flag; ops needs to confirm
         # the running build via curl without credentials.
@@ -39,7 +44,7 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         return JSONResponse({"version": __version__, "name": "gpo-lens"})
 
     @app.get("/", response_class=HTMLResponse, name="home")
-    async def home(
+    def home(
         request: Request,
         severity: str = "",
         q: str = "",
