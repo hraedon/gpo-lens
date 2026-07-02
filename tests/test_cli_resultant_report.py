@@ -21,11 +21,11 @@ DOMAIN_SID = "s-1-5-21-1000000000-2000000000-3000000000"
 USER_SID = f"{DOMAIN_SID}-1001"
 GROUP_SID = f"{DOMAIN_SID}-2001"
 
-GPO_BROAD = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
-GPO_GROUP_APPLY = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
-GPO_OTHER_GROUP = "cccccccc-cccc-cccc-cccc-cccccccccccc"
-GPO_WMI = "dddddddd-dddd-dddd-dddd-dddddddddddd"
-GPO_NO_DELEGATION = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"
+GPO_BROAD = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+GPO_GROUP_APPLY = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+GPO_OTHER_GROUP = "cccccccccccccccccccccccccccccccc"
+GPO_WMI = "dddddddddddddddddddddddddddddddd"
+GPO_NO_DELEGATION = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
 ROOT_DN = "dc=test,dc=local"
 
 

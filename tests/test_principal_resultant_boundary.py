@@ -28,11 +28,11 @@ GROUP_B_SID = f"{DOMAIN_SID}-5002"
 GROUP_B_SID_LOWER = GROUP_B_SID.lower()
 FOREIGN_SID = "s-1-5-21-999-888-777-6666"
 
-GPO_A = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
-GPO_B = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
-GPO_WMI = "cccccccc-cccc-cccc-cccc-cccccccccccc"
-GPO_ILT = "dddddddd-dddd-dddd-dddd-dddddddddddd"
-GPO_DANGER = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"
+GPO_A = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+GPO_B = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+GPO_WMI = "cccccccccccccccccccccccccccccccc"
+GPO_ILT = "dddddddddddddddddddddddddddddddd"
+GPO_DANGER = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
 
 SOM_DOMAIN = "DC=test,DC=local"
 SOM_OU = "OU=Workstations,DC=test,DC=local"

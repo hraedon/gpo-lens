@@ -267,7 +267,7 @@ class TestApiQuerySmoke:
     # they don't return 500.
     _FIXTURE_PARAMS = {
         "settings_at_som": {"ou_path": "ou=child,dc=fakefixture,dc=local"},
-        "effective_scope": {"gpo_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"},
+        "effective_scope": {"gpo_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
         "principal_resultant": {
             "principal_sid": "S-1-5-21-100-200-300-1001",
         },

@@ -549,7 +549,7 @@ _ROOT_DN = "dc=test,dc=local"
 def _sec_estate(
     permission: str,
     *,
-    gpo_id: str = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+    gpo_id: str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 ) -> Estate:
     """Minimal estate: one user principal + one GPO delegated to AU."""
     principals = {
@@ -652,7 +652,7 @@ def _sec_estate_with_deny(
     allow_perm: str, deny_perm: str,
 ) -> Estate:
     """Estate with one allow + one deny delegation entry for the same trustee."""
-    gpo_id = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"
+    gpo_id = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
     principals = {
         _USER_SID: ResolvedPrincipal(
             sid=_USER_SID, name="TEST\\user", sam="user",
@@ -706,7 +706,7 @@ def _sec_estate_with_deny(
 
 def _sddl_sec_estate(sddl: str) -> Estate:
     """Estate with one SDDL-only GPO (no delegation) linked at the domain root."""
-    gpo_id = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    gpo_id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     principals = {
         _USER_SID: ResolvedPrincipal(
             sid=_USER_SID, name="TEST\\user", sam="user",
@@ -761,7 +761,7 @@ class TestSddlAliasDenyGate:
         """Sanity: an alias-only allow (no deny) still grants apply, so the
         canonicalization didn't break the normal path.
         """
-        estate = _sddl_sec_estate("O:DAG:DAD:(A;;GR;;;AU)")
+        estate = _sddl_sec_estate("O:DAG:DAD:(A;;CR;;;AU)")
         result = principal_resultant(estate, _USER_SID, dn=_ROOT_DN)
         idents = {m.identity for m in result.settings}
         assert r"HKCU\Software\Test" in idents
@@ -798,10 +798,10 @@ class TestExcludedGpoSide:
         user_dn = f"ou=users,{_ROOT_DN}"
         comp_dn = f"ou=computers,{_ROOT_DN}"
 
-        loopback_gpo = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+        loopback_gpo = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
         # GPO with loopback=Replace + a user-side setting, but delegated
         # to a group the computer is NOT in → security-filtered.
-        filtered_gpo = "cccccccc-cccc-cccc-cccc-cccccccccccc"
+        filtered_gpo = "cccccccccccccccccccccccccccccccc"
         gpos = [
             Gpo(
                 id=loopback_gpo, name="gpo-loopback", domain="test.local",
@@ -935,7 +935,7 @@ class TestExcludedGpoSide:
             ),
         }
         comp_dn = f"ou=computers,{_ROOT_DN}"
-        dual_gpo = "dddddddd-dddd-dddd-dddd-dddddddddddd"
+        dual_gpo = "dddddddddddddddddddddddddddddddd"
         gpos = [
             Gpo(
                 id=dual_gpo, name="gpo-dual", domain="test.local",
@@ -1003,7 +1003,7 @@ def test_principal_resultant_parent_walk_caveat():
     """When the principal's OU is absent from the estate and the chain is
     resolved from an ancestor, a caveat must be surfaced (WI-076 contract).
     """
-    gpo_id = "ffffffff-ffff-ffff-ffff-ffffffffffff"
+    gpo_id = "ffffffffffffffffffffffffffffffff"
     principals = {
         _USER_SID: ResolvedPrincipal(
             sid=_USER_SID, name="TEST\\user", sam="user",

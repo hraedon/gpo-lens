@@ -452,7 +452,7 @@ def test_markdown_renders_remediation_for_danger_finding():
     """When a danger finding carries remediation text, the Markdown report
     must surface it under the finding."""
     gpo = model.Gpo(
-        id="11111111-1111-1111-1111-111111111111",
+        id="11111111111111111111111111111111",
         name="writable-gpo",
         domain="test.local",
         created=None, modified=None, read=None,
@@ -474,7 +474,7 @@ def test_html_renders_remediation_for_danger_finding():
     """When a danger finding carries remediation text, the HTML report
     must surface it inside the finding list item."""
     gpo = model.Gpo(
-        id="11111111-1111-1111-1111-111111111111",
+        id="11111111111111111111111111111111",
         name="writable-gpo",
         domain="test.local",
         created=None, modified=None, read=None,
@@ -495,7 +495,7 @@ def test_markdown_no_remediation_line_when_empty():
     """Findings without remediation text must not render an empty line."""
     # A version-skew finding has no remediation.
     gpo = model.Gpo(
-        id="11111111-1111-1111-1111-111111111111",
+        id="11111111111111111111111111111111",
         name="skew-gpo",
         domain="test.local",
         created=None, modified=None, read=None,

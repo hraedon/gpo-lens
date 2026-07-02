@@ -33,6 +33,7 @@ from gpo_lens.model import (
 )
 from gpo_lens.normalize import (
     canonical_guid,
+    is_registry_cse,
     load_json,
     localname,
     parse_bool,
@@ -601,7 +602,7 @@ def _parse_settings(gpo_elem: Element, gpo_id: str) -> list[Setting]:
                     # richer key (HIVE\\key:name) so it is tried first.
                     multi = (
                         _parse_gpp_registry(block)
-                        if cse in ("Registry", "Windows Registry")
+                        if is_registry_cse(cse)
                         else []
                     )
                     if not multi:
@@ -621,13 +622,13 @@ def _parse_settings(gpo_elem: Element, gpo_id: str) -> list[Setting]:
                         # it a stable readable key, not a per-value hash.
                         parsed = (f"{cse}:Blocked", "(extension blocked flag)",
                                   _text(block) or "")
-                    elif cse == "Registry" and bl == "Policy":
+                    elif cse.strip().lower() == "registry" and bl == "Policy":
                         parsed = _parse_admin_template_policy(block)
                     elif cse == "Folder Redirection" and bl == "Folder":
                         parsed = _parse_folder_redirection(block)
                     elif bl == "RegistrySetting":
                         parsed = _parse_classic_registry_setting(block)
-                    elif cse in ("Registry", "Windows Registry"):
+                    elif is_registry_cse(cse):
                         parsed = _parse_registry_setting(block)
                     if parsed is None:
                         parsed = _parse_generic_setting(cse, block)

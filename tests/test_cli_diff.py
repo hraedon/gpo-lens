@@ -13,10 +13,10 @@ from pathlib import Path
 
 import pytest
 
-GPO_ALPHA = "11111111-1111-1111-1111-111111111111"
-GPO_BETA = "22222222-2222-2222-2222-222222222222"
-GPO_GAMMA = "33333333-3333-3333-3333-333333333333"
-GPO_DELTA = "44444444-4444-4444-4444-444444444444"
+GPO_ALPHA = "11111111111111111111111111111111"
+GPO_BETA = "22222222222222222222222222222222"
+GPO_GAMMA = "33333333333333333333333333333333"
+GPO_DELTA = "44444444444444444444444444444444"
 
 
 def _make_gpo(
@@ -528,7 +528,7 @@ class TestChangelogDirect:
 
         ret = main([
             "--db", str(db), "changelog", str(sid_a), str(sid_b),
-            "--gpo-id", "99999999-9999-9999-9999-999999999999",
+            "--gpo-id", "99999999999999999999999999999999",
         ])
         assert ret == 0
         captured = capsys.readouterr()

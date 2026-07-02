@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from gpo_lens.authz import (
-    READ_OR_APPLY_RIGHTS,
+    APPLY_RIGHTS,
     applies_broadly,
     broad_trustee_key,
     is_allow_ace_type,
@@ -41,6 +41,7 @@ from gpo_lens.detection import (
     scan_local_groups,
 )
 from gpo_lens.model import SEVERITY_ORDER
+from gpo_lens.normalize import is_registry_cse
 
 if TYPE_CHECKING:
     from gpo_lens.model import AdmxResolver, Estate
@@ -330,7 +331,7 @@ def overbroad_apply_group_policy(estate: Estate) -> list[DangerFinding]:
                 if not (is_allow_ace_type(ace.ace_type) or is_deny_ace_type(ace.ace_type)):
                     continue
                 rights = frozenset(parse_sddl_rights(ace.rights))
-                if not (rights & READ_OR_APPLY_RIGHTS):
+                if not (rights & APPLY_RIGHTS):
                     continue
                 sid = (ace.trustee_sid or "").lower()
                 key = broad_trustee_key("", ace.trustee_sid)
@@ -345,7 +346,7 @@ def overbroad_apply_group_policy(estate: Estate) -> list[DangerFinding]:
                 if not is_allow_ace_type(ace.ace_type):
                     continue
                 rights = frozenset(parse_sddl_rights(ace.rights))
-                if not (rights & READ_OR_APPLY_RIGHTS):
+                if not (rights & APPLY_RIGHTS):
                     continue
                 sid = (ace.trustee_sid or "").lower()
                 if sid not in _BROAD_APPLY_SIDS:
@@ -372,9 +373,6 @@ def overbroad_apply_group_policy(estate: Estate) -> list[DangerFinding]:
 # ---------------------------------------------------------------------------
 # Bucket 1 — setting-value dangers (data table + pure evaluator)
 # ---------------------------------------------------------------------------
-
-_REGISTRY_CSES = frozenset({"registry", "windows registry"})
-
 
 def _resolve_display_name(admx: AdmxResolver, identity: str) -> str | None:
     """Resolve a setting identity to an ADMX policy display name.
@@ -451,7 +449,7 @@ def evaluate_danger_rules(
             for s in g.settings:
                 if s.source_state == "blocked":
                     continue
-                if s.cse.strip().lower() not in _REGISTRY_CSES:
+                if not is_registry_cse(s.cse):
                     continue
                 if not _side_matches(rule.applies, s.side):
                     continue
@@ -477,7 +475,7 @@ def evaluate_danger_rules(
             for s in g.settings:
                 if s.source_state == "blocked":
                     continue
-                if s.cse.strip().lower() not in _REGISTRY_CSES:
+                if not is_registry_cse(s.cse):
                     continue
                 if not _side_matches(rule.applies, s.side):
                     continue

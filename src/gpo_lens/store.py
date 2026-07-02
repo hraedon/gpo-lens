@@ -24,6 +24,7 @@ from gpo_lens.model import (
     SomLink,
     WmiFilter,
 )
+from gpo_lens.normalize import parse_dt
 
 # Schema version stored in PRAGMA user_version by ``_migrate_schema``.
 # v1 = original ``init_db`` schema.
@@ -332,15 +333,6 @@ def _dt_to_iso(dt: datetime | None) -> str | None:
     return dt.isoformat()
 
 
-def _iso_to_dt(text: str | None) -> datetime | None:
-    if text is None:
-        return None
-    try:
-        return datetime.fromisoformat(text)
-    except ValueError:
-        return None
-
-
 def save_estate(conn: sqlite3.Connection, estate: Estate, taken_at: datetime | None = None) -> int:
     """Save an estate as a new snapshot; returns the new ``snapshot_id``."""
     if taken_at is None:
@@ -511,6 +503,7 @@ def save_estate(conn: sqlite3.Connection, estate: Estate, taken_at: datetime | N
         )
 
     conn.commit()
+    restrict_db_permissions(conn)
     return snapshot_id
 
 
@@ -620,9 +613,9 @@ def load_estate(conn: sqlite3.Connection, snapshot_id: int | None = None) -> Est
             id=row[0],
             name=row[1],
             domain=row[2],
-            created=_iso_to_dt(row[3]),
-            modified=_iso_to_dt(row[4]),
-            read=_iso_to_dt(row[5]),
+            created=parse_dt(row[3]),
+            modified=parse_dt(row[4]),
+            read=parse_dt(row[5]),
             computer_enabled=bool(row[6]),
             user_enabled=bool(row[7]),
             computer_ver_ds=row[8],
@@ -746,7 +739,7 @@ def list_snapshots(conn: sqlite3.Connection) -> list[tuple[int, str, datetime | 
     rows = conn.execute(
         "SELECT id, domain, taken_at FROM snapshot ORDER BY id DESC"
     ).fetchall()
-    return [(row[0], row[1], _iso_to_dt(row[2])) for row in rows]
+    return [(row[0], row[1], parse_dt(row[2])) for row in rows]
 
 
 def delete_snapshot(conn: sqlite3.Connection, snapshot_id: int) -> bool:

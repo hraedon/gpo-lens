@@ -9,7 +9,7 @@ from gpo_lens.model import DelegationEntry, Estate, Gpo, ResolvedPrincipal, Sett
 
 def _make_gpo(**kwargs) -> Gpo:
     defaults = {
-        "id": "11111111-1111-1111-1111-111111111111",
+        "id": "11111111111111111111111111111111",
         "name": "Test GPO",
         "domain": "test.local",
         "created": None,

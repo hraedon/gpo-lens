@@ -56,7 +56,7 @@ def principal_db(tmp_path):
     domain_sid = "s-1-5-21-1000000000-2000000000-3000000000"
     user_sid = f"{domain_sid}-1001"
     root_dn = "dc=test,dc=local"
-    gpo_id = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    gpo_id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
     estate = Estate(
         domain="test.local",

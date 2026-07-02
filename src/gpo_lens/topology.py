@@ -762,11 +762,14 @@ def security_filtering_detail(
             if entry.trustee not in apply_trustees:
                 apply_trustees.append(entry.trustee)
     if not gpo.delegation and gpo.sddl:
-        for sddl_entry in iter_sddl_apply_aces(gpo.sddl):
+        for sddl_entry in iter_sddl_apply_aces(
+            gpo.sddl, rights_filter=READ_OR_APPLY_RIGHTS
+        ):
             if sddl_entry.broad_key == "authenticated_users":
                 has_au_read = True
             if sddl_entry.broad_key == "domain_computers":
                 has_dc_read = True
+        for sddl_entry in iter_sddl_apply_aces(gpo.sddl):
             if estate is not None:
                 rp = resolve_principal(estate, sddl_entry.ace.trustee_sid)
                 if rp.name not in apply_trustees:

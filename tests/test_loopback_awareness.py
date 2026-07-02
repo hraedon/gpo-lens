@@ -16,8 +16,8 @@ DOMAIN_SID = "S-1-5-21-100-200-300"
 USER_SID = f"{DOMAIN_SID}-1001"
 USER_SID_LOWER = USER_SID.lower()
 
-GPO_LOOPBACK = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
-GPO_NORMAL = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+GPO_LOOPBACK = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+GPO_NORMAL = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 
 SOM_DOMAIN = "DC=test,DC=local"
 SOM_OU = "OU=Workstations,DC=test,DC=local"

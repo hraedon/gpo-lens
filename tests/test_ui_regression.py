@@ -578,7 +578,7 @@ class TestEmptyStates:
 
 class TestErrorPages:
     def test_unknown_gpo_id_returns_404(self, _client) -> None:
-        resp = _client.get("/gpo/00000000-0000-0000-0000-000000000000")
+        resp = _client.get("/gpo/00000000000000000000000000000000")
         assert resp.status_code == 404
         assert "GPO not found" in resp.text
 
@@ -600,7 +600,7 @@ class TestErrorPages:
         # Send Accept: text/html so the exception handler renders the HTML
         # error page (not the JSON envelope).
         resp = _client.get(
-            "/gpo/00000000-0000-0000-0000-000000000000",
+            "/gpo/00000000000000000000000000000000",
             headers={"accept": "text/html"},
         )
         assert resp.status_code == 404
@@ -611,7 +611,7 @@ class TestErrorPages:
 
     def test_error_page_extends_base(self, _client) -> None:
         resp = _client.get(
-            "/gpo/00000000-0000-0000-0000-000000000000",
+            "/gpo/00000000000000000000000000000000",
             headers={"accept": "text/html"},
         )
         html = resp.text

@@ -25,7 +25,7 @@ from gpo_lens.topology import effective_scope, scope_caveats
 
 def _make_gpo(**kwargs) -> Gpo:
     defaults = {
-        "id": "31b2f340-016d-11d2-945f-00c04fb984f9",
+        "id": "31b2f340016d11d2945f00c04fb984f9",
         "name": "Test GPO",
         "domain": "test.local",
         "created": None,

@@ -49,7 +49,7 @@ def populated_db(tmp_path):
         ),
     }
     gpo = Gpo(
-        id="11111111-1111-1111-1111-111111111111",
+        id="11111111111111111111111111111111",
         name="gpo-writer",
         domain="test.local",
         created=None, modified=None, read=None,
@@ -62,14 +62,14 @@ def populated_db(tmp_path):
         settings=[],
         delegation=[
             DelegationEntry(
-                gpo_id="11111111-1111-1111-1111-111111111111",
+                gpo_id="11111111111111111111111111111111",
                 trustee="Helpdesk",
                 trustee_sid=writer_sid,
                 permission="Write",
                 allowed=True,
             ),
             DelegationEntry(
-                gpo_id="11111111-1111-1111-1111-111111111111",
+                gpo_id="11111111111111111111111111111111",
                 trustee="Authenticated Users",
                 trustee_sid="S-1-5-11",
                 permission="Read",

@@ -691,7 +691,7 @@ class TestCLI:
     def test_settings_diff(self, tmp_path):
         import json
 
-        gid = "31b2f340-016d-11d2-945f-00c04fb984f9"
+        gid = "31b2f340016d11d2945f00c04fb984f9"
         data_a = [
             {
                 "gpo_id": gid,
@@ -734,7 +734,7 @@ class TestCLI:
         data_a: list[dict[str, object]] = []
         data_b = [
             {
-                "gpo_id": "31b2f340-016d-11d2-945f-00c04fb984f9",
+                "gpo_id": "31b2f340016d11d2945f00c04fb984f9",
                 "gpo_name": "Test",
                 "side": "Computer",
                 "cse": "Security",
@@ -764,7 +764,7 @@ class TestCLI:
 
         data = [
             {
-                "gpo_id": "31b2f340-016d-11d2-945f-00c04fb984f9",
+                "gpo_id": "31b2f340016d11d2945f00c04fb984f9",
                 "gpo_name": "Test",
                 "side": "Computer",
                 "cse": "Security",
@@ -789,7 +789,7 @@ class TestCLI:
     def test_settings_diff_filter_side(self, tmp_path):
         import json
 
-        gid = "31b2f340-016d-11d2-945f-00c04fb984f9"
+        gid = "31b2f340016d11d2945f00c04fb984f9"
         data_a = [
             {
                 "gpo_id": gid,
@@ -869,7 +869,7 @@ class TestCLI:
         # Pre-populate with a snapshot containing one of the fixture GPOs
         # but with different version numbers
         gpo = model.Gpo(
-            id="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+            id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             name="gpo-cpassword", domain="fakefixture.local",
             created=None, modified=None, read=None,
             computer_enabled=True, user_enabled=True,

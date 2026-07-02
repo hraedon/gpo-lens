@@ -322,7 +322,7 @@ class TestLoadEstate:
         xml_path = tmp_path / "AllGPOs.xml"
         xml_path.write_text(_min_gpo_xml(), encoding="utf-8")
         sysvol = tmp_path / "SYSVOL-Policies"
-        guid_dir = sysvol / "31B2F340-016D-11D2-945F-00C04FB984F9"
+        guid_dir = sysvol / "31b2f340016d11d2945f00c04fb984f9"
         guid_dir.mkdir(parents=True)
         (guid_dir / "dummy.txt").write_text("hello", encoding="utf-8")
         estate = ingest.load_estate(tmp_path)
@@ -332,7 +332,7 @@ class TestLoadEstate:
         xml_path = tmp_path / "AllGPOs.xml"
         xml_path.write_text(_min_gpo_xml(), encoding="utf-8")
         sysvol = tmp_path / "SYSVOL" / "Policies"
-        guid_dir = sysvol / "31B2F340-016D-11D2-945F-00C04FB984F9"
+        guid_dir = sysvol / "31b2f340016d11d2945f00c04fb984f9"
         guid_dir.mkdir(parents=True)
         estate = ingest.load_estate(tmp_path)
         assert estate.gpos[0].sysvol_path is not None
@@ -351,7 +351,7 @@ class TestLoadEstate:
         from gpo_lens.model import Gpo
 
         sysvol = tmp_path / "SYSVOL-Policies"
-        guid_dir = sysvol / "31B2F340-016D-11D2-945F-00C04FB984F9"
+        guid_dir = sysvol / "31b2f340016d11d2945f00c04fb984f9"
         prefs = guid_dir / "Machine" / "Preferences" / "ScheduledTasks"
         prefs.mkdir(parents=True)
         # One good XML, one corrupt XML.
@@ -362,7 +362,7 @@ class TestLoadEstate:
             "<<<not xml<<<", encoding="utf-8"
         )
         gpo = Gpo(
-            id="31b2f340-016d-11d2-945f-00c04fb984f9", name="Test",
+            id="31b2f340016d11d2945f00c04fb984f9", name="Test",
             domain="test.local", created=None, modified=None, read=None,
             computer_enabled=True, user_enabled=True,
             computer_ver_ds=None, computer_ver_sysvol=None,
@@ -398,7 +398,7 @@ class TestLoadEstate:
         from gpo_lens.model import Gpo
 
         sysvol = tmp_path / "SYSVOL-Policies"
-        guid_dir = sysvol / "31B2F340-016D-11D2-945F-00C04FB984F9"
+        guid_dir = sysvol / "31b2f340016d11d2945f00c04fb984f9"
         # Uppercase side dir, mixed-case Preferences.
         prefs = guid_dir / "USER" / "Preferences" / "Groups"
         prefs.mkdir(parents=True)
@@ -409,7 +409,7 @@ class TestLoadEstate:
             '<?xml version="1.0"?><root></root>', encoding="utf-8"
         )
         gpo = Gpo(
-            id="31b2f340-016d-11d2-945f-00c04fb984f9", name="Test",
+            id="31b2f340016d11d2945f00c04fb984f9", name="Test",
             domain="test.local", created=None, modified=None, read=None,
             computer_enabled=True, user_enabled=True,
             computer_ver_ds=None, computer_ver_sysvol=None,
@@ -1783,7 +1783,7 @@ def test_flat_permission_delegation_fallback() -> None:
             break
     assert gpo_elem is not None
 
-    entries = ingest._parse_delegation(gpo_elem, "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+    entries = ingest._parse_delegation(gpo_elem, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
     assert len(entries) == 3
 
     # Entry 0: TrusteeSID element used
@@ -1830,7 +1830,7 @@ def test_flat_permission_no_sid_resolves_to_none() -> None:
 </GPO>"""
     elem = ET.fromstring(xml)
     gpo_elem = next(c for c in elem if c.tag.split("}")[-1] == "GPO")
-    entries = ingest._parse_delegation(gpo_elem, "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+    entries = ingest._parse_delegation(gpo_elem, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
     assert len(entries) == 1
     assert entries[0].trustee == "Unknown Trustee"
     assert entries[0].trustee_sid is None
