@@ -23,7 +23,7 @@ from gpo_lens.danger import (
 from gpo_lens.model import DelegationEntry, Estate, Gpo, Setting
 
 FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures"
-DEFAULT_GID = "11111111-2222-3333-4444-555555555555"
+DEFAULT_GID = "11111111222233334444555555555555"
 _WDIGEST_ID = r"HKLM\SYSTEM\CurrentControlSet\Control\Lsa:UseLogonCredential"
 _LMCOMP_ID = r"HKLM\SYSTEM\CurrentControlSet\Control\Lsa:LmCompatibilityLevel"
 
@@ -228,7 +228,7 @@ class TestLocalAdminPush:
 
     def test_detects_admin_group_mod(self, tmp_path: Path) -> None:
         gpo = _make_gpo(
-            id="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+            id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             name="admin-push-gpo",
             sysvol_path=self._make_sysvol(tmp_path),
         )
@@ -1078,7 +1078,7 @@ class TestBucket2Compliance:
             encoding="utf-8",
         )
         gpo = _make_gpo(
-            id="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+            id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             name="admin-push-gpo",
             sysvol_path=str(sysvol),
         )
@@ -1187,16 +1187,16 @@ class TestDangerFindings:
             predicate="equals", value="1", reference="ref",
         )
         writable_gpo = _make_gpo(
-            id="11111111-1111-1111-1111-111111111111",
+            id="11111111111111111111111111111111",
             name="writable",
             sddl="D:(A;;GA;;;S-1-5-21-1-2-3-1000)",
         )
         dangerous_gpo = _make_gpo(
-            id="22222222-2222-2222-2222-222222222222",
+            id="22222222222222222222222222222222",
             name="wdigest-gpo",
             settings=[
                 _reg_setting(
-                    "22222222-2222-2222-2222-222222222222",
+                    "22222222222222222222222222222222",
                     r"HKLM\SYSTEM\CurrentControlSet\Control\Lsa:UseLogonCredential", "1",
                 ),
             ],
@@ -1254,7 +1254,7 @@ class TestIntegration:
         from gpo_lens.queries import estate_doctor
 
         gpo = _make_gpo(
-            id="11111111-1111-1111-1111-111111111111",
+            id="11111111111111111111111111111111",
             name="stale-gpo",
             computer_ver_ds=2,
             computer_ver_sysvol=1,
@@ -1615,7 +1615,7 @@ class TestRemediationBucket2:
             encoding="utf-8",
         )
         gpo = _make_gpo(
-            id="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+            id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             name="admin-push-gpo",
             sysvol_path=str(sysvol),
         )
@@ -1707,7 +1707,7 @@ class TestRemediationDoctorFinding:
         from gpo_lens.queries import estate_doctor
 
         gpo = _make_gpo(
-            id="11111111-1111-1111-1111-111111111111",
+            id="11111111111111111111111111111111",
             name="stale-gpo",
             computer_ver_ds=2,
             computer_ver_sysvol=1,

@@ -695,7 +695,7 @@ def test_resultant_shape(capsys, tmp_path):
     user_sid = f"{domain_sid}-1001"
     group_sid = f"{domain_sid}-2001"
     root_dn = "dc=test,dc=local"
-    gpo_id = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    gpo_id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
     db = tmp_path / "resultant_contract.db"
     conn = sqlite3.connect(str(db))

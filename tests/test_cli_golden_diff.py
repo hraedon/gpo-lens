@@ -9,8 +9,8 @@ import pytest
 
 from gpo_lens.model import Estate, Gpo, Setting
 
-GPO_A = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
-GPO_B = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+GPO_A = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+GPO_B = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 
 
 def _make_gpo(gpo_id: str, name: str, settings: list[Setting] | None = None) -> Gpo:
@@ -80,14 +80,14 @@ def _make_golden_estate() -> Estate:
     ]
     settings_c = [
         _make_setting(
-            "cccccccc-cccc-cccc-cccc-cccccccccccc", "User",
+            "cccccccccccccccccccccccccccccccc", "User",
             "HKCU\\Software\\Example\\Value", "v",
         ),
     ]
     gpos = [
         _make_gpo(GPO_A, "gpo-a", settings_a),
         _make_gpo(GPO_B, "gpo-b", settings_b),
-        _make_gpo("cccccccc-cccc-cccc-cccc-cccccccccccc", "gpo-removed", settings_c),
+        _make_gpo("cccccccccccccccccccccccccccccccc", "gpo-removed", settings_c),
     ]
     return Estate(domain="test.local", gpos=gpos)
 

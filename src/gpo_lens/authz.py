@@ -20,6 +20,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "ACE_TYPE_MAP",
+    "APPLY_RIGHTS",
     "READ_OR_APPLY_RIGHTS",
     "AU_SID",
     "DEFAULT_WRITER_NAMES",
@@ -62,6 +63,19 @@ DOMAIN_SID_PREFIX = "s-1-5-21-"
 # a write right, not a read/apply right — including it caused false MS16-072
 # compliance and missed security-filtering findings.
 READ_OR_APPLY_RIGHTS = frozenset({"GA", "GR", "CR", "RP"})
+
+# SDDL right codes that convey Apply Group Policy access (not just read).
+# GA (Generic All) includes everything — read, write, apply, delete.
+# CR (Control Access / ADS_RIGHT_DS_CONTROL_ACCESS) is the extended right
+# that "Apply Group Policy" uses; in real GPMC SDDL the Apply Group Policy
+# ACE is an Object ACE with CR rights and the extended-right GUID
+# edacfd8f-ffb3-11d1-b41d-00a0c968f939.
+# GR (Generic Read) and RP (Read Property) are deliberately excluded — they
+# are read-only rights and do NOT confer Apply Group Policy. Using
+# READ_OR_APPLY_RIGHTS in apply-only checks caused false positives in
+# danger detection (overbroad_apply_gp) and over-granted the security
+# gate in merge.py.
+APPLY_RIGHTS = frozenset({"GA", "CR"})
 DOMAIN_COMPUTERS_RID_SUFFIX = "-515"
 _BUILTIN_PREFIX = "s-1-5-32-"
 _MANDATORY_PREFIX = "s-1-16-"
@@ -549,7 +563,7 @@ def permission_implies_apply(permission: str) -> bool:
 
 @dataclass(frozen=True)
 class SddlApplyAce:
-    """An allow ACE in the SDDL DACL that grants read/apply rights."""
+    """An allow ACE in the SDDL DACL that grants apply rights."""
 
     ace: SddlAce
     rights: frozenset[str]
@@ -559,12 +573,17 @@ class SddlApplyAce:
 def iter_sddl_apply_aces(
     sddl: str,
     broad_names: Iterable[str] = SCOPE_BROAD_TRUSTEES,
+    *,
+    rights_filter: frozenset[str] = APPLY_RIGHTS,
 ) -> list[SddlApplyAce]:
-    """Extract allow ACEs with read/apply rights from an SDDL string.
+    """Extract allow ACEs whose rights intersect *rights_filter* from an SDDL string.
 
     Used as the SDDL fallback when a GPO has no ``delegation`` entries (common
     when the collector only captured the raw SDDL string).  Returns one
-    ``SddlApplyAce`` per allow ACE whose rights intersect ``READ_OR_APPLY_RIGHTS``.
+    ``SddlApplyAce`` per allow ACE whose rights intersect *rights_filter*
+    (default: ``APPLY_RIGHTS`` — only GA/CR, the rights that confer Apply Group
+    Policy).  Callers that need read-or-apply detection (e.g. MS16-072's
+    Authenticated-Users-Read check) pass ``rights_filter=READ_OR_APPLY_RIGHTS``.
     ``broad_key`` is set when the trustee is a recognized broad-application
     trustee (Authenticated Users, Domain Computers, Everyone).
     """
@@ -574,7 +593,7 @@ def iter_sddl_apply_aces(
         if not is_allow_ace_type(ace.ace_type):
             continue
         rights = frozenset(parse_sddl_rights(ace.rights))
-        if not (rights & READ_OR_APPLY_RIGHTS):
+        if not (rights & rights_filter):
             continue
         key = broad_trustee_key("", ace.trustee_sid, broad_names)
         result.append(SddlApplyAce(ace=ace, rights=rights, broad_key=key))

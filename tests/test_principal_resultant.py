@@ -36,11 +36,11 @@ GROUP_SID = f"{DOMAIN_SID}-2001"
 OTHER_GROUP_SID = f"{DOMAIN_SID}-2002"
 ROOT_DN = "dc=test,dc=local"
 
-GPO_BROAD = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
-GPO_GROUP_APPLY = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
-GPO_OTHER_GROUP = "cccccccc-cccc-cccc-cccc-cccccccccccc"
-GPO_WMI = "dddddddd-dddd-dddd-dddd-dddddddddddd"
-GPO_NO_DELEGATION = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"
+GPO_BROAD = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+GPO_GROUP_APPLY = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+GPO_OTHER_GROUP = "cccccccccccccccccccccccccccccccc"
+GPO_WMI = "dddddddddddddddddddddddddddddddd"
+GPO_NO_DELEGATION = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
 
 
 def _gpo(
@@ -399,7 +399,7 @@ class TestDomainUsersRidResolution:
         which is expanded with the estate's domain SID before intersecting
         the token's full Domain Users SID.
         """
-        gpo_id = "11111111-1111-1111-1111-111111111111"
+        gpo_id = "11111111111111111111111111111111"
         estate.gpos.append(_gpo(
             gpo_id, "gpo-domain-users",
             settings=[_user_setting(gpo_id, r"HKCU\Software\DU", "1")],
@@ -420,7 +420,7 @@ class TestDomainUsersRidResolution:
         user principal — the user token carries Domain Users (-513), not
         Domain Computers (-515).
         """
-        gpo_id = "12121212-1212-1212-1212-121212121212"
+        gpo_id = "12121212121212121212121212121212"
         estate.gpos.append(_gpo(
             gpo_id, "gpo-domain-computers",
             settings=[_user_setting(gpo_id, r"HKCU\Software\DC", "1")],
@@ -473,8 +473,8 @@ class TestUserComputerPairChains:
         )
         user_dn = f"ou=users,{ROOT_DN}"
         comp_dn = f"ou=computers,{ROOT_DN}"
-        user_gpo = "21111111-2111-2111-2111-211111111111"
-        comp_gpo = "32222222-3222-3222-3222-322222222222"
+        user_gpo = "21111111211121112111211111111111"
+        comp_gpo = "32222222322232223222322222222222"
         estate.gpos.append(_gpo(
             user_gpo, "gpo-user-side",
             settings=[_user_setting(user_gpo, r"HKCU\Software\UserOnly", "u")],
@@ -555,7 +555,7 @@ class TestComputerChainExclusions:
             principal_type="Computer", domain="TEST", resolved=True,
         )
         comp_dn = f"ou=computers,{ROOT_DN}"
-        wmi_gpo = "43333333-4333-4333-4333-433333333333"
+        wmi_gpo = "43333333433343334333433333333333"
         estate.gpos.append(_gpo(
             wmi_gpo, "gpo-comp-wmi",
             settings=[_computer_setting(wmi_gpo, r"HKLM\Software\Wmi", "w")],
@@ -585,7 +585,7 @@ class TestComputerChainExclusions:
         )
         comp_dn = f"ou=computers,{ROOT_DN}"
         # Delegated to a group the computer is NOT a member of.
-        sec_gpo = "44444444-4444-4444-4444-444444444444"
+        sec_gpo = "44444444444444444444444444444444"
         estate.gpos.append(_gpo(
             sec_gpo, "gpo-comp-secfiltered",
             settings=[_computer_setting(sec_gpo, r"HKLM\Software\Sec", "s")],
@@ -615,7 +615,7 @@ class TestDenyAcePrecedence:
         """An SDDL that both allows and denies Apply to Authenticated Users
         must exclude the GPO (deny precedence), not apply it.
         """
-        gpo_id = "55555555-5555-5555-5555-555555555555"
+        gpo_id = "55555555555555555555555555555555"
         # DACL: allow GA to S-1-5-11, then deny GA to S-1-5-11.
         sddl = "D:(A;;GA;;;S-1-5-11)(D;;GA;;;S-1-5-11)"
         estate.gpos.append(_gpo(
@@ -635,7 +635,7 @@ class TestDenyAcePrecedence:
 
     def test_sddl_allow_only_still_applies(self, estate):
         """Same SDDL without the deny ACE must apply (regression guard)."""
-        gpo_id = "56565656-5656-5656-5656-565656565656"
+        gpo_id = "56565656565656565656565656565656"
         sddl = "D:(A;;GA;;;S-1-5-11)"
         estate.gpos.append(_gpo(
             gpo_id, "gpo-sddl-allow",
@@ -652,7 +652,7 @@ class TestDenyAcePrecedence:
 
     def test_delegation_deny_cancels_allow_on_same_trustee(self, estate):
         """Delegation entries: an allow + deny for Authenticated Users cancel."""
-        gpo_id = "57575757-5757-5757-5757-575757575757"
+        gpo_id = "57575757575757575757575757575757"
         estate.gpos.append(_gpo(
             gpo_id, "gpo-delegation-deny",
             settings=[_user_setting(gpo_id, r"HKCU\Software\DelDeny", "1")],
@@ -721,7 +721,7 @@ class TestConditionalDangers:
         conditional_dangers. Its GPP setting is excluded (excluded_settings)
         but the danger is not silently dropped.
         """
-        ilt_gpo_id = "68888888-6888-6888-6888-688888888888"
+        ilt_gpo_id = "68888888688868886888688888888888"
         # SYSVOL GPP XML carrying <Filters> → scan_ilt flags the GPO as ILT.
         base = tmp_path / ilt_gpo_id
         sched = base / "User" / "Preferences" / "ScheduledTasks"
@@ -780,7 +780,7 @@ class TestCrossTrusteeDeny:
 
     def test_delegation_cross_trustee_deny_blocks_gpo(self, estate):
         """GPO allows AU, denies a group the user is in → GPO excluded."""
-        gpo_id = "71111111-7111-7111-7111-711111111111"
+        gpo_id = "71111111711171117111711111111111"
         estate.gpos.append(_gpo(
             gpo_id, "gpo-cross-deny",
             settings=[_user_setting(gpo_id, r"HKCU\Software\XDeny", "1")],
@@ -809,7 +809,7 @@ class TestCrossTrusteeDeny:
 
     def test_delegation_cross_trustee_deny_unrelated_group_passes(self, estate):
         """GPO allows AU, denies a group the user is NOT in → GPO applies."""
-        gpo_id = "72222222-7222-7222-7222-722222222222"
+        gpo_id = "72222222722272227222722222222222"
         estate.gpos.append(_gpo(
             gpo_id, "gpo-cross-deny-unrelated",
             settings=[_user_setting(gpo_id, r"HKCU\Software\XOK", "1")],
@@ -835,7 +835,7 @@ class TestCrossTrusteeDeny:
 
     def test_sddl_cross_trustee_deny_blocks_gpo(self, estate):
         """SDDL: allow AU, deny a group the user is in → GPO excluded."""
-        gpo_id = "73333333-7333-7333-7333-733333333333"
+        gpo_id = "73333333733373337333733333333333"
         sddl = (
             "D:(A;;GA;;;S-1-5-11)"
             f"(D;;GA;;;{_DOMAIN_GROUP_SID})"
@@ -864,7 +864,7 @@ class TestCrossTrusteeDeny:
         tracked, so a cross-trustee deny with no matching allow was silently
         ignored.
         """
-        gpo_id = "74444444-7444-7444-7444-744444444444"
+        gpo_id = "74444444744474447444744444444444"
         sddl = (
             "D:(A;;GA;;;S-1-5-11)"
             f"(D;;GR;;;{_DOMAIN_GROUP_SID})"
@@ -889,7 +889,7 @@ class TestCrossTrusteeDeny:
         should NOT block the GPO — only deny ACEs with read/apply rights
         are tracked.
         """
-        gpo_id = "75555555-7555-7555-7555-755555555555"
+        gpo_id = "75555555755575557555755555555555"
         sddl = (
             "D:(A;;GA;;;S-1-5-11)"
             f"(D;;WD;;;{_DOMAIN_GROUP_SID})"
@@ -935,8 +935,8 @@ class TestLoopbackReplace:
         user_dn = f"ou=users,{ROOT_DN}"
         comp_dn = f"ou=computers,{ROOT_DN}"
 
-        user_gpo = "81111111-8111-8111-8111-811111111111"
-        comp_gpo = "82222222-8222-8222-8222-822222222222"
+        user_gpo = "81111111811181118111811111111111"
+        comp_gpo = "82222222822282228222822222222222"
 
         estate.gpos.append(_gpo(
             user_gpo, "gpo-user-chain",
@@ -1006,7 +1006,7 @@ class TestLoopbackReplace:
         comp_dn = f"ou=computers,{ROOT_DN}"
         user_dn = f"ou=users,{ROOT_DN}"
 
-        loopback_gpo = "83333333-8333-8333-8333-833333333333"
+        loopback_gpo = "83333333833383338333833333333333"
         estate.gpos.append(_gpo(
             loopback_gpo, "gpo-loopback-replace-filtered",
             settings=[
@@ -1050,8 +1050,8 @@ class TestLoopbackMerge:
         user_dn = f"ou=users,{ROOT_DN}"
         comp_dn = f"ou=computers,{ROOT_DN}"
 
-        user_gpo = "84444444-8444-8444-8444-844444444444"
-        comp_gpo = "85555555-8555-8555-8555-855555555555"
+        user_gpo = "84444444844484448444844444444444"
+        comp_gpo = "85555555855585558555855555555555"
 
         estate.gpos.append(_gpo(
             user_gpo, "gpo-user-chain-merge",
@@ -1126,7 +1126,7 @@ class TestLoopbackMerge:
         comp_dn = f"ou=computers,{ROOT_DN}"
         user_dn = f"ou=users,{ROOT_DN}"
 
-        comp_gpo = "86666666-8666-8666-8666-866666666666"
+        comp_gpo = "86666666866686668666866666666666"
         estate.gpos.append(_gpo(
             comp_gpo, "gpo-merge-filtered",
             settings=[
@@ -1182,8 +1182,8 @@ class TestLoopbackEdgeCases:
         )
         user_dn = f"ou=users,{ROOT_DN}"
         comp_dn = f"ou=computers,{ROOT_DN}"
-        user_gpo = "87111111-8711-8711-8711-871111111111"
-        comp_gpo = "87222222-8722-8722-8722-872222222222"
+        user_gpo = "87111111871187118711871111111111"
+        comp_gpo = "87222222872287228722872222222222"
 
         estate.gpos.append(_gpo(
             user_gpo, "gpo-user-only",
@@ -1230,9 +1230,9 @@ class TestLoopbackEdgeCases:
         )
         user_dn = f"ou=users,{ROOT_DN}"
         comp_dn = f"ou=computers,{ROOT_DN}"
-        user_gpo = "88111111-8811-8811-8811-881111111111"
-        comp_replace = "88222222-8822-8822-8822-882222222222"
-        comp_merge = "88333333-8833-8833-8833-883333333333"
+        user_gpo = "88111111881188118811881111111111"
+        comp_replace = "88222222882288228822882222222222"
+        comp_merge = "88333333883388338833883333333333"
 
         estate.gpos.append(_gpo(
             user_gpo, "gpo-user-side",
@@ -1291,8 +1291,8 @@ class TestLoopbackEdgeCases:
         )
         user_dn = f"ou=users,{ROOT_DN}"
         comp_dn = f"ou=computers,{ROOT_DN}"
-        user_gpo = "89111111-8911-8911-8911-891111111111"
-        comp_gpo = "89222222-8922-8922-8922-892222222222"
+        user_gpo = "89111111891189118911891111111111"
+        comp_gpo = "89222222892289228922892222222222"
 
         estate.gpos.append(_gpo(
             user_gpo, "gpo-user-shared",

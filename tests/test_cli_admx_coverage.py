@@ -9,8 +9,8 @@ import pytest
 
 from gpo_lens.model import Estate, Gpo, Setting
 
-GPO_A = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
-GPO_B = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+GPO_A = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+GPO_B = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 
 
 def _make_gpo(gpo_id: str, name: str, settings: list[Setting] | None = None) -> Gpo:

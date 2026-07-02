@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 from datetime import UTC, datetime
@@ -20,6 +21,10 @@ def init_events_table(conn: sqlite3.Connection) -> None:
         )
         """
     )
+    try:
+        conn.execute("ALTER TABLE events ADD COLUMN prev_hash TEXT")
+    except sqlite3.OperationalError:
+        pass
     conn.execute(
         """
         CREATE INDEX IF NOT EXISTS idx_events_timestamp
@@ -33,6 +38,14 @@ def init_events_table(conn: sqlite3.Connection) -> None:
         """
     )
     conn.commit()
+
+
+def _compute_hash(
+    prev_hash: str | None, timestamp: str, event_type: str, payload: str
+) -> str:
+    return hashlib.sha256(
+        f"{prev_hash or ''}|{timestamp}|{event_type}|{payload}".encode()
+    ).hexdigest()
 
 
 def _escape_like(value: str) -> str:
@@ -49,10 +62,16 @@ def append_event(
     commit: bool = True,
 ) -> int:
     ts = datetime.now(UTC).isoformat()
+    payload_str = json.dumps(payload, sort_keys=True)
+    row = conn.execute(
+        "SELECT prev_hash FROM events ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    prev_hash = row[0] if row else None
+    new_hash = _compute_hash(prev_hash, ts, event_type, payload_str)
     cursor = conn.execute(
-        "INSERT INTO events (timestamp, event_type, schema_version, payload) "
-        "VALUES (?, ?, ?, ?)",
-        (ts, event_type, schema_version, json.dumps(payload, sort_keys=True)),
+        "INSERT INTO events (timestamp, event_type, schema_version, payload, prev_hash) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (ts, event_type, schema_version, payload_str, new_hash),
     )
     if commit:
         conn.commit()
@@ -63,20 +82,58 @@ def append_events(
     conn: sqlite3.Connection,
     events: list[tuple[str, dict[str, Any]]],
     *,
+    schema_version: int = 1,
     commit: bool = True,
 ) -> list[int]:
     ts = datetime.now(UTC).isoformat()
+    row = conn.execute(
+        "SELECT prev_hash FROM events ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    prev_hash = row[0] if row else None
     ids: list[int] = []
     for event_type, payload in events:
+        payload_str = json.dumps(payload, sort_keys=True)
+        new_hash = _compute_hash(prev_hash, ts, event_type, payload_str)
         cursor = conn.execute(
-            "INSERT INTO events (timestamp, event_type, schema_version, payload) "
-            "VALUES (?, ?, 1, ?)",
-            (ts, event_type, json.dumps(payload, sort_keys=True)),
+            "INSERT INTO events (timestamp, event_type, schema_version, payload, prev_hash) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (ts, event_type, schema_version, payload_str, new_hash),
         )
         ids.append(cursor.lastrowid)  # type: ignore[arg-type]
+        prev_hash = new_hash
     if commit:
         conn.commit()
     return ids
+
+
+def verify_event_chain(conn: sqlite3.Connection) -> tuple[bool, list[int]]:
+    """Verify the SHA-256 hash chain of all events.
+
+    Returns ``(True, [])`` if all post-migration events' hashes are intact,
+    or ``(False, [broken_ids])`` listing events whose stored hash does not
+    match the recomputed value.
+
+    Events with ``prev_hash IS NULL`` (pre-dating the hash-chain migration)
+    are skipped — they cannot be verified but are not flagged as tampered.
+    """
+    try:
+        rows = conn.execute(
+            "SELECT id, timestamp, event_type, payload, prev_hash "
+            "FROM events ORDER BY id ASC"
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return True, []
+    broken: list[int] = []
+    prev_hash: str | None = None
+    for row in rows:
+        if row[4] is None:
+            prev_hash = None
+            continue
+        expected = _compute_hash(prev_hash, row[1], row[2], row[3])
+        if expected != row[4]:
+            broken.append(row[0])
+        prev_hash = row[4]
+    return (len(broken) == 0, broken)
 
 
 def query_events(
@@ -96,7 +153,7 @@ def query_events(
         params.append(f"%{_escape_like(event_type)}%")
     where = " AND ".join(clauses) if clauses else "1=1"
     sql = (
-        "SELECT id, timestamp, event_type, schema_version, payload "
+        "SELECT id, timestamp, event_type, schema_version, payload, prev_hash "
         f"FROM events WHERE {where} ORDER BY id ASC LIMIT ?"
     )
     params.append(limit)
@@ -109,5 +166,6 @@ def query_events(
             "event_type": row[2],
             "schema_version": row[3],
             "payload": json.loads(row[4]),
+            "prev_hash": row[5],
         })
     return results

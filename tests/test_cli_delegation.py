@@ -18,8 +18,8 @@ UNKNOWN_DENY_SID = "s-1-5-21-999-999-999-1234"
 UNKNOWN_WRITER_SID = "s-1-5-21-999-888-777-6666"
 ORPHANED_SID = "S-1-5-21-999-999-999-9999"
 
-GPO_DENY = "11111111-1111-1111-1111-111111111111"
-GPO_CLEAN = "cccccccc-cccc-cccc-cccc-cccccccccccc"
+GPO_DENY = "11111111111111111111111111111111"
+GPO_CLEAN = "cccccccccccccccccccccccccccccccc"
 
 DENY_SDDL = (
     "O:BAG:BAD:(A;;GA;;;BA)(D;;GA;;;BA)"
@@ -79,15 +79,15 @@ def _make_deleg_db(tmp_path: Path) -> Path:
     gpos = [_make_gpo(GPO_DENY, "gpo-deny", sddl=DENY_SDDL, delegation=deny_delegation)]
     for i in range(1, 6):
         gpos.append(_make_gpo(
-            f"22222222-2222-2222-2222-{i:012x}", f"gpo-w{i}", sddl=WRITER_SDDL,
+            f"22222222222222222222{i:012x}", f"gpo-w{i}", sddl=WRITER_SDDL,
         ))
     gpos.append(_make_gpo(
-        "22222222-2222-2222-2222-000000000006", "gpo-w6",
+        "22222222222222222222000000000006", "gpo-w6",
         sddl=WRITER_SDDL_NO_OWNER,
     ))
     for i in range(1, 6):
         gpos.append(_make_gpo(
-            f"33333333-3333-3333-3333-{i:012x}", f"gpo-v{i}", sddl=UNKNOWN_WRITER_SDDL,
+            f"33333333333333333333{i:012x}", f"gpo-v{i}", sddl=UNKNOWN_WRITER_SDDL,
         ))
 
     estate = Estate(domain="test.local", gpos=gpos, principals=principals)

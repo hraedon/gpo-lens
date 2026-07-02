@@ -31,7 +31,7 @@ from gpo_lens.model import (
     Side,
 )
 from gpo_lens.normalize import child_by_localname as _child_by_localname
-from gpo_lens.normalize import localname
+from gpo_lens.normalize import is_registry_cse, localname
 from gpo_lens.paths import ci_child, ci_path
 
 if TYPE_CHECKING:
@@ -638,7 +638,7 @@ def admx_gaps(
     results: list[AdmxGap] = []
     for g in estate.gpos:
         for s in g.settings:
-            if s.cse.strip().lower() not in ("registry", "windows registry"):
+            if not is_registry_cse(s.cse):
                 continue
             if s.source_state == "blocked":
                 continue

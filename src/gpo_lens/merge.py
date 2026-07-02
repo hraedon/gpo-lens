@@ -21,6 +21,7 @@ from enum import Enum
 from typing import TYPE_CHECKING
 
 from gpo_lens.authz import (
+    APPLY_RIGHTS,
     AU_SID,
     DOMAIN_SID_PREFIX,
     EVERYONE_SID,
@@ -37,6 +38,7 @@ from gpo_lens.authz import (
 )
 from gpo_lens.detection import scan_ilt
 from gpo_lens.model import Side
+from gpo_lens.normalize import is_registry_cse
 from gpo_lens.topology import (
     EffectiveGpo,
     _split_dn,
@@ -83,7 +85,6 @@ class CseMergeMode(Enum):
     APPROXIMATE = "approximate"
 
 
-_REGISTRY_CSES = frozenset({"registry", "windows registry"})
 _SCRIPTS_CSES = frozenset({"scripts", "group policy scripts"})
 _SEC_RESTRICTED_GROUPS_TYPES = frozenset({
     "restrictedgroups", "restricted groups",
@@ -160,7 +161,7 @@ def cse_merge_mode(cse: str, setting: Setting | None = None) -> CseMergeMode:
     Unknown CSEs default to APPROXIMATE — flagged, never silently assumed.
     """
     cse_lower = cse.strip().lower()
-    if cse_lower in _REGISTRY_CSES:
+    if is_registry_cse(cse):
         return CseMergeMode.LAST_WRITER_WINS
     if cse_lower in _SCRIPTS_CSES:
         return CseMergeMode.UNION
@@ -647,7 +648,7 @@ def _gpo_apply_trustee_sids(
                 deny_rights[sid] |= rights
         for sid, allowed in allow_rights.items():
             net = allowed - deny_rights.get(sid, set())
-            if net & READ_OR_APPLY_RIGHTS:
+            if net & APPLY_RIGHTS:
                 allow_sids.add(sid)
         for sid, denied in deny_rights.items():
             if denied & READ_OR_APPLY_RIGHTS:

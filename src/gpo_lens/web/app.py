@@ -20,6 +20,7 @@ from fastapi.templating import Jinja2Templates
 from gpo_lens import store as _store
 from gpo_lens.web import _helpers as _h
 from gpo_lens.web.auth import Principal, _is_loopback
+from gpo_lens.web.rate_limit import RateLimiter, make_rate_limit_middleware
 
 _logger = logging.getLogger(__name__)
 
@@ -523,6 +524,20 @@ def create_app(
                     status_code=403,
                 )
         return await call_next(request)
+
+    _ask_limiter = RateLimiter(max_requests=10, window_seconds=60)
+    _ingest_limiter = RateLimiter(max_requests=3, window_seconds=300)
+    _general_limiter = RateLimiter(max_requests=100, window_seconds=60)
+    app.state.rate_limit_ask = _ask_limiter
+    app.state.rate_limit_ingest = _ingest_limiter
+    app.state.rate_limit_general = _general_limiter
+    app.middleware("http")(
+        make_rate_limit_middleware(
+            ask_limiter=_ask_limiter,
+            ingest_limiter=_ingest_limiter,
+            general_limiter=_general_limiter,
+        )
+    )
 
     @app.middleware("http")
     async def _request_id(request: Request, call_next):  # type: ignore[no-untyped-def]

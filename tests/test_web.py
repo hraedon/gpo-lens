@@ -392,35 +392,35 @@ class TestDashboard:
 
 class TestGpoDetail:
     def test_gpo_detail_returns_200(self, client) -> None:
-        resp = client.get("/gpo/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+        resp = client.get("/gpo/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
         assert resp.status_code == 200
 
     def test_gpo_detail_returns_404_for_unknown(self, client) -> None:
-        resp = client.get("/gpo/00000000-0000-0000-0000-000000000000")
+        resp = client.get("/gpo/00000000000000000000000000000000")
         assert resp.status_code == 404
 
     def test_gpo_detail_shows_version_skew_flag(self, client) -> None:
-        resp = client.get("/gpo/cccccccc-cccc-cccc-cccc-cccccccccccc")
+        resp = client.get("/gpo/cccccccccccccccccccccccccccccccc")
         html = resp.text
         assert "SKEW" in html
 
     def test_gpo_detail_shows_disabled_but_populated_warning(self, client) -> None:
-        resp = client.get("/gpo/11111111-1111-1111-1111-111111111111")
+        resp = client.get("/gpo/11111111111111111111111111111111")
         html = resp.text
         assert "Disabled but populated" in html
 
     def test_gpo_detail_shows_settings_grouped_by_side(self, client) -> None:
-        resp = client.get("/gpo/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+        resp = client.get("/gpo/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
         html = resp.text
         assert "Computer Side Settings" in html or "User Side Settings" in html
 
     def test_gpo_detail_shows_gpo_name(self, client) -> None:
-        resp = client.get("/gpo/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+        resp = client.get("/gpo/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
         html = resp.text
         assert "gpo-cpassword" in html
 
     def test_gpo_detail_version_skew_computer_side(self, client) -> None:
-        resp = client.get("/gpo/cccccccc-cccc-cccc-cccc-cccccccccccc")
+        resp = client.get("/gpo/cccccccccccccccccccccccccccccccc")
         html = resp.text
         assert "gp-chip crit" in html
 
@@ -529,30 +529,42 @@ class TestIngest:
         assert "Malformed" in resp.text or "malformed" in resp.text.lower()
 
     def test_concurrent_upload_returns_409(self, client) -> None:
-        import threading
-        import time
-
-        data = self._make_fixture_zip()
-        results: list[int] = []
-
-        def _upload() -> None:
+        app = client.app
+        lock = app.state.ingest_lock
+        assert lock.acquire(blocking=False)
+        try:
+            data = self._make_fixture_zip()
             resp = client.post(
                 "/ingest",
                 files={"file": ("fixture.zip", data, "application/zip")},
                 follow_redirects=False,
             )
-            results.append(resp.status_code)
+            assert resp.status_code == 409
+        finally:
+            lock.release()
 
-        t1 = threading.Thread(target=_upload)
-        t2 = threading.Thread(target=_upload)
-        t1.start()
-        time.sleep(0.01)
-        t2.start()
-        t1.join()
-        t2.join()
-
-        assert 303 in results
-        assert 409 in results
+    def test_concurrent_upload_succeeds_after_lock_release(self, client) -> None:
+        app = client.app
+        lock = app.state.ingest_lock
+        assert lock.acquire(blocking=False)
+        try:
+            data = self._make_fixture_zip()
+            resp = client.post(
+                "/ingest",
+                files={"file": ("fixture.zip", data, "application/zip")},
+                follow_redirects=False,
+            )
+            assert resp.status_code == 409
+        finally:
+            lock.release()
+        data = self._make_fixture_zip()
+        resp = client.post(
+            "/ingest",
+            files={"file": ("fixture.zip", data, "application/zip")},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+        assert resp.headers["location"].endswith("/")
 
     def test_upload_exceeds_size_limit_returns_413(self, client) -> None:
         data = b"x" * 128
@@ -1175,14 +1187,14 @@ class TestOuDetailGateChips:
 
 class TestGpoDetailScopeCaveats:
     def test_gpo_detail_renders_scope_caveats_section(self, client) -> None:
-        resp = client.get("/gpo/eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee")
+        resp = client.get("/gpo/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee")
         assert resp.status_code == 200
         html = resp.text
         assert "Scope caveats" in html
         assert "flagged, not simulated" in html
 
     def test_gpo_detail_lists_loopback_caveat(self, client) -> None:
-        resp = client.get("/gpo/eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee")
+        resp = client.get("/gpo/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee")
         assert resp.status_code == 200
         assert "Loopback mode:" in resp.text
 
@@ -1210,7 +1222,7 @@ class TestUiEnhancements:
         assert "favicon.svg" in resp.text
 
     def test_gpo_detail_has_breadcrumb(self, client) -> None:
-        resp = client.get("/gpo/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+        resp = client.get("/gpo/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
         assert "gp-breadcrumb" in resp.text
         assert "aria-current" in resp.text
 
@@ -1252,7 +1264,7 @@ class TestUiEnhancements:
         assert "Need at least two snapshots" in resp.text
 
     def test_error_page_404_shows_detail(self, client) -> None:
-        resp = client.get("/gpo/00000000-0000-0000-0000-000000000000")
+        resp = client.get("/gpo/00000000000000000000000000000000")
         assert resp.status_code == 404
         assert "GPO not found" in resp.text
 
@@ -1569,14 +1581,14 @@ class TestExport:
 
     def test_export_gpo_unknown_404(self, client) -> None:
         resp = client.get(
-            "/export/gpo/00000000-0000-0000-0000-000000000000?format=json"
+            "/export/gpo/00000000000000000000000000000000?format=json"
         )
         assert resp.status_code == 404
 
     def test_export_gpo_rejects_csv(self, client) -> None:
         # GPO is a nested object — JSON only. CSV is explicitly unsupported.
         resp = client.get(
-            "/export/gpo/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa?format=csv"
+            "/export/gpo/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa?format=csv"
         )
         assert resp.status_code == 400
 
@@ -1804,7 +1816,7 @@ class TestAdmxWeb:
                 "Authorization": "Bearer test-secret-token",
             },
         )
-        resp = client.get("/gpo/cccccccc-cccc-cccc-cccc-cccccccccccc")
+        resp = client.get("/gpo/cccccccccccccccccccccccccccccccc")
         assert resp.status_code == 200
         html = resp.text
         assert "Prohibit Fake Value" in html
@@ -1812,7 +1824,7 @@ class TestAdmxWeb:
         assert "<th>Setting</th>" in html
 
     def test_gpo_detail_without_admx_is_unchanged(self, client) -> None:
-        resp = client.get("/gpo/cccccccc-cccc-cccc-cccc-cccccccccccc")
+        resp = client.get("/gpo/cccccccccccccccccccccccccccccccc")
         assert resp.status_code == 200
         html = resp.text
         assert "<th>Identity</th>" in html
@@ -1838,7 +1850,7 @@ class TestAdmxWeb:
                 "Authorization": "Bearer test-secret-token",
             },
         )
-        resp = client.get("/gpo/dddddddd-dddd-dddd-dddd-dddddddddddd")
+        resp = client.get("/gpo/dddddddddddddddddddddddddddddddd")
         assert resp.status_code == 200
         html = resp.text
         assert "BadValue" in html
@@ -1864,8 +1876,8 @@ class TestAdmxWeb:
         )
         admx = app.state.admx
         assert admx is not None
-        client.get("/gpo/cccccccc-cccc-cccc-cccc-cccccccccccc")
-        client.get("/gpo/dddddddd-dddd-dddd-dddd-dddddddddddd")
+        client.get("/gpo/cccccccccccccccccccccccccccccccc")
+        client.get("/gpo/dddddddddddddddddddddddddddddddd")
         assert app.state.admx is admx
 
 

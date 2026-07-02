@@ -61,8 +61,8 @@ def populated_db(tmp_path):
     conn = sqlite3.connect(str(db))
     init_db(conn)
 
-    g1 = "11111111-1111-1111-1111-111111111111"
-    g2 = "22222222-2222-2222-2222-222222222222"
+    g1 = "11111111111111111111111111111111"
+    g2 = "22222222222222222222222222222222"
     gpos = [
         _gpo(g1, "gpo-kerberos", [
             _setting(g1, "Computer", "Security",

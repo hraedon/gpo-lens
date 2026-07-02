@@ -13,7 +13,7 @@ from gpo_lens.model import DelegationEntry, Estate, Gpo, OuRecord, ResolvedPrinc
 
 def _make_gpo(**kwargs) -> Gpo:
     defaults = {
-        "id": "31b2f340-016d-11d2-945f-00c04fb984f9",
+        "id": "31b2f340016d11d2945f00c04fb984f9",
         "name": "Test GPO",
         "domain": "test.local",
         "created": None,
@@ -3511,7 +3511,7 @@ def test_settings_diff_no_diff(tmp_path):
 
     data = [
         {
-            "gpo_id": "31b2f340-016d-11d2-945f-00c04fb984f9",
+            "gpo_id": "31b2f340016d11d2945f00c04fb984f9",
             "gpo_name": "Test",
             "side": "Computer",
             "cse": "Security",
@@ -3583,7 +3583,7 @@ def test_settings_diff_removed(tmp_path):
 
     data_a = [
         {
-            "gpo_id": "31b2f340-016d-11d2-945f-00c04fb984f9",
+            "gpo_id": "31b2f340016d11d2945f00c04fb984f9",
             "gpo_name": "Test",
             "side": "User",
             "cse": "Registry",
@@ -3610,7 +3610,7 @@ def test_settings_diff_modified(tmp_path):
 
     data_a = [
         {
-            "gpo_id": "31b2f340-016d-11d2-945f-00c04fb984f9",
+            "gpo_id": "31b2f340016d11d2945f00c04fb984f9",
             "gpo_name": "Test",
             "side": "Computer",
             "cse": "Security",
@@ -3622,7 +3622,7 @@ def test_settings_diff_modified(tmp_path):
     ]
     data_b = [
         {
-            "gpo_id": "31b2f340-016d-11d2-945f-00c04fb984f9",
+            "gpo_id": "31b2f340016d11d2945f00c04fb984f9",
             "gpo_name": "Test",
             "side": "Computer",
             "cse": "Security",
@@ -3660,7 +3660,7 @@ def test_settings_diff_canonical_guid(tmp_path):
     ]
     data_b = [
         {
-            "gpo_id": "31b2f340-016d-11d2-945f-00c04fb984f9",
+            "gpo_id": "31b2f340016d11d2945f00c04fb984f9",
             "gpo_name": "Test",
             "side": "Computer",
             "cse": "Security",
@@ -3684,7 +3684,7 @@ def test_settings_diff_filter_side(tmp_path):
 
     data_a = [
         {
-            "gpo_id": "31b2f340-016d-11d2-945f-00c04fb984f9",
+            "gpo_id": "31b2f340016d11d2945f00c04fb984f9",
             "gpo_name": "Test",
             "side": "Computer",
             "cse": "Security",
@@ -3694,7 +3694,7 @@ def test_settings_diff_filter_side(tmp_path):
             "from_disabled_side": False,
         },
         {
-            "gpo_id": "31b2f340-016d-11d2-945f-00c04fb984f9",
+            "gpo_id": "31b2f340016d11d2945f00c04fb984f9",
             "gpo_name": "Test",
             "side": "User",
             "cse": "Registry",
@@ -3706,7 +3706,7 @@ def test_settings_diff_filter_side(tmp_path):
     ]
     data_b = [
         {
-            "gpo_id": "31b2f340-016d-11d2-945f-00c04fb984f9",
+            "gpo_id": "31b2f340016d11d2945f00c04fb984f9",
             "gpo_name": "Test",
             "side": "Computer",
             "cse": "Security",
@@ -3716,7 +3716,7 @@ def test_settings_diff_filter_side(tmp_path):
             "from_disabled_side": False,
         },
         {
-            "gpo_id": "31b2f340-016d-11d2-945f-00c04fb984f9",
+            "gpo_id": "31b2f340016d11d2945f00c04fb984f9",
             "gpo_name": "Test",
             "side": "User",
             "cse": "Registry",
@@ -3741,7 +3741,7 @@ def test_settings_diff_filter_cse(tmp_path):
 
     data_a = [
         {
-            "gpo_id": "31b2f340-016d-11d2-945f-00c04fb984f9",
+            "gpo_id": "31b2f340016d11d2945f00c04fb984f9",
             "gpo_name": "Test",
             "side": "Computer",
             "cse": "Security",
@@ -3751,7 +3751,7 @@ def test_settings_diff_filter_cse(tmp_path):
             "from_disabled_side": False,
         },
         {
-            "gpo_id": "31b2f340-016d-11d2-945f-00c04fb984f9",
+            "gpo_id": "31b2f340016d11d2945f00c04fb984f9",
             "gpo_name": "Test",
             "side": "Computer",
             "cse": "Registry",
@@ -3763,7 +3763,7 @@ def test_settings_diff_filter_cse(tmp_path):
     ]
     data_b = [
         {
-            "gpo_id": "31b2f340-016d-11d2-945f-00c04fb984f9",
+            "gpo_id": "31b2f340016d11d2945f00c04fb984f9",
             "gpo_name": "Test",
             "side": "Computer",
             "cse": "Security",
@@ -3773,7 +3773,7 @@ def test_settings_diff_filter_cse(tmp_path):
             "from_disabled_side": False,
         },
         {
-            "gpo_id": "31b2f340-016d-11d2-945f-00c04fb984f9",
+            "gpo_id": "31b2f340016d11d2945f00c04fb984f9",
             "gpo_name": "Test",
             "side": "Computer",
             "cse": "Registry",
@@ -3797,7 +3797,7 @@ def test_settings_diff_filter_gpo_id(tmp_path):
 
     data_a = [
         {
-            "gpo_id": "31b2f340-016d-11d2-945f-00c04fb984f9",
+            "gpo_id": "31b2f340016d11d2945f00c04fb984f9",
             "gpo_name": "Alpha",
             "side": "Computer",
             "cse": "Security",
@@ -3807,7 +3807,7 @@ def test_settings_diff_filter_gpo_id(tmp_path):
             "from_disabled_side": False,
         },
         {
-            "gpo_id": "a2a2a2a2-016d-11d2-945f-00c04fb984f9",
+            "gpo_id": "a2a2a2a2016d11d2945f00c04fb984f9",
             "gpo_name": "Beta",
             "side": "Computer",
             "cse": "Security",
@@ -3819,7 +3819,7 @@ def test_settings_diff_filter_gpo_id(tmp_path):
     ]
     data_b = [
         {
-            "gpo_id": "31b2f340-016d-11d2-945f-00c04fb984f9",
+            "gpo_id": "31b2f340016d11d2945f00c04fb984f9",
             "gpo_name": "Alpha",
             "side": "Computer",
             "cse": "Security",
@@ -3829,7 +3829,7 @@ def test_settings_diff_filter_gpo_id(tmp_path):
             "from_disabled_side": False,
         },
         {
-            "gpo_id": "a2a2a2a2-016d-11d2-945f-00c04fb984f9",
+            "gpo_id": "a2a2a2a2016d11d2945f00c04fb984f9",
             "gpo_name": "Beta",
             "side": "Computer",
             "cse": "Security",
@@ -3854,7 +3854,7 @@ def test_settings_diff_bom_json(tmp_path):
     data_a: list[dict[str, object]] = []
     data_b = [
         {
-            "gpo_id": "31b2f340-016d-11d2-945f-00c04fb984f9",
+            "gpo_id": "31b2f340016d11d2945f00c04fb984f9",
             "gpo_name": "Test",
             "side": "Computer",
             "cse": "Security",
@@ -4239,7 +4239,7 @@ def test_deny_aces_sid_always_present_with_resolved_name():
 def test_settings_diff_side_in_join_key(tmp_path):
     import json
 
-    gid = "31b2f340-016d-11d2-945f-00c04fb984f9"
+    gid = "31b2f340016d11d2945f00c04fb984f9"
     data_a = [
         {
             "gpo_id": gid,
@@ -4325,7 +4325,7 @@ def test_settings_diff_missing_required_key_skipped(tmp_path):
 
     data_a = [
         {
-            "gpo_id": "31b2f340-016d-11d2-945f-00c04fb984f9",
+            "gpo_id": "31b2f340016d11d2945f00c04fb984f9",
             "gpo_name": "Test",
             "cse": "Security",
             "identity": "X",
@@ -4345,7 +4345,7 @@ def test_settings_diff_missing_required_key_skipped(tmp_path):
 def test_settings_diff_side_exact_match(tmp_path):
     import json
 
-    gid = "31b2f340-016d-11d2-945f-00c04fb984f9"
+    gid = "31b2f340016d11d2945f00c04fb984f9"
     data_a = [
         {
             "gpo_id": gid,

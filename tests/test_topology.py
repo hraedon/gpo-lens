@@ -207,8 +207,8 @@ def _conflicting_gpo(gpo_id: str, value: str) -> Gpo:
 def _shared_chain_estate(n_ous: int) -> Estate:
     """``n_ous`` OUs that all link the same two conflicting GPOs in the same
     order — every OU resolves to the identical conflict."""
-    g1 = "11111111-1111-1111-1111-111111111111"
-    g2 = "22222222-2222-2222-2222-222222222222"
+    g1 = "11111111111111111111111111111111"
+    g2 = "22222222222222222222222222222222"
     gpos = [_conflicting_gpo(g1, "A"), _conflicting_gpo(g2, "B")]
     soms = []
     for i in range(n_ous):
@@ -261,8 +261,8 @@ def test_rollup_matches_naive_per_som_walk():
 
 
 def test_chain_signature_is_order_independent():
-    g1 = "11111111-1111-1111-1111-111111111111"
-    g2 = "22222222-2222-2222-2222-222222222222"
+    g1 = "11111111111111111111111111111111"
+    g2 = "22222222222222222222222222222222"
     a = Som(path="ou=a,dc=t", name="a", container_type="ou", inheritance_blocked=False,
             links=[SomLink(gpo_id=g1, order=1, enabled=True, enforced=False, target="a"),
                    SomLink(gpo_id=g2, order=2, enabled=True, enforced=False, target="a")])
@@ -273,8 +273,8 @@ def test_chain_signature_is_order_independent():
 
 
 def test_chain_signature_excludes_disabled_links():
-    g1 = "11111111-1111-1111-1111-111111111111"
-    g2 = "22222222-2222-2222-2222-222222222222"
+    g1 = "11111111111111111111111111111111"
+    g2 = "22222222222222222222222222222222"
     s = Som(path="ou=a,dc=t", name="a", container_type="ou", inheritance_blocked=False,
             links=[SomLink(gpo_id=g1, order=1, enabled=True, enforced=False, target="a"),
                    SomLink(gpo_id=g2, order=2, enabled=False, enforced=False, target="a")])

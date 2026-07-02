@@ -83,3 +83,11 @@ def parse_int(text: str | None) -> int | None:
         return int(float(text))
     except (ValueError, OverflowError):
         return None
+
+
+REGISTRY_CSES = frozenset({"registry", "windows registry"})
+
+
+def is_registry_cse(cse: str) -> bool:
+    """True if the CSE name is the Registry extension (case-insensitive)."""
+    return cse.strip().lower() in REGISTRY_CSES

@@ -18,6 +18,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from gpo_lens.normalize import is_registry_cse
+
 if TYPE_CHECKING:
     from gpo_lens.model import AdmxResolver, Estate
 
@@ -90,7 +92,7 @@ def admx_coverage(
         for s in g.settings:
             if s.source_state == "blocked":
                 continue
-            if s.cse.strip().lower() not in ("registry", "windows registry"):
+            if not is_registry_cse(s.cse):
                 continue
             norm_key = s.identity.split(":", 1)[0].lower().strip("\\")
             if ":" in s.identity:
@@ -138,7 +140,7 @@ def admx_coverage(
         for s in g.settings:
             if s.source_state == "blocked":
                 continue
-            if s.cse.strip().lower() not in ("registry", "windows registry"):
+            if not is_registry_cse(s.cse):
                 continue
             if not _is_raw_registry_path(s.identity, s.display_name):
                 continue
