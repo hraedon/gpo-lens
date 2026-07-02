@@ -7,6 +7,10 @@ respected: this module never imports ``narration``).
 
 Auth follows the same system as the web UI (``Permission.VIEW``); the health
 endpoint is exempt so load balancers / monitoring can poll without credentials.
+
+Handlers are plain ``def`` (not ``async def``) so FastAPI runs them in its
+threadpool, preventing synchronous SQLite from blocking the event loop
+(Plan 022 WI-1).
 """
 
 from __future__ import annotations
@@ -36,7 +40,7 @@ _logger = logging.getLogger(__name__)
 def register(app: FastAPI, templates: Jinja2Templates) -> None:
 
     @app.get("/api/v1/", name="api_root")
-    async def api_root() -> JSONResponse:
+    def api_root() -> JSONResponse:
         return JSONResponse(
             {
                 "name": "gpo-lens API",
@@ -72,7 +76,7 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         )
 
     @app.get("/api/v1/queries", name="api_queries")
-    async def list_queries(
+    def list_queries(
         _principal: Principal = Depends(requires(Permission.VIEW)),
     ) -> JSONResponse:
         queries: dict[str, dict[str, object]] = {}
@@ -85,7 +89,7 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         return JSONResponse({"queries": queries})
 
     @app.get("/api/v1/query/{query_name}", name="api_query")
-    async def run_query(
+    def run_query(
         request: Request,
         query_name: str,
         _principal: Principal = Depends(requires(Permission.VIEW)),
@@ -171,7 +175,7 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         return JSONResponse({"status": "ok", "data": serialized})
 
     @app.get("/api/v1/health", name="api_health")
-    async def health() -> JSONResponse:
+    def health() -> JSONResponse:
         # No auth — health checks must run without credentials (load balancers,
         # monitoring). The response leaks no estate data: only the build version.
         from gpo_lens import __version__
@@ -179,7 +183,7 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         return JSONResponse({"status": "ok", "version": __version__})
 
     @app.get("/api/v1/snapshots", name="api_snapshots")
-    async def snapshots(
+    def snapshots(
         _principal: Principal = Depends(requires(Permission.VIEW)),
     ) -> JSONResponse:
         from gpo_lens import store as _store
@@ -201,7 +205,7 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         return JSONResponse({"snapshots": snapshot_list})
 
     @app.get("/api/v1/trends", name="api_trends")
-    async def trends(
+    def trends(
         _principal: Principal = Depends(requires(Permission.VIEW)),
     ) -> JSONResponse:
         from gpo_lens.trend import compute_trend

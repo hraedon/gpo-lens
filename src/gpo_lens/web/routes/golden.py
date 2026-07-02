@@ -1,7 +1,14 @@
-"""Golden-backup diff routes."""
+"""Golden-backup diff routes.
+
+DB-touching handlers are plain ``def`` (not ``async def``) so FastAPI runs them
+in its threadpool, preventing synchronous SQLite from blocking the event loop
+(Plan 022 WI-1). ``golden_diff_post`` stays ``async def`` because it streams
+the upload body via ``await``.
+"""
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import zipfile
 from pathlib import Path
@@ -25,7 +32,7 @@ _logger = logging.getLogger(__name__)
 def register(app: FastAPI, templates: Jinja2Templates) -> None:
 
     @app.get("/golden-diff", response_class=HTMLResponse, name="golden_diff_get")
-    async def golden_diff_get(
+    def golden_diff_get(
         request: Request,
         _principal: Principal = Depends(requires(Permission.VIEW)),
     ) -> HTMLResponse:
@@ -63,24 +70,28 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
                         },
                         status_code=413,
                     )
-                golden_gpos = _ingest.load_baseline_from_zip(zip_path)
+                golden_gpos = await asyncio.to_thread(
+                    _ingest.load_baseline_from_zip, zip_path
+                )
 
-            golden_estate = _Estate(domain="golden", gpos=golden_gpos)
+            def _compute_diff():  # type: ignore[no-untyped-def]
+                golden_estate = _Estate(domain="golden", gpos=golden_gpos)
+                conn = get_ro_conn(app.state.db_path)
+                try:
+                    estate = _store.load_estate(conn)
+                finally:
+                    conn.close()
+                diff = queries.golden_diff(
+                    estate, golden_estate, admx=app.state.admx
+                )
+                live_names = {g.name.lower() for g in estate.gpos}
+                golden_names = {g.name.lower() for g in golden_estate.gpos}
+                summ = queries.golden_diff_summary(
+                    diff, matched_gpo_count=len(live_names & golden_names)
+                )
+                return diff, summ
 
-            conn = get_ro_conn(app.state.db_path)
-            try:
-                estate = _store.load_estate(conn)
-            finally:
-                conn.close()
-
-            diff_entries = queries.golden_diff(
-                estate, golden_estate, admx=app.state.admx
-            )
-            live_names = {g.name.lower() for g in estate.gpos}
-            golden_names = {g.name.lower() for g in golden_estate.gpos}
-            summary = queries.golden_diff_summary(
-                diff_entries, matched_gpo_count=len(live_names & golden_names)
-            )
+            diff_entries, summary = await asyncio.to_thread(_compute_diff)
             detail = (
                 f"{summary.gpos_matched} matched, {summary.gpos_added} added, "
                 f"{summary.gpos_removed} removed"

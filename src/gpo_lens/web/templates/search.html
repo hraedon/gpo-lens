@@ -76,8 +76,8 @@
             {% for s in grp.results %}
             <tr>
               <td class="muted">{{ s.cse }}</td>
-              <td class="muted mono" style="font-size:11px">{{ s.side }}</td>
-              <td class="mono">{{ s.display_name or s.identity }}{% if s.display_name and s.identity and s.display_name != s.identity %}<div class="muted" style="font-size:11px">{{ s.identity }}</div>{% endif %}</td>
+              <td class="muted mono" style="font-size:var(--fs-xs)">{{ s.side }}</td>
+              <td class="mono">{{ s.display_name or s.identity }}{% if s.display_name and s.identity and s.display_name != s.identity %}<div class="muted" style="font-size:var(--fs-xs)">{{ s.identity }}</div>{% endif %}</td>
               <td class="mono muted">{{ s.display_value }}</td>
             </tr>
             {% endfor %}

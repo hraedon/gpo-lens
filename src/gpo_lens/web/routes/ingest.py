@@ -1,7 +1,15 @@
-"""Ingest upload routes."""
+"""Ingest upload routes.
+
+DB-touching handlers are plain ``def`` (not ``async def``) so FastAPI runs them
+in its threadpool, preventing synchronous SQLite from blocking the event loop
+(Plan 022 WI-1). ``ingest_post`` stays ``async def`` because it streams the
+upload body via ``await``; its heavy sync operations are offloaded to
+``asyncio.to_thread`` so they don't block the event loop.
+"""
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import zipfile
 from pathlib import Path
@@ -33,7 +41,7 @@ _logger = logging.getLogger(__name__)
 def register(app: FastAPI, templates: Jinja2Templates) -> None:
 
     @app.get("/ingest", response_class=HTMLResponse, name="ingest_get")
-    async def ingest_get(
+    def ingest_get(
         request: Request,
         _principal: Principal = Depends(requires(Permission.VIEW)),
     ) -> HTMLResponse:
@@ -76,7 +84,7 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
                 try:
                     extract_dir = Path(tmpdir) / "extracted"
                     extract_dir.mkdir()
-                    _safe_extract(zip_path, extract_dir)
+                    await asyncio.to_thread(_safe_extract, zip_path, extract_dir)
                 except (
                     ValueError, zipfile.BadZipFile,
                     OSError, NotImplementedError, RuntimeError, MemoryError,
@@ -90,7 +98,7 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
                     )
 
                 try:
-                    estate = _ingest.load_estate(extract_dir)
+                    estate = await asyncio.to_thread(_ingest.load_estate, extract_dir)
                 except (FileNotFoundError, ValueError, KeyError) as exc:
                     _logger.warning("Invalid estate data: %s", exc)
                     _audit("ingest", principal, "failure", type(exc).__name__, request)
@@ -100,16 +108,19 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
                         status_code=400,
                     )
 
-                rw_conn = get_rw_conn(app.state.db_path)
-                try:
-                    _store.init_db(rw_conn)
-                    _store.save_estate(rw_conn, estate)
-                    _events.append_event(
-                        rw_conn, "audit.ingest",
-                        {"principal": principal.name},
-                    )
-                finally:
-                    rw_conn.close()
+                def _persist() -> None:
+                    rw_conn = get_rw_conn(app.state.db_path)
+                    try:
+                        _store.init_db(rw_conn)
+                        _store.save_estate(rw_conn, estate)
+                        _events.append_event(
+                            rw_conn, "audit.ingest",
+                            {"principal": principal.name},
+                        )
+                    finally:
+                        rw_conn.close()
+
+                await asyncio.to_thread(_persist)
 
             filename = (file.filename or "unknown")[:256]
             _audit(
@@ -124,7 +135,7 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         "/ingest/delete", response_class=HTMLResponse, response_model=None,
         name="ingest_delete",
     )
-    async def ingest_delete(
+    def ingest_delete(
         request: Request,
         snapshot_id: int = Form(...),
         principal: Principal = Depends(requires(Permission.INGEST)),

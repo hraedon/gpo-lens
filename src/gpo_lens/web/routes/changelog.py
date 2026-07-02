@@ -1,4 +1,9 @@
-"""Changelog route."""
+"""Changelog route.
+
+Handlers are plain ``def`` (not ``async def``) so FastAPI runs them in its
+threadpool, preventing synchronous SQLite from blocking the event loop
+(Plan 022 WI-1).
+"""
 
 from __future__ import annotations
 
@@ -15,7 +20,7 @@ from gpo_lens.web.auth import Permission, Principal, requires
 def register(app: FastAPI, templates: Jinja2Templates) -> None:
 
     @app.get("/changelog", response_class=HTMLResponse, name="changelog")
-    async def changelog(
+    def changelog(
         request: Request,
         snap_a: str = "",
         snap_b: str = "",

@@ -1,4 +1,9 @@
-"""Trends route -- posture-over-time visualization."""
+"""Trends route -- posture-over-time visualization.
+
+Handlers are plain ``def`` (not ``async def``) so FastAPI runs them in its
+threadpool, preventing synchronous SQLite from blocking the event loop
+(Plan 022 WI-1).
+"""
 
 from __future__ import annotations
 
@@ -14,7 +19,7 @@ from gpo_lens.web.auth import Permission, Principal, requires
 def register(app: FastAPI, templates: Jinja2Templates) -> None:
 
     @app.get("/trends", response_class=HTMLResponse, name="trends")
-    async def trends(
+    def trends(
         request: Request,
         _principal: Principal = Depends(requires(Permission.VIEW)),
     ) -> HTMLResponse:
