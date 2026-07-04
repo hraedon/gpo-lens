@@ -607,3 +607,16 @@ def test_hyphenated_gpo_id_round_trips_through_db(tmp_path):
     assert found is not None
     assert found.name == "Old Estate GPO"
     assert len(found.settings) == 1
+
+
+def test_gpo_index_warns_on_dual_key_collision():
+    """When two GPOs produce the same stripped ID, a warning is emitted and
+    the first GPO shadows the second."""
+    gpo_a = _make_gpo(id="31b2f340-016d-11d2-945f-00c04fb984f9", name="Alpha")
+    gpo_b = _make_gpo(id="{31B2F340-016D-11D2-945F-00C04FB984F9}", name="Beta")
+    estate = Estate(domain="test.local", gpos=[gpo_a, gpo_b])
+
+    with pytest.warns(UserWarning, match="GPO id collision in dual-key index"):
+        _ = estate.gpo_index
+
+    assert estate.gpo_by_id("31b2f340016d11d2945f00c04fb984f9").name == "Alpha"

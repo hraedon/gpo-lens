@@ -1376,7 +1376,7 @@ class TestResolvePrincipalInput:
         estate = _principal_estate()
         result = resolve_principal_input(estate, "domain users")
         assert result is not None
-        assert result.endswith("-513")
+        assert result == f"{DOMAIN_SID}-513"
 
     def test_unresolvable_name_returns_none(self):
         estate = _principal_estate()
@@ -1387,3 +1387,21 @@ class TestResolvePrincipalInput:
         estate = _principal_estate()
         assert resolve_principal_input(estate, "") is None
         assert resolve_principal_input(estate, "   ") is None
+
+    def test_domain_users_returns_none_when_no_domain_sid(self):
+        estate = Estate()
+        result = resolve_principal_input(estate, "domain users")
+        assert result is None
+
+    def test_malformed_sid_returns_none(self):
+        estate = _principal_estate()
+        assert resolve_principal_input(estate, "s-1-5-21-abc") is None
+        assert resolve_principal_input(estate, "S-1-") is None
+        assert resolve_principal_input(estate, "s-1-5-21-") is None
+        assert resolve_principal_input(estate, "s-1-x-5") is None
+
+    def test_valid_sid_formats_accepted(self):
+        estate = _principal_estate()
+        assert resolve_principal_input(estate, "S-1-5-11") == "s-1-5-11"
+        assert resolve_principal_input(estate, "S-1-5-21-100-200-300-1001") is not None
+        assert resolve_principal_input(estate, "S-1-5-32-544") == "s-1-5-32-544"

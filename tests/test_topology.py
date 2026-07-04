@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from gpo_lens.ingest import load_estate
-from gpo_lens.model import Estate, Gpo, Setting, Som, SomLink
+from gpo_lens.model import DelegationEntry, Estate, Gpo, GpoLink, Setting, Som, SomLink
 from gpo_lens.topology import (
     _enabled_chain_signature,
     effective_scope,
@@ -279,3 +279,1089 @@ def test_chain_signature_excludes_disabled_links():
             links=[SomLink(gpo_id=g1, order=1, enabled=True, enforced=False, target="a"),
                    SomLink(gpo_id=g2, order=2, enabled=False, enforced=False, target="a")])
     assert _enabled_chain_signature(s) == ((g1, 1, False),)
+
+
+# ---------------------------------------------------------------------------
+# _split_dn — DN splitting with backslash escaping
+# ---------------------------------------------------------------------------
+
+
+class TestSplitDn:
+    def test_simple_dn(self):
+        from gpo_lens.topology import _split_dn
+
+        parts = _split_dn("CN=user,OU=Users,DC=test,DC=local")
+        assert parts == ["CN=user", "OU=Users", "DC=test", "DC=local"]
+
+    def test_escaped_comma(self):
+        from gpo_lens.topology import _split_dn
+
+        parts = _split_dn(r"CN=Last\,First,OU=Users,DC=test")
+        assert parts == [r"CN=Last\,First", "OU=Users", "DC=test"]
+
+    def test_double_backslash_before_comma(self):
+        from gpo_lens.topology import _split_dn
+
+        parts = _split_dn(r"CN=Name\\,OU=Users,DC=test")
+        assert parts == [r"CN=Name\\", "OU=Users", "DC=test"]
+
+    def test_single_component(self):
+        from gpo_lens.topology import _split_dn
+
+        parts = _split_dn("DC=test")
+        assert parts == ["DC=test"]
+
+    def test_empty_string(self):
+        from gpo_lens.topology import _split_dn
+
+        parts = _split_dn("")
+        assert parts == [""]
+
+
+# ---------------------------------------------------------------------------
+# _find_parent_som — walk up DN to find closest non-site SOM
+# ---------------------------------------------------------------------------
+
+
+class TestFindParentSom:
+    def test_finds_direct_parent(self):
+        from gpo_lens.topology import _find_parent_som
+
+        root = Som(path="dc=test,dc=local", name="test", container_type="domain",
+                   inheritance_blocked=False, links=[])
+        estate = Estate(domain="test.local", soms=[root])
+        result = _find_parent_som(estate, "ou=users,dc=test,dc=local")
+        assert result is not None
+        assert result.path == "dc=test,dc=local"
+
+    def test_finds_grandparent(self):
+        from gpo_lens.topology import _find_parent_som
+
+        root = Som(path="dc=test,dc=local", name="test", container_type="domain",
+                   inheritance_blocked=False, links=[])
+        estate = Estate(domain="test.local", soms=[root])
+        result = _find_parent_som(estate, "ou=sub,ou=users,dc=test,dc=local")
+        assert result is not None
+        assert result.path == "dc=test,dc=local"
+
+    def test_skips_site_soms(self):
+        from gpo_lens.topology import _find_parent_som
+
+        site = Som(path="cn=default-first-site-name,cn=sites,cn=configuration,dc=test,dc=local",
+                   name="Default-First-Site-Name", container_type="site",
+                   inheritance_blocked=False, links=[])
+        root = Som(path="dc=test,dc=local", name="test", container_type="domain",
+                   inheritance_blocked=False, links=[])
+        estate = Estate(domain="test.local", soms=[site, root])
+        result = _find_parent_som(estate, "ou=users,dc=test,dc=local")
+        assert result is not None
+        assert result.path == "dc=test,dc=local"
+
+    def test_returns_none_when_no_parent(self):
+        from gpo_lens.topology import _find_parent_som
+
+        estate = Estate(domain="test.local", soms=[])
+        result = _find_parent_som(estate, "ou=users,dc=test,dc=local")
+        assert result is None
+
+    def test_returns_none_for_empty_dn(self):
+        from gpo_lens.topology import _find_parent_som
+
+        estate = Estate(domain="test.local", soms=[])
+        result = _find_parent_som(estate, "")
+        assert result is None
+
+
+# ---------------------------------------------------------------------------
+# som_effective_gpos — resolved GPO chain at a SOM
+# ---------------------------------------------------------------------------
+
+
+class TestSomEffectiveGpos:
+    def test_returns_chain_for_exact_som(self):
+        from gpo_lens.topology import som_effective_gpos
+
+        gpo_id = "11111111111111111111111111111111"
+        som = Som(path="dc=test,dc=local", name="test", container_type="domain",
+                  inheritance_blocked=False,
+                  links=[SomLink(gpo_id=gpo_id, order=1, enabled=True,
+                                 enforced=False, target="dc=test,dc=local")])
+        gpo = Gpo(id=gpo_id, name="Test GPO", domain="test.local",
+                  created=None, modified=None, read=None,
+                  computer_enabled=True, user_enabled=True,
+                  computer_ver_ds=None, computer_ver_sysvol=None,
+                  user_ver_ds=None, user_ver_sysvol=None,
+                  sddl=None, owner=None, filter_data_available=False,
+                  wmi_filter=None, sysvol_path=None)
+        estate = Estate(domain="test.local", gpos=[gpo], soms=[som])
+        chain = som_effective_gpos(estate, "dc=test,dc=local")
+        assert len(chain) == 1
+        assert chain[0].gpo_id == gpo_id
+        assert chain[0].gpo_name == "Test GPO"
+
+    def test_falls_back_to_parent_som(self):
+        from gpo_lens.topology import som_effective_gpos
+
+        gpo_id = "11111111111111111111111111111111"
+        root = Som(path="dc=test,dc=local", name="test", container_type="domain",
+                   inheritance_blocked=False,
+                   links=[SomLink(gpo_id=gpo_id, order=1, enabled=True,
+                                  enforced=False, target="dc=test,dc=local")])
+        gpo = Gpo(id=gpo_id, name="Test GPO", domain="test.local",
+                  created=None, modified=None, read=None,
+                  computer_enabled=True, user_enabled=True,
+                  computer_ver_ds=None, computer_ver_sysvol=None,
+                  user_ver_ds=None, user_ver_sysvol=None,
+                  sddl=None, owner=None, filter_data_available=False,
+                  wmi_filter=None, sysvol_path=None)
+        estate = Estate(domain="test.local", gpos=[gpo], soms=[root])
+        chain = som_effective_gpos(estate, "ou=missing,dc=test,dc=local")
+        assert len(chain) == 1
+        assert chain[0].gpo_id == gpo_id
+
+    def test_returns_empty_for_unknown_path(self):
+        from gpo_lens.topology import som_effective_gpos
+
+        estate = Estate(domain="test.local")
+        chain = som_effective_gpos(estate, "dc=nowhere,dc=local")
+        assert chain == []
+
+    def test_unknown_gpo_name_shows_placeholder(self):
+        from gpo_lens.topology import som_effective_gpos
+
+        gpo_id = "11111111111111111111111111111111"
+        som = Som(path="dc=test,dc=local", name="test", container_type="domain",
+                  inheritance_blocked=False,
+                  links=[SomLink(gpo_id=gpo_id, order=1, enabled=True,
+                                 enforced=False, target="dc=test,dc=local")])
+        estate = Estate(domain="test.local", soms=[som])
+        chain = som_effective_gpos(estate, "dc=test,dc=local")
+        assert chain[0].gpo_name == "<unknown>"
+
+
+# ---------------------------------------------------------------------------
+# loopback_gpos / _extract_loopback_mode / loopback_awareness
+# ---------------------------------------------------------------------------
+
+
+class TestLoopbackDetection:
+    def test_loopback_gpos_finds_security_cse(self):
+        from gpo_lens.topology import loopback_gpos
+
+        gpo = Gpo(id="11111111111111111111111111111111", name="LB",
+                  domain="test.local", created=None, modified=None, read=None,
+                  computer_enabled=True, user_enabled=True,
+                  computer_ver_ds=None, computer_ver_sysvol=None,
+                  user_ver_ds=None, user_ver_sysvol=None,
+                  sddl=None, owner=None, filter_data_available=False,
+                  wmi_filter=None, sysvol_path=None,
+                  settings=[Setting(
+                      gpo_id="11111111111111111111111111111111",
+                      side="Computer", cse="Security",
+                      identity="Configure user group policy loopback processing mode",
+                      display_name="Loopback", display_value="Replace",
+                      raw={}, from_disabled_side=False,
+                  )])
+        estate = Estate(domain="test.local", gpos=[gpo])
+        hits = loopback_gpos(estate)
+        assert len(hits) == 1
+
+    def test_loopback_gpos_returns_empty_when_none(self):
+        from gpo_lens.topology import loopback_gpos
+
+        gpo = Gpo(id="11111111111111111111111111111111", name="NoLB",
+                  domain="test.local", created=None, modified=None, read=None,
+                  computer_enabled=True, user_enabled=True,
+                  computer_ver_ds=None, computer_ver_sysvol=None,
+                  user_ver_ds=None, user_ver_sysvol=None,
+                  sddl=None, owner=None, filter_data_available=False,
+                  wmi_filter=None, sysvol_path=None,
+                  settings=[Setting(
+                      gpo_id="11111111111111111111111111111111",
+                      side="Computer", cse="Registry",
+                      identity="HKLM\\Software\\X", display_name="X",
+                      display_value="1", raw={}, from_disabled_side=False,
+                  )])
+        estate = Estate(domain="test.local", gpos=[gpo])
+        hits = loopback_gpos(estate)
+        assert hits == []
+
+    def test_extract_loopback_mode_replace(self):
+        from gpo_lens.topology import _extract_loopback_mode
+
+        s = Setting(gpo_id="x", side="Computer", cse="Security",
+                    identity="Configure user group policy loopback processing mode",
+                    display_name="Loopback", display_value="Replace",
+                    raw={}, from_disabled_side=False)
+        assert _extract_loopback_mode(s) == "replace"
+
+    def test_extract_loopback_mode_merge(self):
+        from gpo_lens.topology import _extract_loopback_mode
+
+        s = Setting(gpo_id="x", side="Computer", cse="Security",
+                    identity="Configure user group policy loopback processing mode",
+                    display_name="Loopback", display_value="Merge",
+                    raw={}, from_disabled_side=False)
+        assert _extract_loopback_mode(s) == "merge"
+
+    def test_extract_loopback_mode_not_configured(self):
+        from gpo_lens.topology import _extract_loopback_mode
+
+        s = Setting(gpo_id="x", side="Computer", cse="Security",
+                    identity="Configure user group policy loopback processing mode",
+                    display_name="Loopback", display_value="Not Configured",
+                    raw={}, from_disabled_side=False)
+        assert _extract_loopback_mode(s) is None
+
+    def test_extract_loopback_mode_disabled(self):
+        from gpo_lens.topology import _extract_loopback_mode
+
+        s = Setting(gpo_id="x", side="Computer", cse="Security",
+                    identity="Configure user group policy loopback processing mode",
+                    display_name="Loopback", display_value="Disabled",
+                    raw={}, from_disabled_side=False)
+        assert _extract_loopback_mode(s) is None
+
+    def test_extract_loopback_mode_unknown(self):
+        from gpo_lens.topology import _extract_loopback_mode
+
+        s = Setting(gpo_id="x", side="Computer", cse="Security",
+                    identity="Configure user group policy loopback processing mode",
+                    display_name="Loopback", display_value="SomeWeirdValue",
+                    raw={}, from_disabled_side=False)
+        assert _extract_loopback_mode(s) == "unknown"
+
+    def test_extract_loopback_mode_from_security_cse_raw(self):
+        from gpo_lens.topology import _extract_loopback_mode
+
+        s = Setting(gpo_id="x", side="Computer", cse="Security",
+                    identity="Configure user group policy loopback processing mode",
+                    display_name="Loopback", display_value="",
+                    raw={"children": [
+                        {"tag": "SettingString", "text": "Replace"},
+                    ]}, from_disabled_side=False)
+        assert _extract_loopback_mode(s) == "replace"
+
+    def test_extract_loopback_mode_from_security_cse_raw_numeric(self):
+        from gpo_lens.topology import _extract_loopback_mode
+
+        s = Setting(gpo_id="x", side="Computer", cse="Security",
+                    identity="Configure user group policy loopback processing mode",
+                    display_name="Loopback", display_value="",
+                    raw={"children": [
+                        {"tag": "SettingNumber", "text": "2"},
+                    ]}, from_disabled_side=False)
+        assert _extract_loopback_mode(s) == "merge"
+
+    def test_extract_loopback_mode_from_dropdownlist(self):
+        from gpo_lens.topology import _extract_loopback_mode
+
+        s = Setting(gpo_id="x", side="Computer", cse="Registry",
+                    identity="Configure user group policy loopback processing mode",
+                    display_name="Loopback", display_value="",
+                    raw={"children": [
+                        {"tag": "DropDownList", "children": [
+                            {"tag": "Value", "children": [
+                                {"tag": "Name", "text": "Replace"},
+                            ]},
+                        ]},
+                    ]}, from_disabled_side=False)
+        assert _extract_loopback_mode(s) == "replace"
+
+    def test_extract_loopback_mode_state_disabled(self):
+        from gpo_lens.topology import _extract_loopback_mode
+
+        s = Setting(gpo_id="x", side="Computer", cse="Registry",
+                    identity="Configure user group policy loopback processing mode",
+                    display_name="Loopback", display_value="",
+                    raw={"children": [
+                        {"tag": "State", "text": "Disabled"},
+                    ]}, from_disabled_side=False)
+        assert _extract_loopback_mode(s) is None
+
+    def test_loopback_awareness_mixed_mode(self):
+        from gpo_lens.topology import loopback_awareness
+
+        gpo = Gpo(id="11111111111111111111111111111111", name="LB",
+                  domain="test.local", created=None, modified=None, read=None,
+                  computer_enabled=True, user_enabled=True,
+                  computer_ver_ds=None, computer_ver_sysvol=None,
+                  user_ver_ds=None, user_ver_sysvol=None,
+                  sddl=None, owner=None, filter_data_available=False,
+                  wmi_filter=None, sysvol_path=None,
+                  settings=[
+                      Setting(gpo_id="11111111111111111111111111111111",
+                              side="Computer", cse="Security",
+                              identity="Configure user group policy loopback processing mode",
+                              display_name="LB1", display_value="Replace",
+                              raw={}, from_disabled_side=False),
+                      Setting(gpo_id="11111111111111111111111111111111",
+                              side="Computer", cse="Security",
+                              identity="Configure group policy loopback processing mode",
+                              display_name="LB2", display_value="Merge",
+                              raw={}, from_disabled_side=False),
+                  ])
+        estate = Estate(domain="test.local", gpos=[gpo])
+        result = loopback_awareness(estate)
+        assert result["11111111111111111111111111111111"] == "mixed"
+
+    def test_loopback_awareness_excludes_disabled(self):
+        from gpo_lens.topology import loopback_awareness
+
+        gpo = Gpo(id="11111111111111111111111111111111", name="LB",
+                  domain="test.local", created=None, modified=None, read=None,
+                  computer_enabled=True, user_enabled=True,
+                  computer_ver_ds=None, computer_ver_sysvol=None,
+                  user_ver_ds=None, user_ver_sysvol=None,
+                  sddl=None, owner=None, filter_data_available=False,
+                  wmi_filter=None, sysvol_path=None,
+                  settings=[Setting(
+                      gpo_id="11111111111111111111111111111111",
+                      side="Computer", cse="Security",
+                      identity="Configure user group policy loopback processing mode",
+                      display_name="Loopback", display_value="Not Configured",
+                      raw={}, from_disabled_side=False,
+                  )])
+        estate = Estate(domain="test.local", gpos=[gpo])
+        result = loopback_awareness(estate)
+        assert "11111111111111111111111111111111" not in result
+
+
+# ---------------------------------------------------------------------------
+# wmi_filtered_gpos
+# ---------------------------------------------------------------------------
+
+
+class TestWmiFilteredGpos:
+    def test_returns_gpos_with_wmi_filter(self):
+        from gpo_lens.topology import wmi_filtered_gpos
+
+        gpo = Gpo(id="11111111111111111111111111111111", name="WMI GPO",
+                  domain="test.local", created=None, modified=None, read=None,
+                  computer_enabled=True, user_enabled=True,
+                  computer_ver_ds=None, computer_ver_sysvol=None,
+                  user_ver_ds=None, user_ver_sysvol=None,
+                  sddl=None, owner=None, filter_data_available=False,
+                  wmi_filter="SomeFilter", sysvol_path=None)
+        estate = Estate(domain="test.local", gpos=[gpo])
+        result = wmi_filtered_gpos(estate)
+        assert len(result) == 1
+        assert result[0].wmi_filter == "SomeFilter"
+
+    def test_excludes_gpos_without_wmi_filter(self):
+        from gpo_lens.topology import wmi_filtered_gpos
+
+        gpo = Gpo(id="11111111111111111111111111111111", name="No WMI",
+                  domain="test.local", created=None, modified=None, read=None,
+                  computer_enabled=True, user_enabled=True,
+                  computer_ver_ds=None, computer_ver_sysvol=None,
+                  user_ver_ds=None, user_ver_sysvol=None,
+                  sddl=None, owner=None, filter_data_available=False,
+                  wmi_filter=None, sysvol_path=None)
+        estate = Estate(domain="test.local", gpos=[gpo])
+        result = wmi_filtered_gpos(estate)
+        assert result == []
+
+
+# ---------------------------------------------------------------------------
+# som_conflicts / precedence_conflicts
+# ---------------------------------------------------------------------------
+
+
+class TestSomConflicts:
+    def test_detects_conflict_between_two_gpos(self):
+        from gpo_lens.topology import som_conflicts
+
+        g1 = Gpo(id="11111111111111111111111111111111", name="GPO-A",
+                 domain="test.local", created=None, modified=None, read=None,
+                 computer_enabled=True, user_enabled=True,
+                 computer_ver_ds=None, computer_ver_sysvol=None,
+                 user_ver_ds=None, user_ver_sysvol=None,
+                 sddl=None, owner=None, filter_data_available=False,
+                 wmi_filter=None, sysvol_path=None,
+                 settings=[Setting(gpo_id="11111111111111111111111111111111",
+                                   side="User", cse="Registry",
+                                   identity="HKLM\\X", display_name="X",
+                                   display_value="A", raw={},
+                                   from_disabled_side=False)])
+        g2 = Gpo(id="22222222222222222222222222222222", name="GPO-B",
+                 domain="test.local", created=None, modified=None, read=None,
+                 computer_enabled=True, user_enabled=True,
+                 computer_ver_ds=None, computer_ver_sysvol=None,
+                 user_ver_ds=None, user_ver_sysvol=None,
+                 sddl=None, owner=None, filter_data_available=False,
+                 wmi_filter=None, sysvol_path=None,
+                 settings=[Setting(gpo_id="22222222222222222222222222222222",
+                                   side="User", cse="Registry",
+                                   identity="HKLM\\X", display_name="X",
+                                   display_value="B", raw={},
+                                   from_disabled_side=False)])
+        som = Som(path="dc=test,dc=local", name="test", container_type="domain",
+                  inheritance_blocked=False,
+                  links=[SomLink(gpo_id="11111111111111111111111111111111",
+                                 order=1, enabled=True, enforced=False,
+                                 target="dc=test,dc=local"),
+                         SomLink(gpo_id="22222222222222222222222222222222",
+                                 order=2, enabled=True, enforced=False,
+                                 target="dc=test,dc=local")])
+        estate = Estate(domain="test.local", gpos=[g1, g2], soms=[som])
+        conflicts = som_conflicts(estate, "dc=test,dc=local")
+        assert len(conflicts) == 1
+        assert conflicts[0].identity == "HKLM\\X"
+        assert conflicts[0].winner == "GPO-B"
+
+    def test_no_conflict_when_values_agree(self):
+        from gpo_lens.topology import som_conflicts
+
+        g1 = Gpo(id="11111111111111111111111111111111", name="GPO-A",
+                 domain="test.local", created=None, modified=None, read=None,
+                 computer_enabled=True, user_enabled=True,
+                 computer_ver_ds=None, computer_ver_sysvol=None,
+                 user_ver_ds=None, user_ver_sysvol=None,
+                 sddl=None, owner=None, filter_data_available=False,
+                 wmi_filter=None, sysvol_path=None,
+                 settings=[Setting(gpo_id="11111111111111111111111111111111",
+                                   side="User", cse="Registry",
+                                   identity="HKLM\\X", display_name="X",
+                                   display_value="Same", raw={},
+                                   from_disabled_side=False)])
+        g2 = Gpo(id="22222222222222222222222222222222", name="GPO-B",
+                 domain="test.local", created=None, modified=None, read=None,
+                 computer_enabled=True, user_enabled=True,
+                 computer_ver_ds=None, computer_ver_sysvol=None,
+                 user_ver_ds=None, user_ver_sysvol=None,
+                 sddl=None, owner=None, filter_data_available=False,
+                 wmi_filter=None, sysvol_path=None,
+                 settings=[Setting(gpo_id="22222222222222222222222222222222",
+                                   side="User", cse="Registry",
+                                   identity="HKLM\\X", display_name="X",
+                                   display_value="Same", raw={},
+                                   from_disabled_side=False)])
+        som = Som(path="dc=test,dc=local", name="test", container_type="domain",
+                  inheritance_blocked=False,
+                  links=[SomLink(gpo_id="11111111111111111111111111111111",
+                                 order=1, enabled=True, enforced=False,
+                                 target="dc=test,dc=local"),
+                         SomLink(gpo_id="22222222222222222222222222222222",
+                                 order=2, enabled=True, enforced=False,
+                                 target="dc=test,dc=local")])
+        estate = Estate(domain="test.local", gpos=[g1, g2], soms=[som])
+        conflicts = som_conflicts(estate, "dc=test,dc=local")
+        assert conflicts == []
+
+    def test_returns_empty_for_missing_som(self):
+        from gpo_lens.topology import som_conflicts
+
+        estate = Estate(domain="test.local")
+        conflicts = som_conflicts(estate, "dc=nowhere,dc=local")
+        assert conflicts == []
+
+    def test_skips_disabled_side_settings(self):
+        from gpo_lens.topology import som_conflicts
+
+        g1 = Gpo(id="11111111111111111111111111111111", name="GPO-A",
+                 domain="test.local", created=None, modified=None, read=None,
+                 computer_enabled=True, user_enabled=True,
+                 computer_ver_ds=None, computer_ver_sysvol=None,
+                 user_ver_ds=None, user_ver_sysvol=None,
+                 sddl=None, owner=None, filter_data_available=False,
+                 wmi_filter=None, sysvol_path=None,
+                 settings=[Setting(gpo_id="11111111111111111111111111111111",
+                                   side="User", cse="Registry",
+                                   identity="HKLM\\X", display_name="X",
+                                   display_value="A", raw={},
+                                   from_disabled_side=True)])
+        g2 = Gpo(id="22222222222222222222222222222222", name="GPO-B",
+                 domain="test.local", created=None, modified=None, read=None,
+                 computer_enabled=True, user_enabled=True,
+                 computer_ver_ds=None, computer_ver_sysvol=None,
+                 user_ver_ds=None, user_ver_sysvol=None,
+                 sddl=None, owner=None, filter_data_available=False,
+                 wmi_filter=None, sysvol_path=None,
+                 settings=[Setting(gpo_id="22222222222222222222222222222222",
+                                   side="User", cse="Registry",
+                                   identity="HKLM\\X", display_name="X",
+                                   display_value="B", raw={},
+                                   from_disabled_side=False)])
+        som = Som(path="dc=test,dc=local", name="test", container_type="domain",
+                  inheritance_blocked=False,
+                  links=[SomLink(gpo_id="11111111111111111111111111111111",
+                                 order=1, enabled=True, enforced=False,
+                                 target="dc=test,dc=local"),
+                         SomLink(gpo_id="22222222222222222222222222222222",
+                                 order=2, enabled=True, enforced=False,
+                                 target="dc=test,dc=local")])
+        estate = Estate(domain="test.local", gpos=[g1, g2], soms=[som])
+        conflicts = som_conflicts(estate, "dc=test,dc=local")
+        assert conflicts == []
+
+
+class TestPrecedenceConflicts:
+    def test_estate_wide_conflicts(self):
+        from gpo_lens.topology import precedence_conflicts
+
+        g1 = Gpo(id="11111111111111111111111111111111", name="GPO-A",
+                 domain="test.local", created=None, modified=None, read=None,
+                 computer_enabled=True, user_enabled=True,
+                 computer_ver_ds=None, computer_ver_sysvol=None,
+                 user_ver_ds=None, user_ver_sysvol=None,
+                 sddl=None, owner=None, filter_data_available=False,
+                 wmi_filter=None, sysvol_path=None,
+                 settings=[Setting(gpo_id="11111111111111111111111111111111",
+                                   side="User", cse="Registry",
+                                   identity="HKLM\\X", display_name="X",
+                                   display_value="A", raw={},
+                                   from_disabled_side=False)])
+        g2 = Gpo(id="22222222222222222222222222222222", name="GPO-B",
+                 domain="test.local", created=None, modified=None, read=None,
+                 computer_enabled=True, user_enabled=True,
+                 computer_ver_ds=None, computer_ver_sysvol=None,
+                 user_ver_ds=None, user_ver_sysvol=None,
+                 sddl=None, owner=None, filter_data_available=False,
+                 wmi_filter=None, sysvol_path=None,
+                 settings=[Setting(gpo_id="22222222222222222222222222222222",
+                                   side="User", cse="Registry",
+                                   identity="HKLM\\X", display_name="X",
+                                   display_value="B", raw={},
+                                   from_disabled_side=False)])
+        som = Som(path="dc=test,dc=local", name="test", container_type="domain",
+                  inheritance_blocked=False,
+                  links=[SomLink(gpo_id="11111111111111111111111111111111",
+                                 order=1, enabled=True, enforced=False,
+                                 target="dc=test,dc=local"),
+                         SomLink(gpo_id="22222222222222222222222222222222",
+                                 order=2, enabled=True, enforced=False,
+                                 target="dc=test,dc=local")])
+        estate = Estate(domain="test.local", gpos=[g1, g2], soms=[som])
+        results = precedence_conflicts(estate)
+        assert len(results) == 1
+        assert results[0][0].path == "dc=test,dc=local"
+        assert len(results[0][1]) == 1
+
+    def test_excludes_site_soms(self):
+        from gpo_lens.topology import precedence_conflicts
+
+        g1 = Gpo(id="11111111111111111111111111111111", name="GPO-A",
+                 domain="test.local", created=None, modified=None, read=None,
+                 computer_enabled=True, user_enabled=True,
+                 computer_ver_ds=None, computer_ver_sysvol=None,
+                 user_ver_ds=None, user_ver_sysvol=None,
+                 sddl=None, owner=None, filter_data_available=False,
+                 wmi_filter=None, sysvol_path=None,
+                 settings=[Setting(gpo_id="11111111111111111111111111111111",
+                                   side="User", cse="Registry",
+                                   identity="HKLM\\X", display_name="X",
+                                   display_value="A", raw={},
+                                   from_disabled_side=False)])
+        g2 = Gpo(id="22222222222222222222222222222222", name="GPO-B",
+                 domain="test.local", created=None, modified=None, read=None,
+                 computer_enabled=True, user_enabled=True,
+                 computer_ver_ds=None, computer_ver_sysvol=None,
+                 user_ver_ds=None, user_ver_sysvol=None,
+                 sddl=None, owner=None, filter_data_available=False,
+                 wmi_filter=None, sysvol_path=None,
+                 settings=[Setting(gpo_id="22222222222222222222222222222222",
+                                   side="User", cse="Registry",
+                                   identity="HKLM\\X", display_name="X",
+                                   display_value="B", raw={},
+                                   from_disabled_side=False)])
+        site = Som(path="cn=site,cn=sites,cn=configuration,dc=test,dc=local",
+                   name="Site", container_type="site",
+                   inheritance_blocked=False,
+                   links=[SomLink(gpo_id="11111111111111111111111111111111",
+                                  order=1, enabled=True, enforced=False,
+                                  target="cn=site"),
+                          SomLink(gpo_id="22222222222222222222222222222222",
+                                  order=2, enabled=True, enforced=False,
+                                  target="cn=site")])
+        estate = Estate(domain="test.local", gpos=[g1, g2], soms=[site])
+        results = precedence_conflicts(estate)
+        assert results == []
+
+
+# ---------------------------------------------------------------------------
+# settings_at_som
+# ---------------------------------------------------------------------------
+
+
+class TestSettingsAtSom:
+    def test_returns_effective_settings(self):
+        from gpo_lens.topology import settings_at_som
+
+        g1 = Gpo(id="11111111111111111111111111111111", name="GPO-A",
+                 domain="test.local", created=None, modified=None, read=None,
+                 computer_enabled=True, user_enabled=True,
+                 computer_ver_ds=None, computer_ver_sysvol=None,
+                 user_ver_ds=None, user_ver_sysvol=None,
+                 sddl=None, owner=None, filter_data_available=False,
+                 wmi_filter=None, sysvol_path=None,
+                 settings=[Setting(gpo_id="11111111111111111111111111111111",
+                                   side="User", cse="Registry",
+                                   identity="HKLM\\X", display_name="X",
+                                   display_value="A", raw={},
+                                   from_disabled_side=False)])
+        g2 = Gpo(id="22222222222222222222222222222222", name="GPO-B",
+                 domain="test.local", created=None, modified=None, read=None,
+                 computer_enabled=True, user_enabled=True,
+                 computer_ver_ds=None, computer_ver_sysvol=None,
+                 user_ver_ds=None, user_ver_sysvol=None,
+                 sddl=None, owner=None, filter_data_available=False,
+                 wmi_filter=None, sysvol_path=None,
+                 settings=[Setting(gpo_id="22222222222222222222222222222222",
+                                   side="User", cse="Registry",
+                                   identity="HKLM\\X", display_name="X",
+                                   display_value="B", raw={},
+                                   from_disabled_side=False)])
+        som = Som(path="dc=test,dc=local", name="test", container_type="domain",
+                  inheritance_blocked=False,
+                  links=[SomLink(gpo_id="11111111111111111111111111111111",
+                                 order=1, enabled=True, enforced=False,
+                                 target="dc=test,dc=local"),
+                         SomLink(gpo_id="22222222222222222222222222222222",
+                                 order=2, enabled=True, enforced=False,
+                                 target="dc=test,dc=local")])
+        estate = Estate(domain="test.local", gpos=[g1, g2], soms=[som])
+        settings = settings_at_som(estate, "dc=test,dc=local")
+        assert len(settings) == 1
+        assert settings[0].display_value == "B"
+        assert settings[0].winner_gpo_name == "GPO-B"
+        assert len(settings[0].overridden_by) == 1
+        assert settings[0].overridden_by[0][0] == "GPO-A"
+
+    def test_returns_empty_for_missing_som(self):
+        from gpo_lens.topology import settings_at_som
+
+        estate = Estate(domain="test.local")
+        settings = settings_at_som(estate, "dc=nowhere,dc=local")
+        assert settings == []
+
+
+# ---------------------------------------------------------------------------
+# is_security_filtered
+# ---------------------------------------------------------------------------
+
+
+class TestIsSecurityFiltered:
+    def test_not_filtered_when_au_has_apply(self):
+        from gpo_lens.topology import is_security_filtered
+
+        gpo = Gpo(id="11111111111111111111111111111111", name="GPO",
+                  domain="test.local", created=None, modified=None, read=None,
+                  computer_enabled=True, user_enabled=True,
+                  computer_ver_ds=None, computer_ver_sysvol=None,
+                  user_ver_ds=None, user_ver_sysvol=None,
+                  sddl=None, owner=None, filter_data_available=False,
+                  wmi_filter=None, sysvol_path=None,
+                  delegation=[DelegationEntry(
+                      gpo_id="", trustee="Authenticated Users",
+                      trustee_sid="S-1-5-11",
+                      permission="Apply Group Policy", allowed=True,
+                  )])
+        assert is_security_filtered(gpo) is False
+
+    def test_filtered_when_only_specific_group_has_apply(self):
+        from gpo_lens.topology import is_security_filtered
+
+        gpo = Gpo(id="11111111111111111111111111111111", name="GPO",
+                  domain="test.local", created=None, modified=None, read=None,
+                  computer_enabled=True, user_enabled=True,
+                  computer_ver_ds=None, computer_ver_sysvol=None,
+                  user_ver_ds=None, user_ver_sysvol=None,
+                  sddl=None, owner=None, filter_data_available=False,
+                  wmi_filter=None, sysvol_path=None,
+                  delegation=[DelegationEntry(
+                      gpo_id="", trustee="Helpdesk Operators",
+                      trustee_sid="S-1-5-21-1-2-3-1000",
+                      permission="Apply Group Policy", allowed=True,
+                  )])
+        assert is_security_filtered(gpo) is True
+
+    def test_not_filtered_when_no_delegation_data(self):
+        from gpo_lens.topology import is_security_filtered
+
+        gpo = Gpo(id="11111111111111111111111111111111", name="GPO",
+                  domain="test.local", created=None, modified=None, read=None,
+                  computer_enabled=True, user_enabled=True,
+                  computer_ver_ds=None, computer_ver_sysvol=None,
+                  user_ver_ds=None, user_ver_sysvol=None,
+                  sddl=None, owner=None, filter_data_available=False,
+                  wmi_filter=None, sysvol_path=None,
+                  delegation=[])
+        assert is_security_filtered(gpo) is False
+
+    def test_sddl_fallback_not_filtered_with_au_allow(self):
+        from gpo_lens.topology import is_security_filtered
+
+        gpo = Gpo(id="11111111111111111111111111111111", name="GPO",
+                  domain="test.local", created=None, modified=None, read=None,
+                  computer_enabled=True, user_enabled=True,
+                  computer_ver_ds=None, computer_ver_sysvol=None,
+                  user_ver_ds=None, user_ver_sysvol=None,
+                  sddl="D:(A;;GA;;;S-1-5-11)", owner=None,
+                  filter_data_available=False,
+                  wmi_filter=None, sysvol_path=None,
+                  delegation=[])
+        assert is_security_filtered(gpo) is False
+
+    def test_sddl_fallback_filtered_without_broad_allow(self):
+        from gpo_lens.topology import is_security_filtered
+
+        gpo = Gpo(id="11111111111111111111111111111111", name="GPO",
+                  domain="test.local", created=None, modified=None, read=None,
+                  computer_enabled=True, user_enabled=True,
+                  computer_ver_ds=None, computer_ver_sysvol=None,
+                  user_ver_ds=None, user_ver_sysvol=None,
+                  sddl="D:(A;;GA;;;S-1-5-21-1-2-3-1000)", owner=None,
+                  filter_data_available=False,
+                  wmi_filter=None, sysvol_path=None,
+                  delegation=[])
+        assert is_security_filtered(gpo) is True
+
+    def test_sddl_fallback_empty_dacl_not_filtered(self):
+        from gpo_lens.topology import is_security_filtered
+
+        gpo = Gpo(id="11111111111111111111111111111111", name="GPO",
+                  domain="test.local", created=None, modified=None, read=None,
+                  computer_enabled=True, user_enabled=True,
+                  computer_ver_ds=None, computer_ver_sysvol=None,
+                  user_ver_ds=None, user_ver_sysvol=None,
+                  sddl="D:", owner=None,
+                  filter_data_available=False,
+                  wmi_filter=None, sysvol_path=None,
+                  delegation=[])
+        assert is_security_filtered(gpo) is False
+
+
+# ---------------------------------------------------------------------------
+# security_filtering_detail
+# ---------------------------------------------------------------------------
+
+
+class TestSecurityFilteringDetail:
+    def test_au_read_and_apply_tracked(self):
+        from gpo_lens.topology import security_filtering_detail
+
+        gpo = Gpo(id="11111111111111111111111111111111", name="GPO",
+                  domain="test.local", created=None, modified=None, read=None,
+                  computer_enabled=True, user_enabled=True,
+                  computer_ver_ds=None, computer_ver_sysvol=None,
+                  user_ver_ds=None, user_ver_sysvol=None,
+                  sddl=None, owner=None, filter_data_available=False,
+                  wmi_filter=None, sysvol_path=None,
+                  delegation=[DelegationEntry(
+                      gpo_id="", trustee="Authenticated Users",
+                      trustee_sid="S-1-5-11",
+                      permission="Apply Group Policy", allowed=True,
+                  )])
+        detail = security_filtering_detail(gpo)
+        assert detail.has_au_read is True
+        assert "Authenticated Users" in detail.apply_trustees
+
+    def test_sddl_fallback_tracks_au_read(self):
+        from gpo_lens.topology import security_filtering_detail
+
+        gpo = Gpo(id="11111111111111111111111111111111", name="GPO",
+                  domain="test.local", created=None, modified=None, read=None,
+                  computer_enabled=True, user_enabled=True,
+                  computer_ver_ds=None, computer_ver_sysvol=None,
+                  user_ver_ds=None, user_ver_sysvol=None,
+                  sddl="D:(A;;GA;;;S-1-5-11)", owner=None,
+                  filter_data_available=False,
+                  wmi_filter=None, sysvol_path=None,
+                  delegation=[])
+        detail = security_filtering_detail(gpo)
+        assert detail.has_au_read is True
+
+    def test_deny_does_not_count_as_apply_trustee(self):
+        from gpo_lens.topology import security_filtering_detail
+
+        gpo = Gpo(id="11111111111111111111111111111111", name="GPO",
+                  domain="test.local", created=None, modified=None, read=None,
+                  computer_enabled=True, user_enabled=True,
+                  computer_ver_ds=None, computer_ver_sysvol=None,
+                  user_ver_ds=None, user_ver_sysvol=None,
+                  sddl=None, owner=None, filter_data_available=False,
+                  wmi_filter=None, sysvol_path=None,
+                  delegation=[DelegationEntry(
+                      gpo_id="", trustee="Authenticated Users",
+                      trustee_sid="S-1-5-11",
+                      permission="Apply Group Policy", allowed=False,
+                  )])
+        detail = security_filtering_detail(gpo)
+        assert "Authenticated Users" not in detail.apply_trustees
+
+
+# ---------------------------------------------------------------------------
+# scope_caveats
+# ---------------------------------------------------------------------------
+
+
+class TestScopeCaveats:
+    def test_all_links_disabled_caveat(self):
+        from gpo_lens.topology import scope_caveats
+
+        som = Som(path="dc=test,dc=local", name="test", container_type="domain",
+                  inheritance_blocked=False,
+                  links=[SomLink(gpo_id="11111111111111111111111111111111",
+                                 order=1, enabled=False, enforced=False,
+                                 target="dc=test,dc=local")])
+        estate = Estate(domain="test.local", soms=[som])
+        caveats = scope_caveats(estate, "dc=test,dc=local")
+        assert any("all" in c and "disabled" in c for c in caveats)
+
+    def test_missing_som_returns_empty(self):
+        from gpo_lens.topology import scope_caveats
+
+        estate = Estate(domain="test.local")
+        caveats = scope_caveats(estate, "dc=nowhere,dc=local")
+        assert caveats == []
+
+    def test_security_filtered_gpo_caveat(self):
+        from gpo_lens.topology import scope_caveats
+
+        gpo = Gpo(id="11111111111111111111111111111111", name="FilteredGPO",
+                  domain="test.local", created=None, modified=None, read=None,
+                  computer_enabled=True, user_enabled=True,
+                  computer_ver_ds=None, computer_ver_sysvol=None,
+                  user_ver_ds=None, user_ver_sysvol=None,
+                  sddl=None, owner=None, filter_data_available=False,
+                  wmi_filter=None, sysvol_path=None,
+                  delegation=[DelegationEntry(
+                      gpo_id="", trustee="Helpdesk Operators",
+                      trustee_sid="S-1-5-21-1-2-3-1000",
+                      permission="Apply Group Policy", allowed=True,
+                  )])
+        som = Som(path="dc=test,dc=local", name="test", container_type="domain",
+                  inheritance_blocked=False,
+                  links=[SomLink(gpo_id="11111111111111111111111111111111",
+                                 order=1, enabled=True, enforced=False,
+                                 target="dc=test,dc=local")])
+        estate = Estate(domain="test.local", gpos=[gpo], soms=[som])
+        caveats = scope_caveats(estate, "dc=test,dc=local")
+        assert any("security-filtered" in c for c in caveats)
+
+    def test_wmi_filter_caveat(self):
+        from gpo_lens.topology import scope_caveats
+
+        gpo = Gpo(id="11111111111111111111111111111111", name="WmiGPO",
+                  domain="test.local", created=None, modified=None, read=None,
+                  computer_enabled=True, user_enabled=True,
+                  computer_ver_ds=None, computer_ver_sysvol=None,
+                  user_ver_ds=None, user_ver_sysvol=None,
+                  sddl=None, owner=None, filter_data_available=False,
+                  wmi_filter="SomeFilter", sysvol_path=None,
+                  delegation=[DelegationEntry(
+                      gpo_id="", trustee="Authenticated Users",
+                      trustee_sid="S-1-5-11",
+                      permission="Apply Group Policy", allowed=True,
+                  )])
+        som = Som(path="dc=test,dc=local", name="test", container_type="domain",
+                  inheritance_blocked=False,
+                  links=[SomLink(gpo_id="11111111111111111111111111111111",
+                                 order=1, enabled=True, enforced=False,
+                                 target="dc=test,dc=local")])
+        estate = Estate(domain="test.local", gpos=[gpo], soms=[som])
+        caveats = scope_caveats(estate, "dc=test,dc=local")
+        assert any("WMI filter" in c for c in caveats)
+
+
+# ---------------------------------------------------------------------------
+# effective_scope
+# ---------------------------------------------------------------------------
+
+
+class TestEffectiveScope:
+    def test_returns_scope_for_gpo_by_id(self):
+        from gpo_lens.topology import effective_scope
+
+        gpo = Gpo(id="11111111111111111111111111111111", name="TestGPO",
+                  domain="test.local", created=None, modified=None, read=None,
+                  computer_enabled=True, user_enabled=True,
+                  computer_ver_ds=None, computer_ver_sysvol=None,
+                  user_ver_ds=None, user_ver_sysvol=None,
+                  sddl=None, owner=None, filter_data_available=False,
+                  wmi_filter=None, sysvol_path=None,
+                  delegation=[DelegationEntry(
+                      gpo_id="", trustee="Authenticated Users",
+                      trustee_sid="S-1-5-11",
+                      permission="Apply Group Policy", allowed=True,
+                  )],
+                  links=[GpoLink(gpo_id="11111111111111111111111111111111",
+                                 som_name="test", som_path="dc=test,dc=local",
+                                 link_enabled=True, enforced=False)])
+        estate = Estate(domain="test.local", gpos=[gpo])
+        scope = effective_scope(estate, "11111111111111111111111111111111")
+        assert scope is not None
+        assert scope.gpo_name == "TestGPO"
+        assert scope.security_filtering.is_filtered is False
+
+    def test_returns_scope_for_gpo_by_name(self):
+        from gpo_lens.topology import effective_scope
+
+        gpo = Gpo(id="11111111111111111111111111111111", name="TestGPO",
+                  domain="test.local", created=None, modified=None, read=None,
+                  computer_enabled=True, user_enabled=True,
+                  computer_ver_ds=None, computer_ver_sysvol=None,
+                  user_ver_ds=None, user_ver_sysvol=None,
+                  sddl=None, owner=None, filter_data_available=False,
+                  wmi_filter=None, sysvol_path=None,
+                  delegation=[DelegationEntry(
+                      gpo_id="", trustee="Authenticated Users",
+                      trustee_sid="S-1-5-11",
+                      permission="Apply Group Policy", allowed=True,
+                  )])
+        estate = Estate(domain="test.local", gpos=[gpo])
+        scope = effective_scope(estate, "TestGPO")
+        assert scope is not None
+        assert scope.gpo_name == "TestGPO"
+
+    def test_returns_none_for_unknown_gpo(self):
+        from gpo_lens.topology import effective_scope
+
+        estate = Estate(domain="test.local")
+        scope = effective_scope(estate, "nonexistent")
+        assert scope is None
+
+    def test_no_links_caveat(self):
+        from gpo_lens.topology import effective_scope
+
+        gpo = Gpo(id="11111111111111111111111111111111", name="UnlinkedGPO",
+                  domain="test.local", created=None, modified=None, read=None,
+                  computer_enabled=True, user_enabled=True,
+                  computer_ver_ds=None, computer_ver_sysvol=None,
+                  user_ver_ds=None, user_ver_sysvol=None,
+                  sddl=None, owner=None, filter_data_available=False,
+                  wmi_filter=None, sysvol_path=None,
+                  delegation=[DelegationEntry(
+                      gpo_id="", trustee="Authenticated Users",
+                      trustee_sid="S-1-5-11",
+                      permission="Apply Group Policy", allowed=True,
+                  )])
+        estate = Estate(domain="test.local", gpos=[gpo])
+        scope = effective_scope(estate, "11111111111111111111111111111111")
+        assert scope is not None
+        assert any("no links" in c.lower() for c in scope.caveats)
+
+    def test_no_delegation_caveat(self):
+        from gpo_lens.topology import effective_scope
+
+        gpo = Gpo(id="11111111111111111111111111111111", name="NoDelegGPO",
+                  domain="test.local", created=None, modified=None, read=None,
+                  computer_enabled=True, user_enabled=True,
+                  computer_ver_ds=None, computer_ver_sysvol=None,
+                  user_ver_ds=None, user_ver_sysvol=None,
+                  sddl=None, owner=None, filter_data_available=False,
+                  wmi_filter=None, sysvol_path=None,
+                  delegation=[])
+        estate = Estate(domain="test.local", gpos=[gpo])
+        scope = effective_scope(estate, "11111111111111111111111111111111")
+        assert scope is not None
+        assert any("No delegation entries" in c for c in scope.caveats)
+
+    def test_broken_wmi_filter_caveat(self):
+        from gpo_lens.topology import effective_scope
+
+        gpo = Gpo(id="11111111111111111111111111111111", name="BrokenWmiGPO",
+                  domain="test.local", created=None, modified=None, read=None,
+                  computer_enabled=True, user_enabled=True,
+                  computer_ver_ds=None, computer_ver_sysvol=None,
+                  user_ver_ds=None, user_ver_sysvol=None,
+                  sddl=None, owner=None, filter_data_available=False,
+                  wmi_filter="NonexistentFilter", sysvol_path=None,
+                  delegation=[DelegationEntry(
+                      gpo_id="", trustee="Authenticated Users",
+                      trustee_sid="S-1-5-11",
+                      permission="Apply Group Policy", allowed=True,
+                  )])
+        estate = Estate(domain="test.local", gpos=[gpo])
+        scope = effective_scope(estate, "11111111111111111111111111111111")
+        assert scope is not None
+        assert scope.wmi_filter is not None
+        assert scope.wmi_filter.is_broken is True
+
+    def test_ms16_072_caveat(self):
+        from gpo_lens.topology import effective_scope
+
+        gpo = Gpo(id="11111111111111111111111111111111", name="MS16GPO",
+                  domain="test.local", created=None, modified=None, read=None,
+                  computer_enabled=True, user_enabled=True,
+                  computer_ver_ds=None, computer_ver_sysvol=None,
+                  user_ver_ds=None, user_ver_sysvol=None,
+                  sddl=None, owner=None, filter_data_available=False,
+                  wmi_filter=None, sysvol_path=None,
+                  delegation=[DelegationEntry(
+                      gpo_id="", trustee="Everyone",
+                      trustee_sid="S-1-1-0",
+                      permission="Read", allowed=True,
+                  )])
+        estate = Estate(domain="test.local", gpos=[gpo])
+        scope = effective_scope(estate, "11111111111111111111111111111111")
+        assert scope is not None
+        assert any("MS16-072" in c for c in scope.caveats)
+
+
+# ---------------------------------------------------------------------------
+# site_scopes / has_site_links
+# ---------------------------------------------------------------------------
+
+
+class TestSiteScopes:
+    def test_site_scopes_returns_site_links(self):
+        from gpo_lens.topology import site_scopes
+
+        gpo = Gpo(id="11111111111111111111111111111111", name="SiteGPO",
+                  domain="test.local", created=None, modified=None, read=None,
+                  computer_enabled=True, user_enabled=True,
+                  computer_ver_ds=None, computer_ver_sysvol=None,
+                  user_ver_ds=None, user_ver_sysvol=None,
+                  sddl=None, owner=None, filter_data_available=False,
+                  wmi_filter=None, sysvol_path=None)
+        site = Som(path="cn=site,cn=sites,cn=configuration,dc=test,dc=local",
+                   name="Default-First-Site-Name", container_type="site",
+                   inheritance_blocked=False,
+                   links=[SomLink(gpo_id="11111111111111111111111111111111",
+                                  order=1, enabled=True, enforced=False,
+                                  target="cn=site")])
+        estate = Estate(domain="test.local", gpos=[gpo], soms=[site])
+        scopes = site_scopes(estate)
+        assert len(scopes) == 1
+        assert scopes[0].name == "Default-First-Site-Name"
+        assert len(scopes[0].links) == 1
+        assert scopes[0].links[0].gpo_name == "SiteGPO"
+
+    def test_site_scopes_returns_empty_when_no_sites(self):
+        from gpo_lens.topology import site_scopes
+
+        estate = Estate(domain="test.local")
+        scopes = site_scopes(estate)
+        assert scopes == []
+
+    def test_has_site_links_true(self):
+        from gpo_lens.topology import has_site_links
+
+        site = Som(path="cn=site,cn=sites,cn=configuration,dc=test,dc=local",
+                   name="Site", container_type="site",
+                   inheritance_blocked=False,
+                   links=[SomLink(gpo_id="11111111111111111111111111111111",
+                                  order=1, enabled=True, enforced=False,
+                                  target="cn=site")])
+        estate = Estate(domain="test.local", soms=[site])
+        assert has_site_links(estate) is True
+
+    def test_has_site_links_false_when_disabled(self):
+        from gpo_lens.topology import has_site_links
+
+        site = Som(path="cn=site,cn=sites,cn=configuration,dc=test,dc=local",
+                   name="Site", container_type="site",
+                   inheritance_blocked=False,
+                   links=[SomLink(gpo_id="11111111111111111111111111111111",
+                                  order=1, enabled=False, enforced=False,
+                                  target="cn=site")])
+        estate = Estate(domain="test.local", soms=[site])
+        assert has_site_links(estate) is False
+
+    def test_has_site_links_false_when_no_sites(self):
+        from gpo_lens.topology import has_site_links
+
+        estate = Estate(domain="test.local")
+        assert has_site_links(estate) is False
