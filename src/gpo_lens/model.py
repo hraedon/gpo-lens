@@ -12,6 +12,7 @@ All GPO ids are *canonical*: lowercase, braces stripped (see
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Literal, Protocol, TypedDict, runtime_checkable
@@ -305,10 +306,26 @@ class Estate:
         if self._gpo_index is None:
             idx: dict[str, Gpo] = {}
             for g in self.gpos:
+                if g.id in idx:
+                    warnings.warn(
+                        f"Duplicate GPO id '{g.id}': "
+                        f"'{idx[g.id].name}' shadowed by '{g.name}'.",
+                        stacklevel=2,
+                    )
                 idx[g.id] = g
                 stripped = g.id.strip().strip("{}").strip().replace("-", "").lower()
                 if stripped != g.id:
-                    idx.setdefault(stripped, g)
+                    if stripped in idx:
+                        warnings.warn(
+                            f"GPO id collision in dual-key index: "
+                            f"'{g.id}' and '{idx[stripped].id}' both map to "
+                            f"stripped key '{stripped}'. The first GPO "
+                            f"('{idx[stripped].name}') shadows the second "
+                            f"('{g.name}').",
+                            stacklevel=2,
+                        )
+                    else:
+                        idx[stripped] = g
             self._gpo_index = idx
         return self._gpo_index
 

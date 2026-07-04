@@ -15,6 +15,7 @@ never unqualified "effective" (decision 4).
 
 from __future__ import annotations
 
+import re
 from collections import defaultdict, deque
 from dataclasses import dataclass
 from enum import Enum
@@ -47,6 +48,8 @@ from gpo_lens.topology import (
 )
 
 ANONYMOUS_SID = "s-1-5-7"
+
+_SID_RE = re.compile(r"^s-1-([0-9]+-)+[0-9]+$", re.IGNORECASE)
 
 if TYPE_CHECKING:
     from gpo_lens.danger import DangerFinding
@@ -589,6 +592,11 @@ def resolve_principal_input(estate: Estate, principal_input: str) -> str | None:
     names (Authenticated Users, Domain Users, etc.) to find the
     corresponding SID.
 
+    Domain-relative RID suffixes (e.g. ``-513`` for Domain Users) are
+    expanded to full SIDs using the estate's domain SID. If the domain SID
+    cannot be determined, the suffix cannot be expanded and the function
+    returns ``None``.
+
     Returns ``None`` when the input cannot be resolved — the caller should
     surface a user-facing error in that case.
     """
@@ -596,9 +604,17 @@ def resolve_principal_input(estate: Estate, principal_input: str) -> str | None:
     if not s:
         return None
     if s.lower().startswith("s-1-"):
+        if not _SID_RE.match(s):
+            return None
         return s.lower()
     name_to_sid = _build_name_to_sid_map(estate)
-    return name_to_sid.get(s.lower())
+    result = name_to_sid.get(s.lower())
+    if result is not None and result.startswith("-"):
+        domain_sid = _estate_domain_sid(estate)
+        if domain_sid is None:
+            return None
+        return f"{domain_sid}{result}"
+    return result
 
 
 def _gpo_apply_trustee_sids(
