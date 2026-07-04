@@ -50,25 +50,50 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         computer_dn: str = Form(""),
         _principal_auth: Principal = Depends(requires(Permission.VIEW)),
     ) -> HTMLResponse:
-        from gpo_lens.merge import principal_resultant
+        from gpo_lens.merge import principal_resultant, resolve_principal_input
 
-        principal_sid = principal_sid.strip()
-        if not principal_sid:
+        principal_input = principal_sid.strip()
+        if not principal_input:
             return templates.TemplateResponse(
                 request,
                 "resultant.html",
-                {"request": request, "result": None, "error": "A principal SID is required."},
+                {"request": request, "result": None,
+                 "error": "A principal SID or name is required."},
             )
         conn = get_ro_conn(app.state.db_path)
         try:
             estate = _store.load_estate(conn)
         finally:
             conn.close()
+
+        resolved_sid = resolve_principal_input(estate, principal_input)
+        if resolved_sid is None:
+            return templates.TemplateResponse(
+                request,
+                "resultant.html",
+                {"request": request, "result": None,
+                 "error": f"Could not resolve '{principal_input}' to a principal. "
+                          "Enter a SID (S-1-...) or a known principal/group name."},
+            )
+
+        resolved_computer_sid: str | None = None
+        comp_input = computer_sid.strip()
+        if comp_input:
+            resolved_computer_sid = resolve_principal_input(estate, comp_input)
+            if resolved_computer_sid is None:
+                return templates.TemplateResponse(
+                    request,
+                    "resultant.html",
+                    {"request": request, "result": None,
+                     "error": f"Could not resolve '{comp_input}' to a computer principal. "
+                              "Enter a SID (S-1-...) or a known principal/group name."},
+                )
+
         try:
             result = principal_resultant(
                 estate,
-                principal_sid,
-                computer_sid=computer_sid.strip() or None,
+                resolved_sid,
+                computer_sid=resolved_computer_sid,
                 dn=dn.strip() or None,
                 computer_dn=computer_dn.strip() or None,
             )

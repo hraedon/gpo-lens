@@ -67,6 +67,7 @@ __all__ = [
     "merge_settings",
     "merge_settings_with_exclusions",
     "principal_resultant",
+    "resolve_principal_input",
 ]
 
 
@@ -577,6 +578,27 @@ def _build_name_to_sid_map(estate: Estate) -> dict[str, str]:
         if gm.name:
             out.setdefault(gm.name.lower(), sid)
     return out
+
+
+def resolve_principal_input(estate: Estate, principal_input: str) -> str | None:
+    """Resolve a principal name or SID to a canonical SID string.
+
+    If the input looks like a SID (starts with ``S-1-``, case-insensitive),
+    it is returned lowercased. Otherwise the input is matched against
+    collected principal names, SAM account names, and well-known group
+    names (Authenticated Users, Domain Users, etc.) to find the
+    corresponding SID.
+
+    Returns ``None`` when the input cannot be resolved — the caller should
+    surface a user-facing error in that case.
+    """
+    s = principal_input.strip()
+    if not s:
+        return None
+    if s.lower().startswith("s-1-"):
+        return s.lower()
+    name_to_sid = _build_name_to_sid_map(estate)
+    return name_to_sid.get(s.lower())
 
 
 def _gpo_apply_trustee_sids(

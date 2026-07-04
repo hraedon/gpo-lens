@@ -293,9 +293,23 @@ class Estate:
         sites. If ``gpos`` is mutated after first access the cache goes stale;
         callers that modify ``gpos`` should set ``_gpo_index = None`` to
         invalidate.
+
+        Each GPO is indexed under both its stored ``id`` and a
+        hyphen-stripped, lowercased form. This bridges DBs written before
+        ``canonical_guid`` was changed to strip hyphens (cb21237): old
+        estates stored IDs like ``31b2f340-016d-11d2-945f-00c04fb984f9``
+        while the current canonical form is ``31b2f340016d11d2945f00c04fb984f9``.
+        Without the dual key, a canonical-form URL lookup misses the
+        hyphenated index key and returns 404.
         """
         if self._gpo_index is None:
-            self._gpo_index = {g.id: g for g in self.gpos}
+            idx: dict[str, Gpo] = {}
+            for g in self.gpos:
+                idx[g.id] = g
+                stripped = g.id.strip().strip("{}").strip().replace("-", "").lower()
+                if stripped != g.id:
+                    idx.setdefault(stripped, g)
+            self._gpo_index = idx
         return self._gpo_index
 
     @property
@@ -304,7 +318,12 @@ class Estate:
         return {g.id: g.name for g in self.gpo_index.values()}
 
     def gpo_by_id(self, gpo_id: str) -> Gpo | None:
-        return self.gpo_index.get(gpo_id)
+        result = self.gpo_index.get(gpo_id)
+        if result is None:
+            stripped = gpo_id.strip().strip("{}").strip().replace("-", "").lower()
+            if stripped != gpo_id:
+                result = self.gpo_index.get(stripped)
+        return result
 
 
 @runtime_checkable

@@ -17,6 +17,7 @@ from gpo_lens.merge import (
     ExcludedSetting,
     build_token,
     principal_resultant,
+    resolve_principal_input,
 )
 from gpo_lens.model import (
     DelegationEntry,
@@ -1326,3 +1327,63 @@ class TestLoopbackEdgeCases:
         shared = [m for m in result.settings if m.identity == r"HKCU\Software\Conflict"]
         assert len(shared) == 1
         assert shared[0].winning_value == "comp_val"
+
+
+# ---------------------------------------------------------------------------
+# resolve_principal_input — name/SID resolution for the Resultant form
+# ---------------------------------------------------------------------------
+
+
+class TestResolvePrincipalInput:
+    """Tests for resolve_principal_input — accepting a name or SID."""
+
+    def test_sid_input_returned_lowercased(self):
+        estate = _principal_estate()
+        result = resolve_principal_input(estate, "S-1-5-21-1000000000-2000000000-3000000000-1001")
+        assert result == USER_SID
+
+    def test_sid_input_case_insensitive(self):
+        estate = _principal_estate()
+        result = resolve_principal_input(estate, USER_SID.upper())
+        assert result == USER_SID
+
+    def test_resolves_by_sam_name(self):
+        estate = _principal_estate()
+        result = resolve_principal_input(estate, "jdoe")
+        assert result == USER_SID
+
+    def test_resolves_by_sam_name_case_insensitive(self):
+        estate = _principal_estate()
+        result = resolve_principal_input(estate, "JDOE")
+        assert result == USER_SID
+
+    def test_resolves_by_full_name(self):
+        estate = _principal_estate()
+        result = resolve_principal_input(estate, "TEST\\jdoe")
+        assert result == USER_SID
+
+    def test_resolves_group_name(self):
+        estate = _principal_estate()
+        result = resolve_principal_input(estate, "Helpdesk Operators")
+        assert result == GROUP_SID
+
+    def test_resolves_well_known_name(self):
+        estate = _principal_estate()
+        result = resolve_principal_input(estate, "Authenticated Users")
+        assert result == "s-1-5-11"
+
+    def test_resolves_well_known_name_case_insensitive(self):
+        estate = _principal_estate()
+        result = resolve_principal_input(estate, "domain users")
+        assert result is not None
+        assert result.endswith("-513")
+
+    def test_unresolvable_name_returns_none(self):
+        estate = _principal_estate()
+        result = resolve_principal_input(estate, "nonexistent_user")
+        assert result is None
+
+    def test_empty_input_returns_none(self):
+        estate = _principal_estate()
+        assert resolve_principal_input(estate, "") is None
+        assert resolve_principal_input(estate, "   ") is None

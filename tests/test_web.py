@@ -1918,12 +1918,12 @@ class TestResultantRoute:
     def test_post_empty_sid_shows_error(self, client) -> None:
         resp = client.post("/resultant", data={"principal_sid": ""})
         assert resp.status_code == 200
-        assert "A principal SID is required" in resp.text
+        assert "A principal SID or name is required" in resp.text
 
     def test_post_whitespace_sid_shows_error(self, client) -> None:
         resp = client.post("/resultant", data={"principal_sid": "   "})
         assert resp.status_code == 200
-        assert "A principal SID is required" in resp.text
+        assert "A principal SID or name is required" in resp.text
 
     def test_post_valid_sid_returns_result(self, client) -> None:
         resp = client.post("/resultant", data={

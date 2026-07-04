@@ -542,3 +542,68 @@ def test_restrict_db_permissions_also_restricts_wal_shm(tmp_path):
         if os.path.exists(path):
             mode = stat.S_IMODE(os.stat(path).st_mode)
             assert mode == 0o600, f"{path} has mode {oct(mode)}, expected 0o600"
+
+
+# ---------------------------------------------------------------------------
+# Hyphenated GPO ID backward compatibility (cb21237 regression)
+# ---------------------------------------------------------------------------
+
+_HYPHEN_ID = "31b2f340-016d-11d2-945f-00c04fb984f9"
+_CANON_ID = "31b2f340016d11d2945f00c04fb984f9"
+
+
+def test_gpo_by_id_finds_hyphenated_via_canonical_lookup(tmp_path):
+    """A GPO stored with a hyphenated ID (pre-cb21237 DB) must be found
+    when the lookup uses the current canonical (hyphen-stripped) form.
+
+    This is the root cause of the /gpo/{id} 404: the web route canonicalizes
+    the URL param (strips hyphens) but the gpo_index was keyed by the
+    stored ID (with hyphens).
+    """
+    gpo = _make_gpo(id=_HYPHEN_ID, name="Default Domain Policy")
+    estate = Estate(domain="test.local", gpos=[gpo])
+
+    assert estate.gpo_by_id(_HYPHEN_ID) is not None
+    assert estate.gpo_by_id(_CANON_ID) is not None
+    assert estate.gpo_by_id(_CANON_ID.upper()) is not None
+    assert estate.gpo_by_id("{" + _HYPHEN_ID.upper() + "}") is not None
+
+
+def test_gpo_by_id_finds_canonical_via_hyphenated_lookup(tmp_path):
+    """A GPO stored with a canonical (no-hyphens) ID must also be found
+    when the lookup uses a hyphenated form."""
+    gpo = _make_gpo(id=_CANON_ID, name="Default Domain Policy")
+    estate = Estate(domain="test.local", gpos=[gpo])
+
+    assert estate.gpo_by_id(_CANON_ID) is not None
+    assert estate.gpo_by_id(_HYPHEN_ID) is not None
+
+
+def test_hyphenated_gpo_id_round_trips_through_db(tmp_path):
+    """An estate saved with hyphenated GPO IDs (simulating an old DB) must
+    load back and be findable via the canonical (hyphen-stripped) form."""
+    db = tmp_path / "hyphen.db"
+    conn = sqlite3.connect(str(db))
+    store.init_db(conn)
+
+    gpo = _make_gpo(
+        id=_HYPHEN_ID,
+        name="Old Estate GPO",
+        settings=[
+            Setting(
+                gpo_id=_HYPHEN_ID, side="Computer", cse="Security",
+                identity="X", display_name="X", display_value="1",
+                raw={}, from_disabled_side=False,
+            ),
+        ],
+    )
+    sid = store.save_estate(conn, Estate(domain="test.local", gpos=[gpo]))
+    loaded = store.load_estate(conn, sid)
+    conn.close()
+
+    assert loaded.gpo_by_id(_CANON_ID) is not None
+    assert loaded.gpo_by_id(_HYPHEN_ID) is not None
+    found = loaded.gpo_by_id(_CANON_ID)
+    assert found is not None
+    assert found.name == "Old Estate GPO"
+    assert len(found.settings) == 1

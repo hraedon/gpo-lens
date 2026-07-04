@@ -15,7 +15,7 @@ _HYPHENATED_GUID = re.compile(
     r"(?<!\{)[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
 )
 
-_EXEMPT = {"test_normalize.py"}
+_EXEMPT = {"test_normalize.py", "test_store.py"}
 
 
 def test_no_bare_hyphenated_guids_in_test_files() -> None:
