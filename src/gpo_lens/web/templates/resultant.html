@@ -31,16 +31,16 @@
   <form method="post" action="{{ url_for('resultant_compute') }}">
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;max-width:800px">
       <div>
-        <label for="principal_sid">Principal SID *</label>
+        <label for="principal_sid">Principal SID or name *</label>
         <input type="text" id="principal_sid" name="principal_sid" required
                class="mono" style="width:100%;padding:6px 8px"
-               placeholder="S-1-5-21-...-1234">
+               placeholder="S-1-5-21-...-1234 or jdoe">
       </div>
       <div>
-        <label for="computer_sid">Computer SID (optional)</label>
+        <label for="computer_sid">Computer SID or name (optional)</label>
         <input type="text" id="computer_sid" name="computer_sid"
                class="mono" style="width:100%;padding:6px 8px"
-               placeholder="S-1-5-21-...-5678">
+               placeholder="S-1-5-21-...-5678 or WKSTN01$">
       </div>
       <div>
         <label for="dn">Principal DN (optional)</label>
