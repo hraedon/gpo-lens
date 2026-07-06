@@ -8,6 +8,7 @@ and trustee/rights normalization so the two predicates stop drifting.
 
 from __future__ import annotations
 
+import re
 import warnings
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -32,6 +33,7 @@ __all__ = [
     "READ_IMPLYING_PERMISSIONS",
     "SCOPE_BROAD_TRUSTEES",
     "SddlApplyAce",
+    "SID_RE",
     "applies_broadly",
     "broad_trustee_key",
     "canonical_sddl_sid",
@@ -51,6 +53,8 @@ __all__ = [
 AU_SID = "s-1-5-11"
 EVERYONE_SID = "s-1-1-0"
 DOMAIN_SID_PREFIX = "s-1-5-21-"
+
+SID_RE = re.compile(r"^s-1-([0-9]+-)+[0-9]+$", re.IGNORECASE)
 
 # SDDL right codes that convey Read or Apply Group Policy access.
 # Used by danger, merge, and topology to test whether an ACE grants

@@ -21,4 +21,4 @@ __all__ = [
     "Som",
     "SomLink",
 ]
-__version__ = "0.8.5"
+__version__ = "1.0.0"

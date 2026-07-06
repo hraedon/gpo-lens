@@ -1,6 +1,12 @@
 # Changelog
 
-## Unreleased
+## v1.0.0 — 2026-07-06
+
+First stable release. Local-first, read-only Group Policy analysis with a
+deterministic core (no AI in the truth path) and an optional LLM narration
+layer. Covers Tier 1 hygiene scans, Tier 2 baseline comparison, Tier 2.5
+OU-level topology, and Tier 3 AI narration. See `README.md` for the full
+feature set.
 
 ### SDDL parser — reference-validated fixes (from the 2026-07-01 differential review)
 
@@ -100,6 +106,253 @@
   the build.
 - New `supply-chain` job runs `pip-audit` (`--strict`) against the locked
   runtime + web dependency set on every push and PR.
+
+### Code-quality fixes for v1.0.0
+
+- **SID validation regex centralized.** `SID_RE` in `authz.py` is now the
+  single source of truth for SID format validation, replacing two independent
+  copies in `merge.py` and `cli/_resultant.py`. The CLI copy used `\d`
+  (matches Unicode digits — false positives) while `merge.py` used `[0-9]`
+  (ASCII only, correct). A SID with Unicode digits previously passed CLI
+  validation but failed in the merge engine, producing a confusing "Principal
+  not found" error.
+- **`_load_row_sets` extracted to module scope** in `snapshot_diff.py`,
+  making the table/column allow-list guards directly testable. Previously a
+  nested function that could not be exercised from outside the module.
+- **Chunking path now tested.** The >500-GPO chunked query path in
+  `snapshot_diff` is exercised by a test that monkeypatches the chunk size
+  and verifies merge-across-chunks correctness via a call spy.
+- **Shared `_make_gpo()` test helper** extracted to `tests/_helpers.py`,
+  eliminating ~400 lines of boilerplate `Gpo(...)` construction in
+  `test_topology.py` and ensuring new `Gpo` fields don't require updating
+  every test.
+- **Drained `PENDING-REGISTA-WI.md`.** The flaky
+  `test_concurrent_upload_returns_409` test is now deterministic (explicitly
+  acquires the ingest lock before the concurrent request). The transient
+  holding file has been deleted.
+
+### Earlier unreleased work (folded into v1.0.0)
+
+#### Fix: CI coverage gate raised from 20% to 85% — synthetic estate already built (WI-074)
+
+- The WI-070 entry described a `--cov-fail-under=20` CI floor as necessary
+  because "sample-dependent calibration tests are skipped on a fresh
+  checkout, yielding only ~20.7%." That framing was **stale**: two synthetic
+  fixture estates (`tests/fixtures/` — 14 GPOs, and `tests/golden_estate/` —
+  6 GPOs) had already landed with comprehensive structural test suites that
+  drive CI coverage to **~92%** without samples. The 20% gate was a
+  false-confidence hazard in the opposite direction — it would let a
+  regression that deleted half the detection module pass green.
+- The CI gate is now `--cov-fail-under=85`, leaving 7% headroom below the
+  measured 92% for CLI/web presentation-layer evolution while catching any
+  real regression. Stale comments in `pyproject.toml`, `ci.yml`, and
+  `plans/010-capability-roadmap.md` corrected.
+- Added targeted core-coverage tests for previously-untested branches in the
+  deterministic core (not presentation wrappers):
+  - `registry_pol.py` — all 8 malformed/truncated PReg record branches
+    (missing separators, truncated DWORDs, truncated data, missing close
+    bracket) and the `_read_utf16_null` no-null-terminator fallback. Coverage:
+    90% → **100%**.
+  - `danger.py` — the `in`/`present`/`min`/`max` predicate evaluators (shipped
+    rules use only `equals`), the `absent` estate-wide rule path, the
+    `_parse_compliance` malformed-entry warning branches, and ADMX
+    display-name identity resolution through `evaluate_danger_rules`. Coverage:
+    90% → **98%**.
+  - `ingest.py` — the flat `<Permission>` delegation fallback (alternate SDDL
+    parsing path used by older/third-party GPO reports). Coverage: 91% → 93%.
+- Cross-model adversarial review (kimi) ran against all new tests; four
+  SHOULD-FIX findings (missing line-175 test, unasserted `<Type>` fallback,
+  uncovered `_parse_compliance` empty-field branch, untested ADMX resolution)
+  were addressed before this entry.
+
+#### Behavior change: load_danger_rules now raises RuntimeError on shipped-rules failure (WI-069)
+
+- `load_danger_rules()` in `src/gpo_lens/danger.py` previously returned an
+  empty list (`[]`) silently when the shipped `danger_rules.toml` failed to
+  load or contained no rules. This meant every curated danger check was
+  effectively disabled without any signal — a security tool that swallows
+  its own rule-set failure would report a clean estate while having no rules
+  to evaluate.
+- It now raises `RuntimeError` with a descriptive message when the shipped
+  rules file is missing, corrupt, or empty. This is a fail-fast policy: a
+  packaging bug, accidental deletion, or file corruption must be loud, not
+  silent.
+- **User-supplied rules via `GPO_LENS_DANGER_RULES_DIR` are unaffected.**
+  Malformed TOML in a drop-in directory produces a `warnings.warn` and is
+  skipped; the load does not abort. Only the shipped `danger_rules.toml`
+  (part of the package) is subject to the fail-fast contract.
+
+#### Fix: `narration.call_llm` no longer leaks Anthropic headers to non-Anthropic endpoints (WI-064)
+
+- `call_llm` previously sent `x-api-key` and `anthropic-version` headers
+  unconditionally, regardless of `GPO_LENS_LLM_ENDPOINT`. This caused
+  OpenAI-compatible proxies that reject unknown headers to fail, and meant the
+  Anthropic API key was sent to whichever host the operator pointed at.
+- Headers are now chosen by hostname detection: Anthropic hosts
+  (`api.anthropic.com` and `*.anthropic.com`) get `x-api-key` + `anthropic-version`;
+  all other hosts get `Authorization: Bearer <key>`. Lookalike and suffix-attack
+  domains (`api.anthropic.com.evil.com`, `xanthropic.com`, etc.) are correctly
+  treated as non-Anthropic — the leading dot in `.anthropic.com` defeats the
+  suffix attack.
+- A new `GPO_LENS_LLM_PROVIDER` env var (`anthropic` / `openai` / `auto`,
+  default `auto`, case-insensitive) lets operators force the header style when
+  a proxy or gateway hostname is ambiguous. Unrecognized values fall through
+  to `auto` detection rather than failing — narration degrades gracefully.
+- **The request body shape is unchanged** (still Anthropic-shaped
+  `{"system":..., "messages":[...]}`). True OpenAI chat-completions endpoints
+  will still not work end-to-end; that is filed as a separate work item.
+
+#### Fix: SYSVOL never collected — clobbered `$dom` AD-domain object (the real root cause)
+
+- **The principals/SID-resolution loop reused `$dom` as a local** for the
+  `DOMAIN\user` part of a translated SID, overwriting the script-level
+  `Get-ADDomain` object set at the top. By the time the SYSVOL copy ran,
+  `$dom.DNSRoot` was empty, so the source path became `\\\SYSVOL\\Policies`
+  (a path that does not exist) and the copy collected **nothing** — every
+  SYSVOL/GPP/cPassword detector went blind. The same clobber also broke the
+  Get-ADObject SID supplement (it calls `$dom.DNSRoot` after the clobber, into
+  an empty `catch`) and nulled the `domain` field in principals/group exports.
+- Renamed the loop-local to `$domPart`; `$dom` is now assigned exactly once.
+  This is a **pre-existing regression** from the principal-resolution feature,
+  not from the recent SYSVOL/identity work — but the earlier false-success bug
+  hid it (it reported "SYSVOL copy" success despite 0 files); the false-success
+  fix is what surfaced it.
+- **Validated end-to-end on a live domain** (scheduled task as the machine
+  account, no stored credential): SYSVOL-Policies went from 0 files to **5,328
+  files / ~90 MB across 17 policy folders**, `principals.domain` resolved
+  correctly, and one security-filtered folder was honestly flagged inaccessible
+  rather than silently dropped.
+- **New AST guard** (`scripts-parse.Tests.ps1`): asserts `$dom` is assigned
+  exactly once in the collector, so this clobber cannot regress.
+
+#### Fix: collector aborted with parser "formatting" errors (non-ASCII)
+
+- **`Export-GpoEstate.ps1` had an em-dash (`—`) inside a string literal**, added
+  with the SYSVOL-coverage work. PowerShell 5.1 reads a BOM-less `.ps1` as the
+  ANSI code page, so the em-dash's bytes corrupted the string token and the
+  parser aborted the whole script with a cascade of misleading syntax errors
+  before it ran anything. Scrubbed the script to ASCII-only. Confirmed it now
+  parses and executes on a real domain-joined Windows box (PS 5.1).
+- **New pester guard** (`tests/powershell/scripts-parse.Tests.ps1`,
+  windows-latest CI): AST-parses every `scripts/*.ps1` and asserts ASCII-only,
+  covering the collector that the install/uninstall unit tests never load. This
+  is the gap that let the break ship — the collector had no CI parse check.
+
+#### Remove estate imports from the web UI
+
+- **The Ingest page can now delete a snapshot.** Each row in the Snapshots table
+  has a Delete action (with a confirm and the newest snapshot marked
+  `current`); removal cascades away the whole estate via the existing
+  `snapshot(id) ON DELETE CASCADE` foreign keys. Deleting the current snapshot
+  falls back to the next newest; deleting all returns to the empty-estate state.
+  Gated on the `INGEST` permission and the same-origin CSRF check, and audited
+  (`audit.snapshot_delete`). New `store.delete_snapshot`.
+
+#### New: Conflicts view (`/conflicts`)
+
+- **Estate-wide conflict surfacing — two lenses, both previously CLI-only.**
+  - **Resolved (who wins):** `topology.precedence_conflict_rollup` collapses the
+    per-OU resolved conflicts into one row per *root cause* (competing settings +
+    winner), ranked by blast radius. On a real estate this turned **10,935 per-OU
+    conflict instances into 58 distinct conflicts** — the same handful of GPO
+    pairs re-counted down the OU tree. Each row expands to the scopes it spreads
+    to; winner and overridden GPOs deep-link to their detail pages.
+  - **Defined inconsistently:** `queries.conflicts` lists settings assigned
+    different values across the estate (89 on the same export — most newly
+    visible now that GPP/Audit/Printers identities are readable and bucket).
+  - The "Setting conflicts" posture card links here (it was previously a dead
+    count), plus a primary-nav entry.
+- *Perf note:* the resolved lens resolves every OU chain (~3s on a 900-OU
+  estate), so it is computed only when its tab is the active view; the defined
+  lens is cheap. Caching the rollup is a future optimization.
+
+#### Readable identities everywhere — no hashed setting keys
+
+- **Every CSE now resolves to a human-readable identity; the opaque
+  `<cse>:<block>:<hash>` fallback is gone.** Validated against a real 3,900-setting
+  export: zero hashed identities remain (was ~1,900). This fixes the unreadable
+  `IDENTITY` column in the GPO detail view, the Effective/Resultant table, **and**
+  OU browsing — they all render the same `identity`.
+  - **GPP preferences** (Drive Maps, Printers, Services, Scheduled Tasks,
+    Shortcuts, Files, Folders, Local Users & Groups, Power Options) expand into
+    one readable row per item (`PortPrinter:floor1-printer`, `Drive:I:`).
+  - **Security** keys on the real child element, not an attribute
+    (`Account:ClearTextPassword`, `UserRightsAssignment:SeAssignPrimaryTokenPrivilege`,
+    `RestrictedGroups:BUILTIN\Remote Desktop Users`), while the legacy
+    `Type`-attribute form still maps to the same key for cross-export diffs.
+  - **Advanced Audit** uses the subcategory (`AuditSetting:Audit Credential
+    Validation`); **Folder Redirection** resolves the KnownFolder GUID to a name
+    (`Folder Redirection:Documents` = destination path).
+  - Anything else falls back to `<BlockType>:<natural key>` from the first naming
+    child/attribute, degrading to the block type for a genuine singleton. A
+    readable-but-duplicate key is disambiguated with an ordinal (`… #2`), never a
+    hash.
+
+#### New: Inventory tab
+
+- **`/inventory` lists every GPO with drill-in to detail**, with search (name or
+  GUID), a status filter (linked / unlinked / empty / both-sides-disabled), and
+  sort by name / links / settings / modified. Added to the primary nav. This is
+  the "show me all the GPOs" browser the severity-sorted dashboard findings list
+  was never meant to be.
+
+#### Dashboard findings: usable by default
+
+- **Informational findings are hidden by default.** A large estate can carry
+  thousands of `info`-level rows (e.g. ~4,000 enforced links) that buried the
+  actionable findings across dozens of pages. The default view now shows
+  critical/high/medium/low with a "Show all" escape hatch and an "All (incl.
+  info)" filter option; a posture deep-link still shows its whole category.
+- **Estate-wide findings no longer render a blank GPO cell** — they read
+  `(estate-wide)` instead, so the GPO-name sort is no longer dominated by blanks.
+
+#### Collector: SYSVOL-less exports no longer pass silently
+
+- **`Export-GpoEstate.ps1` now verifies SYSVOL files actually landed before
+  reporting "SYSVOL copy" success.** Previously the section reported success
+  whenever no copy *exception* was thrown — which was also true when the source
+  share enumerated zero policy folders (unreachable `\\domain\SYSVOL\…\Policies`,
+  DFS/auth failure) and nothing was copied. That produced an export ~5% of normal
+  size with **no SYSVOL data at all**, which silently blinds every SYSVOL-only
+  detector (cPassword, GPP Scheduled Tasks, GPP Local Users & Groups,
+  `Registry.pol` resolution). The copy now counts files on disk and surfaces the
+  source enumeration error (no longer swallowed by `SilentlyContinue`), failing
+  the section with a "GPP/cPassword detection will be BLIND" message instead.
+- **Zip step reconciles archived-vs-on-disk file counts.** PowerShell 5.1's
+  `Get-ChildItem -Recurse` silently skips paths over `MAX_PATH` (260 chars) —
+  exactly the deep SYSVOL/GPP trees — so an archive could omit whole subtrees
+  while still printing "Done". The collector now warns loudly when paths could
+  not be enumerated and prints the zipped file count.
+
+#### Ingest: a missing SYSVOL is a loud, critical finding
+
+- **`load_estate` emits a `missing_sysvol` coverage gap** when no GPO matched a
+  SYSVOL folder (directory absent or empty). It surfaces as a **critical** Doctor
+  finding ("No SYSVOL collected — GPP/cPassword detectors are BLIND, not clean"),
+  so a SYSVOL-blind run can no longer masquerade as a clean estate.
+
+#### GPO detail: readable Registry identities
+
+- **Group Policy Preferences Registry settings are now parsed into one readable
+  row per value** (`HKLM\key:name = value`) instead of collapsing an entire
+  `<RegistrySettings>`/`<Collection>`/`<Registry>`/`<Properties>` tree into a
+  single opaque `Registry:Policy:<hash>` row. GPP `action` (C/R/U/D) is preserved
+  in each row's `raw` for merge logic.
+- **Administrative-Templates policies** (`<Policy>`) now use the
+  category-qualified policy name as identity (e.g.
+  `Windows Components/Internet Explorer/Site to Zone Assignment List = Enabled`),
+  and classic `<RegistrySetting>` blocks resolve to `KeyPath:ValueName`. The
+  unreadable hashed-identity rows in the Registry table are gone.
+
+#### Dashboard: clickable Posture indicators
+
+- **Posture cards deep-link into the Doctor-findings table, pre-filtered to that
+  issue.** The findings list gained a `category` filter (exact or `cat:`-prefix,
+  so "Broken references" catches every `broken_ref:<type>`); each fired card that
+  has a backing finding category is now an anchor to `?category=…#findings` with
+  an active-filter chip and clear (✕). Set conflicts, loopback, and WMI-filtered
+  cards have no backing finding and stay non-clickable rather than dead-ending on
+  empty results.
 
 ## v0.8.5 — 2026-06-26
 
@@ -255,243 +508,6 @@
   DB, report auto-detection gating, fuzzy key matching false positives,
   golden_diff summary undercount, duplicate GPO name handling, original
   casing preservation, Protocol conformance, docstring accuracy).
-
-## Unreleased
-
-### Fix: CI coverage gate raised from 20% to 85% — synthetic estate already built (WI-074)
-
-- The WI-070 entry below described a `--cov-fail-under=20` CI floor as
-  necessary because "sample-dependent calibration tests are skipped on a fresh
-  checkout, yielding only ~20.7%." That framing was **stale**: two synthetic
-  fixture estates (`tests/fixtures/` — 14 GPOs, and `tests/golden_estate/` —
-  6 GPOs) had already landed with comprehensive structural test suites that
-  drive CI coverage to **~92%** without samples. The 20% gate was a
-  false-confidence hazard in the opposite direction — it would let a
-  regression that deleted half the detection module pass green.
-- The CI gate is now `--cov-fail-under=85`, leaving 7% headroom below the
-  measured 92% for CLI/web presentation-layer evolution while catching any
-  real regression. Stale comments in `pyproject.toml`, `ci.yml`, and
-  `plans/010-capability-roadmap.md` corrected.
-- Added targeted core-coverage tests for previously-untested branches in the
-  deterministic core (not presentation wrappers):
-  - `registry_pol.py` — all 8 malformed/truncated PReg record branches
-    (missing separators, truncated DWORDs, truncated data, missing close
-    bracket) and the `_read_utf16_null` no-null-terminator fallback. Coverage:
-    90% → **100%**.
-  - `danger.py` — the `in`/`present`/`min`/`max` predicate evaluators (shipped
-    rules use only `equals`), the `absent` estate-wide rule path, the
-    `_parse_compliance` malformed-entry warning branches, and ADMX
-    display-name identity resolution through `evaluate_danger_rules`. Coverage:
-    90% → **98%**.
-  - `ingest.py` — the flat `<Permission>` delegation fallback (alternate SDDL
-    parsing path used by older/third-party GPO reports). Coverage: 91% → 93%.
-- Cross-model adversarial review (kimi) ran against all new tests; four
-  SHOULD-FIX findings (missing line-175 test, unasserted `<Type>` fallback,
-  uncovered `_parse_compliance` empty-field branch, untested ADMX resolution)
-  were addressed before this entry.
-
-### Fix: CI coverage gate false-confidence hazard (WI-070)
-
-- The 85% coverage threshold in `pyproject.toml` `addopts` was unrealistic
-  for CI: `samples/` is gitignored, so sample-dependent calibration tests
-  (which push coverage to ~90%) are skipped on a fresh checkout, yielding
-  only ~20.7%. This meant CI could pass locally but fail on a fresh
-  checkout, or vice versa — a false-confidence hazard.
-- `--cov-fail-under` is now removed from `addopts` (local dev no longer
-  fails on coverage — it still reports). The CI workflow enforces a
-  realistic 20% floor that catches catastrophic regressions (e.g., tests
-  don't run at all) without false-failing on normal code. Building a
-  synthetic fixture estate to run calibration tests deterministically
-  everywhere is tracked as a future improvement.
-
-### Behavior change: load_danger_rules now raises RuntimeError on shipped-rules failure (WI-069)
-
-- `load_danger_rules()` in `src/gpo_lens/danger.py` previously returned an
-  empty list (`[]`) silently when the shipped `danger_rules.toml` failed to
-  load or contained no rules. This meant every curated danger check was
-  effectively disabled without any signal — a security tool that swallows
-  its own rule-set failure would report a clean estate while having no rules
-  to evaluate.
-- It now raises `RuntimeError` with a descriptive message when the shipped
-  rules file is missing, corrupt, or empty. This is a fail-fast policy: a
-  packaging bug, accidental deletion, or file corruption must be loud, not
-  silent.
-- **User-supplied rules via `GPO_LENS_DANGER_RULES_DIR` are unaffected.**
-  Malformed TOML in a drop-in directory produces a `warnings.warn` and is
-  skipped; the load does not abort. Only the shipped `danger_rules.toml`
-  (part of the package) is subject to the fail-fast contract.
-
-### Fix: `narration.call_llm` no longer leaks Anthropic headers to non-Anthropic endpoints (WI-064)
-
-- `call_llm` previously sent `x-api-key` and `anthropic-version` headers
-  unconditionally, regardless of `GPO_LENS_LLM_ENDPOINT`. This caused
-  OpenAI-compatible proxies that reject unknown headers to fail, and meant the
-  Anthropic API key was sent to whichever host the operator pointed at.
-- Headers are now chosen by hostname detection: Anthropic hosts
-  (`api.anthropic.com` and `*.anthropic.com`) get `x-api-key` + `anthropic-version`;
-  all other hosts get `Authorization: Bearer <key>`. Lookalike and suffix-attack
-  domains (`api.anthropic.com.evil.com`, `xanthropic.com`, etc.) are correctly
-  treated as non-Anthropic — the leading dot in `.anthropic.com` defeats the
-  suffix attack.
-- A new `GPO_LENS_LLM_PROVIDER` env var (`anthropic` / `openai` / `auto`,
-  default `auto`, case-insensitive) lets operators force the header style when
-  a proxy or gateway hostname is ambiguous. Unrecognized values fall through
-  to `auto` detection rather than failing — narration degrades gracefully.
-- **The request body shape is unchanged** (still Anthropic-shaped
-  `{"system":..., "messages":[...]}`). True OpenAI chat-completions endpoints
-  will still not work end-to-end; that is filed as a separate work item.
-
-### Fix: SYSVOL never collected — clobbered `$dom` AD-domain object (the real root cause)
-
-- **The principals/SID-resolution loop reused `$dom` as a local** for the
-  `DOMAIN\user` part of a translated SID, overwriting the script-level
-  `Get-ADDomain` object set at the top. By the time the SYSVOL copy ran,
-  `$dom.DNSRoot` was empty, so the source path became `\\\SYSVOL\\Policies`
-  (a path that does not exist) and the copy collected **nothing** — every
-  SYSVOL/GPP/cPassword detector went blind. The same clobber also broke the
-  Get-ADObject SID supplement (it calls `$dom.DNSRoot` after the clobber, into
-  an empty `catch`) and nulled the `domain` field in principals/group exports.
-- Renamed the loop-local to `$domPart`; `$dom` is now assigned exactly once.
-  This is a **pre-existing regression** from the principal-resolution feature,
-  not from the recent SYSVOL/identity work — but the earlier false-success bug
-  hid it (it reported "SYSVOL copy" success despite 0 files); the false-success
-  fix is what surfaced it.
-- **Validated end-to-end on a live domain** (scheduled task as the machine
-  account, no stored credential): SYSVOL-Policies went from 0 files to **5,328
-  files / ~90 MB across 17 policy folders**, `principals.domain` resolved
-  correctly, and one security-filtered folder was honestly flagged inaccessible
-  rather than silently dropped.
-- **New AST guard** (`scripts-parse.Tests.ps1`): asserts `$dom` is assigned
-  exactly once in the collector, so this clobber cannot regress.
-
-### Fix: collector aborted with parser "formatting" errors (non-ASCII)
-
-- **`Export-GpoEstate.ps1` had an em-dash (`—`) inside a string literal**, added
-  with the SYSVOL-coverage work. PowerShell 5.1 reads a BOM-less `.ps1` as the
-  ANSI code page, so the em-dash's bytes corrupted the string token and the
-  parser aborted the whole script with a cascade of misleading syntax errors
-  before it ran anything. Scrubbed the script to ASCII-only. Confirmed it now
-  parses and executes on a real domain-joined Windows box (PS 5.1).
-- **New pester guard** (`tests/powershell/scripts-parse.Tests.ps1`,
-  windows-latest CI): AST-parses every `scripts/*.ps1` and asserts ASCII-only,
-  covering the collector that the install/uninstall unit tests never load. This
-  is the gap that let the break ship — the collector had no CI parse check.
-
-### Remove estate imports from the web UI
-
-- **The Ingest page can now delete a snapshot.** Each row in the Snapshots table
-  has a Delete action (with a confirm and the newest snapshot marked
-  `current`); removal cascades away the whole estate via the existing
-  `snapshot(id) ON DELETE CASCADE` foreign keys. Deleting the current snapshot
-  falls back to the next newest; deleting all returns to the empty-estate state.
-  Gated on the `INGEST` permission and the same-origin CSRF check, and audited
-  (`audit.snapshot_delete`). New `store.delete_snapshot`.
-
-### New: Conflicts view (`/conflicts`)
-
-- **Estate-wide conflict surfacing — two lenses, both previously CLI-only.**
-  - **Resolved (who wins):** `topology.precedence_conflict_rollup` collapses the
-    per-OU resolved conflicts into one row per *root cause* (competing settings +
-    winner), ranked by blast radius. On a real estate this turned **10,935 per-OU
-    conflict instances into 58 distinct conflicts** — the same handful of GPO
-    pairs re-counted down the OU tree. Each row expands to the scopes it spreads
-    to; winner and overridden GPOs deep-link to their detail pages.
-  - **Defined inconsistently:** `queries.conflicts` lists settings assigned
-    different values across the estate (89 on the same export — most newly
-    visible now that GPP/Audit/Printers identities are readable and bucket).
-  - The "Setting conflicts" posture card links here (it was previously a dead
-    count), plus a primary-nav entry.
-- *Perf note:* the resolved lens resolves every OU chain (~3s on a 900-OU
-  estate), so it is computed only when its tab is the active view; the defined
-  lens is cheap. Caching the rollup is a future optimization.
-
-### Readable identities everywhere — no hashed setting keys
-
-- **Every CSE now resolves to a human-readable identity; the opaque
-  `<cse>:<block>:<hash>` fallback is gone.** Validated against a real 3,900-setting
-  export: zero hashed identities remain (was ~1,900). This fixes the unreadable
-  `IDENTITY` column in the GPO detail view, the Effective/Resultant table, **and**
-  OU browsing — they all render the same `identity`.
-  - **GPP preferences** (Drive Maps, Printers, Services, Scheduled Tasks,
-    Shortcuts, Files, Folders, Local Users & Groups, Power Options) expand into
-    one readable row per item (`PortPrinter:floor1-printer`, `Drive:I:`).
-  - **Security** keys on the real child element, not an attribute
-    (`Account:ClearTextPassword`, `UserRightsAssignment:SeAssignPrimaryTokenPrivilege`,
-    `RestrictedGroups:BUILTIN\Remote Desktop Users`), while the legacy
-    `Type`-attribute form still maps to the same key for cross-export diffs.
-  - **Advanced Audit** uses the subcategory (`AuditSetting:Audit Credential
-    Validation`); **Folder Redirection** resolves the KnownFolder GUID to a name
-    (`Folder Redirection:Documents` = destination path).
-  - Anything else falls back to `<BlockType>:<natural key>` from the first naming
-    child/attribute, degrading to the block type for a genuine singleton. A
-    readable-but-duplicate key is disambiguated with an ordinal (`… #2`), never a
-    hash.
-
-### New: Inventory tab
-
-- **`/inventory` lists every GPO with drill-in to detail**, with search (name or
-  GUID), a status filter (linked / unlinked / empty / both-sides-disabled), and
-  sort by name / links / settings / modified. Added to the primary nav. This is
-  the "show me all the GPOs" browser the severity-sorted dashboard findings list
-  was never meant to be.
-
-### Dashboard findings: usable by default
-
-- **Informational findings are hidden by default.** A large estate can carry
-  thousands of `info`-level rows (e.g. ~4,000 enforced links) that buried the
-  actionable findings across dozens of pages. The default view now shows
-  critical/high/medium/low with a "Show all" escape hatch and an "All (incl.
-  info)" filter option; a posture deep-link still shows its whole category.
-- **Estate-wide findings no longer render a blank GPO cell** — they read
-  `(estate-wide)` instead, so the GPO-name sort is no longer dominated by blanks.
-
-### Collector: SYSVOL-less exports no longer pass silently
-
-- **`Export-GpoEstate.ps1` now verifies SYSVOL files actually landed before
-  reporting "SYSVOL copy" success.** Previously the section reported success
-  whenever no copy *exception* was thrown — which was also true when the source
-  share enumerated zero policy folders (unreachable `\\domain\SYSVOL\…\Policies`,
-  DFS/auth failure) and nothing was copied. That produced an export ~5% of normal
-  size with **no SYSVOL data at all**, which silently blinds every SYSVOL-only
-  detector (cPassword, GPP Scheduled Tasks, GPP Local Users & Groups,
-  `Registry.pol` resolution). The copy now counts files on disk and surfaces the
-  source enumeration error (no longer swallowed by `SilentlyContinue`), failing
-  the section with a "GPP/cPassword detection will be BLIND" message instead.
-- **Zip step reconciles archived-vs-on-disk file counts.** PowerShell 5.1's
-  `Get-ChildItem -Recurse` silently skips paths over `MAX_PATH` (260 chars) —
-  exactly the deep SYSVOL/GPP trees — so an archive could omit whole subtrees
-  while still printing "Done". The collector now warns loudly when paths could
-  not be enumerated and prints the zipped file count.
-
-### Ingest: a missing SYSVOL is a loud, critical finding
-
-- **`load_estate` emits a `missing_sysvol` coverage gap** when no GPO matched a
-  SYSVOL folder (directory absent or empty). It surfaces as a **critical** Doctor
-  finding ("No SYSVOL collected — GPP/cPassword detectors are BLIND, not clean"),
-  so a SYSVOL-blind run can no longer masquerade as a clean estate.
-
-### GPO detail: readable Registry identities
-
-- **Group Policy Preferences Registry settings are now parsed into one readable
-  row per value** (`HKLM\key:name = value`) instead of collapsing an entire
-  `<RegistrySettings>`/`<Collection>`/`<Registry>`/`<Properties>` tree into a
-  single opaque `Registry:Policy:<hash>` row. GPP `action` (C/R/U/D) is preserved
-  in each row's `raw` for merge logic.
-- **Administrative-Templates policies** (`<Policy>`) now use the
-  category-qualified policy name as identity (e.g.
-  `Windows Components/Internet Explorer/Site to Zone Assignment List = Enabled`),
-  and classic `<RegistrySetting>` blocks resolve to `KeyPath:ValueName`. The
-  unreadable hashed-identity rows in the Registry table are gone.
-
-### Dashboard: clickable Posture indicators
-
-- **Posture cards deep-link into the Doctor-findings table, pre-filtered to that
-  issue.** The findings list gained a `category` filter (exact or `cat:`-prefix,
-  so "Broken references" catches every `broken_ref:<type>`); each fired card that
-  has a backing finding category is now an anchor to `?category=…#findings` with
-  an active-filter chip and clear (✕). Set conflicts, loopback, and WMI-filtered
-  cards have no backing finding and stay non-clickable rather than dead-ending on
-  empty results.
 
 ## v0.7.2 — 2026-06-23
 

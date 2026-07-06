@@ -24,6 +24,36 @@ _ALLOWED_DIFF_COLSETS = frozenset({
     "trustee, permission, allowed",
 })
 
+_CHUNK_SIZE = 500
+
+
+def _chunked_ids(common_list: list[str]) -> Iterator[list[str]]:
+    for i in range(0, len(common_list), _CHUNK_SIZE):
+        yield common_list[i:i + _CHUNK_SIZE]
+
+
+def _load_row_sets(
+    conn: sqlite3.Connection,
+    table: str,
+    cols: str,
+    snap_id: int,
+    common_list: list[str],
+) -> dict[str, set[tuple[Any, ...]]]:
+    if table not in _ALLOWED_DIFF_TABLES:
+        raise ValueError(f"unexpected table in snapshot diff: {table!r}")
+    if cols not in _ALLOWED_DIFF_COLSETS:
+        raise ValueError(f"unexpected column set in snapshot diff: {cols!r}")
+    result: dict[str, set[tuple[Any, ...]]] = defaultdict(set)
+    for chunk in _chunked_ids(common_list):
+        ph = ",".join("?" * len(chunk))
+        query = (
+            f"SELECT gpo_id, {cols} FROM {table} "
+            f"WHERE snapshot_id = ? AND gpo_id IN ({ph})"
+        )
+        for row in conn.execute(query, (snap_id, *chunk)):
+            result[row[0]].add(tuple(row[1:]))
+    return result
+
 
 @dataclass(frozen=True)
 class GpoMetadataChange:
@@ -373,11 +403,6 @@ def snapshot_diff(
         )
 
     common_list = sorted(common)
-    _CHUNK_SIZE = 500
-
-    def _chunked_ids() -> Iterator[list[str]]:
-        for i in range(0, len(common_list), _CHUNK_SIZE):
-            yield common_list[i:i + _CHUNK_SIZE]
 
     # --- Batch-load metadata for all common GPOs (2 queries per chunk) ---
     _meta_cols = (
@@ -387,7 +412,7 @@ def snapshot_diff(
     )
     meta_a: dict[str, tuple[Any, ...]] = {}
     meta_b: dict[str, tuple[Any, ...]] = {}
-    for chunk in _chunked_ids():
+    for chunk in _chunked_ids(common_list):
         ph = ",".join("?" * len(chunk))
         q = f"SELECT {_meta_cols} FROM gpo WHERE snapshot_id = ? AND id IN ({ph})"
         for row in conn.execute(q, (snap_a, *chunk)):
@@ -396,41 +421,29 @@ def snapshot_diff(
             meta_b[row[0]] = row[1:]
 
     # --- Batch-load settings, links, delegation (2 queries per chunk per table) ---
-    def _load_row_sets(
-        table: str, cols: str, snap_id: int,
-    ) -> dict[str, set[tuple[Any, ...]]]:
-        if table not in _ALLOWED_DIFF_TABLES:
-            raise ValueError(f"unexpected table in snapshot diff: {table!r}")
-        if cols not in _ALLOWED_DIFF_COLSETS:
-            raise ValueError(f"unexpected column set in snapshot diff: {cols!r}")
-        result: dict[str, set[tuple[Any, ...]]] = defaultdict(set)
-        for chunk in _chunked_ids():
-            ph = ",".join("?" * len(chunk))
-            query = (
-                f"SELECT gpo_id, {cols} FROM {table} "
-                f"WHERE snapshot_id = ? AND gpo_id IN ({ph})"
-            )
-            for row in conn.execute(query, (snap_id, *chunk)):
-                result[row[0]].add(tuple(row[1:]))
-        return result
-
     settings_a = _load_row_sets(
-        "setting", "side, cse, identity, display_value", snap_a,
+        conn, "setting", "side, cse, identity, display_value", snap_a,
+        common_list,
     )
     settings_b = _load_row_sets(
-        "setting", "side, cse, identity, display_value", snap_b,
+        conn, "setting", "side, cse, identity, display_value", snap_b,
+        common_list,
     )
     links_a = _load_row_sets(
-        "gpo_link", "som_path, link_enabled, enforced", snap_a,
+        conn, "gpo_link", "som_path, link_enabled, enforced", snap_a,
+        common_list,
     )
     links_b = _load_row_sets(
-        "gpo_link", "som_path, link_enabled, enforced", snap_b,
+        conn, "gpo_link", "som_path, link_enabled, enforced", snap_b,
+        common_list,
     )
     deleg_a = _load_row_sets(
-        "delegation", "trustee, permission, allowed", snap_a,
+        conn, "delegation", "trustee, permission, allowed", snap_a,
+        common_list,
     )
     deleg_b = _load_row_sets(
-        "delegation", "trustee, permission, allowed", snap_b,
+        conn, "delegation", "trustee, permission, allowed", snap_b,
+        common_list,
     )
 
     for gpo_id in common_list:

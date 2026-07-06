@@ -15,7 +15,6 @@ never unqualified "effective" (decision 4).
 
 from __future__ import annotations
 
-import re
 from collections import defaultdict, deque
 from dataclasses import dataclass
 from enum import Enum
@@ -27,6 +26,7 @@ from gpo_lens.authz import (
     DOMAIN_SID_PREFIX,
     EVERYONE_SID,
     READ_OR_APPLY_RIGHTS,
+    SID_RE,
     canonical_sddl_sid,
     is_allow_ace_type,
     is_deny_ace_type,
@@ -48,8 +48,6 @@ from gpo_lens.topology import (
 )
 
 ANONYMOUS_SID = "s-1-5-7"
-
-_SID_RE = re.compile(r"^s-1-([0-9]+-)+[0-9]+$", re.IGNORECASE)
 
 if TYPE_CHECKING:
     from gpo_lens.danger import DangerFinding
@@ -604,7 +602,7 @@ def resolve_principal_input(estate: Estate, principal_input: str) -> str | None:
     if not s:
         return None
     if s.lower().startswith("s-1-"):
-        if not _SID_RE.match(s):
+        if not SID_RE.match(s):
             return None
         return s.lower()
     name_to_sid = _build_name_to_sid_map(estate)
