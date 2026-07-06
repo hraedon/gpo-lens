@@ -8,38 +8,15 @@ from __future__ import annotations
 
 import sqlite3
 
+from _helpers import _make_gpo
+
 from gpo_lens import store
-from gpo_lens.model import Estate, Gpo, Setting
+from gpo_lens.model import Estate, Setting
 from gpo_lens.snapshot_diff import (
     snapshot_changelog,
     snapshot_diff,
     snapshot_settings_diff,
 )
-
-
-def _make_gpo(**kwargs) -> Gpo:
-    defaults = {
-        "id": "31b2f340016d11d2945f00c04fb984f9",
-        "name": "Test GPO",
-        "domain": "test.local",
-        "created": None,
-        "modified": None,
-        "read": None,
-        "computer_enabled": True,
-        "user_enabled": True,
-        "computer_ver_ds": None,
-        "computer_ver_sysvol": None,
-        "user_ver_ds": None,
-        "user_ver_sysvol": None,
-        "sddl": None,
-        "owner": None,
-        "filter_data_available": False,
-        "wmi_filter": None,
-        "sysvol_path": None,
-    }
-    defaults.update(kwargs)
-    return Gpo(**defaults)
-
 
 # ---------------------------------------------------------------------------
 # snapshot_changelog: gpo_removed entry
@@ -525,3 +502,96 @@ def test_snapshot_diff_delegation_changed_direct(tmp_path):
     conn.close()
 
     assert "gpo-alpha" in diff.delegation_changed
+
+
+# ---------------------------------------------------------------------------
+# _load_row_sets: allow-list guards (module-level extraction)
+# ---------------------------------------------------------------------------
+
+
+def test_load_row_sets_rejects_disallowed_table(tmp_path):
+    import pytest
+
+    from gpo_lens.snapshot_diff import _load_row_sets
+
+    db = tmp_path / "guard_table.db"
+    conn = sqlite3.connect(str(db))
+    store.init_db(conn)
+    with pytest.raises(ValueError, match="unexpected table"):
+        _load_row_sets(conn, "evil_table", "side, cse, identity, display_value",
+                        1, [])
+    conn.close()
+
+
+def test_load_row_sets_rejects_disallowed_colset(tmp_path):
+    import pytest
+
+    from gpo_lens.snapshot_diff import _load_row_sets
+
+    db = tmp_path / "guard_cols.db"
+    conn = sqlite3.connect(str(db))
+    store.init_db(conn)
+    with pytest.raises(ValueError, match="unexpected column set"):
+        _load_row_sets(conn, "setting", "side, cse, identity, EVIL", 1, [])
+    conn.close()
+
+
+# ---------------------------------------------------------------------------
+# snapshot_diff: chunking path (>500 common GPOs → multiple chunks)
+# ---------------------------------------------------------------------------
+
+
+def test_snapshot_diff_chunking_path(tmp_path, monkeypatch):
+    """Exercise the chunked-query path with a small chunk size so the
+    merge-across-chunks logic is tested without 501+ GPOs."""
+    import gpo_lens.snapshot_diff as sd_mod
+
+    monkeypatch.setattr(sd_mod, "_CHUNK_SIZE", 2)
+
+    chunk_calls: list[int] = []
+    original_chunked_ids = sd_mod._chunked_ids
+
+    def _spied_chunked_ids(common_list: list[str]) -> list[list[str]]:
+        chunks = list(original_chunked_ids(common_list))
+        chunk_calls.extend(len(c) for c in chunks)
+        return chunks
+
+    monkeypatch.setattr(sd_mod, "_chunked_ids", _spied_chunked_ids)
+
+    db = tmp_path / "chunk.db"
+    conn = sqlite3.connect(str(db))
+    store.init_db(conn)
+
+    gpos_a = [
+        _make_gpo(id=f"gpo-{i:03d}", name=f"GPO-{i}",
+                  settings=[
+                      Setting(gpo_id=f"gpo-{i:03d}", side="Computer",
+                              cse="Registry", identity="HKLM\\X",
+                              display_name="X", display_value="old",
+                              raw={}, from_disabled_side=False),
+                  ])
+        for i in range(5)
+    ]
+    sid_a = store.save_estate(conn, Estate(domain="test.local", gpos=gpos_a))
+
+    gpos_b = [
+        _make_gpo(id=f"gpo-{i:03d}", name=f"GPO-{i}",
+                  settings=[
+                      Setting(gpo_id=f"gpo-{i:03d}", side="Computer",
+                              cse="Registry", identity="HKLM\\X",
+                              display_name="X", display_value="new",
+                              raw={}, from_disabled_side=False),
+                  ])
+        for i in range(5)
+    ]
+    sid_b = store.save_estate(conn, Estate(domain="test.local", gpos=gpos_b))
+
+    diff = snapshot_diff(conn, sid_a, sid_b)
+    conn.close()
+
+    assert sorted(diff.settings_changed) == [
+        "gpo-000", "gpo-001", "gpo-002", "gpo-003", "gpo-004",
+    ]
+    assert len(chunk_calls) >= 3, (
+        f"chunking path not exercised: expected >=3 chunks, got {chunk_calls}"
+    )

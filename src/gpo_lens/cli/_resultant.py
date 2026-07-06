@@ -2,19 +2,17 @@
 from __future__ import annotations
 
 import argparse
-import re
 import sys
 
+from gpo_lens.authz import SID_RE
 from gpo_lens.cli._helpers import _get_estate, _render_json
-
-_SID_RE = re.compile(r"^S-1-\d+-\d+(-\d+)*$", re.IGNORECASE)
 
 
 def cmd_resultant(args: argparse.Namespace) -> int:
     from gpo_lens.merge import principal_resultant
 
     sid = args.principal_sid.strip()
-    if not _SID_RE.match(sid):
+    if not SID_RE.match(sid):
         print(f"Invalid SID format: {args.principal_sid}", file=sys.stderr)
         return 1
 
