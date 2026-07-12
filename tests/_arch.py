@@ -43,6 +43,7 @@ CORE_MODULES: tuple[str, ...] = (
     "danger",
     "merge",
     "trend",
+    "findings",
 )
 
 FORBIDDEN_PACKAGES: tuple[str, ...] = ("narration", "web")

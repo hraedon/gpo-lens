@@ -91,7 +91,11 @@ jobs:
         # tests/golden_estate/) drive coverage to ~92% without samples. The 85%
         # floor catches real regressions while leaving headroom for CLI/web
         # presentation-layer evolution.
-        run: .venv/bin/pytest -q --cov-fail-under=85
+        # -n auto (pytest-xdist, from addopts) parallelizes the run. Coverage is
+        # re-added here because addopts drops it for fast local runs; the 85%
+        # floor is the CI gate. (COVERAGE_CORE=sysmon was evaluated but hangs
+        # under xdist with coverage 7.14, so the default tracer is used.)
+        run: .venv/bin/pytest -q --cov=src --cov-report=term-missing --cov-fail-under=85
 
   supply-chain:
     runs-on: ubuntu-latest

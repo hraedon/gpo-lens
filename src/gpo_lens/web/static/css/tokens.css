@@ -648,3 +648,94 @@ a.gp-ind:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; 
   font-size: var(--fs-xs);
 }
 .gp-caveat-details li { margin: 2px 0; }
+
+/* ---------- WI-1: Settings ledger ---------- */
+.gp-ledger-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.gp-ledger-filter {
+  flex: 1;
+  max-width: 360px;
+  padding: 5px 10px;
+  border: 1px solid var(--border-2);
+  border-radius: 4px;
+  background: var(--inset);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  font-family: var(--font-sans);
+}
+.gp-ledger-filter:focus {
+  outline: none;
+  border-color: var(--accent-line);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+.gp-ledger-count {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  white-space: nowrap;
+}
+.gp-ledger-table th { font-size: var(--fs-xs); }
+.gp-ledger-detail { margin-top: 4px; }
+.gp-ledger-detail > summary {
+  list-style: none;
+  outline: none;
+}
+.gp-ledger-detail > summary::-webkit-details-marker { display: none; }
+.gp-ledger-evidence {
+  margin-top: 4px;
+  padding: 6px 10px;
+  background: var(--inset);
+  border-radius: 4px;
+  border: 1px solid var(--border);
+}
+.gp-ledger-evidence .gp-kv {
+  font-size: var(--fs-xs);
+}
+.gp-ledger-evidence .gp-kv th { font-weight: 500; }
+.gp-ledger-evidence .gp-kv td { word-break: break-all; }
+
+/* ---------- WI-2: GPO dossier ---------- */
+.gp-verdict-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  margin-bottom: 20px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  overflow: hidden;
+}
+.gp-verdict-item {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 14px;
+  border-right: 1px solid var(--border);
+  min-width: 120px;
+}
+.gp-verdict-item:last-child { border-right: none; }
+.gp-verdict-item .label {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.gp-verdict-item .value {
+  font-size: var(--fs-sm);
+  color: var(--text);
+  margin-top: 2px;
+  word-break: break-word;
+}
+.gp-verdict-item.flag { background: var(--crit-soft); }
+.gp-verdict-item.accent { background: var(--accent-soft); }
+.gp-two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+@media (max-width: 800px) {
+  .gp-two-col { grid-template-columns: 1fr; }
+  .gp-verdict-item { border-right: none; border-bottom: 1px solid var(--border); }
+}

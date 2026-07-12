@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% import '_pagination.html' as pg %}
+
+{% block title %}gpo-lens — Findings{% endblock %}
+
+{% block breadcrumb %}
+<nav class="gp-breadcrumb" aria-label="Breadcrumb">
+  <a href="{{ url_for('home') }}">Dashboard</a>
+  <span class="sep">/</span>
+  <span class="current" aria-current="page">Findings</span>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="gp-page-head">
+  <div>
+    <div class="gp-eyebrow">Findings inbox</div>
+    <h1>Findings</h1>
+  </div>
+  <div>
+    <span class="gp-pill medium"><span class="dot"></span>{{ all_count }} active</span>
+    {% if filtered_count != all_count %}
+    <span class="muted">({{ filtered_count }} shown)</span>
+    {% endif %}
+  </div>
+</div>
+
+<form method="get" class="gp-filter-bar" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
+  <input type="search" name="q" value="{{ f_q }}" placeholder="Search findings…" class="gp-ledger-filter" style="max-width:220px">
+  <select name="severity" class="gp-ledger-filter" style="max-width:160px">
+    <option value="">All severities</option>
+    <option value="critical,high" {% if f_severity == 'critical,high' %}selected{% endif %}>Critical + High</option>
+    <option value="critical" {% if f_severity == 'critical' %}selected{% endif %}>Critical</option>
+    <option value="high" {% if f_severity == 'high' %}selected{% endif %}>High</option>
+    <option value="medium" {% if f_severity == 'medium' %}selected{% endif %}>Medium</option>
+    <option value="low" {% if f_severity == 'low' %}selected{% endif %}>Low</option>
+    <option value="info" {% if f_severity == 'info' %}selected{% endif %}>Info</option>
+  </select>
+  <select name="category" class="gp-ledger-filter" style="max-width:180px">
+    <option value="">All categories</option>
+    {% for cat, count in categories %}
+    <option value="{{ cat }}" {% if f_category == cat %}selected{% endif %}>{{ cat }} ({{ count }})</option>
+    {% endfor %}
+  </select>
+  <select name="triage" class="gp-ledger-filter" style="max-width:160px">
+    <option value="">All triage states</option>
+    <option value="open" {% if f_triage == 'open' %}selected{% endif %}>Open</option>
+    <option value="acknowledged" {% if f_triage == 'acknowledged' %}selected{% endif %}>Acknowledged</option>
+    <option value="accepted_risk" {% if f_triage == 'accepted_risk' %}selected{% endif %}>Accepted risk</option>
+  </select>
+  <button type="submit" class="gp-btn">Filter</button>
+</form>
+
+{% if rows %}
+<div class="gp-table-wrap">
+  <table class="gp-table">
+    <thead>
+      <tr>
+        <th style="width:60px">New</th>
+        <th style="width:80px">Severity</th>
+        <th style="width:120px">Category</th>
+        <th>Summary</th>
+        <th>GPO</th>
+        <th style="width:100px">Triage</th>
+        <th style="width:80px">Action</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr class="{% if r.is_new %}flag{% endif %}">
+        <td>{% if r.is_new %}<span class="gp-chip crit">NEW</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+        <td>{% set sev_class = {'critical':'crit','high':'crit','medium':'warn','low':'muted','info':'info'}.get(r.severity, 'muted') %}<span class="gp-chip {{ sev_class }}">{{ r.severity }}</span></td>
+        <td>{{ r.rule_id }}</td>
+        <td>
+          {{ r.summary }}
+          {% if r.predecessor_id %}
+          <p style="margin-top:4px"><span class="gp-chip warn">regression</span> &mdash; previously resolved, has reappeared.</p>
+          {% endif %}
+          {% if r.detail %}
+          <details class="gp-ledger-detail">
+            <summary class="mono muted" style="font-size:var(--fs-xs);cursor:pointer">evidence</summary>
+            <div class="gp-ledger-evidence">
+              {{ r.detail }}
+              {% if r.remediation %}
+              <p style="margin-top:6px"><strong>Remediation:</strong> {{ r.remediation }}</p>
+              {% endif %}
+            </div>
+          </details>
+          {% endif %}
+        </td>
+        <td>
+          {% if r.gpo_id in resolvable_gpo_ids %}
+          <a href="{{ url_for('gpo_detail', gpo_id=r.gpo_id) }}">{{ r.gpo_name }}</a>
+          {% else %}
+          {{ r.gpo_name or r.gpo_id }}
+          {% endif %}
+        </td>
+        <td>
+          {% if r.triage_state == 'acknowledged' %}<span class="gp-chip info">acknowledged</span>
+          {% elif r.triage_state == 'accepted_risk' %}<span class="gp-chip warn">accepted risk</span>
+          {% else %}<span class="muted">open</span>{% endif %}
+        </td>
+        <td>
+          {% if r.triage_state != 'acknowledged' %}
+          <form method="post" action="{{ url_for('findings_triage', finding_id=r.id) }}" style="display:inline">
+            <input type="hidden" name="status" value="acknowledged">
+            <input type="hidden" name="note" value="">
+            <button type="submit" class="gp-btn" style="font-size:var(--fs-xs);padding:2px 8px">Ack</button>
+          </form>
+          {% endif %}
+          {% if r.triage_state != 'accepted_risk' %}
+          <form method="post" action="{{ url_for('findings_triage', finding_id=r.id) }}" style="display:inline">
+            <input type="hidden" name="status" value="accepted_risk">
+            <input type="hidden" name="note" value="">
+            <button type="submit" class="gp-btn" style="font-size:var(--fs-xs);padding:2px 8px">Accept</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="gp-empty">
+  <div class="ico">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><path d="M22 4L12 14.01l-3-3"/></svg>
+  </div>
+  <div class="title">No findings match the current filters</div>
+</div>
+{% endif %}
+
+{% if pag %}
+{{ pg.render(pag, url_for('findings_inbox'), request) }}
+{% endif %}
+{% endblock %}

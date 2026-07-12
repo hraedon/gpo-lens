@@ -112,11 +112,32 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
                     rw_conn = get_rw_conn(app.state.db_path)
                     try:
                         _store.init_db(rw_conn)
-                        _store.save_estate(rw_conn, estate)
+                        snapshot_id = _store.save_estate(rw_conn, estate)
                         _events.append_event(
                             rw_conn, "audit.ingest",
                             {"principal": principal.name},
                         )
+                        # WI-4: update finding lifecycle after ingest
+                        try:
+                            from gpo_lens.danger import danger_findings
+                            from gpo_lens.findings import update_finding_lifecycle
+                            from gpo_lens.queries import estate_doctor
+
+                            danger = danger_findings(estate, admx=app.state.admx)
+                            doctor_findings = estate_doctor(
+                                estate, admx=app.state.admx, danger=danger
+                            )
+                            # Coverage-aware resolution: a partial collection
+                            # must not mark un-observed findings resolved.
+                            update_finding_lifecycle(
+                                rw_conn, snapshot_id, doctor_findings,
+                                collected_gpo_ids={g.id for g in estate.gpos},
+                                coverage_complete=not estate.coverage_gaps,
+                            )
+                        except Exception as exc:
+                            _logger.warning(
+                                "Finding lifecycle update failed: %s", exc
+                            )
                     finally:
                         rw_conn.close()
 

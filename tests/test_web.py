@@ -1830,7 +1830,6 @@ class TestAdmxWeb:
         assert "<th>Identity</th>" in html
         assert "<th>Name</th>" in html
         assert "FakeValue" in html
-        assert "<th>Setting</th>" not in html
         assert "Prohibit Fake Value" not in html
 
     def test_gpo_detail_admx_fallback_to_display_name(
