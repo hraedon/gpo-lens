@@ -12,6 +12,7 @@ dependencies = ["defusedxml>=0.7"]
 dev = [
     "pytest>=8.3",
     "pytest-cov>=5.0",
+    "pytest-xdist>=3.6",
     "ruff>=0.7",
     "mypy>=1.13",
     "httpx>=0.28",
@@ -36,11 +37,14 @@ packages = ["src/gpo_lens"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# --cov-fail-under is intentionally absent from local dev: the floor is
-# enforced in CI (.github/workflows/ci.yml, currently 85%). The synthetic
-# fixture estates (tests/fixtures/ + tests/golden_estate/) drive coverage to
-# ~92% without the gitignored samples/ exports, so 85% is a realistic gate.
-addopts = "-q --cov=src --cov-report=term-missing"
+# Local runs are fast by default: parallel (pytest-xdist) and WITHOUT coverage.
+# Coverage tracing roughly doubles wall time (measured ~97s -> ~170s here) and
+# the --cov-fail-under floor is enforced only in CI (.github/workflows/ci.yml,
+# currently 85%) — the synthetic fixture estates (tests/fixtures/ +
+# tests/golden_estate/) drive coverage to ~92% without the gitignored samples/
+# exports. CI re-adds --cov explicitly. Override -n auto with `-n0` when using
+# -s / pdb; add --cov=src locally on demand.
+addopts = "-q -n auto"
 filterwarnings = [
     "ignore:.*plaintext.*:UserWarning",
     "ignore:Using.*httpx.*starlette.testclient.*deprecated:starlette.exceptions.StarletteDeprecationWarning",

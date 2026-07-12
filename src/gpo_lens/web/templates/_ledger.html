@@ -1,0 +1,85 @@
+{# Normalized settings ledger — WI-1.
+   A reusable partial that renders every setting from every CSE as uniform
+   rows with client-side type-to-filter and progressive disclosure.
+
+   Required context: ledger (list[LedgerRow]), admx (AdmxResolver | None) #}
+<div class="gp-ledger" id="gp-ledger">
+  <div class="gp-ledger-bar">
+    <input type="search"
+           class="gp-ledger-filter"
+           placeholder="Filter by name, path, or value…"
+           aria-label="Filter settings"
+           autocomplete="off"
+           data-ledger-filter>
+    <span class="gp-ledger-count" data-ledger-count>{{ ledger|length }} settings</span>
+  </div>
+  <div class="gp-table-wrap">
+    <table class="gp-table gp-ledger-table">
+      <thead>
+        <tr>
+          <th style="width:70px">Side</th>
+          <th style="width:100px">CSE</th>
+          <th>Setting</th>
+          <th style="width:30%">Value</th>
+          <th style="width:80px">State</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in ledger %}
+        <tr class="gp-ledger-row{% if row.from_disabled_side %} dim{% endif %}"
+            data-ledger-search="{{ [row.identity, row.display_name, row.display_value, row.reg_key, row.reg_value_name, row.admx_name]|join(' ')|lower }}">
+          <td>{{ row.side }}</td>
+          <td>{{ row.cse }}</td>
+          <td>
+            {% if row.admx_name %}
+              <strong>{{ row.admx_name }}</strong>
+              {% if row.display_name and row.display_name != row.admx_name %}
+              <div class="mono muted" style="font-size:var(--fs-xs);margin-top:2px">{{ row.display_name }}</div>
+              {% endif %}
+            {% else %}
+              {{ row.display_name or row.identity }}
+              {% if not row.admx_name and row.cse == 'Registry' %}
+              <span class="gp-chip low" title="No ADMX policy definition covers this registry setting">no ADMX</span>
+              {% endif %}
+            {% endif %}
+            <details class="gp-ledger-detail">
+              <summary class="mono muted" style="font-size:var(--fs-xs);cursor:pointer">evidence</summary>
+              <div class="gp-ledger-evidence">
+                <table class="gp-kv">
+                  <tbody>
+                    <tr><th>Identity</th><td class="mono">{{ row.identity }}</td></tr>
+                    {% if row.reg_key %}
+                    <tr><th>Registry key</th><td class="mono">{{ row.reg_key }}</td></tr>
+                    {% endif %}
+                    {% if row.reg_value_name %}
+                    <tr><th>Value name</th><td class="mono">{{ row.reg_value_name }}</td></tr>
+                    {% endif %}
+                    {% if row.reg_type %}
+                    <tr><th>Type</th><td class="mono">{{ row.reg_type }}</td></tr>
+                    {% endif %}
+                    {% if row.reg_data %}
+                    <tr><th>Data</th><td class="mono">{{ row.reg_data }}</td></tr>
+                    {% endif %}
+                    {% if row.source_state == "blocked" %}
+                    <tr><th>Source state</th><td><span class="gp-chip warn">blocked</span> &mdash; this extension is inside a &lt;Blocked/&gt; element</td></tr>
+                    {% endif %}
+                    {% if row.from_disabled_side %}
+                    <tr><th>Side state</th><td><span class="gp-chip warn">disabled side</span> &mdash; the {{ row.side }} side is disabled; these settings will not apply</td></tr>
+                    {% endif %}
+                  </tbody>
+                </table>
+              </div>
+            </details>
+          </td>
+          <td>{{ row.display_value }}</td>
+          <td>
+            {% if row.source_state == "blocked" %}<span class="gp-chip warn" title="Blocked extension">blocked</span>
+            {% elif row.from_disabled_side %}<span class="gp-chip warn" title="Disabled side">disabled</span>
+            {% else %}<span class="muted">—</span>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>

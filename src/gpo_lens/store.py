@@ -32,7 +32,9 @@ from gpo_lens.normalize import parse_dt
 # v3 = adds the ``principal`` + ``group_member`` tables (Plan 020/021), so the
 #      collected principal-resolution inputs survive a snapshot round-trip
 #      instead of being dropped on the ``--db`` read path.
-CURRENT_SCHEMA_VERSION: int = 3
+# v4 = adds the ``finding`` + ``finding_triage`` tables (Plan 023 WI-4/WI-5),
+#      durable finding identity/lifecycle + local triage annotations.
+CURRENT_SCHEMA_VERSION: int = 4
 
 
 def _safe_json_loads(raw: str | None, default: Any) -> Any:
@@ -245,6 +247,55 @@ def init_db(conn: sqlite3.Connection) -> None:
             implicit TEXT NOT NULL DEFAULT '',
             PRIMARY KEY (snapshot_id, sid)
         )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS finding (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            finding_key TEXT NOT NULL,
+            rule_id TEXT NOT NULL,
+            subject_identity TEXT NOT NULL,
+            severity TEXT NOT NULL,
+            summary TEXT NOT NULL,
+            gpo_id TEXT NOT NULL DEFAULT '',
+            gpo_name TEXT NOT NULL DEFAULT '',
+            first_seen_snapshot INTEGER NOT NULL REFERENCES snapshot(id) ON DELETE CASCADE,
+            last_seen_snapshot INTEGER NOT NULL REFERENCES snapshot(id) ON DELETE CASCADE,
+            resolved_in_snapshot INTEGER REFERENCES snapshot(id) ON DELETE SET NULL,
+            predecessor_id INTEGER REFERENCES finding(id) ON DELETE SET NULL
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_finding_key
+        ON finding(finding_key)
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_finding_active
+        ON finding(resolved_in_snapshot)
+        WHERE resolved_in_snapshot IS NULL
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS finding_triage (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            finding_id INTEGER NOT NULL REFERENCES finding(id) ON DELETE CASCADE,
+            status TEXT NOT NULL,
+            note TEXT NOT NULL DEFAULT '',
+            actor TEXT NOT NULL,
+            timestamp TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_finding_triage_finding
+        ON finding_triage(finding_id)
         """
     )
     init_events_table(conn)
