@@ -24,7 +24,7 @@
     {% if gpo.computer_enabled %}<span class="gp-pill ok" title="Computer side is enabled"><span class="dot"></span>Computer enabled</span>{% else %}<span class="gp-pill low" title="Computer side is disabled"><span class="dot"></span>Computer disabled</span>{% endif %}
     {% if gpo.user_enabled %}<span class="gp-pill ok" title="User side is enabled"><span class="dot"></span>User enabled</span>{% else %}<span class="gp-pill low" title="User side is disabled"><span class="dot"></span>User disabled</span>{% endif %}
     {% if gpo.links %}<span class="gp-pill ok" title="Linked to {{ gpo.links|length }} scope(s)"><span class="dot"></span>Linked</span>{% else %}<span class="gp-pill low" title="Not linked anywhere"><span class="dot"></span>Orphaned</span>{% endif %}
-    {% if open_finding_count %}<a href="{{ url_for('danger_list') }}?q={{ gpo.name|urlencode }}"><span class="gp-pill critical" title="{{ open_finding_count }} finding(s)"><span class="dot"></span>{{ open_finding_count }} finding{{ 's' if open_finding_count != 1 }}</span></a>{% endif %}
+    {% if open_finding_count %}<a href="{{ url_for('findings_inbox') }}?q={{ gpo.name|urlencode }}&amp;lifecycle=all&amp;triage=all"><span class="gp-pill critical" title="{{ open_finding_count }} active finding(s)"><span class="dot"></span>{{ open_finding_count }} finding{{ 's' if open_finding_count != 1 }}</span></a>{% endif %}
     <a class="gp-btn gp-export-btn" href="{{ url_for('export_gpo', gpo_id=gpo.id) }}?format=json">Export JSON</a>
   </div>
 </div>

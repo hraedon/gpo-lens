@@ -9,6 +9,7 @@
     <script src="{{ url_for('static', path='theme.js') }}"></script>
 </head>
 <body>
+<a class="gp-skip-link" href="#main-content">Skip to main content</a>
 {% set path = request.scope.get('path', '/') %}
 <div class="gp-app">
     <header class="gp-topbar">
@@ -34,7 +35,7 @@
             </span>
             <span class="gp-nav-sep" aria-hidden="true"></span>
             <span class="gp-nav-group" aria-label="Posture">
-                <a href="{{ url_for('danger_list') }}" {% if path.startswith('/danger') %}class="active"{% endif %}>Danger</a>
+                <a href="{{ url_for('findings_inbox') }}" {% if path.startswith('/findings') %}class="active" aria-current="page"{% endif %}>Findings</a>
                 <a href="{{ url_for('conflicts') }}" {% if path.startswith('/conflicts') %}class="active"{% endif %}>Conflicts</a>
                 <a href="{{ url_for('delegation') }}" {% if path.startswith('/delegation') %}class="active"{% endif %}>Delegation</a>
                 <a href="{{ url_for('admx_coverage') }}" {% if path.startswith('/admx-coverage') %}class="active"{% endif %}>Coverage</a>
@@ -67,7 +68,7 @@
         </button>
     </header>
     {% block breadcrumb %}{% endblock %}
-    <main class="gp-page">
+    <main class="gp-page" id="main-content" tabindex="-1">
         <div class="gp-wrap">
             {% block content %}{% endblock %}
         </div>

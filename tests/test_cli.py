@@ -858,6 +858,26 @@ class TestCLI:
         assert r.returncode == 0
         assert "No previous snapshot to diff against" in r.stdout
 
+    def test_ingest_materializes_findings_for_web_reads(self, tmp_path):
+        db = tmp_path / "test.db"
+        result = subprocess.run(
+            GPO_LENS + ["--db", str(db), "ingest", "tests/fixtures"],
+            capture_output=True, text=True,
+        )
+        assert result.returncode == 0, result.stderr
+        conn = sqlite3.connect(db)
+        try:
+            count = conn.execute(
+                "SELECT COUNT(*) FROM finding WHERE resolved_in_snapshot IS NULL"
+            ).fetchone()[0]
+            evidence_count = conn.execute(
+                "SELECT COUNT(*) FROM finding WHERE detail <> '' OR remediation <> ''"
+            ).fetchone()[0]
+        finally:
+            conn.close()
+        assert count > 0
+        assert evidence_count > 0
+
     def test_ingest_diff_latest_with_prior(self, tmp_path):
         """--diff-latest with a prior snapshot shows changelog."""
         from gpo_lens import model, store

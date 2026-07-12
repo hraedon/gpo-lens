@@ -34,7 +34,9 @@ from gpo_lens.normalize import parse_dt
 #      instead of being dropped on the ``--db`` read path.
 # v4 = adds the ``finding`` + ``finding_triage`` tables (Plan 023 WI-4/WI-5),
 #      durable finding identity/lifecycle + local triage annotations.
-CURRENT_SCHEMA_VERSION: int = 4
+# v5 = persists bounded finding evidence/remediation so read paths never need
+#      to re-run whole-estate detectors (WI-090).
+CURRENT_SCHEMA_VERSION: int = 5
 
 
 def _safe_json_loads(raw: str | None, default: Any) -> Any:
@@ -258,6 +260,8 @@ def init_db(conn: sqlite3.Connection) -> None:
             subject_identity TEXT NOT NULL,
             severity TEXT NOT NULL,
             summary TEXT NOT NULL,
+            detail TEXT NOT NULL DEFAULT '',
+            remediation TEXT NOT NULL DEFAULT '',
             gpo_id TEXT NOT NULL DEFAULT '',
             gpo_name TEXT NOT NULL DEFAULT '',
             first_seen_snapshot INTEGER NOT NULL REFERENCES snapshot(id) ON DELETE CASCADE,
@@ -345,6 +349,17 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
         # v1 -> v2: add nullable description column to the gpo table.
         if not _column_exists(conn, "gpo", "description"):
             conn.execute("ALTER TABLE gpo ADD COLUMN description TEXT")
+
+        # v4 -> v5: retain the evidence already produced at ingest so the
+        # findings inbox remains actionable without detector recomputation.
+        if not _column_exists(conn, "finding", "detail"):
+            conn.execute(
+                "ALTER TABLE finding ADD COLUMN detail TEXT NOT NULL DEFAULT ''"
+            )
+        if not _column_exists(conn, "finding", "remediation"):
+            conn.execute(
+                "ALTER TABLE finding ADD COLUMN remediation TEXT NOT NULL DEFAULT ''"
+            )
 
     conn.execute(f"PRAGMA user_version = {CURRENT_SCHEMA_VERSION}")
 

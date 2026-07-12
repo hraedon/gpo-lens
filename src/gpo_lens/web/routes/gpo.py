@@ -7,7 +7,6 @@ threadpool, preventing synchronous SQLite from blocking the event loop
 
 from __future__ import annotations
 
-import logging
 from collections import defaultdict
 from typing import Any
 
@@ -27,8 +26,6 @@ from gpo_lens.web._helpers import (
     parse_pagination,
 )
 from gpo_lens.web.auth import Permission, Principal, requires
-
-_logger = logging.getLogger(__name__)
 
 
 def register(app: FastAPI, templates: Jinja2Templates) -> None:
@@ -121,18 +118,19 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
 
         ledger = settings_ledger(estate, gpo_id, admx=app.state.admx)
 
-        # Verdict strip: open findings count for this GPO
-        open_finding_count = 0
+        # Read findings materialized at ingest time. Re-running every detector
+        # here made dossier navigation scale with the whole estate and could
+        # disagree with the lifecycle/triage inbox.
+        conn = get_ro_conn(app.state.db_path)
         try:
-            from gpo_lens.danger import danger_findings
-
-            dfindings = danger_findings(estate, admx=app.state.admx)
-            open_finding_count = sum(
-                1 for f in dfindings if f.gpo_id == gpo_id
-            )
-        except Exception as exc:
-            _logger.warning("danger_findings failed for %s: %s", gpo_id, exc)
-            open_finding_count = 0
+            row = conn.execute(
+                "SELECT COUNT(*) FROM finding "
+                "WHERE resolved_in_snapshot IS NULL AND gpo_id = ?",
+                (gpo_id,),
+            ).fetchone()
+            open_finding_count = int(row[0]) if row is not None else 0
+        finally:
+            conn.close()
 
         # Group settings by side, then by CSE for the legacy table view
         settings_by_side: dict[str, dict[str, list[object]]] = defaultdict(

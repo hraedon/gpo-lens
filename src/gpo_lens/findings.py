@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    pass
+    from gpo_lens.model import AdmxResolver, Estate
 
 
 @dataclass(frozen=True)
@@ -33,6 +33,8 @@ class FindingRecord:
     subject_identity: str
     severity: str
     summary: str
+    detail: str
+    remediation: str
     gpo_id: str
     gpo_name: str
     first_seen_snapshot: int
@@ -162,6 +164,7 @@ def update_finding_lifecycle(
     # Load all active (non-resolved) findings
     active_rows = conn.execute(
         "SELECT id, finding_key, rule_id, subject_identity, severity, summary, "
+        "detail, remediation, "
         "gpo_id, gpo_name, first_seen_snapshot, last_seen_snapshot, "
         "resolved_in_snapshot, predecessor_id "
         "FROM finding WHERE resolved_in_snapshot IS NULL"
@@ -176,12 +179,14 @@ def update_finding_lifecycle(
             "subject_identity": row[3],
             "severity": row[4],
             "summary": row[5],
-            "gpo_id": row[6],
-            "gpo_name": row[7],
-            "first_seen_snapshot": row[8],
-            "last_seen_snapshot": row[9],
-            "resolved_in_snapshot": row[10],
-            "predecessor_id": row[11],
+            "detail": row[6],
+            "remediation": row[7],
+            "gpo_id": row[8],
+            "gpo_name": row[9],
+            "first_seen_snapshot": row[10],
+            "last_seen_snapshot": row[11],
+            "resolved_in_snapshot": row[12],
+            "predecessor_id": row[13],
         }
         active_by_key[row[1]] = row_dict
 
@@ -194,6 +199,12 @@ def update_finding_lifecycle(
         for key, finding in current_keys.items():
             rule_id, subject, severity, _detail = _finding_to_key_parts(finding)
             summary = getattr(finding, "summary", "") or getattr(finding, "title", "")
+            raw_detail = getattr(finding, "detail", "")
+            raw_remediation = getattr(finding, "remediation", "")
+            finding_detail = raw_detail[:16_000] if isinstance(raw_detail, str) else ""
+            remediation = (
+                raw_remediation[:8_000] if isinstance(raw_remediation, str) else ""
+            )
             gpo_id = getattr(finding, "gpo_id", "")
             gpo_name = getattr(finding, "gpo_name", "")
 
@@ -201,9 +212,13 @@ def update_finding_lifecycle(
                 # Persisting: bump last_seen_snapshot
                 existing = active_by_key[key]
                 conn.execute(
-                    "UPDATE finding SET last_seen_snapshot = ?, severity = ?, summary = ? "
+                    "UPDATE finding SET last_seen_snapshot = ?, severity = ?, summary = ?, "
+                    "detail = ?, remediation = ? "
                     "WHERE id = ?",
-                    (snapshot_id, severity, summary, existing["id"]),
+                    (
+                        snapshot_id, severity, summary, finding_detail,
+                        remediation, existing["id"],
+                    ),
                 )
                 persisting_count += 1
             else:
@@ -222,10 +237,11 @@ def update_finding_lifecycle(
                 conn.execute(
                     "INSERT INTO finding "
                     "(finding_key, rule_id, subject_identity, severity, summary, "
-                    "gpo_id, gpo_name, first_seen_snapshot, last_seen_snapshot, "
+                    "detail, remediation, gpo_id, gpo_name, "
+                    "first_seen_snapshot, last_seen_snapshot, "
                     "resolved_in_snapshot, predecessor_id) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)",
-                    (key, rule_id, subject, severity, summary,
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)",
+                    (key, rule_id, subject, severity, summary, finding_detail, remediation,
                      gpo_id, gpo_name, snapshot_id, snapshot_id, predecessor_id),
                 )
                 new_count += 1
@@ -267,6 +283,7 @@ def load_active_findings(conn: sqlite3.Connection) -> list[FindingRecord]:
     """Load all active (non-resolved) findings, newest first."""
     rows = conn.execute(
         "SELECT id, finding_key, rule_id, subject_identity, severity, summary, "
+        "detail, remediation, "
         "gpo_id, gpo_name, first_seen_snapshot, last_seen_snapshot, "
         "resolved_in_snapshot, predecessor_id "
         "FROM finding WHERE resolved_in_snapshot IS NULL "
@@ -276,12 +293,39 @@ def load_active_findings(conn: sqlite3.Connection) -> list[FindingRecord]:
         FindingRecord(
             id=row[0], finding_key=row[1], rule_id=row[2],
             subject_identity=row[3], severity=row[4], summary=row[5],
-            gpo_id=row[6], gpo_name=row[7],
-            first_seen_snapshot=row[8], last_seen_snapshot=row[9],
-            resolved_in_snapshot=row[10], predecessor_id=row[11],
+            detail=row[6], remediation=row[7], gpo_id=row[8], gpo_name=row[9],
+            first_seen_snapshot=row[10], last_seen_snapshot=row[11],
+            resolved_in_snapshot=row[12], predecessor_id=row[13],
         )
         for row in rows
     ]
+
+
+def evaluate_finding_lifecycle(
+    conn: sqlite3.Connection,
+    snapshot_id: int,
+    estate: Estate,
+    *,
+    admx: AdmxResolver | None = None,
+) -> FindingLifecycleResult:
+    """Run the deterministic estate detectors and persist their lifecycle.
+
+    This is the single ingest-time evaluation path used by both the CLI and
+    web uploader. Keeping it in the core prevents either ingest surface from
+    producing an empty/stale findings inbox.
+    """
+    from gpo_lens.danger import danger_findings
+    from gpo_lens.queries import estate_doctor
+
+    danger = danger_findings(estate, admx=admx)
+    findings = estate_doctor(estate, admx=admx, danger=danger)
+    return update_finding_lifecycle(
+        conn,
+        snapshot_id,
+        findings,
+        collected_gpo_ids={g.id for g in estate.gpos},
+        coverage_complete=not estate.coverage_gaps,
+    )
 
 
 def load_finding_triage(conn: sqlite3.Connection, finding_id: int) -> list[dict[str, Any]]:

@@ -119,20 +119,10 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
                         )
                         # WI-4: update finding lifecycle after ingest
                         try:
-                            from gpo_lens.danger import danger_findings
-                            from gpo_lens.findings import update_finding_lifecycle
-                            from gpo_lens.queries import estate_doctor
+                            from gpo_lens.findings import evaluate_finding_lifecycle
 
-                            danger = danger_findings(estate, admx=app.state.admx)
-                            doctor_findings = estate_doctor(
-                                estate, admx=app.state.admx, danger=danger
-                            )
-                            # Coverage-aware resolution: a partial collection
-                            # must not mark un-observed findings resolved.
-                            update_finding_lifecycle(
-                                rw_conn, snapshot_id, doctor_findings,
-                                collected_gpo_ids={g.id for g in estate.gpos},
-                                coverage_complete=not estate.coverage_gaps,
+                            evaluate_finding_lifecycle(
+                                rw_conn, snapshot_id, estate, admx=app.state.admx,
                             )
                         except Exception as exc:
                             _logger.warning(
