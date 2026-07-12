@@ -5,7 +5,7 @@ import dataclasses
 import sqlite3
 
 from gpo_lens import ingest, queries, snapshot_diff, store
-from gpo_lens.cli._helpers import _get_estate, _render_json
+from gpo_lens.cli._helpers import _get_admx, _get_estate, _render_json
 
 
 def cmd_summary(args: argparse.Namespace) -> None:
@@ -128,6 +128,9 @@ def cmd_ingest(args: argparse.Namespace) -> None:
     try:
         store.init_db(conn)
         sid = store.save_estate(conn, estate)
+        from gpo_lens.findings import evaluate_finding_lifecycle
+
+        evaluate_finding_lifecycle(conn, sid, estate, admx=_get_admx(args))
         domain = estate.domain or "unknown"
         msg = f"{domain}, {len(estate.gpos)} GPOs, {len(estate.soms)} SOMs, snapshot={sid}"
         if args.json:

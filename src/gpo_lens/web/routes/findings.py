@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import sqlite3
 from typing import Any
+from urllib.parse import urlencode
 
 from fastapi import Depends, FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -19,6 +20,7 @@ from fastapi.templating import Jinja2Templates
 
 from gpo_lens.web._helpers import (
     _MAX_SEARCH_LEN,
+    base_qs,
     get_ro_conn,
     get_rw_conn,
     paginate,
@@ -36,9 +38,10 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         request: Request,
         severity: str = "",
         category: str = "",
-        triage: str = "",
+        lifecycle: str = "new",
+        triage: str = "open",
         q: str = "",
-        _principal: Principal = Depends(requires(Permission.VIEW)),
+        principal: Principal = Depends(requires(Permission.VIEW)),
     ) -> HTMLResponse:
         from gpo_lens.findings import load_active_findings, load_finding_triage_map
         from gpo_lens.store import load_estate
@@ -49,48 +52,34 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
             triage_map = load_finding_triage_map(conn)
             try:
                 estate = load_estate(conn)
-                from gpo_lens.danger import danger_findings
-
-                danger = danger_findings(estate, admx=app.state.admx)
-                from gpo_lens.queries import estate_doctor
-
-                doctor_findings = estate_doctor(estate, admx=app.state.admx, danger=danger)
                 resolvable_gpo_ids = {g.id for g in estate.gpos}
             except ValueError:
-                doctor_findings = []
                 resolvable_gpo_ids = set()
         finally:
             conn.close()
 
-        # Build a lookup from doctor findings for current-snapshot evidence
-        doctor_by_key: dict[str, Any] = {}
-        for f in doctor_findings:
-            from gpo_lens.findings import _finding_to_key_parts, finding_key
-
-            rule_id, subject, _sev, detail = _finding_to_key_parts(f)
-            key = finding_key(rule_id, subject, detail)
-            doctor_by_key[key] = f
-
-        # Merge lifecycle + triage + current evidence
+        # Lifecycle rows are materialized at ingest. Read those directly here
+        # instead of re-running whole-estate detectors for every page view.
         rows: list[dict[str, Any]] = []
         for af in active_findings:
-            triage_state = triage_map.get(af.id, {}).get("status", "open")
-            doctor_f = doctor_by_key.get(af.finding_key)
-            detail = getattr(doctor_f, "detail", "") if doctor_f else ""
-            remediation = getattr(doctor_f, "remediation", "") if doctor_f else ""
+            triage_event = triage_map.get(af.id, {})
+            triage_state = triage_event.get("status", "open")
             rows.append({
                 "id": af.id,
                 "rule_id": af.rule_id,
                 "severity": af.severity,
                 "summary": af.summary,
+                "detail": af.detail,
+                "remediation": af.remediation,
                 "gpo_id": af.gpo_id,
                 "gpo_name": af.gpo_name,
                 "first_seen_snapshot": af.first_seen_snapshot,
                 "last_seen_snapshot": af.last_seen_snapshot,
                 "predecessor_id": af.predecessor_id,
                 "triage_state": triage_state,
-                "detail": detail,
-                "remediation": remediation,
+                "triage_note": triage_event.get("note", ""),
+                "triage_actor": triage_event.get("actor", ""),
+                "triage_timestamp": triage_event.get("timestamp", ""),
                 "is_new": af.first_seen_snapshot == af.last_seen_snapshot,
             })
 
@@ -107,6 +96,10 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
                 if r["rule_id"] == category
                 or r["rule_id"].startswith(category + ":")
             ]
+        if lifecycle == "new":
+            rows = [r for r in rows if r["is_new"]]
+        elif lifecycle == "persisting":
+            rows = [r for r in rows if not r["is_new"]]
         if triage and triage != "all":
             rows = [r for r in rows if r["triage_state"] == triage]
         q = (q or "")[:_MAX_SEARCH_LEN]
@@ -137,6 +130,7 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
 
         page, per_page_int, per_page_raw = parse_pagination(request)
         page_rows, pag = paginate(rows, page, per_page_int, per_page_raw)
+        findings_qs = base_qs(request, "page", "per_page")
 
         return templates.TemplateResponse(
             request,
@@ -149,10 +143,13 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
                 "resolvable_gpo_ids": resolvable_gpo_ids,
                 "f_severity": severity,
                 "f_category": category,
+                "f_lifecycle": lifecycle,
                 "f_triage": triage,
                 "f_q": q,
                 "categories": sorted(categories.items()),
                 "pag": pag,
+                "f_base_qs": findings_qs,
+                "can_triage": principal.has(Permission.INGEST),
             },
         )
 
@@ -162,6 +159,12 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         finding_id: int,
         status: str = Form(...),
         note: str = Form(""),
+        return_q: str = Form(""),
+        return_severity: str = Form(""),
+        return_category: str = Form(""),
+        return_lifecycle: str = Form(""),
+        return_triage: str = Form(""),
+        return_page: str = Form(""),
         principal: Principal = Depends(requires(Permission.INGEST)),
     ) -> HTMLResponse | RedirectResponse:
         from gpo_lens.findings import triage_finding
@@ -179,4 +182,19 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         finally:
             conn.close()
 
-        return RedirectResponse(url=request.url_for("findings_inbox"), status_code=303)
+        query = {
+            key: value
+            for key, value in {
+                "q": return_q[:_MAX_SEARCH_LEN],
+                "severity": return_severity,
+                "category": return_category,
+                "lifecycle": return_lifecycle,
+                "triage": return_triage,
+                "page": return_page if return_page.isdigit() else "",
+            }.items()
+            if value
+        }
+        target = str(request.url_for("findings_inbox"))
+        if query:
+            target = f"{target}?{urlencode(query)}"
+        return RedirectResponse(url=target, status_code=303)

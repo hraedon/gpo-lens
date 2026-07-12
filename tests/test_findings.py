@@ -6,6 +6,7 @@ import sqlite3
 from pathlib import Path
 from unittest.mock import MagicMock
 
+from gpo_lens import store
 from gpo_lens.findings import (
     finding_key,
     load_active_findings,
@@ -371,8 +372,8 @@ class TestCoverageAwareResolution:
 
 
 class TestSchemaMigration:
-    def test_v3_db_migrates_to_v4(self, tmp_path: Path) -> None:
-        """A v3 DB should migrate to v4 with the new finding tables."""
+    def test_v3_db_migrates_to_current(self, tmp_path: Path) -> None:
+        """A v3 DB should gain finding tables and current evidence columns."""
         db_path = str(tmp_path / "test-v3.sqlite3")
         conn = sqlite3.connect(db_path)
         try:
@@ -392,6 +393,35 @@ class TestSchemaMigration:
             assert "finding" in tables
             assert "finding_triage" in tables
             # Verify version bumped
-            assert conn.execute("PRAGMA user_version").fetchone()[0] == 4
+            assert (
+                conn.execute("PRAGMA user_version").fetchone()[0]
+                == store.CURRENT_SCHEMA_VERSION
+            )
+        finally:
+            conn.close()
+
+    def test_v4_db_adds_finding_evidence_columns(self, tmp_path: Path) -> None:
+        db_path = str(tmp_path / "test-v4.sqlite3")
+        conn = sqlite3.connect(db_path)
+        try:
+            conn.execute("PRAGMA user_version = 4")
+            conn.execute(
+                "CREATE TABLE finding ("
+                "id INTEGER PRIMARY KEY, finding_key TEXT NOT NULL, "
+                "rule_id TEXT NOT NULL, subject_identity TEXT NOT NULL, "
+                "severity TEXT NOT NULL, summary TEXT NOT NULL, "
+                "gpo_id TEXT NOT NULL DEFAULT '', gpo_name TEXT NOT NULL DEFAULT '', "
+                "first_seen_snapshot INTEGER NOT NULL, last_seen_snapshot INTEGER NOT NULL, "
+                "resolved_in_snapshot INTEGER, predecessor_id INTEGER)"
+            )
+            init_db(conn)
+            columns = {
+                row[1] for row in conn.execute("PRAGMA table_info(finding)").fetchall()
+            }
+            assert {"detail", "remediation"} <= columns
+            assert (
+                conn.execute("PRAGMA user_version").fetchone()[0]
+                == store.CURRENT_SCHEMA_VERSION
+            )
         finally:
             conn.close()

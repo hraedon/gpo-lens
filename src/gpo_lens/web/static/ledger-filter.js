@@ -17,10 +17,10 @@
     rows.forEach(function (row) {
       var hay = row.getAttribute("data-ledger-search") || "";
       if (!q || hay.indexOf(q) !== -1) {
-        row.style.display = "";
+        row.hidden = false;
         visible++;
       } else {
-        row.style.display = "none";
+        row.hidden = true;
       }
     });
     if (countEl) {
