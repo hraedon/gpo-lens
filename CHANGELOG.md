@@ -2,6 +2,12 @@
 
 ## Unreleased (plan/023-web-reimagining)
 
+- **Findings inbox is lifecycle-backed and actionable (WI-090/WI-091).**
+  Findings are materialized at ingest on both the CLI and web paths (shared
+  core `evaluate_finding_lifecycle`), with bounded evidence persisted, so the
+  inbox and GPO detail pages read from the `finding` table instead of
+  re-running whole-estate detectors per request. Inbox gains filtering,
+  triage, pagination, and accessibility improvements.
 - **Finding triage is its own permission (WI-088).** The findings triage
   endpoint now requires the new `Permission.TRIAGE` instead of
   `Permission.INGEST`: acknowledging or accepting risk on a finding no longer
