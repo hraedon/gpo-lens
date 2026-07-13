@@ -47,6 +47,13 @@ class DoctorFinding:
     detail: str
     compliance: tuple[ComplianceMapping, ...] = ()
     remediation: str = ""
+    # Declared identity dimensions for lifecycle fingerprinting (WI-089,
+    # Plan 024 §4). When non-empty, these — not the prose summary/detail —
+    # define the finding's identity across snapshots. Required for GPO-less
+    # findings (topology, excessive writers, orphaned WMI filters, coverage
+    # gaps), whose identity would otherwise key on wording and evidence
+    # counts and churn on every re-scan.
+    subject_key: tuple[str, ...] = ()
 
 
 _SEVERITY_ORDER = SEVERITY_ORDER
@@ -87,6 +94,7 @@ def estate_doctor(
                 "GPO collection failed — estate analysis may be incomplete",
             ),
             detail=cov.detail,
+            subject_key=(cov.kind, cov.gpo_id),
         ))
 
     for hit in cpassword_scan(estate):
@@ -143,6 +151,7 @@ def estate_doctor(
             gpo_name="",
             summary=f"{d.kind}: {d.ou_dn}",
             detail=d.detail,
+            subject_key=(d.kind, d.ou_dn),
         ))
 
     for g, side in disabled_but_populated(estate):
@@ -229,6 +238,7 @@ def estate_doctor(
             summary=f"{trustee_display} has write access to {w.gpo_count} GPOs",
             detail=f"Trustee SID: {w.trustee_sid}; Rights: {', '.join(w.rights)}; "
                    f"GPOs: {', '.join(w.gpo_names[:10])}",
+            subject_key=(w.trustee_sid,),
         ))
 
     for wref in broken_wmi_refs(estate):
@@ -249,6 +259,7 @@ def estate_doctor(
             gpo_name="",
             summary=f"Orphaned WMI filter: {wf.name}",
             detail=f"Defined but referenced by zero GPOs. Query: {wf.query}",
+            subject_key=(wf.name,),
         ))
 
     for ilt in scan_ilt(estate):

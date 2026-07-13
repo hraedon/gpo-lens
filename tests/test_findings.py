@@ -32,6 +32,7 @@ def _make_finding(category: str, gpo_id: str, severity="medium", summary="test")
         severity=severity,
         summary=summary,
         detail="",
+        subject_key=(),
     )
 
 
@@ -425,3 +426,114 @@ class TestSchemaMigration:
             )
         finally:
             conn.close()
+
+
+class TestDeclaredSubjectKey:
+    """WI-089 / Plan 024 §4: declared identity dimensions beat prose.
+
+    GPO-less findings (topology discrepancies, excessive writers, orphaned
+    WMI filters, coverage gaps) have no gpo_id, so their identity used to
+    fall back to summary/detail prose — any wording tweak or evidence-count
+    change re-keyed them, falsely resolving the old finding and creating a
+    "new" one. A declared ``subject_key`` pins identity to the stable
+    dimensions instead.
+    """
+
+    def _doctor_finding(self, **overrides):
+        from gpo_lens.queries import DoctorFinding
+
+        defaults = {
+            "severity": "medium",
+            "category": "excessive_writer",
+            "gpo_id": "",
+            "gpo_name": "",
+            "summary": "EXAMPLE\\gpo-writers has write access to 12 GPOs",
+            "detail": "Trustee SID: S-1-5-21-1-2-3-1105; Rights: WP; GPOs: A, B",
+            "subject_key": ("S-1-5-21-1-2-3-1105",),
+        }
+        defaults.update(overrides)
+        return DoctorFinding(**defaults)
+
+    def test_prose_and_evidence_changes_keep_identity(self) -> None:
+        from gpo_lens.findings import _finding_to_key_parts
+
+        before = self._doctor_finding()
+        after = self._doctor_finding(
+            summary="EXAMPLE\\gpo-writers has write access to 13 GPOs",
+            detail="Trustee SID: S-1-5-21-1-2-3-1105; Rights: WP, WD; GPOs: A, B, C",
+        )
+        r1, s1, _, d1 = _finding_to_key_parts(before)
+        r2, s2, _, d2 = _finding_to_key_parts(after)
+        assert finding_key(r1, s1, d1) == finding_key(r2, s2, d2)
+
+    def test_different_subject_key_different_identity(self) -> None:
+        from gpo_lens.findings import _finding_to_key_parts
+
+        a = self._doctor_finding(subject_key=("S-1-5-21-1-2-3-1105",))
+        b = self._doctor_finding(subject_key=("S-1-5-21-1-2-3-2201",))
+        ra, sa, _, da = _finding_to_key_parts(a)
+        rb, sb, _, db_ = _finding_to_key_parts(b)
+        assert finding_key(ra, sa, da) != finding_key(rb, sb, db_)
+
+    def test_no_subject_key_falls_back_to_prose(self) -> None:
+        from gpo_lens.findings import _finding_to_key_parts
+
+        f = self._doctor_finding(subject_key=(), summary="some estate issue")
+        _, subject, _, detail = _finding_to_key_parts(f)
+        # Legacy behaviour preserved: subject falls back to summary when
+        # gpo_id is empty, detail discriminator falls back to detail.
+        assert subject == f.summary
+        assert detail == f.detail
+
+    def test_lifecycle_persists_across_evidence_change(self) -> None:
+        """Integration: an excessive-writer finding whose GPO count changes
+        between snapshots stays ONE persisting finding, not resolved+new."""
+        conn = _make_db()
+        try:
+            conn.execute(
+                "INSERT INTO snapshot (id, domain, taken_at) VALUES (1, 'test', '2025-01-01')"
+            )
+            update_finding_lifecycle(conn, 1, [self._doctor_finding()])
+            conn.execute(
+                "INSERT INTO snapshot (id, domain, taken_at) VALUES (2, 'test', '2025-01-02')"
+            )
+            changed = self._doctor_finding(
+                summary="EXAMPLE\\gpo-writers has write access to 13 GPOs",
+                detail="Trustee SID: S-1-5-21-1-2-3-1105; Rights: WP; GPOs: A, B, C",
+            )
+            result = update_finding_lifecycle(conn, 2, [changed])
+            assert result.persisting_count == 1
+            assert result.new_count == 0
+            assert result.resolved_count == 0
+            active = load_active_findings(conn)
+            assert len(active) == 1
+            assert active[0].first_seen_snapshot == 1
+            assert active[0].last_seen_snapshot == 2
+            # Evidence is refreshed even though identity is stable
+            assert "13 GPOs" in active[0].summary
+        finally:
+            conn.close()
+
+    def test_estate_doctor_declares_subject_keys_for_gpo_less_findings(self) -> None:
+        """The four GPO-less doctor categories all carry a subject_key."""
+        from gpo_lens.model import CoverageGap, Estate, WmiFilter
+        from gpo_lens.queries import estate_doctor
+
+        estate = Estate(
+            domain="example.test",
+            wmi_filters=[WmiFilter(name="Orphan Filter", query="SELECT 1")],
+            coverage_gaps=[
+                CoverageGap(
+                    gpo_id="",
+                    display_name=None,
+                    kind="missing_sysvol",
+                    detail="no SYSVOL in export",
+                )
+            ],
+        )
+        findings = estate_doctor(estate)
+        by_category = {f.category: f for f in findings}
+        orphan = by_category["orphaned_wmi_filter"]
+        assert orphan.subject_key == ("Orphan Filter",)
+        gap = by_category["coverage_gap"]
+        assert gap.subject_key == ("missing_sysvol", "")

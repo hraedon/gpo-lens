@@ -144,7 +144,7 @@ class TestLedgerWeb:
     """Web integration tests for the ledger on the GPO detail page."""
 
     @pytest.fixture
-    def client(self):
+    def client(self, monkeypatch):
         from fastapi.testclient import TestClient
 
         from gpo_lens.web.app import create_app
@@ -164,9 +164,7 @@ class TestLedgerWeb:
         finally:
             conn.close()
 
-        import os
-
-        os.environ["GPO_LENS_AUTH_TOKEN"] = "test-secret-token"
+        monkeypatch.setenv("GPO_LENS_AUTH_TOKEN", "test-secret-token")
         app = create_app(db_path)
         return TestClient(app)
 
@@ -219,7 +217,7 @@ class TestGpoDossier:
     """WI-2: GPO dossier page tests."""
 
     @pytest.fixture
-    def client(self):
+    def client(self, monkeypatch):
         from fastapi.testclient import TestClient
 
         from gpo_lens.web.app import create_app
@@ -237,9 +235,7 @@ class TestGpoDossier:
         finally:
             conn.close()
 
-        import os
-
-        os.environ["GPO_LENS_AUTH_TOKEN"] = "test-secret-token"
+        monkeypatch.setenv("GPO_LENS_AUTH_TOKEN", "test-secret-token")
         app = create_app(db_path)
         return TestClient(app)
 

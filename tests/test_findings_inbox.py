@@ -6,6 +6,8 @@ import sqlite3
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import pytest
+
 from gpo_lens.findings import (
     load_finding_triage,
     load_finding_triage_map,
@@ -31,6 +33,7 @@ def _make_finding(category: str, gpo_id: str, severity="medium", summary="test")
         severity=severity,
         summary=summary,
         detail="",
+        subject_key=(),
     )
 
 
@@ -124,6 +127,15 @@ class TestTriage:
 
 
 class TestFindingsInboxWeb:
+    @pytest.fixture(autouse=True)
+    def _auth_env(self, monkeypatch):
+        # monkeypatch (not bare os.environ) so the token never leaks into
+        # other tests in the same worker — a leaked token defeats the
+        # no-token loopback bind guard and lets cmd_serve tests really
+        # start uvicorn on 0.0.0.0 (observed as a suite hang / flaky
+        # TestLoopbackGuard failure under xdist).
+        monkeypatch.setenv("GPO_LENS_AUTH_TOKEN", "test-secret-token")
+
     @property
     def _client(self):
         from fastapi.testclient import TestClient
@@ -131,8 +143,6 @@ class TestFindingsInboxWeb:
         from gpo_lens.web.app import create_app
 
         db_path = str(FIXTURE_DIR / "gpo-lens-test.sqlite3")
-        import os
-
         from gpo_lens.ingest import load_estate
         from gpo_lens.store import init_db, save_estate
 
@@ -144,7 +154,6 @@ class TestFindingsInboxWeb:
         finally:
             conn.close()
 
-        os.environ["GPO_LENS_AUTH_TOKEN"] = "test-secret-token"
         app = create_app(db_path)
         return TestClient(app)
 
@@ -169,7 +178,7 @@ class TestFindingsInboxWeb:
         assert "severity" in html.lower()
         assert "triage" in html.lower()
 
-    def test_triage_post_requires_ingest_permission(self) -> None:
+    def _seed_finding(self) -> None:
         db_path = str(FIXTURE_DIR / "gpo-lens-test.sqlite3")
         # Create a finding so we can triage it
         conn = sqlite3.connect(db_path)
@@ -188,6 +197,8 @@ class TestFindingsInboxWeb:
         finally:
             conn.close()
 
+    def test_triage_post_allowed_with_triage_permission(self) -> None:
+        self._seed_finding()
         client = self._client
         # TestClient follows redirects by default, so a successful triage
         # returns 200 (the findings page) after a 303 redirect
@@ -201,3 +212,50 @@ class TestFindingsInboxWeb:
             follow_redirects=False,
         )
         assert resp.status_code == 303
+
+    def _client_as(self, permissions: frozenset) -> object:
+        """A client whose principal has exactly *permissions* (WI-088)."""
+        from gpo_lens.web.auth import Principal, get_principal
+
+        client = self._client
+        client.app.dependency_overrides[get_principal] = lambda: Principal(
+            name="test-user", role="test", permissions=permissions
+        )
+        return client
+
+    def test_triage_denied_with_ingest_but_no_triage_permission(self) -> None:
+        # WI-088 / Plan 024 §8: triage is its own permission — holding
+        # INGEST alone must no longer authorize finding triage.
+        from gpo_lens.web.auth import Permission
+
+        self._seed_finding()
+        client = self._client_as(frozenset({Permission.VIEW, Permission.INGEST}))
+        resp = client.post(
+            "/findings/1/triage",
+            data={"status": "acknowledged", "note": "test"},
+            headers={"Origin": "http://testserver"},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 403
+
+    def test_triage_allowed_without_ingest_permission(self) -> None:
+        # The converse: a triage-only principal can acknowledge a finding
+        # but must not be able to upload snapshots.
+        from gpo_lens.web.auth import Permission
+
+        self._seed_finding()
+        client = self._client_as(frozenset({Permission.VIEW, Permission.TRIAGE}))
+        resp = client.post(
+            "/findings/1/triage",
+            data={"status": "acknowledged", "note": "test"},
+            headers={"Origin": "http://testserver"},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 303
+        resp = client.post(
+            "/ingest",
+            files={"file": ("export.zip", b"not-a-zip", "application/zip")},
+            headers={"Origin": "http://testserver"},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 403

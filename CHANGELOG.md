@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased (plan/023-web-reimagining)
+
+- **Finding triage is its own permission (WI-088).** The findings triage
+  endpoint now requires the new `Permission.TRIAGE` instead of
+  `Permission.INGEST`: acknowledging or accepting risk on a finding no longer
+  implies (or requires) the right to upload estate snapshots (Plan 024 §8
+  pulled forward). Loopback/forwarded principals and the operator/admin roles
+  gain `TRIAGE`, so existing single-operator deployments behave unchanged; a
+  new `triager` role shape (view + triage, no ingest) exists for least-
+  privilege setups.
+- **Stable identity for GPO-less findings (WI-089).** Topology discrepancies,
+  excessive writers, orphaned WMI filters, and coverage gaps now fingerprint
+  on declared identity dimensions (OU DN, trustee SID, filter name, gap kind)
+  instead of their prose summary/detail (Plan 024 §4 pulled forward).
+  Previously any wording or evidence-count change (e.g. a writer's GPO count
+  going 12 → 13) re-keyed the finding, falsely resolving the old one and
+  reporting a "new" one. **One-time effect:** databases that already hold
+  findings in these four categories will re-key them on the next ingest (old
+  rows resolve, re-emitted findings appear as new).
+
 ## v1.0.0 — 2026-07-06
 
 First stable release. Local-first, read-only Group Policy analysis with a

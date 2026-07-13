@@ -255,12 +255,20 @@ class TestCreateApp:
 
 
 class TestLoopbackGuard:
-    def test_non_loopback_exits_nonzero(self) -> None:
+    def test_non_loopback_exits_nonzero(self, monkeypatch) -> None:
         from gpo_lens.cli._serve import cmd_serve
 
+        # Hermetic: a GPO_LENS_AUTH_TOKEN leaked by another test in the same
+        # worker would legitimately satisfy the guard — and then cmd_serve
+        # would REALLY bind uvicorn on 0.0.0.0:8000 and hang the suite. The
+        # uvicorn mock is the backstop so a guard regression fails fast
+        # instead of hanging.
+        monkeypatch.delenv("GPO_LENS_AUTH_TOKEN", raising=False)
         args = _serve_args(host="0.0.0.0")
-        ret = cmd_serve(args)
+        with patch("uvicorn.run") as mock_run:
+            ret = cmd_serve(args)
         assert ret == 1
+        mock_run.assert_not_called()
 
     def test_localhost_allowed(self) -> None:
         from gpo_lens.cli._serve import cmd_serve

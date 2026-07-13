@@ -149,7 +149,7 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
                 "categories": sorted(categories.items()),
                 "pag": pag,
                 "f_base_qs": findings_qs,
-                "can_triage": principal.has(Permission.INGEST),
+                "can_triage": principal.has(Permission.TRIAGE),
             },
         )
 
@@ -165,7 +165,7 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         return_lifecycle: str = Form(""),
         return_triage: str = Form(""),
         return_page: str = Form(""),
-        principal: Principal = Depends(requires(Permission.INGEST)),
+        principal: Principal = Depends(requires(Permission.TRIAGE)),
     ) -> HTMLResponse | RedirectResponse:
         from gpo_lens.findings import triage_finding
 

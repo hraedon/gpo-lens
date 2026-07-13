@@ -87,10 +87,20 @@ def _finding_to_key_parts(finding: Any) -> tuple[str, str, str, str]:
     both carry ``category``/``check_id`` and ``gpo_id``.  The *detail*
     field prevents silent deduplication when one GPO has multiple findings
     from the same rule (e.g. two broken refs of the same type).
+
+    When a finding declares an explicit ``subject_key`` (WI-089, Plan 024 §4),
+    that tuple *is* the identity — prose and evidence (summary, detail,
+    counts) are excluded so the finding does not churn identity every time
+    its wording or evidence changes.  This is how GPO-less findings
+    (topology discrepancies, excessive writers, orphaned WMI filters,
+    coverage gaps) stay stable across snapshots.
     """
     rule_id = getattr(finding, "category", "") or getattr(finding, "check_id", "")
-    subject = getattr(finding, "gpo_id", "") or getattr(finding, "summary", "")
     severity = getattr(finding, "severity", "info")
+    subject_key = getattr(finding, "subject_key", ()) or ()
+    if subject_key:
+        return rule_id, "|".join(subject_key), severity, ""
+    subject = getattr(finding, "gpo_id", "") or getattr(finding, "summary", "")
     detail = getattr(finding, "detail", "") or getattr(finding, "summary", "")
     return rule_id, subject, severity, detail
 
