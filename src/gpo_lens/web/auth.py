@@ -13,14 +13,27 @@ from fastapi import Depends, Header, HTTPException, Request
 class Permission(Enum):
     VIEW = "view"
     INGEST = "ingest"
+    # Triage (acknowledge / accept-risk / reopen a finding) is deliberately
+    # NOT Permission.INGEST: annotating a finding must never imply the right
+    # to upload or replace estate snapshots, and vice versa (WI-088,
+    # Plan 024 §8). Finer-grained triage permissions (comment vs acknowledge
+    # vs accept-risk) remain Plan 024 work.
+    TRIAGE = "triage"
     NARRATE = "narrate"
     ADMIN = "admin"
 
 
 ROLE_PERMISSIONS: dict[str, set[Permission]] = {
     "viewer": {Permission.VIEW},
-    "operator": {Permission.VIEW, Permission.INGEST},
-    "admin": {Permission.VIEW, Permission.INGEST, Permission.NARRATE, Permission.ADMIN},
+    "triager": {Permission.VIEW, Permission.TRIAGE},
+    "operator": {Permission.VIEW, Permission.INGEST, Permission.TRIAGE},
+    "admin": {
+        Permission.VIEW,
+        Permission.INGEST,
+        Permission.TRIAGE,
+        Permission.NARRATE,
+        Permission.ADMIN,
+    },
 }
 
 
@@ -43,13 +56,13 @@ LOCAL_PRINCIPAL = Principal(
 # The web server refuses to bind to a non-loopback address without an auth
 # token (see cli/_serve.py), so "no token configured" implies a single local
 # operator on their own machine. That operator gets the full local analyst
-# capability set (view + ingest + narrate) — withholding ADMIN keeps "admin"
-# meaning "explicitly authenticated via token".
+# capability set (view + ingest + triage + narrate) — withholding ADMIN keeps
+# "admin" meaning "explicitly authenticated via token".
 LOOPBACK_PRINCIPAL = Principal(
     name="local-analyst",
     role="local",
     permissions=frozenset(
-        {Permission.VIEW, Permission.INGEST, Permission.NARRATE}
+        {Permission.VIEW, Permission.INGEST, Permission.TRIAGE, Permission.NARRATE}
     ),
 )
 
