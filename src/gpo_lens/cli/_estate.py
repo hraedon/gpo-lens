@@ -128,9 +128,9 @@ def cmd_ingest(args: argparse.Namespace) -> None:
     try:
         store.init_db(conn)
         sid = store.save_estate(conn, estate)
-        from gpo_lens.findings import evaluate_finding_lifecycle
+        from gpo_lens.findings import evaluate_finding_lifecycle_v2
 
-        evaluate_finding_lifecycle(conn, sid, estate, admx=_get_admx(args))
+        evaluate_finding_lifecycle_v2(conn, sid, estate, admx=_get_admx(args))
         domain = estate.domain or "unknown"
         msg = f"{domain}, {len(estate.gpos)} GPOs, {len(estate.soms)} SOMs, snapshot={sid}"
         if args.json:
