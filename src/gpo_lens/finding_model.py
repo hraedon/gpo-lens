@@ -146,6 +146,7 @@ class FindingCandidate:
     subject_key: tuple[str, ...]
     dimensions: tuple[tuple[str, str], ...] = ()
     summary: str = ""
+    detail: str = ""
     evidence_refs: tuple[EvidenceRef, ...] = ()
     claim: ClaimLevel = "confirmed"
     remediation: str = ""

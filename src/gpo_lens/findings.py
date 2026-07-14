@@ -21,6 +21,12 @@ Stable finding key: ``(rule_id, subject_identity)`` where subject identity
 reuses the normalized identities (GPO GUID, setting identity, trustee SID, …).
 Keys are deterministic and stable across snapshot re-ingest of identical data.
 
+**Single estate per store (WI-1.5).** The lifecycle engine assumes one estate
+(one domain's snapshot series) per SQLite database. Finding fingerprints do not
+include an estate/domain dimension, so pointing two different domains at the
+same ``--db`` would fold their findings into one lifecycle series. Multi-estate
+comparison (WI-059) is a separate, post-1.0 concern with its own model.
+
 This module is a core module — no ``narration`` or ``web`` imports.
 """
 
@@ -688,6 +694,10 @@ def run_evaluation(
             )
             compliance_json = json.dumps(list(cand.compliance))
             gpo_id = cand.subject_key[0] if cand.subject_type == "gpo" and cand.subject_key else ""
+            # Store the detector's real detail (WI-1.5); fall back to the
+            # summary when a candidate carries none, and bound it like the
+            # legacy path did so a pathological detector can't bloat the row.
+            cand_detail = (cand.detail or cand.summary)[:16_000]
 
             if fp in active_by_fp:
                 # Step 4: Persisting — append observation, update last_seen.
@@ -700,7 +710,7 @@ def run_evaluation(
                     "severity = ?, summary = ?, detail = ?, remediation = ? "
                     "WHERE id = ?",
                     (run_id, run_id, cand.severity, cand.summary,
-                     cand.summary, cand.remediation, occ_id),
+                     cand_detail, cand.remediation, occ_id),
                 )
                 conn.execute(
                     "INSERT INTO finding_observation "
@@ -746,7 +756,7 @@ def run_evaluation(
                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, "
                     "?, ?, ?, ?, ?, ?, ?, ?, NULL)",
                     (fp, cand.detector_id, gpo_id, cand.severity,
-                     cand.summary, cand.summary, cand.remediation,
+                     cand.summary, cand_detail, cand.remediation,
                      gpo_id,
                      cand.gpo_name,
                      snapshot_id, snapshot_id, predecessor_id,
@@ -949,15 +959,29 @@ def load_triage_status_map(
 
     Returns ``{occurrence_id: TriageStatus}``.
     """
-    result: dict[int, TriageStatus] = {}
+    # Single scan of the event log, grouped in Python, instead of one
+    # load_triage_events query per occurrence (WI-1.3: kills the N+1 that the
+    # accepted-risk register and any status-map consumer paid on large estates).
     rows = conn.execute(
-        "SELECT DISTINCT occurrence_id FROM finding_triage_event"
+        "SELECT id, occurrence_id, action, actor, occurred_at, note, "
+        "rationale, expires_at, supersedes_event_id "
+        "FROM finding_triage_event ORDER BY occurrence_id, id ASC"
     ).fetchall()
+    events_by_occ: dict[int, list[TriageEvent]] = {}
     for r in rows:
-        occ_id = r[0]
-        events = load_triage_events(conn, occ_id)
-        result[occ_id] = fold_triage(events)
-    return result
+        events_by_occ.setdefault(r[1], []).append(
+            TriageEvent(
+                id=r[0], occurrence_id=r[1], action=r[2], actor=r[3],
+                occurred_at=_parse_dt(r[4]) or datetime.min.replace(tzinfo=UTC),
+                note=r[5], rationale=r[6],
+                expires_at=_parse_dt(r[7]),
+                supersedes_event_id=r[8],
+            )
+        )
+    return {
+        occ_id: fold_triage(events)
+        for occ_id, events in events_by_occ.items()
+    }
 
 
 def expire_risk_acceptances(
@@ -1029,15 +1053,42 @@ def finding_inbox(
     severity, GPO, subject type, and claim level.
 
     *as_of_run* limits to findings observed in the given evaluation run.
+
+    All filters — including ``claim_level`` and ``triage_status`` — are applied
+    in SQL *before* ``LIMIT`` (WI-1.2), so a filtered page can never silently
+    truncate: the ``limit`` bounds the matching set, not a pre-filter superset.
     """
+    # Current triage status is a fold over the append-only event log, not a
+    # stored column, so resolve it once (batched) and translate the requested
+    # triage_status into a pre-LIMIT id-set predicate. "open" is the implicit
+    # status of an occurrence with no events, so it filters by *excluding*
+    # occurrences whose folded status is non-open.
+    status_map = load_triage_status_map(conn)
+
+    # Latest observation's claim level for an occurrence (observation-level, so
+    # not a column on finding); used both as a filter and as a select column.
+    latest_claim_sq = (
+        "(SELECT claim_level FROM finding_observation o "
+        "WHERE o.occurrence_id = f.id ORDER BY o.id DESC LIMIT 1)"
+    )
+
     sql = (
         "SELECT f.id, f.finding_key, f.detector_id, f.rule_id, "
         "f.severity, f.summary, f.detail, f.remediation, "
         "f.gpo_id, f.gpo_name, f.subject_type, f.subject_key_json, "
         "f.first_seen_run_id, f.last_seen_run_id, f.resolved_run_id, "
-        "f.predecessor_id "
+        "f.predecessor_id, "
+        f"COALESCE({latest_claim_sq}, 'confirmed') AS claim_level "
         "FROM finding f WHERE f.resolved_run_id IS NULL "
-        "AND f.resolved_in_snapshot IS NULL"
+        "AND f.resolved_in_snapshot IS NULL "
+        # WI-1.4: only rows with evaluation-run provenance are v2 findings.
+        # Every deployed ingest path (CLI cmd_ingest, web _persist) runs the v2
+        # engine, which always stamps first_seen_run_id; the legacy Plan 023
+        # writer is test-only, so no deployed store holds provenance-less rows.
+        # Excluding them keeps a hypothetical pre-lifecycle row from surfacing
+        # as a spurious "new" finding with no run history — mixed-mode rows are
+        # never silently blended into the v2 inbox.
+        "AND f.first_seen_run_id IS NOT NULL"
     )
     params: list[Any] = []
     clauses: list[str] = []
@@ -1061,6 +1112,30 @@ def finding_inbox(
         clauses.append("f.first_seen_run_id = f.last_seen_run_id")
     elif lifecycle_state == "persisting":
         clauses.append("f.first_seen_run_id < f.last_seen_run_id")
+    if claim_level is not None:
+        clauses.append(f"COALESCE({latest_claim_sq}, 'confirmed') = ?")
+        params.append(claim_level)
+    if triage_status is not None:
+        if triage_status == "open":
+            non_open = [
+                oid for oid, ts in status_map.items() if ts.status != "open"
+            ]
+            if non_open:
+                ph = ",".join("?" * len(non_open))
+                clauses.append(f"f.id NOT IN ({ph})")
+                params.extend(non_open)
+        else:
+            matching = [
+                oid for oid, ts in status_map.items()
+                if ts.status == triage_status
+            ]
+            if matching:
+                ph = ",".join("?" * len(matching))
+                clauses.append(f"f.id IN ({ph})")
+                params.extend(matching)
+            else:
+                # No occurrence holds this status → empty result set.
+                clauses.append("0")
 
     if clauses:
         sql += " AND " + " AND ".join(clauses)
@@ -1073,60 +1148,16 @@ def finding_inbox(
 
     rows = conn.execute(sql, params).fetchall()
 
-    # Load triage status only for the filtered occurrences.
-    triage_map: dict[int, TriageStatus] = {}
-    obs_map: dict[int, str] = {}
-    if rows:
-        occ_ids = [r[0] for r in rows]
-        placeholders = ",".join("?" * len(occ_ids))
-
-        # Load latest observation for claim_level filtering.
-        obs_rows = conn.execute(
-            f"SELECT occurrence_id, claim_level FROM finding_observation "
-            f"WHERE occurrence_id IN ({placeholders}) "
-            f"AND id IN (SELECT MAX(id) FROM finding_observation "
-            f"WHERE occurrence_id IN ({placeholders}) "
-            f"GROUP BY occurrence_id)",
-            [*occ_ids, *occ_ids],
-        ).fetchall()
-        obs_map = {r[0]: r[1] for r in obs_rows}
-
-        # Load triage events for these occurrences only.
-        triage_rows = conn.execute(
-            f"SELECT id, occurrence_id, action, actor, occurred_at, note, "
-            f"rationale, expires_at, supersedes_event_id "
-            f"FROM finding_triage_event WHERE occurrence_id IN ({placeholders}) "
-            f"ORDER BY occurrence_id, id ASC",
-            occ_ids,
-        ).fetchall()
-        events_by_occ: dict[int, list[TriageEvent]] = {}
-        for r in triage_rows:
-            ev = TriageEvent(
-                id=r[0], occurrence_id=r[1], action=r[2], actor=r[3],
-                occurred_at=_parse_dt(r[4]) or datetime.min.replace(tzinfo=UTC),
-                note=r[5], rationale=r[6],
-                expires_at=_parse_dt(r[7]),
-                supersedes_event_id=r[8],
-            )
-            events_by_occ.setdefault(r[1], []).append(ev)
-        for occ_id, events in events_by_occ.items():
-            triage_map[occ_id] = fold_triage(events)
-
     views: list[FindingView] = []
     for r in rows:
         occ_id = r[0]
-        c_level = obs_map.get(occ_id, "confirmed")
-        if claim_level is not None and c_level != claim_level:
-            continue
+        c_level = r[16] or "confirmed"
 
-        ts = triage_map.get(occ_id)
+        ts = status_map.get(occ_id)
         t_status = ts.status if ts else "open"
         t_actor = ts.actor if ts else ""
         t_note = ts.note if ts else ""
         t_expires = ts.expires_at if ts else None
-
-        if triage_status is not None and t_status != triage_status:
-            continue
 
         subject_key = tuple(json.loads(r[11])) if r[11] else ()
 
@@ -1392,6 +1423,10 @@ def _doctor_finding_to_candidate(
     gpo_id = getattr(f, "gpo_id", "") or ""
     declared_sk = getattr(f, "subject_key", ()) or ()
 
+    # A GPO-scoped finding's subject is the GPO GUID; any extra identity
+    # (a coverage gap's kind, etc.) rides in ``dimensions`` so ``gpo_id`` can
+    # be recovered from ``subject_key[0]`` downstream. Estate-scoped findings
+    # (no GPO) carry their full identity in the declared ``subject_key``.
     if gpo_id:
         subject_type = "gpo"
         subject_key: tuple[str, ...] = (gpo_id,)
@@ -1402,32 +1437,14 @@ def _doctor_finding_to_candidate(
         subject_type = "estate"
         subject_key = (getattr(f, "summary", ""),)
 
-    # Identity-bearing dimensions: fields that distinguish multiple findings
-    # on the same subject. These are NOT severity/prose — they are structural
-    # identity (side, ref_type, file path, trustee SID, etc.).
-    dims: list[tuple[str, str]] = []
-    detail = getattr(f, "detail", "") or ""
+    # Identity-bearing dimensions are declared by the detector as typed
+    # key/value pairs (WI-1.1) — never parsed out of the prose summary/detail,
+    # which can change between observations without changing identity.
+    dims: list[tuple[str, str]] = [
+        (str(k), str(v)) for k, v in (getattr(f, "dimensions", ()) or ())
+    ]
     summary = getattr(f, "summary", "") or ""
     category = getattr(f, "category", "") or ""
-
-    # For broken_ref findings, the ref_type and ref_value are identity-bearing.
-    if category.startswith("broken_ref:"):
-        dims.append(("ref_value", detail))
-    # For version_skew, the side is identity-bearing.
-    elif category == "version_skew":
-        dims.append(("side", summary.split()[0] if summary else ""))
-    # For disabled_but_populated, the side is identity-bearing.
-    elif category == "disabled_but_populated":
-        dims.append(("side", summary.split()[0] if summary else ""))
-    # For deny_ace, the trustee SID is identity-bearing.
-    elif category == "deny_ace":
-        for part in detail.split(";"):
-            part = part.strip()
-            if part.startswith("Trustee SID:"):
-                dims.append(("trustee_sid", part.split(":", 1)[1].strip()))
-    # For danger findings, the check_id is already in the category.
-    # For excessive_writer, the trustee SID is in the declared subject_key.
-    # For topology_discrepancy, the kind+ou_dn are in the declared subject_key.
 
     # Evidence reference (safe projection — no raw secrets).
     evidence = (
@@ -1473,6 +1490,7 @@ def _doctor_finding_to_candidate(
         subject_key=subject_key,
         dimensions=tuple(dims),
         summary=summary,
+        detail=getattr(f, "detail", "") or "",
         evidence_refs=evidence,
         claim=claim,
         remediation=getattr(f, "remediation", "") or "",
@@ -1497,25 +1515,14 @@ def _danger_finding_to_candidate(
         subject_type = "estate"
         subject_key = (check_id,)
 
-    detail = getattr(f, "detail", "") or ""
     title = getattr(f, "title", "") or ""
 
-    # Identity-bearing dimensions for danger findings.
-    dims: list[tuple[str, str]] = []
-    if check_id == "gpo_writable_nonadmin":
-        # Trustee SID is in the detail text — extract for identity.
-        for part in detail.split("("):
-            part = part.strip().rstrip(")")
-            if part.startswith("S-"):
-                dims.append(("trustee_sid", part))
-                break
-    elif check_id == "gpo_owner_nonadmin":
-        # Owner SID is identity-bearing.
-        for part in detail.split("("):
-            part = part.strip().rstrip(")")
-            if part.startswith("S-"):
-                dims.append(("owner_sid", part))
-                break
+    # Identity-bearing dimensions are declared by the detector as typed
+    # key/value pairs (WI-1.1) — e.g. the trustee/owner SID that distinguishes
+    # multiple non-admin writers on one GPO — never parsed from prose.
+    dims: list[tuple[str, str]] = [
+        (str(k), str(v)) for k, v in (getattr(f, "dimensions", ()) or ())
+    ]
 
     evidence = (
         EvidenceRef(
@@ -1541,6 +1548,7 @@ def _danger_finding_to_candidate(
         subject_key=subject_key,
         dimensions=tuple(dims),
         summary=title,
+        detail=getattr(f, "detail", "") or "",
         evidence_refs=evidence,
         claim="probable",
         remediation=getattr(f, "remediation", "") or "",
@@ -1621,8 +1629,7 @@ def evaluate_finding_lifecycle_v2(
         estate, snapshot_id=snapshot_id, admx=admx,
     )
 
-    import hashlib as _hl
-    detector_set_digest = _hl.sha256(
+    detector_set_digest = hashlib.sha256(
         "|".join(sorted({c.detector_id for c in candidates})).encode()
     ).hexdigest()[:16]
 

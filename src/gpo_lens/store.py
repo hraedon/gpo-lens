@@ -403,6 +403,22 @@ def init_db(conn: sqlite3.Connection) -> None:
     )
     init_events_table(conn)
     _migrate_schema(conn)
+    # Indexes on the Plan 024 run-id / series columns (WI-1.3). These live
+    # after _migrate_schema because the columns they cover are added there via
+    # ALTER on a fresh DB — creating them in the CREATE block above would race
+    # ahead of the columns' existence. IF NOT EXISTS keeps this idempotent and
+    # backfills the indexes onto DBs already stamped at the current version.
+    for index_ddl in (
+        "CREATE INDEX IF NOT EXISTS idx_finding_last_seen_run "
+        "ON finding(last_seen_run_id)",
+        "CREATE INDEX IF NOT EXISTS idx_finding_first_seen_run "
+        "ON finding(first_seen_run_id)",
+        "CREATE INDEX IF NOT EXISTS idx_finding_resolved_run "
+        "ON finding(resolved_run_id)",
+        "CREATE INDEX IF NOT EXISTS idx_finding_series_key "
+        "ON finding(series_key)",
+    ):
+        conn.execute(index_ddl)
     conn.commit()
 
 
