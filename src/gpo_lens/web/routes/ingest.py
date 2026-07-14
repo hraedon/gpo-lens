@@ -119,9 +119,9 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
                         )
                         # WI-4: update finding lifecycle after ingest
                         try:
-                            from gpo_lens.findings import evaluate_finding_lifecycle
+                            from gpo_lens.findings import evaluate_finding_lifecycle_v2
 
-                            evaluate_finding_lifecycle(
+                            evaluate_finding_lifecycle_v2(
                                 rw_conn, snapshot_id, estate, admx=app.state.admx,
                             )
                         except Exception as exc:
