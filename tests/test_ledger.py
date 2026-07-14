@@ -144,12 +144,14 @@ class TestLedgerWeb:
     """Web integration tests for the ledger on the GPO detail page."""
 
     @pytest.fixture
-    def client(self, monkeypatch):
+    def client(self, monkeypatch, tmp_path):
         from fastapi.testclient import TestClient
 
         from gpo_lens.web.app import create_app
 
-        db_path = str(FIXTURE_DIR / "gpo-lens-test.sqlite3")
+        # Per-test scratch DB: a shared file under tests/fixtures/ races
+        # across xdist workers (transient -shm/-wal sidecars).
+        db_path = str(tmp_path / "gpo-lens-test.sqlite3")
         import sqlite3
 
         from gpo_lens.store import init_db, save_estate
@@ -217,12 +219,14 @@ class TestGpoDossier:
     """WI-2: GPO dossier page tests."""
 
     @pytest.fixture
-    def client(self, monkeypatch):
+    def client(self, monkeypatch, tmp_path):
         from fastapi.testclient import TestClient
 
         from gpo_lens.web.app import create_app
 
-        db_path = str(FIXTURE_DIR / "gpo-lens-test.sqlite3")
+        # Per-test scratch DB: a shared file under tests/fixtures/ races
+        # across xdist workers (transient -shm/-wal sidecars).
+        db_path = str(tmp_path / "gpo-lens-test.sqlite3")
         import sqlite3
 
         from gpo_lens.store import init_db, save_estate

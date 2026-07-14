@@ -136,13 +136,21 @@ class TestFindingsInboxWeb:
         # TestLoopbackGuard failure under xdist).
         monkeypatch.setenv("GPO_LENS_AUTH_TOKEN", "test-secret-token")
 
+    @pytest.fixture(autouse=True)
+    def _db_dir(self, tmp_path):
+        # Each test gets its own scratch DB. A shared DB under
+        # tests/fixtures/ raced across xdist workers (its transient
+        # -shm/-wal sidecars broke copytree-based tests) and coupled
+        # tests through leftover rows.
+        self._db_path = str(tmp_path / "gpo-lens-test.sqlite3")
+
     @property
     def _client(self):
         from fastapi.testclient import TestClient
 
         from gpo_lens.web.app import create_app
 
-        db_path = str(FIXTURE_DIR / "gpo-lens-test.sqlite3")
+        db_path = self._db_path
         from gpo_lens.ingest import load_estate
         from gpo_lens.store import init_db, save_estate
 
@@ -179,9 +187,9 @@ class TestFindingsInboxWeb:
         assert "triage" in html.lower()
 
     def _seed_finding(self) -> None:
-        db_path = str(FIXTURE_DIR / "gpo-lens-test.sqlite3")
-        # Create a finding so we can triage it
-        conn = sqlite3.connect(db_path)
+        # Create a finding so we can triage it. Requires the DB to exist:
+        # build the client (which runs init_db + save_estate) first.
+        conn = sqlite3.connect(self._db_path)
         try:
             from gpo_lens.store import list_snapshots
 
@@ -198,8 +206,8 @@ class TestFindingsInboxWeb:
             conn.close()
 
     def test_triage_post_allowed_with_triage_permission(self) -> None:
-        self._seed_finding()
         client = self._client
+        self._seed_finding()
         # TestClient follows redirects by default, so a successful triage
         # returns 200 (the findings page) after a 303 redirect
         resp = client.post(
@@ -228,8 +236,8 @@ class TestFindingsInboxWeb:
         # INGEST alone must no longer authorize finding triage.
         from gpo_lens.web.auth import Permission
 
-        self._seed_finding()
         client = self._client_as(frozenset({Permission.VIEW, Permission.INGEST}))
+        self._seed_finding()
         resp = client.post(
             "/findings/1/triage",
             data={"status": "acknowledged", "note": "test"},
@@ -243,8 +251,8 @@ class TestFindingsInboxWeb:
         # but must not be able to upload snapshots.
         from gpo_lens.web.auth import Permission
 
-        self._seed_finding()
         client = self._client_as(frozenset({Permission.VIEW, Permission.TRIAGE}))
+        self._seed_finding()
         resp = client.post(
             "/findings/1/triage",
             data={"status": "acknowledged", "note": "test"},
