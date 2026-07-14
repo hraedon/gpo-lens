@@ -54,6 +54,12 @@ class DoctorFinding:
     # gaps), whose identity would otherwise key on wording and evidence
     # counts and churn on every re-scan.
     subject_key: tuple[str, ...] = ()
+    # Identity-bearing dimensions for lifecycle fingerprinting (WI-1.1,
+    # Plan 024 §4). Typed key/value pairs the adapter reads directly instead
+    # of parsing the prose summary/detail, so rewording a finding never churns
+    # its identity. Distinguishes multiple findings that share one subject
+    # (e.g. a coverage gap's kind on a GPO, a deny-ACE's trustee).
+    dimensions: tuple[tuple[str, str], ...] = ()
 
 
 _SEVERITY_ORDER = SEVERITY_ORDER
@@ -95,6 +101,7 @@ def estate_doctor(
             ),
             detail=cov.detail,
             subject_key=(cov.kind, cov.gpo_id),
+            dimensions=(("kind", cov.kind),),
         ))
 
     for hit in cpassword_scan(estate):
@@ -131,6 +138,7 @@ def estate_doctor(
             gpo_name=g.name,
             summary=f"{side} version skew (GPC != GPT)",
             detail=f"DS={ds_ver}, SYSVOL={sysvol_ver}",
+            dimensions=(("side", side),),
         ))
 
     for som, link in dangling_links(estate):
@@ -165,6 +173,7 @@ def estate_doctor(
                 f"{sum(1 for s in g.settings if s.side == side)}"
                 f" settings on disabled {side} side"
             ),
+            dimensions=(("side", side),),
         ))
 
     for ref in broken_refs(estate):
@@ -175,6 +184,7 @@ def estate_doctor(
             gpo_name=ref.gpo_name,
             summary=ref.detail,
             detail=ref.ref_value,
+            dimensions=(("ref_value", ref.ref_value),),
         ))
 
     for gap in admx_gaps(estate):
@@ -226,6 +236,7 @@ def estate_doctor(
             gpo_name=da.gpo_name,
             summary=f"Deny ACE: {trustee_display} ({da.rights})",
             detail=f"Trustee SID: {da.trustee_sid}" + (f"; Flags: {da.flags}" if da.flags else ""),
+            dimensions=(("trustee_sid", da.trustee_sid),),
         ))
 
     for w in excessive_writers(estate):

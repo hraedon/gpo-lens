@@ -26,6 +26,7 @@ from pathlib import Path
 
 import pytest
 
+from gpo_lens.danger import DangerFinding
 from gpo_lens.finding_model import (
     FINGERPRINT_VERSION,
     ClaimLevel,
@@ -36,6 +37,8 @@ from gpo_lens.finding_model import (
     series_key,
 )
 from gpo_lens.findings import (
+    _danger_finding_to_candidate,
+    _doctor_finding_to_candidate,
     accepted_risk_register,
     append_triage_event,
     candidates_from_estate,
@@ -52,6 +55,7 @@ from gpo_lens.findings import (
     register_analysis_input,
     run_evaluation,
 )
+from gpo_lens.queries._doctor import DoctorFinding
 from gpo_lens.store import CURRENT_SCHEMA_VERSION, init_db
 
 
@@ -140,6 +144,98 @@ class TestFingerprint:
     def test_different_dimensions_different_fingerprint(self) -> None:
         a = _make_candidate(dimensions=(("side", "Computer"),))
         b = _make_candidate(dimensions=(("side", "User"),))
+        assert compute_fingerprint(a) != compute_fingerprint(b)
+
+
+class TestAdapterIdentityFromTypedFields:
+    """WI-1.1: the adapter derives identity from typed detector fields, never
+    from parsing the prose summary/detail. Rewording a finding must leave its
+    fingerprint unchanged; changing a declared dimension must change it."""
+
+    def _doctor(self, **over: object) -> DoctorFinding:
+        base: dict[str, object] = {
+            "severity": "medium",
+            "category": "version_skew",
+            "gpo_id": "gpo-1",
+            "gpo_name": "GPO One",
+            "summary": "Computer version skew (GPC != GPT)",
+            "detail": "DS=5, SYSVOL=4",
+            "dimensions": (("side", "Computer"),),
+        }
+        base.update(over)
+        return DoctorFinding(**base)  # type: ignore[arg-type]
+
+    def _danger(self, **over: object) -> DangerFinding:
+        base: dict[str, object] = {
+            "check_id": "gpo_writable_nonadmin",
+            "severity": "high",
+            "title": "GPO writable by a non-admin trustee",
+            "gpo_id": "gpo-1",
+            "gpo_name": "GPO One",
+            "detail": "Trustee CONTOSO\\Helpdesk has write access (WP) to this GPO",
+            "reference": "ref",
+            "dimensions": (("trustee_sid", "S-1-5-21-1-2-3-1105"),),
+        }
+        base.update(over)
+        return DangerFinding(**base)  # type: ignore[arg-type]
+
+    def test_doctor_fingerprint_invariant_under_rewording(self) -> None:
+        a = _doctor_finding_to_candidate(self._doctor(), snapshot_id=1)
+        b = _doctor_finding_to_candidate(
+            self._doctor(
+                summary="Reworded: computer-side GPC/GPT mismatch",
+                detail="totally different evidence text",
+            ),
+            snapshot_id=2,
+        )
+        assert compute_fingerprint(a) == compute_fingerprint(b)
+
+    def test_doctor_fingerprint_changes_with_declared_dimension(self) -> None:
+        a = _doctor_finding_to_candidate(self._doctor(), snapshot_id=1)
+        b = _doctor_finding_to_candidate(
+            self._doctor(summary="User version skew (GPC != GPT)",
+                         dimensions=(("side", "User"),)),
+            snapshot_id=1,
+        )
+        assert compute_fingerprint(a) != compute_fingerprint(b)
+
+    def test_coverage_gap_kind_survives_as_dimension(self) -> None:
+        # Regression: the adapter used to drop the declared subject_key when a
+        # gpo_id was present, collapsing two coverage-gap kinds on one GPO to a
+        # single fingerprint. The kind now rides in dimensions and stays.
+        a = _doctor_finding_to_candidate(
+            self._doctor(category="coverage_gap", summary="gap A",
+                         dimensions=(("kind", "inaccessible"),)),
+            snapshot_id=1,
+        )
+        b = _doctor_finding_to_candidate(
+            self._doctor(category="coverage_gap", summary="gap B",
+                         dimensions=(("kind", "unreadable_sysvol"),)),
+            snapshot_id=1,
+        )
+        assert compute_fingerprint(a) != compute_fingerprint(b)
+
+    def test_danger_fingerprint_invariant_under_rewording(self) -> None:
+        a = _danger_finding_to_candidate(self._danger(), snapshot_id=1)
+        b = _danger_finding_to_candidate(
+            self._danger(
+                title="Reworded title",
+                detail="Trustee resolved-to-a-different-display-name has write access",
+            ),
+            snapshot_id=2,
+        )
+        assert compute_fingerprint(a) == compute_fingerprint(b)
+
+    def test_danger_two_writers_same_gpo_distinct_fingerprints(self) -> None:
+        # Two non-admin writers on one GPO must be two findings, not one.
+        a = _danger_finding_to_candidate(
+            self._danger(dimensions=(("trustee_sid", "S-1-5-21-1-2-3-1105"),)),
+            snapshot_id=1,
+        )
+        b = _danger_finding_to_candidate(
+            self._danger(dimensions=(("trustee_sid", "S-1-5-21-1-2-3-1106"),)),
+            snapshot_id=1,
+        )
         assert compute_fingerprint(a) != compute_fingerprint(b)
 
     def test_comparator_series_in_fingerprint(self) -> None:
@@ -758,6 +854,63 @@ class TestCoreQueries:
             ])
             inbox = finding_inbox(conn, gpo_id="gpo1")
             assert len(inbox) == 1
+        finally:
+            conn.close()
+
+    def test_filter_applied_before_limit_is_complete(self) -> None:
+        # WI-1.2: a filtered page must not silently truncate. With many 'open'
+        # findings ahead of a few accepted-risk ones, a small limit must still
+        # return every accepted-risk finding, not just those inside a pre-filter
+        # LIMIT window.
+        conn = _make_db()
+        try:
+            _make_snapshot(conn, 1)
+            run_id = _make_run(conn, 1)
+            cands = [
+                _make_candidate("cpassword", subject_key=(f"gpo{i}",))
+                for i in range(30)
+            ]
+            run_evaluation(conn, run_id, cands)
+
+            all_active = finding_inbox(conn, limit=1000)
+            # Accept risk on 3 findings that sort *late* (highest ids).
+            accepted_ids = [v.occurrence_id for v in all_active[-3:]]
+            for oid in accepted_ids:
+                append_triage_event(
+                    conn, oid, "accepted_risk", "alice",
+                    rationale="reviewed",
+                )
+
+            # A limit smaller than the open set would, pre-fix, fetch mostly
+            # 'open' rows and drop the accepted ones in Python.
+            accepted = finding_inbox(conn, triage_status="accepted_risk", limit=5)
+            assert {v.occurrence_id for v in accepted} == set(accepted_ids)
+            assert all(v.triage_status == "accepted_risk" for v in accepted)
+
+            # The complementary 'open' filter excludes exactly those three.
+            open_rows = finding_inbox(conn, triage_status="open", limit=1000)
+            assert len(open_rows) == 27
+            assert not (set(accepted_ids) & {v.occurrence_id for v in open_rows})
+        finally:
+            conn.close()
+
+    def test_legacy_provenanceless_row_excluded_from_inbox(self) -> None:
+        # WI-1.4: a row with no evaluation-run provenance (a hypothetical
+        # pre-lifecycle Plan 023 finding) must not appear in the v2 inbox as a
+        # spurious 'new' finding. Insert one directly, bypassing run_evaluation.
+        conn = _make_db()
+        try:
+            _make_snapshot(conn, 1)
+            conn.execute(
+                "INSERT INTO finding "
+                "(finding_key, rule_id, subject_identity, severity, summary, "
+                "detail, remediation, gpo_id, gpo_name, first_seen_snapshot, "
+                "last_seen_snapshot, first_seen_run_id, last_seen_run_id) "
+                "VALUES ('legacykey', 'cpassword', 'gpo1', 'critical', "
+                "'legacy finding', '', '', 'gpo1', 'GPO One', 1, 1, NULL, NULL)"
+            )
+            conn.commit()
+            assert finding_inbox(conn) == []
         finally:
             conn.close()
 
