@@ -54,7 +54,9 @@ def test_load_estate_includes_sites():
 
 def test_load_estate_without_sites_json_is_backward_compatible(tmp_path):
     dest = tmp_path / "export"
-    shutil.copytree(FIXTURES, dest)
+    shutil.copytree(
+        FIXTURES, dest, ignore=shutil.ignore_patterns("*.sqlite3*", "__pycache__")
+    )
     (dest / "sites.json").unlink()
     estate = ingest.load_estate(dest)
     assert [s for s in estate.soms if s.container_type == "site"] == []
@@ -100,7 +102,9 @@ def test_site_caveat_present_in_ou_scope():
 
 def test_no_site_caveat_without_sites(tmp_path):
     dest = tmp_path / "export"
-    shutil.copytree(FIXTURES, dest)
+    shutil.copytree(
+        FIXTURES, dest, ignore=shutil.ignore_patterns("*.sqlite3*", "__pycache__")
+    )
     (dest / "sites.json").unlink()
     estate = ingest.load_estate(dest)
     caveats = queries.scope_caveats(estate, "dc=fakefixture,dc=local")

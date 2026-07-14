@@ -14,7 +14,9 @@ STRIPPED = "{DEADBEEF-0000-0000-0000-000000000001}"  # a GUID not in the fixture
 
 def _export_with(tmp_path, *, inventory=None, errors=None) -> Path:
     dest = tmp_path / "export"
-    shutil.copytree(FIXTURES, dest)
+    shutil.copytree(
+        FIXTURES, dest, ignore=shutil.ignore_patterns("*.sqlite3*", "__pycache__")
+    )
     if inventory is not None:
         (dest / "gpo-inventory.json").write_text(json.dumps(inventory))
     if errors is not None:

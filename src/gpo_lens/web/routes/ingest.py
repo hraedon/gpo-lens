@@ -112,11 +112,22 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
                     rw_conn = get_rw_conn(app.state.db_path)
                     try:
                         _store.init_db(rw_conn)
-                        _store.save_estate(rw_conn, estate)
+                        snapshot_id = _store.save_estate(rw_conn, estate)
                         _events.append_event(
                             rw_conn, "audit.ingest",
                             {"principal": principal.name},
                         )
+                        # WI-4: update finding lifecycle after ingest
+                        try:
+                            from gpo_lens.findings import evaluate_finding_lifecycle_v2
+
+                            evaluate_finding_lifecycle_v2(
+                                rw_conn, snapshot_id, estate, admx=app.state.admx,
+                            )
+                        except Exception as exc:
+                            _logger.warning(
+                                "Finding lifecycle update failed: %s", exc
+                            )
                     finally:
                         rw_conn.close()
 

@@ -32,7 +32,19 @@ from gpo_lens.normalize import parse_dt
 # v3 = adds the ``principal`` + ``group_member`` tables (Plan 020/021), so the
 #      collected principal-resolution inputs survive a snapshot round-trip
 #      instead of being dropped on the ``--db`` read path.
-CURRENT_SCHEMA_VERSION: int = 3
+# v4 = adds the ``finding`` + ``finding_triage`` tables (Plan 023 WI-4/WI-5),
+#      durable finding identity/lifecycle + local triage annotations.
+# v5 = persists bounded finding evidence/remediation so read paths never need
+#      to re-run whole-estate detectors (WI-090).
+# v6 = Plan 024: evaluation provenance + occurrence/observation separation +
+#      enhanced triage. Adds ``analysis_input``, ``evaluation_run``,
+#      ``finding_observation``, ``finding_triage_event`` tables; adds
+#      ``fingerprint_version``, ``series_key``, ``detector_id``,
+#      ``detector_version``, ``subject_type``, ``subject_key``,
+#      ``first_seen_run_id``, ``last_seen_run_id``, ``resolved_run_id``
+#      columns to ``finding``; adds ``expires_at``, ``supersedes_event_id``,
+#      ``rationale`` columns to ``finding_triage``.
+CURRENT_SCHEMA_VERSION: int = 6
 
 
 def _safe_json_loads(raw: str | None, default: Any) -> Any:
@@ -247,6 +259,148 @@ def init_db(conn: sqlite3.Connection) -> None:
         )
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS finding (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            finding_key TEXT NOT NULL,
+            rule_id TEXT NOT NULL,
+            subject_identity TEXT NOT NULL,
+            severity TEXT NOT NULL,
+            summary TEXT NOT NULL,
+            detail TEXT NOT NULL DEFAULT '',
+            remediation TEXT NOT NULL DEFAULT '',
+            gpo_id TEXT NOT NULL DEFAULT '',
+            gpo_name TEXT NOT NULL DEFAULT '',
+            first_seen_snapshot INTEGER NOT NULL REFERENCES snapshot(id) ON DELETE CASCADE,
+            last_seen_snapshot INTEGER NOT NULL REFERENCES snapshot(id) ON DELETE CASCADE,
+            resolved_in_snapshot INTEGER REFERENCES snapshot(id) ON DELETE SET NULL,
+            predecessor_id INTEGER REFERENCES finding(id) ON DELETE SET NULL
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_finding_key
+        ON finding(finding_key)
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_finding_active
+        ON finding(resolved_in_snapshot)
+        WHERE resolved_in_snapshot IS NULL
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS finding_triage (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            finding_id INTEGER NOT NULL REFERENCES finding(id) ON DELETE CASCADE,
+            status TEXT NOT NULL,
+            note TEXT NOT NULL DEFAULT '',
+            actor TEXT NOT NULL,
+            timestamp TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_finding_triage_finding
+        ON finding_triage(finding_id)
+        """
+    )
+    # Plan 024: evaluation provenance tables.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS analysis_input (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            kind TEXT NOT NULL,
+            canonical_digest TEXT NOT NULL,
+            version TEXT NOT NULL,
+            metadata_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_analysis_input_digest
+        ON analysis_input(kind, canonical_digest)
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS evaluation_run (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            snapshot_id INTEGER NOT NULL REFERENCES snapshot(id) ON DELETE CASCADE,
+            evaluation_kind TEXT NOT NULL DEFAULT 'intrinsic',
+            detector_set_digest TEXT NOT NULL DEFAULT '',
+            comparator_input_id INTEGER REFERENCES analysis_input(id) ON DELETE SET NULL,
+            application_version TEXT NOT NULL DEFAULT '',
+            started_at TEXT NOT NULL,
+            completed_at TEXT,
+            status TEXT NOT NULL DEFAULT 'completed',
+            error_summary TEXT NOT NULL DEFAULT ''
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_evaluation_run_snapshot
+        ON evaluation_run(snapshot_id)
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS finding_observation (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id INTEGER NOT NULL REFERENCES evaluation_run(id) ON DELETE CASCADE,
+            occurrence_id INTEGER NOT NULL REFERENCES finding(id) ON DELETE CASCADE,
+            severity TEXT NOT NULL,
+            summary TEXT NOT NULL DEFAULT '',
+            evidence_json TEXT NOT NULL DEFAULT '{}',
+            claim_level TEXT NOT NULL DEFAULT 'confirmed',
+            remediation TEXT NOT NULL DEFAULT '',
+            compliance_json TEXT NOT NULL DEFAULT '[]',
+            gpo_id TEXT NOT NULL DEFAULT '',
+            gpo_name TEXT NOT NULL DEFAULT ''
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_finding_observation_run
+        ON finding_observation(run_id)
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_finding_observation_occurrence
+        ON finding_observation(occurrence_id)
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS finding_triage_event (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            occurrence_id INTEGER NOT NULL REFERENCES finding(id) ON DELETE CASCADE,
+            action TEXT NOT NULL,
+            actor TEXT NOT NULL,
+            occurred_at TEXT NOT NULL,
+            note TEXT NOT NULL DEFAULT '',
+            rationale TEXT NOT NULL DEFAULT '',
+            expires_at TEXT,
+            supersedes_event_id INTEGER REFERENCES finding_triage_event(id) ON DELETE SET NULL
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_finding_triage_event_occurrence
+        ON finding_triage_event(occurrence_id)
+        """
+    )
     init_events_table(conn)
     _migrate_schema(conn)
     conn.commit()
@@ -294,6 +448,44 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
         # v1 -> v2: add nullable description column to the gpo table.
         if not _column_exists(conn, "gpo", "description"):
             conn.execute("ALTER TABLE gpo ADD COLUMN description TEXT")
+
+        # v4 -> v5: retain the evidence already produced at ingest so the
+        # findings inbox remains actionable without detector recomputation.
+        if not _column_exists(conn, "finding", "detail"):
+            conn.execute(
+                "ALTER TABLE finding ADD COLUMN detail TEXT NOT NULL DEFAULT ''"
+            )
+        if not _column_exists(conn, "finding", "remediation"):
+            conn.execute(
+                "ALTER TABLE finding ADD COLUMN remediation TEXT NOT NULL DEFAULT ''"
+            )
+
+        # v5 -> v6: Plan 024 — evaluation provenance, occurrence/observation
+        # separation, enhanced triage. Add columns to existing tables so the
+        # new model is backward-compatible with existing finding rows.
+        new_finding_cols = {
+            "fingerprint_version": "INTEGER NOT NULL DEFAULT 1",
+            "series_key": "TEXT NOT NULL DEFAULT ''",
+            "detector_id": "TEXT NOT NULL DEFAULT ''",
+            "detector_version": "TEXT NOT NULL DEFAULT '1'",
+            "subject_type": "TEXT NOT NULL DEFAULT ''",
+            "subject_key_json": "TEXT NOT NULL DEFAULT '[]'",
+            "first_seen_run_id": "INTEGER",
+            "last_seen_run_id": "INTEGER",
+            "resolved_run_id": "INTEGER",
+        }
+        for col, ddl in new_finding_cols.items():
+            if not _column_exists(conn, "finding", col):
+                conn.execute(f"ALTER TABLE finding ADD COLUMN {col} {ddl}")
+
+        new_triage_cols = {
+            "expires_at": "TEXT",
+            "supersedes_event_id": "INTEGER",
+            "rationale": "TEXT NOT NULL DEFAULT ''",
+        }
+        for col, ddl in new_triage_cols.items():
+            if not _column_exists(conn, "finding_triage", col):
+                conn.execute(f"ALTER TABLE finding_triage ADD COLUMN {col} {ddl}")
 
     conn.execute(f"PRAGMA user_version = {CURRENT_SCHEMA_VERSION}")
 

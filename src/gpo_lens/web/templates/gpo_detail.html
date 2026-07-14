@@ -6,24 +6,129 @@
 <nav class="gp-breadcrumb" aria-label="Breadcrumb">
   <a href="{{ url_for('home') }}">Dashboard</a>
   <span class="sep">/</span>
+  <a href="{{ url_for('gpo_list') }}">Inventory</a>
+  <span class="sep">/</span>
   <span class="current" aria-current="page">{{ gpo.name }}</span>
 </nav>
 {% endblock %}
 
 {% block content %}
+{# ── Layer 1: Verdict strip ───────────────────────────────────────── #}
 <div class="gp-page-head">
   <div>
     <div class="gp-eyebrow">Group Policy object</div>
     <h1>{{ gpo.name }}</h1>
     <div class="sub mono">{{ gpo.id }}</div>
   </div>
-  <div style="display:flex;gap:8px;align-items:center">
-    {% if gpo.computer_enabled %}<span class="gp-pill ok" title="Computer side is enabled"><span class="dot"></span>Computer enabled</span>{% else %}<span class="gp-pill low" title="Computer side is disabled; computer settings will not apply"><span class="dot"></span>Computer disabled</span>{% endif %}
-    {% if gpo.user_enabled %}<span class="gp-pill ok" title="User side is enabled"><span class="dot"></span>User enabled</span>{% else %}<span class="gp-pill low" title="User side is disabled; user settings will not apply"><span class="dot"></span>User disabled</span>{% endif %}
+  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    {% if gpo.computer_enabled %}<span class="gp-pill ok" title="Computer side is enabled"><span class="dot"></span>Computer enabled</span>{% else %}<span class="gp-pill low" title="Computer side is disabled"><span class="dot"></span>Computer disabled</span>{% endif %}
+    {% if gpo.user_enabled %}<span class="gp-pill ok" title="User side is enabled"><span class="dot"></span>User enabled</span>{% else %}<span class="gp-pill low" title="User side is disabled"><span class="dot"></span>User disabled</span>{% endif %}
+    {% if gpo.links %}<span class="gp-pill ok" title="Linked to {{ gpo.links|length }} scope(s)"><span class="dot"></span>Linked</span>{% else %}<span class="gp-pill low" title="Not linked anywhere"><span class="dot"></span>Orphaned</span>{% endif %}
+    {% if open_finding_count %}<a href="{{ url_for('findings_inbox') }}?q={{ gpo.name|urlencode }}&amp;lifecycle=all&amp;triage=all"><span class="gp-pill critical" title="{{ open_finding_count }} active finding(s)"><span class="dot"></span>{{ open_finding_count }} finding{{ 's' if open_finding_count != 1 }}</span></a>{% endif %}
     <a class="gp-btn gp-export-btn" href="{{ url_for('export_gpo', gpo_id=gpo.id) }}?format=json">Export JSON</a>
   </div>
 </div>
 
+<div class="gp-verdict-strip">
+  <div class="gp-verdict-item{% if gpo.computer_version_skew or gpo.user_version_skew %} flag{% endif %}">
+    <span class="label">Version skew</span>
+    <span class="value">{% if gpo.computer_version_skew or gpo.user_version_skew %}<span class="gp-chip crit">SKEW</span>{% else %}<span class="muted">none</span>{% endif %}</span>
+  </div>
+  <div class="gp-verdict-item{% if sec_filter and sec_filter.is_filtered %} accent{% endif %}">
+    <span class="label">Security filtered</span>
+    <span class="value">{% if sec_filter and sec_filter.is_filtered %}<span class="gp-chip warn">yes</span> {{ sec_filter.apply_trustees|join(', ') }}{% else %}<span class="muted">no</span>{% endif %}</span>
+  </div>
+  <div class="gp-verdict-item{% if gpo.wmi_filter %} accent{% endif %}">
+    <span class="label">WMI filter</span>
+    <span class="value">{% if gpo.wmi_filter %}<span class="gp-chip info">{{ gpo.wmi_filter }}</span>{% else %}<span class="muted">none</span>{% endif %}</span>
+  </div>
+  <div class="gp-verdict-item">
+    <span class="label">Owner</span>
+    <span class="value">{{ (gpo.owner or "").strip() or "—" }}</span>
+  </div>
+  <div class="gp-verdict-item">
+    <span class="label">Modified</span>
+    <span class="value">{{ gpo.modified or "—" }}</span>
+  </div>
+  <div class="gp-verdict-item">
+    <span class="label">Settings</span>
+    <span class="value">{{ gpo.settings|length }}</span>
+  </div>
+</div>
+
+{# ── Layer 2: Settings ledger ─────────────────────────────────────── #}
+<section class="gp-section">
+  <h2>Settings ledger <span class="count">{{ ledger|length }}</span></h2>
+  {% include "_ledger.html" %}
+  <script src="{{ url_for('static', path='ledger-filter.js') }}"></script>
+</section>
+
+{# ── Layer 3: Scope & control panel ──────────────────────────────── #}
+<div class="gp-two-col">
+  <section class="gp-section">
+    <h2>Scope: who receives this</h2>
+    <div class="gp-callout accent">
+      <span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg></span>
+      <div>
+        <h4>Scope caveats — flagged, not simulated</h4>
+        {% if caveats %}
+        <ul>
+          {% for c in caveats %}<li>{{ c.strip() }}</li>{% endfor %}
+        </ul>
+        {% else %}
+        <p style="margin-top:6px">None detected for this GPO.</p>
+        {% endif %}
+      </div>
+    </div>
+    {% if gpo.links %}
+    <div class="gp-table-wrap">
+      <table class="gp-table">
+        <thead>
+          <tr><th>Scope</th><th>Distinguished name</th><th style="width:100px">Link</th><th style="width:100px">Enforced</th></tr>
+        </thead>
+        <tbody>
+          {% for link in gpo.links %}
+          <tr>
+            <td>{{ link.som_name }}</td>
+            <td class="mono muted">{{ link.som_path }}</td>
+            <td>{% if link.link_enabled %}<span class="gp-pill ok"><span class="dot"></span>enabled</span>{% else %}<span class="gp-pill low"><span class="dot"></span>disabled</span>{% endif %}</td>
+            <td>{% if link.enforced %}<span class="gp-chip warn">enforced</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="muted">This GPO is not linked to any scope.</p>
+    {% endif %}
+  </section>
+
+  <section class="gp-section">
+    <h2>Control: who can change this</h2>
+    {% if gpo.delegation %}
+    <div class="gp-table-wrap">
+      <table class="gp-table">
+        <thead>
+          <tr><th>Trustee</th><th>Permission</th><th style="width:110px">Access</th></tr>
+        </thead>
+        <tbody>
+          {% for d in gpo.delegation %}
+          <tr>
+            <td>{{ d.trustee }}</td>
+            <td{% if d.permission == 'Apply Group Policy' %} title="Apply Group Policy includes both Read and Apply rights"{% endif %}>{{ d.permission }}</td>
+            <td>{% if d.allowed %}<span class="gp-pill ok"><span class="dot"></span>Allow</span>{% else %}<span class="gp-pill critical"><span class="dot"></span>Deny</span>{% endif %}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="muted">No delegation entries.</p>
+    {% endif %}
+  </section>
+</div>
+
+{# ── Metadata + Versions ─────────────────────────────────────────── #}
 <section class="gp-section">
   <h2>Metadata</h2>
   <div class="gp-panel pad">
@@ -37,25 +142,7 @@
       </tbody>
     </table>
   </div>
-</section>
-
-<div class="gp-callout accent">
-  <span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg></span>
-  <div>
-    <h4>Scope caveats — flagged, not simulated</h4>
-    <p>These scoping mechanisms can change what actually applies to a given user or computer and are <em>not</em> evaluated here:</p>
-    {% if caveats %}
-    <ul>
-      {% for c in caveats %}<li>{{ c.strip() }}</li>{% endfor %}
-    </ul>
-    {% else %}
-    <p style="margin-top:6px">None detected for this GPO (no security filtering, WMI filter, loopback, item-level targeting, or unlinked state).</p>
-    {% endif %}
-  </div>
-</div>
-
-<section class="gp-section">
-  <h2>Versions</h2>
+  <h3>Versions</h3>
   <div class="gp-table-wrap">
     <table class="gp-table">
       <thead>
@@ -79,39 +166,80 @@
   </div>
 </section>
 
-{% if gpo.wmi_filter %}
+{# ── Layer 4: History ─────────────────────────────────────────────── #}
 <section class="gp-section">
-  <h2>WMI filter</h2>
-  <div class="gp-panel pad mono" style="font-size:12.5px;color:var(--text-2)">{{ gpo.wmi_filter }}</div>
-</section>
-{% endif %}
-
-{% if gpo.links %}
-<section class="gp-section">
-  <h2>Links <span class="count">{{ gpo.links|length }}</span></h2>
+  <h2>History</h2>
+  {% if snapshots|length > 1 %}
   <div class="gp-table-wrap">
     <table class="gp-table">
       <thead>
-        <tr><th>Scope</th><th>Distinguished name</th><th style="width:100px">Link</th><th style="width:100px">Enforced</th></tr>
+        <tr><th>Snapshot</th><th>Domain</th><th>Taken at</th></tr>
       </thead>
       <tbody>
-        {% for link in gpo.links %}
+        {% for snap_id, snap_domain, snap_time in snapshots %}
         <tr>
-          <td>{{ link.som_name }}</td>
-          <td class="mono muted">{{ link.som_path }}</td>
-          <td>{% if link.link_enabled %}<span class="gp-pill ok" title="This link is enabled"><span class="dot"></span>enabled</span>{% else %}<span class="gp-pill low" title="This link is disabled"><span class="dot"></span>disabled</span>{% endif %}</td>
-          <td>{% if link.enforced %}<span class="gp-chip warn">enforced</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+          <td>#{{ snap_id }}</td>
+          <td>{{ snap_domain }}</td>
+          <td>{{ snap_time or "—" }}</td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
+  {% else %}
+  <p class="muted">{{ snapshots|length }} snapshot{{ 's' if snapshots|length != 1 }} recorded.</p>
+  {% endif %}
 </section>
-{% endif %}
 
+{# ── GPO-vs-GPO diff ──────────────────────────────────────────────── #}
+<section class="gp-section">
+  <h2>Compare with another GPO</h2>
+  <form method="get" action="{{ url_for('gpo_detail', gpo_id=gpo.id) }}" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <select name="compare" class="gp-ledger-filter" style="max-width:320px">
+      <option value="">— select GPO —</option>
+      {% for other in other_gpos %}
+      <option value="{{ other.id }}" {% if f_compare == other.id %}selected{% endif %}>{{ other.name }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="gp-btn">Compare</button>
+    {% if f_compare %}
+    <a href="{{ url_for('gpo_detail', gpo_id=gpo.id) }}" class="gp-btn" style="text-decoration:none">Clear</a>
+    {% endif %}
+  </form>
+  {% if diff_rows %}
+  <div class="gp-table-wrap" style="margin-top:12px">
+    <table class="gp-table">
+      <thead>
+        <tr><th>Side</th><th>CSE</th><th>Setting</th><th>Change</th><th>{{ gpo.name }}</th><th>{{ compare_gpo.name if compare_gpo else "Other" }}</th></tr>
+      </thead>
+      <tbody>
+        {% for d in diff_rows %}
+        <tr class="{% if d.change == 'modified' %}flag{% elif d.change == 'only_in_a' %}dim{% elif d.change == 'only_in_b' %}dim{% endif %}">
+          <td>{{ d.side }}</td>
+          <td>{{ d.cse }}</td>
+          <td>{{ d.display_name }}<div class="mono muted" style="font-size:var(--fs-xs)">{{ d.identity }}</div></td>
+          <td>
+            {% if d.change == 'modified' %}<span class="gp-chip warn">modified</span>
+            {% elif d.change == 'only_in_a' %}<span class="gp-chip info">only here</span>
+            {% elif d.change == 'only_in_b' %}<span class="gp-chip info">only there</span>
+            {% endif %}
+          </td>
+          <td class="mono">{{ d.val_a or "—" }}</td>
+          <td class="mono">{{ d.val_b or "—" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% elif f_compare %}
+  <p class="muted" style="margin-top:8px">No setting differences found.</p>
+  {% endif %}
+</section>
+
+{# ── Legacy settings table (by CSE) ───────────────────────────────── #}
 {% for side_name, side_settings in settings_by_side.items() %}
 <section class="gp-section">
-  <h2>{{ side_name }} Side Settings</h2>
+  <h2>{{ side_name }} Side Settings (by CSE)</h2>
   {% if side_name in disabled_sides %}
   <div class="gp-callout warn" style="margin-bottom:12px">
     <span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9L1.8 18a2 2 0 001.7 3h16.9a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg></span>
@@ -159,26 +287,4 @@
   {% endfor %}
 </section>
 {% endfor %}
-
-{% if gpo.delegation %}
-<section class="gp-section">
-  <h2>Delegation <span class="count">{{ gpo.delegation|length }}</span></h2>
-  <div class="gp-table-wrap">
-    <table class="gp-table">
-      <thead>
-        <tr><th>Trustee</th><th>Permission</th><th style="width:110px">Access</th></tr>
-      </thead>
-      <tbody>
-        {% for d in gpo.delegation %}
-        <tr>
-          <td>{{ d.trustee }}</td>
-          <td{% if d.permission == 'Apply Group Policy' %} title="Apply Group Policy includes both Read and Apply rights"{% endif %}>{{ d.permission }}</td>
-          <td>{% if d.allowed %}<span class="gp-pill ok"><span class="dot"></span>Allow</span>{% else %}<span class="gp-pill critical"><span class="dot"></span>Deny</span>{% endif %}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-</section>
-{% endif %}
 {% endblock %}

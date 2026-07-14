@@ -1,0 +1,539 @@
+"""Tests for WI-4: finding identity and lifecycle."""
+
+from __future__ import annotations
+
+import sqlite3
+from pathlib import Path
+from unittest.mock import MagicMock
+
+from gpo_lens import store
+from gpo_lens.findings import (
+    finding_key,
+    load_active_findings,
+    update_finding_lifecycle,
+)
+from gpo_lens.store import init_db
+
+FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures"
+
+
+def _make_db() -> sqlite3.Connection:
+    conn = sqlite3.connect(":memory:")
+    init_db(conn)
+    return conn
+
+
+def _make_finding(category: str, gpo_id: str, severity="medium", summary="test"):
+    """Create a mock DoctorFinding-like object."""
+    return MagicMock(
+        category=category,
+        gpo_id=gpo_id,
+        gpo_name=f"GPO-{gpo_id[:8]}",
+        severity=severity,
+        summary=summary,
+        detail="",
+        subject_key=(),
+    )
+
+
+class TestFindingKey:
+    def test_deterministic(self) -> None:
+        key1 = finding_key("cpassword", "abc123", "detail1")
+        key2 = finding_key("cpassword", "abc123", "detail1")
+        assert key1 == key2
+
+    def test_different_rule_different_key(self) -> None:
+        assert finding_key("cpassword", "abc", "d") != finding_key("ms16_072", "abc", "d")
+
+    def test_different_subject_different_key(self) -> None:
+        assert finding_key("cpassword", "abc", "d") != finding_key("cpassword", "xyz", "d")
+
+    def test_different_detail_different_key(self) -> None:
+        """Same rule + subject but different detail = different key (no silent dedup)."""
+        assert finding_key("cpassword", "abc", "detail1") != finding_key(
+            "cpassword", "abc", "detail2"
+        )
+
+    def test_case_insensitive(self) -> None:
+        assert finding_key("Cpassword", "ABC", "Detail") == finding_key(
+            "cpassword", "abc", "detail"
+        )
+
+    def test_whitespace_stripped(self) -> None:
+        assert finding_key("  cpassword  ", "  abc  ", "  d  ") == finding_key(
+            "cpassword", "abc", "d"
+        )
+
+    def test_invariant_under_ordering(self) -> None:
+        """Property: finding keys don't depend on the order findings are emitted."""
+        findings_a = [
+            _make_finding("cpassword", "gpo1"),
+            _make_finding("ms16_072", "gpo2"),
+            _make_finding("version_skew", "gpo3"),
+        ]
+        findings_b = list(reversed(findings_a))
+        keys_a = {finding_key(f.category, f.gpo_id, f.summary) for f in findings_a}
+        keys_b = {finding_key(f.category, f.gpo_id, f.summary) for f in findings_b}
+        assert keys_a == keys_b
+
+
+class TestFindingLifecycle:
+    def test_first_ingest_creates_findings(self) -> None:
+        conn = _make_db()
+        try:
+            conn.execute(
+                "INSERT INTO snapshot (id, domain, taken_at) VALUES (1, 'test', '2025-01-01')"
+            )
+            findings = [
+                _make_finding("cpassword", "gpo1", "critical"),
+                _make_finding("ms16_072", "gpo2", "high"),
+            ]
+            result = update_finding_lifecycle(conn, 1, findings)
+            assert result.new_count == 2
+            assert result.persisting_count == 0
+            assert result.resolved_count == 0
+            active = load_active_findings(conn)
+            assert len(active) == 2
+        finally:
+            conn.close()
+
+    def test_reingest_same_data_no_duplicates(self) -> None:
+        conn = _make_db()
+        try:
+            conn.execute(
+                "INSERT INTO snapshot (id, domain, taken_at) VALUES (1, 'test', '2025-01-01')"
+            )
+            findings = [_make_finding("cpassword", "gpo1")]
+            update_finding_lifecycle(conn, 1, findings)
+
+            conn.execute(
+                "INSERT INTO snapshot (id, domain, taken_at) VALUES (2, 'test', '2025-01-02')"
+            )
+            result = update_finding_lifecycle(conn, 2, findings)
+            assert result.new_count == 0
+            assert result.persisting_count == 1
+            assert result.resolved_count == 0
+
+            active = load_active_findings(conn)
+            assert len(active) == 1
+        finally:
+            conn.close()
+
+    def test_resolved_finding(self) -> None:
+        conn = _make_db()
+        try:
+            conn.execute(
+                "INSERT INTO snapshot (id, domain, taken_at) VALUES (1, 'test', '2025-01-01')"
+            )
+            findings = [_make_finding("cpassword", "gpo1"), _make_finding("ms16_072", "gpo2")]
+            update_finding_lifecycle(conn, 1, findings)
+
+            conn.execute(
+                "INSERT INTO snapshot (id, domain, taken_at) VALUES (2, 'test', '2025-01-02')"
+            )
+            # Second snapshot: cpassword is fixed (only ms16_072 remains)
+            result = update_finding_lifecycle(conn, 2, [_make_finding("ms16_072", "gpo2")])
+            assert result.new_count == 0
+            assert result.persisting_count == 1
+            assert result.resolved_count == 1
+
+            active = load_active_findings(conn)
+            assert len(active) == 1
+            assert active[0].rule_id == "ms16_072"
+        finally:
+            conn.close()
+
+    def test_regression_links_to_predecessor(self) -> None:
+        conn = _make_db()
+        try:
+            conn.execute(
+                "INSERT INTO snapshot (id, domain, taken_at) VALUES (1, 'test', '2025-01-01')"
+            )
+            findings = [_make_finding("cpassword", "gpo1")]
+            update_finding_lifecycle(conn, 1, findings)
+
+            # Snapshot 2: cpassword fixed
+            conn.execute(
+                "INSERT INTO snapshot (id, domain, taken_at) VALUES (2, 'test', '2025-01-02')"
+            )
+            update_finding_lifecycle(conn, 2, [])
+
+            # Snapshot 3: cpassword reappears (regression)
+            conn.execute(
+                "INSERT INTO snapshot (id, domain, taken_at) VALUES (3, 'test', '2025-01-03')"
+            )
+            result = update_finding_lifecycle(conn, 3, [_make_finding("cpassword", "gpo1")])
+            assert result.new_count == 1
+            assert result.regressed_count == 1
+
+            active = load_active_findings(conn)
+            assert len(active) == 1
+            assert active[0].predecessor_id is not None
+        finally:
+            conn.close()
+
+    def test_new_finding_introduced(self) -> None:
+        conn = _make_db()
+        try:
+            conn.execute(
+                "INSERT INTO snapshot (id, domain, taken_at) VALUES (1, 'test', '2025-01-01')"
+            )
+            update_finding_lifecycle(conn, 1, [_make_finding("cpassword", "gpo1")])
+
+            conn.execute(
+                "INSERT INTO snapshot (id, domain, taken_at) VALUES (2, 'test', '2025-01-02')"
+            )
+            # New delegation issue introduced
+            result = update_finding_lifecycle(conn, 2, [
+                _make_finding("cpassword", "gpo1"),
+                _make_finding("delegation", "gpo2", "medium"),
+            ])
+            assert result.new_count == 1
+            assert result.persisting_count == 1
+            assert result.resolved_count == 0
+        finally:
+            conn.close()
+
+    def test_full_lifecycle_scenario(self) -> None:
+        """AC: ingest of two snapshots yields exactly one resolved, one new, N persisting."""
+        conn = _make_db()
+        try:
+            conn.execute(
+                "INSERT INTO snapshot (id, domain, taken_at) VALUES (1, 'test', '2025-01-01')"
+            )
+            findings_s1 = [
+                _make_finding("cpassword", "gpo1", "critical"),
+                _make_finding("ms16_072", "gpo2", "high"),
+                _make_finding("version_skew", "gpo3", "medium"),
+            ]
+            update_finding_lifecycle(conn, 1, findings_s1)
+
+            conn.execute(
+                "INSERT INTO snapshot (id, domain, taken_at) VALUES (2, 'test', '2025-01-02')"
+            )
+            # Snapshot 2: cpassword fixed, new delegation issue, others persist
+            findings_s2 = [
+                _make_finding("ms16_072", "gpo2", "high"),
+                _make_finding("version_skew", "gpo3", "medium"),
+                _make_finding("delegation", "gpo4", "medium"),
+            ]
+            result = update_finding_lifecycle(conn, 2, findings_s2)
+            assert result.new_count == 1       # delegation
+            assert result.persisting_count == 2  # ms16_072 + version_skew
+            assert result.resolved_count == 1    # cpassword
+        finally:
+            conn.close()
+
+    def test_finding_keys_invariant_under_export_ordering(self) -> None:
+        """AC: property test — finding keys are invariant under export ordering."""
+        findings_order_a = [
+            _make_finding("cpassword", "gpo1"),
+            _make_finding("ms16_072", "gpo2"),
+            _make_finding("version_skew", "gpo3"),
+            _make_finding("delegation", "gpo4"),
+        ]
+        findings_order_b = [
+            _make_finding("delegation", "gpo4"),
+            _make_finding("ms16_072", "gpo2"),
+            _make_finding("cpassword", "gpo1"),
+            _make_finding("version_skew", "gpo3"),
+        ]
+        conn = _make_db()
+        try:
+            conn.execute(
+                "INSERT INTO snapshot (id, domain, taken_at) VALUES (1, 'test', '2025-01-01')"
+            )
+            update_finding_lifecycle(conn, 1, findings_order_a)
+            active_a = {f.finding_key for f in load_active_findings(conn)}
+
+            # Fresh DB, different order
+            conn2 = _make_db()
+            try:
+                conn2.execute(
+                    "INSERT INTO snapshot (id, domain, taken_at) VALUES (1, 'test', '2025-01-01')"
+                )
+                update_finding_lifecycle(conn2, 1, findings_order_b)
+                active_b = {f.finding_key for f in load_active_findings(conn2)}
+
+                assert active_a == active_b
+            finally:
+                conn2.close()
+        finally:
+            conn.close()
+
+
+class TestCoverageAwareResolution:
+    """A partial collection must never falsely mark a finding resolved.
+
+    Regression guard for the false-resolve bug: absence of a finding from a
+    scan only means "fixed" when the subject was actually re-evaluated.
+    """
+
+    def test_complete_coverage_resolves_as_before(self) -> None:
+        conn = _make_db()
+        try:
+            conn.execute(
+                "INSERT INTO snapshot (id, domain, taken_at) VALUES (1, 'test', '2025-01-01')"
+            )
+            update_finding_lifecycle(
+                conn, 1,
+                [_make_finding("cpassword", "gpo1"), _make_finding("ms16_072", "gpo2")],
+            )
+            conn.execute(
+                "INSERT INTO snapshot (id, domain, taken_at) VALUES (2, 'test', '2025-01-02')"
+            )
+            # Complete re-scan (both GPOs collected) with cpassword gone → resolved.
+            result = update_finding_lifecycle(
+                conn, 2, [_make_finding("ms16_072", "gpo2")],
+                collected_gpo_ids={"gpo1", "gpo2"},
+                coverage_complete=True,
+            )
+            assert result.resolved_count == 1
+            assert result.indeterminate_count == 0
+        finally:
+            conn.close()
+
+    def test_partial_collection_does_not_resolve_uncollected_gpo(self) -> None:
+        conn = _make_db()
+        try:
+            conn.execute(
+                "INSERT INTO snapshot (id, domain, taken_at) VALUES (1, 'test', '2025-01-01')"
+            )
+            update_finding_lifecycle(
+                conn, 1,
+                [_make_finding("cpassword", "gpo1"), _make_finding("ms16_072", "gpo2")],
+            )
+            conn.execute(
+                "INSERT INTO snapshot (id, domain, taken_at) VALUES (2, 'test', '2025-01-02')"
+            )
+            # Partial collection: gpo1 was NOT collected (coverage gap), so its
+            # cpassword finding is absent — but that is NOT evidence it is fixed.
+            result = update_finding_lifecycle(
+                conn, 2, [_make_finding("ms16_072", "gpo2")],
+                collected_gpo_ids={"gpo2"},
+                coverage_complete=False,
+            )
+            assert result.resolved_count == 0
+            assert result.indeterminate_count == 1
+            # The cpassword finding must still be active, not silently resolved.
+            active = {f.rule_id for f in load_active_findings(conn)}
+            assert active == {"cpassword", "ms16_072"}
+        finally:
+            conn.close()
+
+    def test_partial_collection_still_resolves_collected_gpo(self) -> None:
+        conn = _make_db()
+        try:
+            conn.execute(
+                "INSERT INTO snapshot (id, domain, taken_at) VALUES (1, 'test', '2025-01-01')"
+            )
+            update_finding_lifecycle(
+                conn, 1,
+                [_make_finding("cpassword", "gpo1"), _make_finding("ms16_072", "gpo2")],
+            )
+            conn.execute(
+                "INSERT INTO snapshot (id, domain, taken_at) VALUES (2, 'test', '2025-01-02')"
+            )
+            # Partial elsewhere, but gpo1 WAS collected and its finding is gone →
+            # genuinely resolved; gpo2 not collected → its finding stays active.
+            result = update_finding_lifecycle(
+                conn, 2, [],
+                collected_gpo_ids={"gpo1"},
+                coverage_complete=False,
+            )
+            assert result.resolved_count == 1
+            assert result.indeterminate_count == 1
+            active = {f.rule_id for f in load_active_findings(conn)}
+            assert active == {"ms16_072"}
+        finally:
+            conn.close()
+
+    def test_estate_level_finding_indeterminate_under_partial_coverage(self) -> None:
+        conn = _make_db()
+        try:
+            conn.execute(
+                "INSERT INTO snapshot (id, domain, taken_at) VALUES (1, 'test', '2025-01-01')"
+            )
+            # Estate-level finding (empty gpo_id), e.g. topology_discrepancy.
+            update_finding_lifecycle(
+                conn, 1, [_make_finding("topology_discrepancy", "", summary="ou mismatch")],
+            )
+            conn.execute(
+                "INSERT INTO snapshot (id, domain, taken_at) VALUES (2, 'test', '2025-01-02')"
+            )
+            result = update_finding_lifecycle(
+                conn, 2, [],
+                collected_gpo_ids={"gpo1"},
+                coverage_complete=False,
+            )
+            assert result.resolved_count == 0
+            assert result.indeterminate_count == 1
+        finally:
+            conn.close()
+
+
+class TestSchemaMigration:
+    def test_v3_db_migrates_to_current(self, tmp_path: Path) -> None:
+        """A v3 DB should gain finding tables and current evidence columns."""
+        db_path = str(tmp_path / "test-v3.sqlite3")
+        conn = sqlite3.connect(db_path)
+        try:
+            # Create a v3 schema manually
+            conn.execute("PRAGMA user_version = 3")
+            from gpo_lens.store import init_db
+
+            # init_db creates all tables (IF NOT EXISTS) and calls _migrate_schema
+            init_db(conn)
+            # Verify tables exist
+            tables = {
+                r[0]
+                for r in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                ).fetchall()
+            }
+            assert "finding" in tables
+            assert "finding_triage" in tables
+            # Verify version bumped
+            assert (
+                conn.execute("PRAGMA user_version").fetchone()[0]
+                == store.CURRENT_SCHEMA_VERSION
+            )
+        finally:
+            conn.close()
+
+    def test_v4_db_adds_finding_evidence_columns(self, tmp_path: Path) -> None:
+        db_path = str(tmp_path / "test-v4.sqlite3")
+        conn = sqlite3.connect(db_path)
+        try:
+            conn.execute("PRAGMA user_version = 4")
+            conn.execute(
+                "CREATE TABLE finding ("
+                "id INTEGER PRIMARY KEY, finding_key TEXT NOT NULL, "
+                "rule_id TEXT NOT NULL, subject_identity TEXT NOT NULL, "
+                "severity TEXT NOT NULL, summary TEXT NOT NULL, "
+                "gpo_id TEXT NOT NULL DEFAULT '', gpo_name TEXT NOT NULL DEFAULT '', "
+                "first_seen_snapshot INTEGER NOT NULL, last_seen_snapshot INTEGER NOT NULL, "
+                "resolved_in_snapshot INTEGER, predecessor_id INTEGER)"
+            )
+            init_db(conn)
+            columns = {
+                row[1] for row in conn.execute("PRAGMA table_info(finding)").fetchall()
+            }
+            assert {"detail", "remediation"} <= columns
+            assert (
+                conn.execute("PRAGMA user_version").fetchone()[0]
+                == store.CURRENT_SCHEMA_VERSION
+            )
+        finally:
+            conn.close()
+
+
+class TestDeclaredSubjectKey:
+    """WI-089 / Plan 024 §4: declared identity dimensions beat prose.
+
+    GPO-less findings (topology discrepancies, excessive writers, orphaned
+    WMI filters, coverage gaps) have no gpo_id, so their identity used to
+    fall back to summary/detail prose — any wording tweak or evidence-count
+    change re-keyed them, falsely resolving the old finding and creating a
+    "new" one. A declared ``subject_key`` pins identity to the stable
+    dimensions instead.
+    """
+
+    def _doctor_finding(self, **overrides):
+        from gpo_lens.queries import DoctorFinding
+
+        defaults = {
+            "severity": "medium",
+            "category": "excessive_writer",
+            "gpo_id": "",
+            "gpo_name": "",
+            "summary": "EXAMPLE\\gpo-writers has write access to 12 GPOs",
+            "detail": "Trustee SID: S-1-5-21-1-2-3-1105; Rights: WP; GPOs: A, B",
+            "subject_key": ("S-1-5-21-1-2-3-1105",),
+        }
+        defaults.update(overrides)
+        return DoctorFinding(**defaults)
+
+    def test_prose_and_evidence_changes_keep_identity(self) -> None:
+        from gpo_lens.findings import _finding_to_key_parts
+
+        before = self._doctor_finding()
+        after = self._doctor_finding(
+            summary="EXAMPLE\\gpo-writers has write access to 13 GPOs",
+            detail="Trustee SID: S-1-5-21-1-2-3-1105; Rights: WP, WD; GPOs: A, B, C",
+        )
+        r1, s1, _, d1 = _finding_to_key_parts(before)
+        r2, s2, _, d2 = _finding_to_key_parts(after)
+        assert finding_key(r1, s1, d1) == finding_key(r2, s2, d2)
+
+    def test_different_subject_key_different_identity(self) -> None:
+        from gpo_lens.findings import _finding_to_key_parts
+
+        a = self._doctor_finding(subject_key=("S-1-5-21-1-2-3-1105",))
+        b = self._doctor_finding(subject_key=("S-1-5-21-1-2-3-2201",))
+        ra, sa, _, da = _finding_to_key_parts(a)
+        rb, sb, _, db_ = _finding_to_key_parts(b)
+        assert finding_key(ra, sa, da) != finding_key(rb, sb, db_)
+
+    def test_no_subject_key_falls_back_to_prose(self) -> None:
+        from gpo_lens.findings import _finding_to_key_parts
+
+        f = self._doctor_finding(subject_key=(), summary="some estate issue")
+        _, subject, _, detail = _finding_to_key_parts(f)
+        # Legacy behaviour preserved: subject falls back to summary when
+        # gpo_id is empty, detail discriminator falls back to detail.
+        assert subject == f.summary
+        assert detail == f.detail
+
+    def test_lifecycle_persists_across_evidence_change(self) -> None:
+        """Integration: an excessive-writer finding whose GPO count changes
+        between snapshots stays ONE persisting finding, not resolved+new."""
+        conn = _make_db()
+        try:
+            conn.execute(
+                "INSERT INTO snapshot (id, domain, taken_at) VALUES (1, 'test', '2025-01-01')"
+            )
+            update_finding_lifecycle(conn, 1, [self._doctor_finding()])
+            conn.execute(
+                "INSERT INTO snapshot (id, domain, taken_at) VALUES (2, 'test', '2025-01-02')"
+            )
+            changed = self._doctor_finding(
+                summary="EXAMPLE\\gpo-writers has write access to 13 GPOs",
+                detail="Trustee SID: S-1-5-21-1-2-3-1105; Rights: WP; GPOs: A, B, C",
+            )
+            result = update_finding_lifecycle(conn, 2, [changed])
+            assert result.persisting_count == 1
+            assert result.new_count == 0
+            assert result.resolved_count == 0
+            active = load_active_findings(conn)
+            assert len(active) == 1
+            assert active[0].first_seen_snapshot == 1
+            assert active[0].last_seen_snapshot == 2
+            # Evidence is refreshed even though identity is stable
+            assert "13 GPOs" in active[0].summary
+        finally:
+            conn.close()
+
+    def test_estate_doctor_declares_subject_keys_for_gpo_less_findings(self) -> None:
+        """The four GPO-less doctor categories all carry a subject_key."""
+        from gpo_lens.model import CoverageGap, Estate, WmiFilter
+        from gpo_lens.queries import estate_doctor
+
+        estate = Estate(
+            domain="example.test",
+            wmi_filters=[WmiFilter(name="Orphan Filter", query="SELECT 1")],
+            coverage_gaps=[
+                CoverageGap(
+                    gpo_id="",
+                    display_name=None,
+                    kind="missing_sysvol",
+                    detail="no SYSVOL in export",
+                )
+            ],
+        )
+        findings = estate_doctor(estate)
+        by_category = {f.category: f for f in findings}
+        orphan = by_category["orphaned_wmi_filter"]
+        assert orphan.subject_key == ("Orphan Filter",)
+        gap = by_category["coverage_gap"]
+        assert gap.subject_key == ("missing_sysvol", "")

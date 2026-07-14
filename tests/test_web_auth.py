@@ -51,6 +51,7 @@ class TestPermissionEnum:
     def test_enum_values(self):
         assert Permission.VIEW.value == "view"
         assert Permission.INGEST.value == "ingest"
+        assert Permission.TRIAGE.value == "triage"
         assert Permission.NARRATE.value == "narrate"
         assert Permission.ADMIN.value == "admin"
 
@@ -59,13 +60,18 @@ class TestRolePermissions:
     def test_viewer_has_view_only(self):
         assert ROLE_PERMISSIONS["viewer"] == {Permission.VIEW}
 
-    def test_operator_has_view_and_ingest(self):
-        assert ROLE_PERMISSIONS["operator"] == {Permission.VIEW, Permission.INGEST}
+    def test_triager_can_triage_but_not_ingest(self):
+        # WI-088 / Plan 024 §8: acknowledging a finding must not grant
+        # snapshot upload.
+        assert ROLE_PERMISSIONS["triager"] == {Permission.VIEW, Permission.TRIAGE}
+
+    def test_operator_has_view_ingest_triage(self):
+        assert ROLE_PERMISSIONS["operator"] == {
+            Permission.VIEW, Permission.INGEST, Permission.TRIAGE
+        }
 
     def test_admin_has_all_permissions(self):
-        assert ROLE_PERMISSIONS["admin"] == {
-            Permission.VIEW, Permission.INGEST, Permission.NARRATE, Permission.ADMIN
-        }
+        assert ROLE_PERMISSIONS["admin"] == set(Permission)
 
 
 class TestLocalPrincipal:
