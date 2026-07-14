@@ -564,6 +564,7 @@ def create_app(
         dashboard,
         delegation,
         export,
+        findings,
         golden,
         gpo,
         ingest,
@@ -588,6 +589,7 @@ def create_app(
     delegation.register(app, templates)
     admx_cov.register(app, templates)
     golden.register(app, templates)
+    findings.register(app, templates)
     api.register(app, templates)
 
     return app

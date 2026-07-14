@@ -1,4 +1,4 @@
-"""Flat settings dump and two-file settings diff."""
+"""Flat settings dump, two-file settings diff, and the normalized settings ledger."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, cast
 from gpo_lens.model import Side
 
 if TYPE_CHECKING:
-    from gpo_lens.model import Estate
+    from gpo_lens.model import AdmxResolver, Estate
 
 
 @dataclass(frozen=True)
@@ -168,3 +168,114 @@ def settings_dump(
             ))
     results.sort(key=lambda r: (r.gpo_id, r.side, r.cse, r.identity.lower()))
     return results
+
+
+# ---------------------------------------------------------------------------
+# WI-1 — Normalized settings ledger
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class LedgerRow:
+    """One row in the normalized settings ledger.
+
+    Every setting from every CSE flattened into a uniform row carrying the
+    stable ``(cse, identity)`` key the merge model uses.  The registry truth
+    fields (``reg_key``, ``reg_value_name``, ``reg_type``, ``reg_data``)
+    expose the raw registry backing for ADMX-backed settings; for non-registry
+    CSEs they are empty strings.  ``admx_name`` / ``admx_explain`` carry the
+    ADMX-resolved display name and explain text (empty when no ADMX coverage).
+    """
+
+    gpo_id: str
+    gpo_name: str
+    side: Side
+    cse: str
+    identity: str
+    display_name: str
+    display_value: str
+    from_disabled_side: bool
+    source_state: str = "normal"
+    reg_key: str = ""
+    reg_value_name: str = ""
+    reg_type: str = ""
+    reg_data: str = ""
+    admx_name: str = ""
+    admx_explain: str = ""
+
+
+def _extract_registry_truth(raw: dict[str, object]) -> tuple[str, str, str, str]:
+    """Extract ``(key, value_name, type, data)`` from a Setting's raw dict.
+
+    For Registry CSE settings the raw element carries ``@attr.KeyName`` /
+    ``@attr.ValueName`` and a ``text`` value.  For ``Registry.pol``-sourced
+    settings (PReg records) the raw dict carries ``key``, ``valueName``,
+    ``type``, and ``data``.  Other CSEs have no registry truth.
+    """
+    attr = raw.get("@attr")
+    if isinstance(attr, dict):
+        key = str(attr.get("KeyName", ""))
+        value_name = str(attr.get("ValueName", ""))
+        text = str(raw.get("text") or "")
+        if key:
+            return key, value_name, "", text
+    if "key" in raw and isinstance(raw["key"], str):
+        return (
+            str(raw["key"]),
+            str(raw.get("valueName", "")),
+            str(raw.get("type", "")),
+            str(raw.get("data", "")),
+        )
+    return "", "", "", ""
+
+
+def settings_ledger(
+    estate: Estate,
+    gpo_id: str,
+    *,
+    admx: AdmxResolver | None = None,
+) -> list[LedgerRow]:
+    """Build the normalized settings ledger for one GPO.
+
+    Every setting from every CSE — Registry, Security, GPP, etc. — is
+    flattened into a uniform :class:`LedgerRow` list sorted by ``(side,
+    cse, identity)``.  The rows carry the same ``(cse, identity)`` key the
+    merge model uses, so the ledger can anchor diffs, cross-links, and the
+    setting-centric page (WI-3).  Rows with no ADMX mapping are first-class
+    (``admx_name`` is empty, not exiled to an appendix).
+    """
+    gpo = estate.gpo_by_id(gpo_id)
+    if gpo is None:
+        return []
+
+    rows: list[LedgerRow] = []
+    for s in gpo.settings:
+        reg_key, reg_val_name, reg_type, reg_data = _extract_registry_truth(
+            s.raw if isinstance(s.raw, dict) else {}
+        )
+        admx_name = ""
+        admx_explain = ""
+        if admx is not None:
+            resolved = admx.resolve_display_name(s.identity)
+            if resolved:
+                admx_name = resolved
+        rows.append(LedgerRow(
+            gpo_id=gpo.id,
+            gpo_name=gpo.name,
+            side=s.side,
+            cse=s.cse,
+            identity=s.identity,
+            display_name=s.display_name,
+            display_value=s.display_value,
+            from_disabled_side=s.from_disabled_side,
+            source_state=s.source_state,
+            reg_key=reg_key,
+            reg_value_name=reg_val_name,
+            reg_type=reg_type,
+            reg_data=reg_data,
+            admx_name=admx_name,
+            admx_explain=admx_explain,
+        ))
+
+    rows.sort(key=lambda r: (r.side, r.cse, r.identity.lower()))
+    return rows

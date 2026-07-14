@@ -12,6 +12,7 @@ import re
 import sqlite3
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -50,6 +51,7 @@ def _has_class(html: str, cls: str) -> bool:
 _PAGES = [
     "/",
     "/danger",
+    "/findings",
     "/changelog",
     "/baseline",
     "/conflicts",
@@ -149,6 +151,7 @@ class TestPageAvailability:
     @pytest.mark.parametrize("path,expected_title", [
         ("/", "gpo-lens —"),
         ("/danger", "gpo-lens — Dangerous configurations"),
+        ("/findings", "gpo-lens — Findings"),
         ("/changelog", "Changelog"),
         ("/baseline", "Baseline"),
         ("/conflicts", "Conflicts"),
@@ -200,7 +203,7 @@ class TestNavigationStructure:
         ("Directory", "/ou"),
         ("Search", "/search"),
         # Posture
-        ("Danger", "/danger"),
+        ("Findings", "/findings"),
         ("Conflicts", "/conflicts"),
         ("Delegation", "/delegation"),
         ("Coverage", "/admx-coverage"),
@@ -266,6 +269,106 @@ class TestNavigationStructure:
         html = _client.get(path).text
         assert 'rel="icon"' in html
         assert "favicon.svg" in html
+
+
+class TestFindingsInboxIntegration:
+    """The lifecycle-backed inbox remains usable as the primary findings UI."""
+
+    @staticmethod
+    def _store_findings(db_path: str, findings: list[SimpleNamespace]) -> list[int]:
+        from gpo_lens.findings import load_active_findings, update_finding_lifecycle
+        from gpo_lens.store import list_snapshots
+
+        conn = sqlite3.connect(db_path)
+        try:
+            snapshot_id = list_snapshots(conn)[0][0]
+            update_finding_lifecycle(conn, snapshot_id, findings)
+            return [finding.id for finding in load_active_findings(conn)]
+        finally:
+            conn.close()
+
+    def test_inbox_reads_stored_findings_without_rerunning_detectors(
+        self, _client, _fixture_db, monkeypatch
+    ) -> None:
+        finding = SimpleNamespace(
+            category="stored-rule", gpo_id=_GPO_A, gpo_name="gpo-cpassword",
+            severity="high", summary="Stored lifecycle finding", detail="evidence",
+        )
+        self._store_findings(_fixture_db, [finding])
+
+        def fail(*_args, **_kwargs):
+            raise AssertionError("read path must not rerun whole-estate detectors")
+
+        monkeypatch.setattr("gpo_lens.danger.danger_findings", fail)
+        monkeypatch.setattr("gpo_lens.queries.estate_doctor", fail)
+        response = _client.get("/findings")
+        assert response.status_code == 200
+        assert "Stored lifecycle finding" in response.text
+        assert "Review" in response.text
+        assert 'name="note"' in response.text
+
+    def test_inbox_pagination_uses_filters_and_valid_macro(
+        self, _client, _fixture_db
+    ) -> None:
+        findings = [
+            SimpleNamespace(
+                category="page-rule", gpo_id=_GPO_A, gpo_name="gpo-cpassword",
+                severity="medium", summary=f"Finding {index}", detail=f"evidence-{index}",
+            )
+            for index in range(12)
+        ]
+        self._store_findings(_fixture_db, findings)
+        response = _client.get("/findings?severity=medium&per_page=5")
+        assert response.status_code == 200
+        assert 'aria-label="Pagination"' in response.text
+        assert "severity=medium" in response.text
+
+    def test_triage_note_and_filter_context_survive_round_trip(
+        self, _client, _fixture_db
+    ) -> None:
+        finding = SimpleNamespace(
+            category="review-rule", gpo_id=_GPO_A, gpo_name="gpo-cpassword",
+            severity="high", summary="Needs a decision", detail="decision-evidence",
+        )
+        finding_id = self._store_findings(_fixture_db, [finding])[0]
+        response = _client.post(
+            f"/findings/{finding_id}/triage",
+            data={
+                "status": "accepted_risk",
+                "note": "Tracked in ticket 42",
+                "return_q": "Needs a decision",
+                "return_severity": "high",
+                "return_category": "review-rule",
+                "return_triage": "accepted_risk",
+                "return_page": "1",
+            },
+            follow_redirects=False,
+        )
+        assert response.status_code == 303
+        location = response.headers["location"]
+        assert "severity=high" in location
+        assert "triage=accepted_risk" in location
+        rendered = _client.get(location)
+        assert rendered.status_code == 200
+        assert "Tracked in ticket 42" in rendered.text
+        assert "local-analyst" in rendered.text
+        assert "Needs a decision" not in _client.get("/findings").text
+        assert "Needs a decision" in _client.get(
+            "/findings?lifecycle=all&triage=all"
+        ).text
+
+    def test_dossier_count_uses_lifecycle_inbox(self, _client, _fixture_db) -> None:
+        finding = SimpleNamespace(
+            category="dossier-rule", gpo_id=_GPO_A, gpo_name="gpo-cpassword",
+            severity="critical", summary="Dossier finding", detail="dossier-evidence",
+        )
+        self._store_findings(_fixture_db, [finding])
+        response = _client.get(f"/gpo/{_GPO_A}")
+        assert response.status_code == 200
+        assert "/findings?q=gpo-cpassword" in response.text
+        assert "lifecycle=all" in response.text
+        assert "triage=all" in response.text
+        assert "1 finding" in response.text
 
     @pytest.mark.parametrize("path", _PAGES)
     def test_security_headers_on_every_page(self, _client, path) -> None:

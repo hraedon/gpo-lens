@@ -79,10 +79,12 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
     def gpo_detail(
         request: Request,
         gpo_id: str,
+        compare: str = "",
         _principal: Principal = Depends(requires(Permission.VIEW)),
     ) -> HTMLResponse:
         from gpo_lens.normalize import canonical_guid
-        from gpo_lens.store import load_estate
+        from gpo_lens.queries import settings_ledger
+        from gpo_lens.store import list_snapshots, load_estate
 
         try:
             gpo_id = canonical_guid(gpo_id)
@@ -92,6 +94,7 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         conn = get_ro_conn(app.state.db_path)
         try:
             estate = load_estate(conn)
+            snapshots = list_snapshots(conn)
         finally:
             conn.close()
 
@@ -101,6 +104,7 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
 
         scope = topology.effective_scope(estate, gpo_id)
         caveats = scope.caveats if scope is not None else []
+        sec_filter = topology.security_filtering_detail(gpo, estate)
 
         disabled_sides: set[str] = set()
         if not gpo.computer_enabled and any(
@@ -112,16 +116,74 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         ):
             disabled_sides.add("User")
 
-        # Group settings by side, then by CSE (Client Side Extension). The CSE
-        # grouping (Registry / Security / Scripts / ...) is valuable navigation
-        # context and a single GPO rarely has enough settings to warrant
-        # pagination, so this page is not paginated (unlike the dashboard / OU
-        # views). See WI-026 — GPO detail pagination deferred as low value.
+        ledger = settings_ledger(estate, gpo_id, admx=app.state.admx)
+
+        # Read findings materialized at ingest time. Re-running every detector
+        # here made dossier navigation scale with the whole estate and could
+        # disagree with the lifecycle/triage inbox.
+        conn = get_ro_conn(app.state.db_path)
+        try:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM finding "
+                "WHERE resolved_in_snapshot IS NULL AND gpo_id = ?",
+                (gpo_id,),
+            ).fetchone()
+            open_finding_count = int(row[0]) if row is not None else 0
+        finally:
+            conn.close()
+
+        # Group settings by side, then by CSE for the legacy table view
         settings_by_side: dict[str, dict[str, list[object]]] = defaultdict(
             lambda: defaultdict(list)
         )
         for s in gpo.settings:
             settings_by_side[s.side][s.cse].append(s)
+
+        # GPO-vs-GPO diff (WI-2): compare with another GPO
+        diff_rows: list[dict[str, str]] = []
+        compare_gpo = None
+        if compare:
+            try:
+                compare_id = canonical_guid(compare)
+                compare_gpo = estate.gpo_by_id(compare_id)
+                if compare_gpo is not None:
+                    other_ledger = settings_ledger(estate, compare_id, admx=app.state.admx)
+                    idx_a = {(r.side, r.cse, r.identity): r for r in ledger}
+                    idx_b = {(r.side, r.cse, r.identity): r for r in other_ledger}
+                    all_keys = set(idx_a) | set(idx_b)
+                    for key in sorted(all_keys):
+                        a = idx_a.get(key)
+                        b = idx_b.get(key)
+                        if a and b:
+                            if a.display_value != b.display_value:
+                                diff_rows.append({
+                                    "side": a.side, "cse": a.cse,
+                                    "identity": a.identity,
+                                    "display_name": a.admx_name or a.display_name,
+                                    "change": "modified",
+                                    "val_a": a.display_value,
+                                    "val_b": b.display_value,
+                                })
+                        elif a and not b:
+                            diff_rows.append({
+                                "side": a.side, "cse": a.cse,
+                                "identity": a.identity,
+                                "display_name": a.admx_name or a.display_name,
+                                "change": "only_in_a",
+                                "val_a": a.display_value,
+                                "val_b": "",
+                            })
+                        elif b and not a:
+                            diff_rows.append({
+                                "side": b.side, "cse": b.cse,
+                                "identity": b.identity,
+                                "display_name": b.admx_name or b.display_name,
+                                "change": "only_in_b",
+                                "val_a": "",
+                                "val_b": b.display_value,
+                            })
+            except ValueError:
+                pass
 
         return templates.TemplateResponse(
             request,
@@ -132,7 +194,19 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
                 "settings_by_side": dict(settings_by_side),
                 "disabled_sides": disabled_sides,
                 "caveats": caveats,
+                "ledger": ledger,
                 "admx": app.state.admx,
+                "sec_filter": sec_filter,
+                "open_finding_count": open_finding_count,
+                "snapshots": snapshots,
+                "other_gpos": [
+                    {"id": g.id, "name": g.name}
+                    for g in sorted(estate.gpos, key=lambda g: g.name.lower())
+                    if g.id != gpo_id
+                ],
+                "compare_gpo": compare_gpo,
+                "diff_rows": diff_rows,
+                "f_compare": compare,
             },
         )
 

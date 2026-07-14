@@ -80,10 +80,12 @@ from gpo_lens.queries._search import (  # noqa: F401
     who_sets,
 )
 from gpo_lens.queries._settings import (  # noqa: F401
+    LedgerRow,
     SettingsDiffRow,
     SettingsDumpRow,
     settings_diff,
     settings_dump,
+    settings_ledger,
 )
 from gpo_lens.queries._summary import EstateSummary, estate_summary  # noqa: F401
 from gpo_lens.queries._topology import TopologyDiscrepancy, topology_crosscheck  # noqa: F401
@@ -155,6 +157,7 @@ __all__ = [
     "GateSummary",
     "GoldenDiffEntry",
     "GoldenDiffSummary",
+    "LedgerRow",
     "SearchResult",
     "SecurityFiltering",
     "SettingsDiffRow",
@@ -210,6 +213,7 @@ __all__ = [
     "settings_at_som",
     "settings_diff",
     "settings_dump",
+    "settings_ledger",
     "site_scopes",
     "snapshot_changelog",
     "snapshot_diff",
