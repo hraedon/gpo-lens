@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased (toward v1.1.0)
+## v1.1.0 — 2026-07-14
 
 ### Phase 1 — finding-identity correctness and precision (Plan 027)
 
@@ -40,6 +40,13 @@ existing findings in those categories re-key: the old occurrences resolve and
 the re-emitted findings appear as new. This is a single, expected event — not a
 real posture change — and it is intentionally batched into one release so
 operators see it once. Findings in all other categories keep their identity.
+
+**Triage state does not carry over.** Triage events (risk-acceptances,
+acknowledgements) are keyed to occurrence IDs, and a re-keyed finding gets a
+new occurrence row — so any triage state an operator recorded on the re-keyed
+categories will be orphaned on the resolved rows and the re-emitted findings
+will resurface as untriaged "new." Snapshot the current risk-acceptances before
+the first post-upgrade ingest and re-apply them as needed.
 
 ### Web reimagining (Plan 023/024, landed)
 
