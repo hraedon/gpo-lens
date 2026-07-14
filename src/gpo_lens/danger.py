@@ -83,6 +83,12 @@ class DangerFinding:
     reference: str
     compliance: tuple[ComplianceMapping, ...] = ()
     remediation: str = ""
+    # Identity-bearing dimensions for lifecycle fingerprinting (WI-1.1,
+    # Plan 024 §4). Typed key/value pairs the adapter reads directly, so a
+    # finding's identity never depends on parsing its prose title/detail.
+    # Distinguishes multiple findings that share one subject (e.g. several
+    # non-admin writers on the same GPO, keyed by trustee SID).
+    dimensions: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -207,6 +213,7 @@ def gpo_writable_by_nonadmin(estate: Estate) -> list[DangerFinding]:
                 reference=_GPO_MODIFY_REF,
                 compliance=_BUCKET2_COMPLIANCE.get("gpo_owner_nonadmin", ()),
                 remediation=_BUCKET2_REMEDIATION.get("gpo_owner_nonadmin", ""),
+                dimensions=(("owner_sid", acl.owner_sid),),
             ))
 
         for ace in acl.dacl:
@@ -231,6 +238,7 @@ def gpo_writable_by_nonadmin(estate: Estate) -> list[DangerFinding]:
                 reference=_GPO_MODIFY_REF,
                 compliance=_BUCKET2_COMPLIANCE.get("gpo_writable_nonadmin", ()),
                 remediation=_BUCKET2_REMEDIATION.get("gpo_writable_nonadmin", ""),
+                dimensions=(("trustee_sid", sid),),
             ))
     return findings
 

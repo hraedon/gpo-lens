@@ -1,6 +1,47 @@
 # Changelog
 
-## Unreleased (plan/023-web-reimagining)
+## Unreleased (toward v1.1.0)
+
+### Phase 1 — finding-identity correctness and precision (Plan 027)
+
+- **Detector identity comes from typed fields, not prose (WI-1.1).** Every
+  detector that carries identity-bearing dimensions (version skew and
+  disabled-side by side; broken refs by ref value; deny ACEs and non-admin
+  writers/owners by trustee/owner SID; coverage gaps by kind) now declares
+  them as typed `dimensions` on the finding. The lifecycle adapter reads those
+  fields directly and no longer parses the summary/detail strings, so rewording
+  a finding can never churn its identity. This also fixes two latent identity
+  collisions: multiple non-admin writers on one GPO are now distinct findings
+  (previously the trustee SID was parsed out of a display-name-bearing string
+  and usually lost), and two different coverage-gap kinds on one GPO no longer
+  fold into one fingerprint (the declared `kind` was being dropped whenever a
+  GPO id was present).
+- **Filtered inbox pages are complete (WI-1.2).** `finding_inbox` now applies
+  the `claim_level` and `triage_status` filters in SQL *before* `LIMIT`
+  (claim level via the latest observation; triage status via the folded
+  event-log status). Previously both were applied in Python after the row cap,
+  so a filtered page on a large estate could silently return fewer rows than
+  matched. `limit` now bounds the matching set, not a pre-filter superset.
+- **Query performance (WI-1.3).** Added indexes on the lifecycle run-id and
+  series columns (`first_seen_run_id`, `last_seen_run_id`, `resolved_run_id`,
+  `series_key`), and replaced the per-occurrence N+1 in `load_triage_status_map`
+  with a single grouped scan of the triage event log.
+- **Findings carry their real detail (WI-1.5).** The `finding.detail` column
+  now stores the detector's detail text instead of duplicating the summary;
+  documented the single-estate-per-store assumption; removed a redundant inline
+  import.
+
+**One-time re-key effect (batched, read this before upgrading a live store).**
+The identity changes above (WI-1.1) plus the GPO-less identity change below
+(WI-089) alter the fingerprint of findings in these categories: coverage gaps,
+non-admin GPO writers, non-admin GPO owners, topology discrepancies, excessive
+writers, and orphaned WMI filters. On the **first ingest after upgrading**, any
+existing findings in those categories re-key: the old occurrences resolve and
+the re-emitted findings appear as new. This is a single, expected event — not a
+real posture change — and it is intentionally batched into one release so
+operators see it once. Findings in all other categories keep their identity.
+
+### Web reimagining (Plan 023/024, landed)
 
 - **Findings inbox is lifecycle-backed and actionable (WI-090/WI-091).**
   Findings are materialized at ingest on both the CLI and web paths (shared
@@ -22,9 +63,8 @@
   instead of their prose summary/detail (Plan 024 §4 pulled forward).
   Previously any wording or evidence-count change (e.g. a writer's GPO count
   going 12 → 13) re-keyed the finding, falsely resolving the old one and
-  reporting a "new" one. **One-time effect:** databases that already hold
-  findings in these four categories will re-key them on the next ingest (old
-  rows resolve, re-emitted findings appear as new).
+  reporting a "new" one. (The one-time re-key this causes is covered by the
+  batched note above.)
 
 ## v1.0.0 — 2026-07-06
 
