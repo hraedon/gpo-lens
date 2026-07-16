@@ -1,5 +1,46 @@
 # Changelog
 
+## v1.2.0 — 2026-07-16
+
+### Adversarial review hardening
+
+Four rounds of adversarial code review found and fixed:
+
+**Critical:**
+- `coverage_gap` table PK now includes `kind` (schema v7 migration) so
+  multiple gap types per GPO (e.g. `unreadable_sysvol` +
+  `corrupt_gpp_xml`) are not silently dropped by `INSERT OR IGNORE`.
+
+**Major:**
+- `parse_inheritance` no longer crashes on a malformed GUID — a single
+  bad `GpoId` in `gp-inheritance.json` previously lost all topology data
+  for the entire estate.
+- `events.py` hash-chain `append_event` / `append_events` now use
+  `BEGIN IMMEDIATE` so the SELECT + INSERT is atomic and two concurrent
+  writers can't break the chain.
+- SDDL alias vs raw-SID normalization in `overbroad_apply_group_policy`,
+  `excessive_writers`, and `deny_aces`: aliases like `AN`, `AU`, `WD`
+  are now canonicalized to raw SIDs (`s-1-5-7`, `s-1-5-11`, `s-1-1-0`)
+  so an allow against one form and a deny against the other correctly
+  cancel. Previously this caused false positive/negative security findings.
+- Re-accepted risk revocation metadata: after accept → revoke → re-accept,
+  the `revoked_at` / `revoked_by` fields are now cleared (previously
+  stale from the prior revocation).
+- `triage_finding` now rejects triage actions on already-resolved findings.
+
+**Minor:**
+- O(n²) GPO name lookup in `excessive_writers` → O(1) via
+  `estate.gpo_names`.
+- `set()` hoisted before comprehension in
+  `augment_blocked_registry_from_pol`.
+- `_parse_gplink` order counter only increments for valid links.
+- `report.py` renders `?` instead of `None` for missing version numbers.
+- Web ingest finding-lifecycle failures logged at ERROR (was WARNING)
+  with snapshot_id for traceability.
+
+**Schema migration v6 → v7** is automatic and additive on first open.
+No finding re-key or triage state loss.
+
 ## v1.1.0 — 2026-07-14
 
 ### Phase 1 — finding-identity correctness and precision (Plan 027)
