@@ -63,6 +63,8 @@ def append_event(
 ) -> int:
     ts = datetime.now(UTC).isoformat()
     payload_str = json.dumps(payload, sort_keys=True)
+    if not conn.in_transaction:
+        conn.execute("BEGIN IMMEDIATE")
     row = conn.execute(
         "SELECT prev_hash FROM events ORDER BY id DESC LIMIT 1"
     ).fetchone()
@@ -86,6 +88,8 @@ def append_events(
     commit: bool = True,
 ) -> list[int]:
     ts = datetime.now(UTC).isoformat()
+    if not conn.in_transaction:
+        conn.execute("BEGIN IMMEDIATE")
     row = conn.execute(
         "SELECT prev_hash FROM events ORDER BY id DESC LIMIT 1"
     ).fetchone()

@@ -116,6 +116,39 @@ def test_store_roundtrip(tmp_path):
     assert est2.coverage_gaps
 
 
+def test_store_preserves_multiple_gap_kinds_per_gpo(tmp_path):
+    """Two coverage gaps with different ``kind`` for the same GPO must both
+    survive a save+load round-trip (the PK includes ``kind``)."""
+    from gpo_lens.model import CoverageGap, Estate, Gpo
+    gpo = Gpo(
+        id="abc123", name="TestGPO", domain="test.local",
+        created=None, modified=None, read=None,
+        computer_enabled=True, user_enabled=True,
+        computer_ver_ds=None, computer_ver_sysvol=None,
+        user_ver_ds=None, user_ver_sysvol=None,
+        sddl=None, owner=None, filter_data_available=False,
+        wmi_filter=None, sysvol_path=None,
+    )
+    est = Estate(
+        domain="test.local",
+        gpos=[gpo],
+        coverage_gaps=[
+            CoverageGap(gpo_id="abc123", display_name="TestGPO",
+                        kind="unreadable_sysvol", detail="d1"),
+            CoverageGap(gpo_id="abc123", display_name="TestGPO",
+                        kind="corrupt_gpp_xml", detail="d2"),
+        ],
+    )
+    db = tmp_path / "multi.db"
+    conn = sqlite3.connect(str(db))
+    store.init_db(conn)
+    store.save_estate(conn, est)
+    est2 = store.load_estate(conn)
+    conn.close()
+    kinds = {(g.kind) for g in est2.coverage_gaps if g.gpo_id == "abc123"}
+    assert kinds == {"unreadable_sysvol", "corrupt_gpp_xml"}
+
+
 def test_doctor_and_summary_surface_gaps(tmp_path):
     inventory = [{"Id": STRIPPED, "DisplayName": "Stripped"}]
     est = ingest.load_estate(_export_with(tmp_path, inventory=inventory))

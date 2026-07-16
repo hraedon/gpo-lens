@@ -3961,7 +3961,7 @@ def test_deny_aces_with_deny():
     result = queries.deny_aces(estate)
     assert len(result) == 1
     assert result[0].gpo_id == "gpo-1"
-    assert result[0].trustee_sid == "S-1-5-32-545"
+    assert result[0].trustee_sid == "s-1-5-32-545"
     assert result[0].rights == "GA"
     assert result[0].gpo_name == "Test"
     assert result[0].acl_section == "dacl"
@@ -3983,7 +3983,7 @@ def test_deny_aces_multiple_gpos():
     result = queries.deny_aces(estate)
     assert len(result) == 2
     sids = {d.trustee_sid for d in result}
-    assert "S-1-5-32-545" in sids
+    assert "s-1-5-32-545" in sids
 
 
 # ---- excessive_writers -----------------------------------------------------
@@ -4008,7 +4008,7 @@ def test_excessive_writers_above_threshold():
     estate = Estate(gpos=gpos)
     result = queries.excessive_writers(estate, threshold=5)
     assert len(result) == 1
-    assert result[0].trustee_sid == "S-1-5-21-999-1111"
+    assert result[0].trustee_sid == "s-1-5-21-999-1111"
     assert result[0].gpo_count == 6
     assert "GA" in result[0].rights
 
@@ -4072,7 +4072,7 @@ def test_delegation_deep_dive_with_deny_aces():
     estate = Estate(gpos=[gpo])
     audit = queries.delegation_deep_dive(estate)
     assert len(audit.deny_aces) == 1
-    assert audit.deny_aces[0].trustee_sid == "S-1-5-32-545"
+    assert audit.deny_aces[0].trustee_sid == "s-1-5-32-545"
 
 
 def test_delegation_deep_dive_with_excessive_writers():
@@ -4081,7 +4081,7 @@ def test_delegation_deep_dive_with_excessive_writers():
     estate = Estate(gpos=gpos)
     audit = queries.delegation_deep_dive(estate)
     assert len(audit.excessive_writers) == 1
-    assert audit.excessive_writers[0].trustee_sid == "S-1-5-21-999-1111"
+    assert audit.excessive_writers[0].trustee_sid == "s-1-5-21-999-1111"
 
 
 # ---- principal resolution on deny_aces / excessive_writers (Plan 020 A.4) ---
@@ -4111,7 +4111,7 @@ def test_deny_aces_trustee_name_resolved_from_collected_map():
     row = result[0]
     assert row.trustee_name == "TEST\\GPO-Admins"
     # AC-4: SID is always present alongside the resolved name
-    assert row.trustee_sid == _COLLATED_SID.upper()
+    assert row.trustee_sid == _COLLATED_SID
 
 
 def test_deny_aces_trustee_name_well_known_without_principals_json():
@@ -4122,7 +4122,7 @@ def test_deny_aces_trustee_name_well_known_without_principals_json():
     result = queries.deny_aces(estate)
     assert len(result) == 1
     assert result[0].trustee_name == "BUILTIN\\Users"
-    assert result[0].trustee_sid == _WELL_KNOWN_SID
+    assert result[0].trustee_sid == _WELL_KNOWN_SID.lower()
 
 
 def test_deny_aces_trustee_name_falls_back_to_sid_when_unresolved():
@@ -4134,7 +4134,7 @@ def test_deny_aces_trustee_name_falls_back_to_sid_when_unresolved():
     result = queries.deny_aces(estate)
     assert len(result) == 1
     assert result[0].trustee_name == sid.lower()
-    assert result[0].trustee_sid == sid
+    assert result[0].trustee_sid == sid.lower()
 
 
 def test_deny_aces_verdict_invariant_with_and_without_principals():
@@ -4185,7 +4185,7 @@ def test_excessive_writers_trustee_name_resolved_from_collected_map():
     row = result[0]
     assert row.trustee_name == "TEST\\GPO-Admins"
     # AC-4: SID retained
-    assert row.trustee_sid == sid
+    assert row.trustee_sid == sid.lower()
 
 
 def test_excessive_writers_trustee_name_unresolved_falls_back_to_sid():
@@ -4197,7 +4197,7 @@ def test_excessive_writers_trustee_name_unresolved_falls_back_to_sid():
     result = queries.excessive_writers(estate, threshold=5)
     assert len(result) == 1
     assert result[0].trustee_name == sid.lower()
-    assert result[0].trustee_sid == sid
+    assert result[0].trustee_sid == sid.lower()
 
 
 def test_excessive_writers_verdict_invariant_with_and_without_principals():
@@ -4233,7 +4233,7 @@ def test_deny_aces_sid_always_present_with_resolved_name():
     assert len(result) == 1
     row = result[0]
     assert row.trustee_name  # non-empty (resolved)
-    assert row.trustee_sid == sid  # SID always present
+    assert row.trustee_sid == sid.lower()  # SID always present
 
 
 def test_settings_diff_side_in_join_key(tmp_path):

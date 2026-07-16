@@ -14,6 +14,7 @@ import defusedxml.ElementTree as ET
 from gpo_lens.authz import (
     MS16_072_TRUSTEES,
     broad_trustee_key,
+    canonical_sddl_sid,
     is_allow_ace_type,
     is_default_writer_sid,
     is_deny_ace_type,
@@ -772,11 +773,12 @@ def deny_aces(estate: Estate) -> list[DenyAce]:
         acl = parse_sddl(g.sddl)
         for ace in acl.dacl:
             if is_deny_ace_type(ace.ace_type):
-                rp = resolve_principal(estate, ace.trustee_sid)
+                canon_sid = canonical_sddl_sid(ace.trustee_sid or "")
+                rp = resolve_principal(estate, canon_sid)
                 results.append(DenyAce(
                     gpo_id=g.id,
                     gpo_name=g.name,
-                    trustee_sid=ace.trustee_sid,
+                    trustee_sid=canon_sid,
                     rights=ace.rights,
                     flags=ace.flags,
                     acl_section="dacl",
@@ -784,11 +786,12 @@ def deny_aces(estate: Estate) -> list[DenyAce]:
                 ))
         for ace in acl.sacl:
             if is_deny_ace_type(ace.ace_type):
-                rp = resolve_principal(estate, ace.trustee_sid)
+                canon_sid = canonical_sddl_sid(ace.trustee_sid or "")
+                rp = resolve_principal(estate, canon_sid)
                 results.append(DenyAce(
                     gpo_id=g.id,
                     gpo_name=g.name,
-                    trustee_sid=ace.trustee_sid,
+                    trustee_sid=canon_sid,
                     rights=ace.rights,
                     flags=ace.flags,
                     acl_section="sacl",
@@ -817,7 +820,7 @@ def excessive_writers(
                 continue
             if not _has_write_right(ace.rights):
                 continue
-            sid = ace.trustee_sid
+            sid = canonical_sddl_sid(ace.trustee_sid or "")
             if not sid:
                 continue
             entry = writer_map.setdefault(sid, {})
@@ -841,10 +844,8 @@ def excessive_writers(
             gpo_count=len(gpo_rights),
             gpo_names=tuple(
                 sorted(
-                    g.name
+                    estate.gpo_names.get(gid_, gid_)
                     for gid_ in gpo_rights
-                    for g in estate.gpos
-                    if g.id == gid_
                 )
             ),
             rights=tuple(sorted(all_rights)),

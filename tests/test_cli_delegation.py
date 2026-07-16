@@ -201,7 +201,7 @@ class TestDelegationDirectCall:
         ret = main(["--db", str(deleg_db), "delegation"])
         assert ret == 0
         captured = capsys.readouterr()
-        assert "BUILTIN\\Administrators BA (GA)" in captured.out
+        assert "BUILTIN\\Administrators s-1-5-32-544 (GA)" in captured.out
         assert f"{UNKNOWN_DENY_SID} (GR) [CI]" in captured.out
 
     def test_text_excessive_writers_more_and_no_more(self, deleg_db: Path, capsys) -> None:
@@ -210,7 +210,7 @@ class TestDelegationDirectCall:
         ret = main(["--db", str(deleg_db), "delegation"])
         assert ret == 0
         captured = capsys.readouterr()
-        assert f"TEST\\Helpdesk {HELPDESK_SID}: 6 GPOs (GA)" in captured.out
+        assert f"TEST\\Helpdesk {HELPDESK_SID_LOWER}: 6 GPOs (GA)" in captured.out
         assert "... and 1 more" in captured.out
         assert f"{UNKNOWN_WRITER_SID}: 5 GPOs (GA)" in captured.out
 
@@ -246,7 +246,7 @@ class TestDelegationDirectCall:
         assert len(d["orphaned_sids"]) == 1
         assert len(d["broad_writers"]) == 1
         assert "Helpdesk" in d["privilege_rollup"]
-        ba_deny = next(x for x in d["deny_aces"] if x["trustee_sid"] == "BA")
+        ba_deny = next(x for x in d["deny_aces"] if x["trustee_sid"] == "s-1-5-32-544")
         assert ba_deny["resolved_name"] == "BUILTIN\\Administrators"
         assert ba_deny["rights"] == "GA"
         assert ba_deny["flags"] == ""
@@ -259,7 +259,7 @@ class TestDelegationDirectCall:
             x for x in d["excessive_writers"] if x["gpo_count"] == 6
         )
         assert helpdesk_writer["resolved_name"] == "TEST\\Helpdesk"
-        assert helpdesk_writer["trustee_sid"] == HELPDESK_SID
+        assert helpdesk_writer["trustee_sid"] == HELPDESK_SID_LOWER
         unknown_writer = next(
             x for x in d["excessive_writers"] if x["gpo_count"] == 5
         )
