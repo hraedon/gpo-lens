@@ -557,6 +557,21 @@ class TestParseInheritanceEdgeCases:
         soms = ingest.parse_inheritance(json_path)
         assert len(soms[0].links) == 0
 
+    def test_malformed_gpo_id_skipped(self, tmp_path: Path) -> None:
+        """A malformed GpoId in one link must not crash the whole topology."""
+        json_path = tmp_path / "inheritance.json"
+        json_path.write_text(
+            '[{"Path":"dc=test,dc=local","Name":"test","ContainerType":"domain",'
+            '"GpoInheritanceBlocked":false,"InheritedGpoLinks":['
+            '{"GpoId":"not-a-guid","Order":1,"Enabled":true,"Enforced":false,"Target":""},'
+            '{"GpoId":"{31B2F340-016D-11D2-945F-00C04FB984F9}","Order":2,"Enabled":true,"Enforced":false,"Target":""}'
+            ']}]',
+            encoding="utf-8",
+        )
+        soms = ingest.parse_inheritance(json_path)
+        assert len(soms[0].links) == 1
+        assert soms[0].links[0].gpo_id == "31b2f340016d11d2945f00c04fb984f9"
+
 
 class TestMergeMetadataEdgeCases:
     def test_gpo_not_found_is_skipped(self, tmp_path: Path) -> None:

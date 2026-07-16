@@ -475,8 +475,8 @@ def _changelog_md(changelog_entries: list[ChangelogEntry]) -> list[str]:
         if e.version_change:
             vc = e.version_change
             parts.append(
-                f"Version change: DS {vc.old_ds} -> {vc.new_ds}, "
-                f"SYSVOL {vc.old_sysvol} -> {vc.new_sysvol} "
+                f"Version change: DS {vc.old_ds or '?'} -> {vc.new_ds or '?'}, "
+                f"SYSVOL {vc.old_sysvol or '?'} -> {vc.new_sysvol or '?'} "
                 f"(edits: {vc.edit_count})\n"
             )
         for sc in e.setting_changes:
@@ -688,8 +688,8 @@ def _changelog_html(changelog_entries: list[ChangelogEntry]) -> list[str]:
         if e.version_change:
             vc = e.version_change
             parts.append(
-                f"<p>Version change: DS {vc.old_ds} -> {vc.new_ds}, "
-                f"SYSVOL {vc.old_sysvol} -> {vc.new_sysvol} "
+                f"<p>Version change: DS {vc.old_ds or '?'} -> {vc.new_ds or '?'}, "
+                f"SYSVOL {vc.old_sysvol or '?'} -> {vc.new_sysvol or '?'} "
                 f"(edits: {vc.edit_count})</p>"
             )
         if e.setting_changes:

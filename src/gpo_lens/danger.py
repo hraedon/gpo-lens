@@ -28,6 +28,7 @@ from gpo_lens.authz import (
     APPLY_RIGHTS,
     applies_broadly,
     broad_trustee_key,
+    canonical_sddl_sid,
     is_allow_ace_type,
     is_default_writer_sid,
     is_deny_ace_type,
@@ -303,7 +304,7 @@ def overbroad_apply_group_policy(estate: Estate) -> list[DangerFinding]:
                 if key is None and sid not in _BROAD_APPLY_SIDS:
                     continue
                 if key is None:
-                    key = sid
+                    key = canonical_sddl_sid(sid)
                 grants.append((key, d.allowed))
             if not applies_broadly(grants):
                 continue
@@ -346,7 +347,7 @@ def overbroad_apply_group_policy(estate: Estate) -> list[DangerFinding]:
                 if key is None and sid not in _BROAD_APPLY_SIDS:
                     continue
                 if key is None:
-                    key = sid
+                    key = canonical_sddl_sid(sid)
                 grants.append((key, is_allow_ace_type(ace.ace_type)))
             if not applies_broadly(grants):
                 continue

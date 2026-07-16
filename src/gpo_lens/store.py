@@ -44,7 +44,9 @@ from gpo_lens.normalize import parse_dt
 #      ``first_seen_run_id``, ``last_seen_run_id``, ``resolved_run_id``
 #      columns to ``finding``; adds ``expires_at``, ``supersedes_event_id``,
 #      ``rationale`` columns to ``finding_triage``.
-CURRENT_SCHEMA_VERSION: int = 6
+# v7 = fix coverage_gap PK to include ``kind`` so multiple gap types per GPO
+#      (e.g. unreadable_sysvol + corrupt_gpp_xml) are not silently dropped.
+CURRENT_SCHEMA_VERSION: int = 7
 
 
 def _safe_json_loads(raw: str | None, default: Any) -> Any:
@@ -228,7 +230,7 @@ def init_db(conn: sqlite3.Connection) -> None:
             display_name TEXT,
             kind TEXT NOT NULL,
             detail TEXT NOT NULL,
-            PRIMARY KEY (snapshot_id, gpo_id)
+            PRIMARY KEY (snapshot_id, gpo_id, kind)
         )
         """
     )
@@ -439,6 +441,15 @@ def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
     return row is not None
 
 
+def _coverage_gap_pk_has_kind(conn: sqlite3.Connection) -> bool:
+    """True if the ``coverage_gap`` PK includes the ``kind`` column (v7+)."""
+    if not _table_exists(conn, "coverage_gap"):
+        return True
+    cols = conn.execute("PRAGMA table_info('coverage_gap')").fetchall()
+    pk_cols = [c[1] for c in cols if c[5] > 0]
+    return "kind" in pk_cols
+
+
 def _migrate_schema(conn: sqlite3.Connection) -> None:
     """Additive column migrations for DBs created by older gpo-lens versions.
 
@@ -502,6 +513,30 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
         for col, ddl in new_triage_cols.items():
             if not _column_exists(conn, "finding_triage", col):
                 conn.execute(f"ALTER TABLE finding_triage ADD COLUMN {col} {ddl}")
+
+        # v6 -> v7: fix coverage_gap PK to include ``kind`` so multiple gap
+        # types per GPO are not silently dropped by INSERT OR IGNORE.
+        if not _coverage_gap_pk_has_kind(conn):
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS coverage_gap_new (
+                    snapshot_id INTEGER NOT NULL REFERENCES snapshot(id) ON DELETE CASCADE,
+                    gpo_id TEXT NOT NULL,
+                    display_name TEXT,
+                    kind TEXT NOT NULL,
+                    detail TEXT NOT NULL,
+                    PRIMARY KEY (snapshot_id, gpo_id, kind)
+                )
+                """
+            )
+            conn.execute(
+                "INSERT OR IGNORE INTO coverage_gap_new "
+                "SELECT * FROM coverage_gap"
+            )
+            conn.execute("DROP TABLE coverage_gap")
+            conn.execute(
+                "ALTER TABLE coverage_gap_new RENAME TO coverage_gap"
+            )
 
     conn.execute(f"PRAGMA user_version = {CURRENT_SCHEMA_VERSION}")
 

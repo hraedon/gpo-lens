@@ -179,6 +179,8 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
             triage_finding(conn, finding_id, status, note, principal.name)
         except sqlite3.IntegrityError:
             return HTMLResponse("Finding not found", status_code=404)
+        except ValueError as exc:
+            return HTMLResponse(str(exc), status_code=400)
         finally:
             conn.close()
 

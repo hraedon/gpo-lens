@@ -411,6 +411,15 @@ def triage_finding(
     note = (note or "")[:2000]
     actor = (actor or "unknown")[:256]
 
+    row = conn.execute(
+        "SELECT resolved_run_id, resolved_in_snapshot FROM finding WHERE id = ?",
+        (finding_id,),
+    ).fetchone()
+    if row is None:
+        raise ValueError(f"finding {finding_id} not found")
+    if row[0] is not None or row[1] is not None:
+        raise ValueError(f"finding {finding_id} is already resolved")
+
     conn.execute(
         "INSERT INTO finding_triage (finding_id, status, note, actor, timestamp) "
         "VALUES (?, ?, ?, ?, ?)",
@@ -649,6 +658,11 @@ def run_evaluation(
         fingerprint_map[fp] = c
 
     # Load all active (non-resolved) occurrences.
+    # NOTE: Each run_evaluation call is expected to include candidates from
+    # ALL detector families (see evaluate_finding_lifecycle_v2). Filtering
+    # by detector_id here would break the resolution logic — a finding from
+    # detector A must be resolved when detector A produces no candidates in
+    # this run, even if detector B's candidates are the only ones present.
     active_rows = conn.execute(
         "SELECT id, finding_key, fingerprint_version, series_key, "
         "detector_id, detector_version, rule_id, subject_type, "
@@ -1345,6 +1359,7 @@ def accepted_risk_register(
         for ev in events:
             if ev.action == "accepted_risk":
                 accepted_ev = ev
+                revoked_ev = None
             elif ev.action == "risk_acceptance_revoked":
                 revoked_ev = ev
 

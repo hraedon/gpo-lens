@@ -1070,10 +1070,10 @@ class TestSchemaMigration:
         finally:
             conn.close()
 
-    def test_fresh_db_at_v6(self) -> None:
+    def test_fresh_db_at_latest(self) -> None:
         conn = _make_db()
         try:
-            assert conn.execute("PRAGMA user_version").fetchone()[0] == 6
+            assert conn.execute("PRAGMA user_version").fetchone()[0] == 7
         finally:
             conn.close()
 

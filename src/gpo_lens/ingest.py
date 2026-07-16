@@ -1038,13 +1038,18 @@ def parse_inheritance(json_path: str | Path) -> list[Som]:
             gpo_id_raw = link.get("GpoId")
             if not gpo_id_raw:
                 continue
+            try:
+                gpo_id = canonical_guid(gpo_id_raw)
+            except ValueError:
+                continue
             raw_order = link.get("Order", 0)
             if isinstance(raw_order, bool):
                 order_val = 0
             elif isinstance(raw_order, (int, float)):
                 order_val = int(raw_order)
             elif raw_order is not None:
-                order_val = parse_int(str(raw_order)) or 0
+                parsed = parse_int(str(raw_order))
+                order_val = parsed if parsed is not None else 0
             else:
                 order_val = 0
             raw_enabled = link.get("Enabled", True)
@@ -1061,7 +1066,7 @@ def parse_inheritance(json_path: str | Path) -> list[Som]:
             )
             som.links.append(
                 SomLink(
-                    gpo_id=canonical_guid(gpo_id_raw),
+                    gpo_id=gpo_id,
                     order=order_val or 0,
                     enabled=enabled_val,
                     enforced=enforced_val,
@@ -1206,11 +1211,10 @@ def augment_blocked_registry_from_pol(gpos: list[Gpo]) -> None:
                     source_state="registry_pol",
                 ))
         if resolved_sides:
-            # Drop the blocked placeholders for the sides we resolved; keep the
-            # real settings. Unresolved sides keep their placeholder.
+            blocked_set = set(blocked_idxs)
             gpo.settings = [
                 s for i, s in enumerate(gpo.settings)
-                if i not in set(blocked_idxs)
+                if i not in blocked_set
                 or gpo.settings[i].side not in resolved_sides
             ]
             gpo.settings.extend(additions)
@@ -1357,12 +1361,14 @@ def _parse_gplink(raw: str | None, target_dn: str) -> list[SomLink]:
     links: list[SomLink] = []
     if not raw:
         return links
-    for order, match in enumerate(_GPLINK_RE.finditer(raw), start=1):
+    order = 0
+    for match in _GPLINK_RE.finditer(raw):
         guid_raw, flags_raw = match.group(1), match.group(2)
         try:
             gpo_id = canonical_guid(guid_raw)
         except ValueError:
             continue
+        order += 1
         flags = int(flags_raw)
         links.append(
             SomLink(

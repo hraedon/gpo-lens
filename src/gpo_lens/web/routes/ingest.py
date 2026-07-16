@@ -125,8 +125,9 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
                                 rw_conn, snapshot_id, estate, admx=app.state.admx,
                             )
                         except Exception as exc:
-                            _logger.warning(
-                                "Finding lifecycle update failed: %s", exc
+                            _logger.error(
+                                "Finding lifecycle update failed for "
+                                "snapshot %s: %s", snapshot_id, exc,
                             )
                     finally:
                         rw_conn.close()
