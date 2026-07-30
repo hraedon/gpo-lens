@@ -37,6 +37,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
@@ -813,66 +814,76 @@ def expire_risk_acceptances(
 # Core queries (Plan 024 §9)
 # ---------------------------------------------------------------------------
 
+# Latest observation's claim level for an occurrence (observation-level, so not
+# a column on finding); used both as a filter and as a select column.
+_LATEST_CLAIM_SQ = (
+    "(SELECT claim_level FROM finding_observation o "
+    "WHERE o.occurrence_id = f.id ORDER BY o.id DESC LIMIT 1)"
+)
 
-def finding_inbox(
+# Occurrences with no evaluation-run provenance are pre-Plan-024 rows (see the
+# WI-1.4 note in ``_inbox_predicate``); every inbox query excludes them.
+_INBOX_BASE_WHERE = (
+    "f.resolved_run_id IS NULL "
+    "AND f.resolved_in_snapshot IS NULL "
+    "AND f.first_seen_run_id IS NOT NULL"
+)
+
+
+def _like_escape(term: str) -> str:
+    """Escape LIKE wildcards so a search term matches literally.
+
+    Backslash is the ``ESCAPE`` character used by every LIKE in this module, so
+    it must be escaped first or it would consume the escapes added after it.
+    """
+    return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _inbox_predicate(
     conn: sqlite3.Connection,
     *,
-    as_of_run: int | None = None,
-    lifecycle_state: str | None = None,
-    triage_status: str | None = None,
-    category: str | None = None,
-    severity: str | None = None,
-    gpo_id: str | None = None,
-    subject_type: str | None = None,
-    claim_level: str | None = None,
-    limit: int = 500,
-) -> list[FindingView]:
-    """Query the finding inbox with filters (Plan 024 §9).
+    as_of_run: int | None,
+    lifecycle_state: str | None,
+    triage_status: str | None,
+    category: str | None,
+    category_prefix: str | None,
+    severity: str | None,
+    severities: Sequence[str] | None,
+    search: str | None,
+    gpo_id: str | None,
+    subject_type: str | None,
+    claim_level: str | None,
+    status_map: dict[int, TriageStatus] | None,
+) -> tuple[str, list[Any], dict[int, TriageStatus]]:
+    """Build the shared ``WHERE`` fragment for the inbox queries.
 
-    Returns active (non-resolved) findings by default, with their current
-    triage status. Filters narrow by lifecycle state, triage status, category,
-    severity, GPO, subject type, and claim level.
+    Returns ``(where_sql, params, status_map)``. ``finding_inbox`` and
+    ``finding_inbox_count`` both use this so a page of rows and its total can
+    never disagree about what "matching" means — the bug that a separately
+    hand-written count query invites.
 
-    *as_of_run* limits to findings observed in the given evaluation run.
-
-    All filters — including ``claim_level`` and ``triage_status`` — are applied
-    in SQL *before* ``LIMIT`` (WI-1.2), so a filtered page can never silently
-    truncate: the ``limit`` bounds the matching set, not a pre-filter superset.
+    Every filter lands in SQL, which is what keeps the WI-1.2 guarantee true
+    for callers that paginate: ``LIMIT``/``OFFSET`` bound the matching set, not
+    a pre-filter superset.
     """
     # Current triage status is a fold over the append-only event log, not a
     # stored column, so resolve it once (batched) and translate the requested
     # triage_status into a pre-LIMIT id-set predicate. "open" is the implicit
     # status of an occurrence with no events, so it filters by *excluding*
     # occurrences whose folded status is non-open.
-    status_map = load_triage_status_map(conn)
-
-    # Latest observation's claim level for an occurrence (observation-level, so
-    # not a column on finding); used both as a filter and as a select column.
-    latest_claim_sq = (
-        "(SELECT claim_level FROM finding_observation o "
-        "WHERE o.occurrence_id = f.id ORDER BY o.id DESC LIMIT 1)"
+    resolved_status_map = (
+        load_triage_status_map(conn) if status_map is None else status_map
     )
 
-    sql = (
-        "SELECT f.id, f.finding_key, f.detector_id, f.rule_id, "
-        "f.severity, f.summary, f.detail, f.remediation, "
-        "f.gpo_id, f.gpo_name, f.subject_type, f.subject_key_json, "
-        "f.first_seen_run_id, f.last_seen_run_id, f.resolved_run_id, "
-        "f.predecessor_id, "
-        f"COALESCE({latest_claim_sq}, 'confirmed') AS claim_level "
-        "FROM finding f WHERE f.resolved_run_id IS NULL "
-        "AND f.resolved_in_snapshot IS NULL "
-        # WI-1.4: only rows with evaluation-run provenance are v2 findings.
-        # Every deployed ingest path (CLI cmd_ingest, web _persist) runs the v2
-        # engine, which always stamps first_seen_run_id; the legacy Plan 023
-        # writer is test-only, so no deployed store holds provenance-less rows.
-        # Excluding them keeps a hypothetical pre-lifecycle row from surfacing
-        # as a spurious "new" finding with no run history — mixed-mode rows are
-        # never silently blended into the v2 inbox.
-        "AND f.first_seen_run_id IS NOT NULL"
-    )
+    # WI-1.4: only rows with evaluation-run provenance are v2 findings. Every
+    # deployed ingest path (CLI cmd_ingest, web _persist) runs the v2 engine,
+    # which always stamps first_seen_run_id; the legacy Plan 023 writer is
+    # test-only, so no deployed store holds provenance-less rows. Excluding
+    # them keeps a hypothetical pre-lifecycle row from surfacing as a spurious
+    # "new" finding with no run history — mixed-mode rows are never silently
+    # blended into the v2 inbox.
+    clauses: list[str] = [_INBOX_BASE_WHERE]
     params: list[Any] = []
-    clauses: list[str] = []
 
     if as_of_run is not None:
         clauses.append("f.last_seen_run_id = ?")
@@ -880,9 +891,28 @@ def finding_inbox(
     if category is not None:
         clauses.append("f.rule_id = ?")
         params.append(category)
+    if category_prefix is not None:
+        # A category selects itself plus its ``parent:child`` descendants, so
+        # picking "delegation" also returns "delegation:excessive_writers".
+        clauses.append("(f.rule_id = ? OR f.rule_id LIKE ? ESCAPE '\\')")
+        params.extend([category_prefix, _like_escape(category_prefix) + ":%"])
     if severity is not None:
         clauses.append("f.severity = ?")
         params.append(severity)
+    if severities:
+        placeholders = ",".join("?" * len(severities))
+        clauses.append(f"f.severity IN ({placeholders})")
+        params.extend(severities)
+    if search:
+        # SQLite's LIKE is case-insensitive for ASCII, which matches the
+        # case-insensitive substring search the page previously did in Python.
+        needle = f"%{_like_escape(search)}%"
+        clauses.append(
+            "(f.gpo_name LIKE ? ESCAPE '\\' "
+            "OR f.summary LIKE ? ESCAPE '\\' "
+            "OR f.rule_id LIKE ? ESCAPE '\\')"
+        )
+        params.extend([needle, needle, needle])
     if gpo_id is not None:
         clauses.append("f.gpo_id = ?")
         params.append(gpo_id)
@@ -893,13 +923,25 @@ def finding_inbox(
         clauses.append("f.first_seen_run_id = f.last_seen_run_id")
     elif lifecycle_state == "persisting":
         clauses.append("f.first_seen_run_id < f.last_seen_run_id")
+    elif lifecycle_state == "regressed":
+        clauses.append("f.predecessor_id IS NOT NULL")
+    elif lifecycle_state == "new_or_regressed":
+        # Plan 025 WI-1's actionable default: first appearance, or a
+        # reappearance after being resolved. A regression is actionable even
+        # when it has been observed across several runs since returning.
+        clauses.append(
+            "(f.first_seen_run_id = f.last_seen_run_id "
+            "OR f.predecessor_id IS NOT NULL)"
+        )
     if claim_level is not None:
-        clauses.append(f"COALESCE({latest_claim_sq}, 'confirmed') = ?")
+        clauses.append(f"COALESCE({_LATEST_CLAIM_SQ}, 'confirmed') = ?")
         params.append(claim_level)
     if triage_status is not None:
         if triage_status == "open":
             non_open = [
-                oid for oid, ts in status_map.items() if ts.status != "open"
+                oid
+                for oid, ts in resolved_status_map.items()
+                if ts.status != "open"
             ]
             if non_open:
                 ph = ",".join("?" * len(non_open))
@@ -907,7 +949,8 @@ def finding_inbox(
                 params.extend(non_open)
         else:
             matching = [
-                oid for oid, ts in status_map.items()
+                oid
+                for oid, ts in resolved_status_map.items()
                 if ts.status == triage_status
             ]
             if matching:
@@ -918,14 +961,143 @@ def finding_inbox(
                 # No occurrence holds this status → empty result set.
                 clauses.append("0")
 
-    if clauses:
-        sql += " AND " + " AND ".join(clauses)
+    return " WHERE " + " AND ".join(clauses), params, resolved_status_map
+
+
+def finding_inbox_categories(conn: sqlite3.Connection) -> list[tuple[str, int]]:
+    """Rule-id facet counts over every active occurrence, sorted by rule id.
+
+    Deliberately unfiltered: the category picker must show what the operator
+    could select next, not only what survives the filters already applied.
+    Summing the counts also gives the unfiltered active total, so the page gets
+    both from one scan.
+    """
+    rows = conn.execute(
+        f"SELECT f.rule_id, COUNT(*) FROM finding f WHERE {_INBOX_BASE_WHERE} "
+        "GROUP BY f.rule_id ORDER BY f.rule_id"
+    ).fetchall()
+    return [(str(r[0]), int(r[1])) for r in rows]
+
+
+def finding_inbox_count(
+    conn: sqlite3.Connection,
+    *,
+    as_of_run: int | None = None,
+    lifecycle_state: str | None = None,
+    triage_status: str | None = None,
+    category: str | None = None,
+    category_prefix: str | None = None,
+    severity: str | None = None,
+    severities: Sequence[str] | None = None,
+    search: str | None = None,
+    gpo_id: str | None = None,
+    subject_type: str | None = None,
+    claim_level: str | None = None,
+    status_map: dict[int, TriageStatus] | None = None,
+) -> int:
+    """Count the occurrences ``finding_inbox`` would return, ignoring limits.
+
+    Shares ``_inbox_predicate`` with ``finding_inbox``, so this is the true
+    total for the same filters — what a paginating caller needs in order to
+    show a page count without loading every row.
+
+    Pass *status_map* (from ``load_triage_status_map``) to reuse one triage
+    fold across this call and the matching ``finding_inbox`` call.
+    """
+    where, params, _ = _inbox_predicate(
+        conn,
+        as_of_run=as_of_run,
+        lifecycle_state=lifecycle_state,
+        triage_status=triage_status,
+        category=category,
+        category_prefix=category_prefix,
+        severity=severity,
+        severities=severities,
+        search=search,
+        gpo_id=gpo_id,
+        subject_type=subject_type,
+        claim_level=claim_level,
+        status_map=status_map,
+    )
+    row = conn.execute(f"SELECT COUNT(*) FROM finding f{where}", params).fetchone()
+    return int(row[0]) if row else 0
+
+
+def finding_inbox(
+    conn: sqlite3.Connection,
+    *,
+    as_of_run: int | None = None,
+    lifecycle_state: str | None = None,
+    triage_status: str | None = None,
+    category: str | None = None,
+    category_prefix: str | None = None,
+    severity: str | None = None,
+    severities: Sequence[str] | None = None,
+    search: str | None = None,
+    gpo_id: str | None = None,
+    subject_type: str | None = None,
+    claim_level: str | None = None,
+    limit: int = 500,
+    offset: int = 0,
+    status_map: dict[int, TriageStatus] | None = None,
+) -> list[FindingView]:
+    """Query the finding inbox with filters (Plan 024 §9).
+
+    Returns active (non-resolved) findings by default, with their current
+    triage status. Filters narrow by lifecycle state, triage status, category,
+    severity, GPO, subject type, and claim level.
+
+    *as_of_run* limits to findings observed in the given evaluation run.
+
+    *lifecycle_state* accepts ``new``, ``persisting``, ``regressed``, and
+    ``new_or_regressed`` (Plan 025 WI-1's actionable default).
+
+    *category* matches a rule id exactly; *category_prefix* also matches its
+    ``parent:child`` descendants. *severity* matches one severity;
+    *severities* matches any in the sequence. *search* is a case-insensitive
+    substring match over GPO name, summary, and rule id.
+
+    All filters — including ``claim_level``, ``triage_status``, and ``search``
+    — are applied in SQL *before* ``LIMIT``/``OFFSET`` (WI-1.2), so a filtered
+    page can never silently truncate: the bounds apply to the matching set, not
+    a pre-filter superset. Pair with ``finding_inbox_count`` for the total.
+
+    Pass *status_map* (from ``load_triage_status_map``) to reuse one triage fold
+    across this call and a matching ``finding_inbox_count`` call.
+    """
+    where, params, resolved_status_map = _inbox_predicate(
+        conn,
+        as_of_run=as_of_run,
+        lifecycle_state=lifecycle_state,
+        triage_status=triage_status,
+        category=category,
+        category_prefix=category_prefix,
+        severity=severity,
+        severities=severities,
+        search=search,
+        gpo_id=gpo_id,
+        subject_type=subject_type,
+        claim_level=claim_level,
+        status_map=status_map,
+    )
+
+    sql = (
+        "SELECT f.id, f.finding_key, f.detector_id, f.rule_id, "
+        "f.severity, f.summary, f.detail, f.remediation, "
+        "f.gpo_id, f.gpo_name, f.subject_type, f.subject_key_json, "
+        "f.first_seen_run_id, f.last_seen_run_id, f.resolved_run_id, "
+        "f.predecessor_id, "
+        f"COALESCE({_LATEST_CLAIM_SQ}, 'confirmed') AS claim_level "
+        "FROM finding f" + where
+    )
+    # ``f.id`` is the tiebreaker so the order is total, not merely sorted —
+    # OFFSET paging over a partial order can repeat or skip rows between pages.
     sql += (
         " ORDER BY CASE f.severity WHEN 'critical' THEN 0"
         " WHEN 'high' THEN 1 WHEN 'medium' THEN 2"
-        " WHEN 'low' THEN 3 ELSE 4 END, f.rule_id, f.id LIMIT ?"
+        " WHEN 'low' THEN 3 ELSE 4 END, f.rule_id, f.id LIMIT ? OFFSET ?"
     )
-    params.append(limit)
+    params.extend([limit, max(0, offset)])
 
     rows = conn.execute(sql, params).fetchall()
 
@@ -934,7 +1106,7 @@ def finding_inbox(
         occ_id = r[0]
         c_level = r[16] or "confirmed"
 
-        ts = status_map.get(occ_id)
+        ts = resolved_status_map.get(occ_id)
         t_status = ts.status if ts else "open"
         t_actor = ts.actor if ts else ""
         t_note = ts.note if ts else ""

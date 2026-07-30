@@ -49,6 +49,8 @@ from gpo_lens.findings import (
     finding_delta,
     finding_history,
     finding_inbox,
+    finding_inbox_categories,
+    finding_inbox_count,
     fold_triage,
     get_triage_status,
     load_triage_events,
@@ -911,6 +913,178 @@ class TestCoreQueries:
             )
             conn.commit()
             assert finding_inbox(conn) == []
+        finally:
+            conn.close()
+
+    # -- Plan 025 WI-1: filters the findings page needs, all pre-LIMIT --------
+
+    def test_finding_inbox_filter_by_multiple_severities(self) -> None:
+        conn = _make_db()
+        try:
+            _make_snapshot(conn, 1)
+            run_id = _make_run(conn, 1)
+            run_evaluation(conn, run_id, [
+                _make_candidate("a", subject_key=("gpo1",), severity="critical"),
+                _make_candidate("b", subject_key=("gpo2",), severity="high"),
+                _make_candidate("c", subject_key=("gpo3",), severity="low"),
+            ])
+            inbox = finding_inbox(conn, severities=["critical", "high"])
+            assert {v.severity for v in inbox} == {"critical", "high"}
+        finally:
+            conn.close()
+
+    def test_category_prefix_matches_descendants_not_siblings(self) -> None:
+        # Selecting "delegation" must also return "delegation:excessive_writers"
+        # but must not sweep in an unrelated rule that merely starts with the
+        # same letters.
+        conn = _make_db()
+        try:
+            _make_snapshot(conn, 1)
+            run_id = _make_run(conn, 1)
+            run_evaluation(conn, run_id, [
+                _make_candidate("delegation", subject_key=("gpo1",)),
+                _make_candidate("delegation:excessive_writers", subject_key=("gpo2",)),
+                _make_candidate("delegation_other", subject_key=("gpo3",)),
+            ])
+            got = {v.category for v in finding_inbox(conn, category_prefix="delegation")}
+            assert got == {"delegation", "delegation:excessive_writers"}
+        finally:
+            conn.close()
+
+    def test_search_matches_summary_gpo_name_and_rule_id(self) -> None:
+        conn = _make_db()
+        try:
+            _make_snapshot(conn, 1)
+            run_id = _make_run(conn, 1)
+            run_evaluation(conn, run_id, [
+                _make_candidate(
+                    "cpassword", subject_key=("gpo1",), summary="Stored secret",
+                ),
+                _make_candidate("ms16_072", subject_key=("gpo2",), summary="Other"),
+            ])
+            # Case-insensitive substring over the summary.
+            assert len(finding_inbox(conn, search="stored")) == 1
+            # …over the rule id.
+            assert len(finding_inbox(conn, search="MS16")) == 1
+            # A term matching nothing returns nothing rather than everything.
+            assert finding_inbox(conn, search="nonexistent-term") == []
+        finally:
+            conn.close()
+
+    def test_search_treats_wildcards_literally(self) -> None:
+        # "%" must not act as a LIKE wildcard, or a stray character in the
+        # search box would silently match every finding.
+        conn = _make_db()
+        try:
+            _make_snapshot(conn, 1)
+            run_id = _make_run(conn, 1)
+            run_evaluation(conn, run_id, [
+                _make_candidate("a", subject_key=("gpo1",), summary="100% broken"),
+                _make_candidate("b", subject_key=("gpo2",), summary="plain"),
+            ])
+            assert len(finding_inbox(conn, search="100%")) == 1
+            # A bare "%" matches the row containing a literal percent sign — not
+            # both rows, which is what an unescaped LIKE wildcard would do.
+            pct = finding_inbox(conn, search="%")
+            assert [v.summary for v in pct] == ["100% broken"]
+            # Likewise "_" is a literal, not "any single character".
+            assert finding_inbox(conn, search="_") == []
+        finally:
+            conn.close()
+
+    def test_lifecycle_new_or_regressed_excludes_plain_persisting(self) -> None:
+        # Plan 025 WI-1's default: a finding that has merely persisted is not
+        # actionable, but one that came back after being resolved is.
+        conn = _make_db()
+        try:
+            for snap in (1, 2, 3):
+                _make_snapshot(conn, snap)
+            persisting = _make_candidate("persist", subject_key=("gpo1",))
+            regressing = _make_candidate("regress", subject_key=("gpo2",))
+
+            run1 = _make_run(conn, 1)
+            run_evaluation(conn, run1, [persisting, regressing])
+            # Run 2: the regressing finding disappears (resolved).
+            run2 = _make_run(conn, 2)
+            run_evaluation(conn, run2, [persisting])
+            # Run 3: it comes back — a regression with a predecessor.
+            run3 = _make_run(conn, 3)
+            run_evaluation(conn, run3, [persisting, regressing])
+
+            regressed = finding_inbox(conn, lifecycle_state="regressed")
+            assert [v.category for v in regressed] == ["regress"]
+
+            default = finding_inbox(conn, lifecycle_state="new_or_regressed")
+            assert [v.category for v in default] == ["regress"]
+
+            # "persist" is only reachable without the actionable filter.
+            assert {v.category for v in finding_inbox(conn)} == {"persist", "regress"}
+        finally:
+            conn.close()
+
+    def test_count_agrees_with_rows_under_same_filters(self) -> None:
+        conn = _make_db()
+        try:
+            _make_snapshot(conn, 1)
+            run_id = _make_run(conn, 1)
+            run_evaluation(conn, run_id, [
+                _make_candidate("a", subject_key=(f"gpo{i}",), severity="high")
+                for i in range(7)
+            ] + [
+                _make_candidate("b", subject_key=("other",), severity="low"),
+            ])
+            assert finding_inbox_count(conn) == 8
+            assert finding_inbox_count(conn, severities=["high"]) == 7
+            assert finding_inbox_count(conn, severities=["high"]) == len(
+                finding_inbox(conn, severities=["high"], limit=1000)
+            )
+            # The count ignores the row window — that is the point of having it.
+            assert len(finding_inbox(conn, limit=3)) == 3
+            assert finding_inbox_count(conn) == 8
+        finally:
+            conn.close()
+
+    def test_offset_paging_is_total_and_non_overlapping(self) -> None:
+        conn = _make_db()
+        try:
+            _make_snapshot(conn, 1)
+            run_id = _make_run(conn, 1)
+            run_evaluation(conn, run_id, [
+                _make_candidate("a", subject_key=(f"gpo{i}",)) for i in range(10)
+            ])
+            first = finding_inbox(conn, limit=4, offset=0)
+            second = finding_inbox(conn, limit=4, offset=4)
+            third = finding_inbox(conn, limit=4, offset=8)
+            ids = [v.occurrence_id for v in first + second + third]
+            # Every row appears exactly once across the three pages.
+            assert len(ids) == 10
+            assert len(set(ids)) == 10
+            assert set(ids) == {
+                v.occurrence_id for v in finding_inbox(conn, limit=1000)
+            }
+        finally:
+            conn.close()
+
+    def test_inbox_categories_counts_all_active_unfiltered(self) -> None:
+        conn = _make_db()
+        try:
+            _make_snapshot(conn, 1)
+            run_id = _make_run(conn, 1)
+            run_evaluation(conn, run_id, [
+                _make_candidate("cpassword", subject_key=("gpo1",)),
+                _make_candidate("cpassword", subject_key=("gpo2",)),
+                _make_candidate("ms16_072", subject_key=("gpo3",)),
+            ])
+            assert finding_inbox_categories(conn) == [
+                ("cpassword", 2), ("ms16_072", 1),
+            ]
+            # Triage state must not shrink the facet list — the operator needs
+            # to see categories they could still select.
+            occ = finding_inbox(conn, category="ms16_072")[0].occurrence_id
+            append_triage_event(conn, occ, "acknowledged", "alice")
+            assert finding_inbox_categories(conn) == [
+                ("cpassword", 2), ("ms16_072", 1),
+            ]
         finally:
             conn.close()
 

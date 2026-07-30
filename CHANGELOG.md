@@ -2,6 +2,43 @@
 
 ## Unreleased
 
+### Findings inbox on the Plan 024 core queries (Plan 025 WI-1)
+
+The Findings page now consumes the Plan 024 query layer instead of loading
+every active finding and filtering in Python. Previously `/findings` ran an
+unbounded `SELECT` over the whole `finding` table on every page view and
+applied severity, category, lifecycle, triage, and search filters row by row —
+the hardened `finding_inbox` query built for exactly this had no consumer.
+
+- **Every filter and the page window run in SQL.** `finding_inbox` gained
+  `severities` (multi-select), `category_prefix` (a category now also selects
+  its `parent:child` descendants), `search` (case-insensitive substring over
+  GPO name, summary, and rule id, with LIKE wildcards escaped so a stray `%`
+  cannot match everything), `offset`, and lifecycle states `regressed` and
+  `new_or_regressed`. The WI-1.2 guarantee extends to the new filters:
+  `LIMIT`/`OFFSET` bound the matching set, never a pre-filter superset.
+- **New queries.** `finding_inbox_count` returns the true total for a filter
+  set, and `finding_inbox_categories` returns unfiltered rule-id facet counts.
+  Both share one predicate builder with `finding_inbox`, so a page of rows and
+  its total cannot disagree about what "matching" means.
+- **Default filter is now the actionable set** — new *or regressed*, open
+  (Plan 025 WI-1). A merely-persisting finding is no longer in the default
+  view; a finding that returned after being resolved is. Nothing is deleted:
+  `lifecycle=all` still shows everything, and the picker gained explicit
+  "New or regressed" and "Regressed" options.
+- **Pagination is bounded and stable.** The page window comes from SQL, ordered
+  by a total order (severity, rule id, occurrence id) so paging cannot repeat
+  or skip rows. An out-of-range `page=` clamps to the last page rather than
+  rendering an empty inbox for a bookmarked deep link, and an unrecognised
+  filter value widens the view instead of erroring.
+- One triage fold is shared across the count and the row query, so the two
+  always agree on which occurrences are open.
+- Lifecycle evidence now reports **evaluation run** provenance rather than
+  snapshot numbers, and shows the claim level.
+
+Bookmarks are unaffected: every previous query parameter still addresses the
+same filter.
+
 ### Review hardening
 
 - Correct the accepted-risk register's point-in-time behavior and retain

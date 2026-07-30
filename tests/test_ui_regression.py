@@ -276,15 +276,57 @@ class TestFindingsInboxIntegration:
 
     @staticmethod
     def _store_findings(db_path: str, findings: list[SimpleNamespace]) -> list[int]:
-        from gpo_lens._legacy_findings import update_finding_lifecycle
-        from gpo_lens.findings import load_active_findings
+        """Seed findings through the Plan 024 engine — the deployed path.
+
+        Plan 025 WI-1 moved the inbox onto ``finding_inbox``, which by design
+        (WI-1.4) only returns occurrences carrying evaluation-run provenance.
+        The legacy ``update_finding_lifecycle`` writer leaves
+        ``first_seen_run_id`` NULL, so seeding through it would populate a table
+        the page can no longer see — the tests would pass against a store no
+        real ingest can produce. ``create_evaluation_run`` + ``run_evaluation``
+        is what both the CLI and the web uploader actually run.
+        """
+        from gpo_lens.finding_model import EvidenceRef, FindingCandidate
+        from gpo_lens.findings import (
+            create_evaluation_run,
+            finding_inbox,
+            run_evaluation,
+        )
         from gpo_lens.store import list_snapshots
 
         conn = sqlite3.connect(db_path)
         try:
             snapshot_id = list_snapshots(conn)[0][0]
-            update_finding_lifecycle(conn, snapshot_id, findings)
-            return [finding.id for finding in load_active_findings(conn)]
+            candidates = [
+                FindingCandidate(
+                    detector_id=finding.category,
+                    detector_version="1",
+                    category=finding.category,
+                    severity=finding.severity,
+                    subject_type="gpo",
+                    subject_key=(finding.gpo_id,),
+                    # Distinguish same-category findings on the same GPO, which
+                    # would otherwise share a fingerprint and fold into one
+                    # occurrence — the pagination test seeds 12 of them.
+                    dimensions=(("summary", finding.summary),),
+                    summary=finding.summary,
+                    detail=finding.detail,
+                    evidence_refs=(
+                        EvidenceRef(
+                            snapshot_id=snapshot_id,
+                            gpo_id=finding.gpo_id,
+                            source="test",
+                            field_path="test",
+                            safe_projection="safe text",
+                        ),
+                    ),
+                    gpo_name=finding.gpo_name,
+                )
+                for finding in findings
+            ]
+            run_id = create_evaluation_run(conn, snapshot_id)
+            run_evaluation(conn, run_id, candidates)
+            return [view.occurrence_id for view in finding_inbox(conn, limit=1000)]
         finally:
             conn.close()
 
@@ -357,6 +399,115 @@ class TestFindingsInboxIntegration:
         assert "Needs a decision" in _client.get(
             "/findings?lifecycle=all&triage=all"
         ).text
+
+    # -- Plan 025 WI-1: the page consumes the Plan 024 core queries ----------
+
+    def _store_multi_run_findings(self, db_path, persisting, regressing):
+        """Seed one persisting and one regressed occurrence across three runs."""
+        from gpo_lens.finding_model import EvidenceRef, FindingCandidate
+        from gpo_lens.findings import create_evaluation_run, run_evaluation
+        from gpo_lens.store import list_snapshots
+
+        def candidate(spec):
+            return FindingCandidate(
+                detector_id=spec.category, detector_version="1",
+                category=spec.category, severity=spec.severity,
+                subject_type="gpo", subject_key=(spec.gpo_id,),
+                summary=spec.summary, detail=spec.detail,
+                evidence_refs=(
+                    EvidenceRef(
+                        snapshot_id=1, gpo_id=spec.gpo_id, source="test",
+                        field_path="test", safe_projection="safe text",
+                    ),
+                ),
+                gpo_name=spec.gpo_name,
+            )
+
+        conn = sqlite3.connect(db_path)
+        try:
+            snapshot_id = list_snapshots(conn)[0][0]
+            both = [candidate(persisting), candidate(regressing)]
+            only_persisting = [candidate(persisting)]
+            # Present, then absent (resolved), then present again (regressed).
+            for cands in (both, only_persisting, both):
+                run_id = create_evaluation_run(conn, snapshot_id)
+                run_evaluation(conn, run_id, cands)
+        finally:
+            conn.close()
+
+    def test_default_filter_is_new_or_regressed_open(
+        self, _client, _fixture_db
+    ) -> None:
+        # Plan 025 WI-1 AC: the default inbox holds exactly the actionable
+        # items. A merely-persisting finding is not one; a regression is.
+        persisting = SimpleNamespace(
+            category="persist-rule", gpo_id=_GPO_A, gpo_name="gpo-cpassword",
+            severity="high", summary="Merely persisting", detail="persist-evidence",
+        )
+        regressing = SimpleNamespace(
+            category="regress-rule", gpo_id=_GPO_B, gpo_name="gpo-b",
+            severity="high", summary="Came back again", detail="regress-evidence",
+        )
+        self._store_multi_run_findings(_fixture_db, persisting, regressing)
+
+        default = _client.get("/findings")
+        assert default.status_code == 200
+        assert "Came back again" in default.text
+        assert "Merely persisting" not in default.text
+
+        # Widening the lifecycle filter reveals it — nothing was deleted.
+        widened = _client.get("/findings?lifecycle=all")
+        assert "Merely persisting" in widened.text
+        assert "Came back again" in widened.text
+
+    def test_filters_are_url_addressable_and_bounded(
+        self, _client, _fixture_db
+    ) -> None:
+        findings = [
+            SimpleNamespace(
+                category="page-rule", gpo_id=_GPO_A, gpo_name="gpo-cpassword",
+                severity="medium" if index % 2 else "critical",
+                summary=f"Bounded finding {index}", detail=f"evidence-{index}",
+            )
+            for index in range(12)
+        ]
+        self._store_findings(_fixture_db, findings)
+
+        # The filter is honoured in SQL, so the count reflects the whole
+        # matching set rather than whatever survived a pre-filter row cap.
+        crit = _client.get("/findings?severity=critical&per_page=2")
+        assert crit.status_code == 200
+        assert 'aria-label="Pagination"' in crit.text
+        assert "severity=critical" in crit.text
+        # 6 critical of 12 → 3 pages of 2. The total comes from a SQL COUNT over
+        # the same predicate, so it must say 6 (not 12 sliced after the fact).
+        assert "6 items" in crit.text
+        assert "of 3" in crit.text
+
+        # An out-of-range page clamps to the last page instead of rendering
+        # an empty inbox for a bookmarked deep link.
+        clamped = _client.get("/findings?severity=critical&per_page=2&page=99")
+        assert clamped.status_code == 200
+        assert "No findings match the current filters" not in clamped.text
+
+        # An unrecognised filter value widens rather than 400s or empties.
+        stale = _client.get("/findings?lifecycle=not-a-state&triage=bogus")
+        assert stale.status_code == 200
+        assert "Bounded finding" in stale.text
+
+    def test_search_filter_reaches_sql(self, _client, _fixture_db) -> None:
+        findings = [
+            SimpleNamespace(
+                category="search-rule", gpo_id=_GPO_A, gpo_name="gpo-cpassword",
+                severity="high", summary=summary, detail="search-evidence",
+            )
+            for summary in ("Distinctive needle here", "Unrelated haystack")
+        ]
+        self._store_findings(_fixture_db, findings)
+        hit = _client.get("/findings?q=distinctive")
+        assert hit.status_code == 200
+        assert "Distinctive needle here" in hit.text
+        assert "Unrelated haystack" not in hit.text
 
     def test_dossier_count_uses_lifecycle_inbox(self, _client, _fixture_db) -> None:
         finding = SimpleNamespace(
