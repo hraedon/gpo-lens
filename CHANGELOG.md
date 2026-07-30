@@ -62,6 +62,43 @@ what it says, and has that changed?*
   `evaluation_run`. Malformed evidence JSON in one row degrades that row's
   evidence to empty rather than failing the page.
 
+### Briefing page (Plan 025 WI-2)
+
+A new `/briefing` destination answering one question — *do I need to care
+today?* — as typed facts plus deterministic prose:
+
+```text
+Since snapshot #1: 2 GPOs changed, 1 finding is new, and 3 resolved.
+```
+
+- **Deterministic, not narrated.** The sentences come from formatters over typed
+  deltas in the new `gpo_lens.briefing` core module. No model is involved and the
+  same inputs always produce byte-identical text, which is what makes the output
+  golden-testable. Goldens pin the exact prose for the first-snapshot, ordinary,
+  degraded, and no-change scenarios.
+- **Honest about what it cannot say.** With one snapshot it presents a
+  first-snapshot summary instead of implying a comparison against nothing. When
+  the latest evaluation run did not complete it reports the analysis as
+  incomplete and emits *no* delta sentence at all, rather than laundering
+  partial counts into a confident answer.
+- **Problems outrank good news.** Coverage gaps and missing or failed evaluation
+  provenance are rendered before favorable counts, so a reassuring "3 resolved"
+  can never appear above the reason it is untrustworthy.
+- **No unlinked stat tiles** (a WI-2 acceptance criterion). Vitals carry a
+  stable key rather than a URL — the core module stays web-free — and the web
+  layer maps keys to routes, so a vital with no destination fails loudly instead
+  of rendering a dead tile.
+- **Expiring accepted risks** are surfaced with their finding, severity, and
+  approver, noting that an expired acceptance returns the finding to the
+  actionable inbox rather than deleting it.
+- **Historical selection.** `?snapshot=N` produces the briefing as of that
+  snapshot, diffed against *its* predecessor rather than the current runner-up.
+- No detector re-runs: every number reads materialized lifecycle and snapshot
+  state, unlike the dashboard, which re-evaluates the estate per page view.
+
+The briefing ships alongside the dashboard rather than replacing it; Plan 027
+Phase 2 sequences the navigation migration separately.
+
 ### Review hardening
 
 - Correct the accepted-risk register's point-in-time behavior and retain

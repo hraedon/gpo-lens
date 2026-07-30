@@ -50,6 +50,7 @@ def _has_class(html: str, cls: str) -> bool:
 # Pages that every authenticated user can reach (VIEW permission).
 _PAGES = [
     "/",
+    "/briefing",
     "/danger",
     "/findings",
     "/changelog",
@@ -599,6 +600,75 @@ class TestFindingsInboxIntegration:
         assert "lifecycle=all" in response.text
         assert "triage=all" in response.text
         assert "1 finding" in response.text
+
+    # -- Plan 025 WI-2: the briefing page -----------------------------------
+
+    def test_briefing_renders_deterministic_prose(self, _client, _fixture_db) -> None:
+        response = _client.get("/briefing")
+        assert response.status_code == 200
+        html = response.text
+        assert "Do I need to care today?" in html
+        assert "Estate vitals" in html
+        # The fixture estate has a single snapshot, so the briefing must say so
+        # rather than implying a comparison against nothing.
+        assert "first snapshot" in html
+
+    def test_briefing_has_no_unlinked_stat_tile(self, _client, _fixture_db) -> None:
+        # Plan 025 WI-2 AC: no unlinked stat tile appears. Every tile is an
+        # <a href>, so count anchors against tiles.
+        html = _client.get("/briefing").text
+        tiles = re.findall(r'class="gp-posture-tile[^"]*"', html)
+        linked = re.findall(r'<a class="gp-posture-tile[^"]*" href="[^"]+"', html)
+        assert tiles, "briefing rendered no vitals at all"
+        assert len(linked) == len(tiles)
+
+    def test_briefing_vital_keys_all_have_link_targets(self) -> None:
+        # A new vital must not be addable without giving the web layer a
+        # destination for it — the tile would otherwise be unlinkable.
+        from gpo_lens.briefing import VITAL_KEYS
+        from gpo_lens.web.routes.briefing import _VITAL_TARGETS
+
+        assert set(VITAL_KEYS) == set(_VITAL_TARGETS)
+
+    def test_briefing_reports_incomplete_analysis(self, _client, _fixture_db) -> None:
+        conn = sqlite3.connect(_fixture_db)
+        try:
+            from gpo_lens.findings import create_evaluation_run
+
+            snapshot_id = conn.execute("SELECT id FROM snapshot").fetchone()[0]
+            run_id = create_evaluation_run(conn, snapshot_id)
+            conn.execute(
+                "UPDATE evaluation_run SET status = 'failed', "
+                "error_summary = 'detector crashed' WHERE id = ?",
+                (run_id,),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        html = _client.get("/briefing").text
+        assert "incomplete analysis" in html
+        assert "not a verified comparison" in html
+
+    def test_briefing_404s_for_unknown_snapshot(self, _client, _fixture_db) -> None:
+        assert _client.get("/briefing?snapshot=999999").status_code == 404
+
+    def test_briefing_on_empty_db_offers_ingest(self, _empty_db, monkeypatch) -> None:
+        from fastapi.testclient import TestClient
+
+        from gpo_lens.web.app import create_app
+
+        monkeypatch.setenv("GPO_LENS_AUTH_TOKEN", "test-secret-token")
+        client = TestClient(
+            create_app(_empty_db),
+            headers={
+                "origin": "http://localhost",
+                "Authorization": "Bearer test-secret-token",
+            },
+        )
+        response = client.get("/briefing")
+        assert response.status_code == 200
+        assert "No snapshot ingested yet" in response.text
 
     @pytest.mark.parametrize("path", _PAGES)
     def test_security_headers_on_every_page(self, _client, path) -> None:

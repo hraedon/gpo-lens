@@ -559,6 +559,7 @@ def create_app(
         api,
         ask,
         baseline,
+        briefing,
         changelog,
         conflicts,
         dashboard,
@@ -575,6 +576,7 @@ def create_app(
     )
 
     dashboard.register(app, templates)
+    briefing.register(app, templates)
     gpo.register(app, templates)
     conflicts.register(app, templates)
     search.register(app, templates)
