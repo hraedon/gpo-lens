@@ -1203,6 +1203,71 @@ def finding_history(
     )
 
 
+def finding_observation_history(
+    conn: sqlite3.Connection,
+    occurrence_id: int,
+) -> list[dict[str, Any]]:
+    """Observations of an occurrence, each with its evaluation run's provenance.
+
+    ``finding_history`` returns observations alone, which cannot answer "did the
+    finding change, or did the rules change?" — the question the occurrence view
+    exists to settle. Joining ``evaluation_run`` attaches the detector-set
+    digest, comparator input, application version, and run status to each
+    observation, so a severity or claim change can be attributed to the estate
+    or to a detector revision.
+
+    Oldest run first. Evidence is returned parsed and already bounded by the
+    ``safe_projection`` cap applied at write time.
+    """
+    rows = conn.execute(
+        "SELECT o.run_id, o.severity, o.summary, o.evidence_json, "
+        "o.claim_level, o.remediation, o.compliance_json, "
+        "r.evaluation_kind, r.detector_set_digest, r.comparator_input_id, "
+        "r.application_version, r.started_at, r.completed_at, r.status, "
+        "r.error_summary, r.snapshot_id "
+        "FROM finding_observation o "
+        "JOIN evaluation_run r ON r.id = o.run_id "
+        "WHERE o.occurrence_id = ? ORDER BY o.run_id ASC, o.id ASC",
+        (occurrence_id,),
+    ).fetchall()
+    history: list[dict[str, Any]] = []
+    for r in rows:
+        history.append({
+            "run_id": r[0],
+            "severity": r[1],
+            "summary": r[2],
+            "evidence": _safe_json_list(r[3]),
+            "claim_level": r[4],
+            "remediation": r[5],
+            "compliance": _safe_json_list(r[6]),
+            "evaluation_kind": r[7],
+            "detector_set_digest": r[8] or "",
+            "comparator_input_id": r[9],
+            "application_version": r[10] or "",
+            "started_at": r[11] or "",
+            "completed_at": r[12] or "",
+            "status": r[13] or "",
+            "error_summary": r[14] or "",
+            "snapshot_id": r[15],
+        })
+    return history
+
+
+def _safe_json_list(raw: str | None) -> list[Any]:
+    """Parse a JSON list column, tolerating NULL and malformed content.
+
+    A single unparseable evidence blob must not take down the occurrence page —
+    the rest of the history is still worth showing.
+    """
+    if not raw:
+        return []
+    try:
+        parsed = json.loads(raw)
+    except (TypeError, ValueError):
+        return []
+    return parsed if isinstance(parsed, list) else []
+
+
 def finding_delta(
     conn: sqlite3.Connection,
     run_a: int,

@@ -164,6 +164,105 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
             },
         )
 
+    @app.get(
+        "/findings/{occurrence_id}",
+        response_class=HTMLResponse,
+        name="finding_occurrence",
+    )
+    def finding_occurrence(
+        request: Request,
+        occurrence_id: int,
+        principal: Principal = Depends(requires(Permission.VIEW)),
+    ) -> HTMLResponse:
+        """Plan 025 WI-1: one occurrence's observations, provenance, and triage.
+
+        Answers "why does this finding say what it says, and has that changed?"
+        — the question the inbox row deliberately does not have room for.
+        """
+        from gpo_lens.findings import (
+            finding_history,
+            finding_observation_history,
+            load_triage_status_map,
+        )
+        from gpo_lens.store import load_estate
+
+        conn = get_ro_conn(app.state.db_path)
+        try:
+            try:
+                history = finding_history(conn, occurrence_id)
+            except ValueError:
+                return HTMLResponse("Finding not found", status_code=404)
+            observations = finding_observation_history(conn, occurrence_id)
+            status = load_triage_status_map(conn).get(occurrence_id)
+
+            # A regression's predecessor is the same finding_key in an earlier,
+            # resolved interval. Show enough to justify the "regression" label.
+            predecessor = None
+            if history.occurrence.predecessor_id is not None:
+                try:
+                    prior = finding_history(
+                        conn, history.occurrence.predecessor_id
+                    )
+                except ValueError:
+                    prior = None
+                if prior is not None:
+                    predecessor = {
+                        "id": prior.occurrence.id,
+                        "category": prior.occurrence.category,
+                        "first_seen_run": prior.occurrence.first_seen_run_id,
+                        "resolved_run": prior.occurrence.resolved_run_id,
+                    }
+
+            try:
+                estate = load_estate(conn)
+                gpo_names = {g.id: g.name for g in estate.gpos}
+            except ValueError:
+                gpo_names = {}
+        finally:
+            conn.close()
+
+        # The occurrence row carries no GPO columns; take the subject from the
+        # newest observation's evidence, which is where the detector recorded it.
+        gpo_id = ""
+        for obs in reversed(observations):
+            for ref in obs["evidence"]:
+                if isinstance(ref, dict) and ref.get("gpo_id"):
+                    gpo_id = str(ref["gpo_id"])
+                    break
+            if gpo_id:
+                break
+
+        # Severity and claim can move between runs without the finding's
+        # identity changing; surfacing the transitions is the point of the page.
+        changes: list[dict[str, Any]] = []
+        for prev, curr in zip(observations, observations[1:], strict=False):
+            for field in ("severity", "claim_level", "detector_set_digest"):
+                if prev[field] != curr[field]:
+                    changes.append({
+                        "run_id": curr["run_id"],
+                        "field": field,
+                        "before": prev[field],
+                        "after": curr[field],
+                    })
+
+        return templates.TemplateResponse(
+            request,
+            "finding_occurrence.html",
+            {
+                "request": request,
+                "occ": history.occurrence,
+                "observations": observations,
+                "triage_events": history.triage_events,
+                "triage_status": status,
+                "predecessor": predecessor,
+                "changes": changes,
+                "gpo_id": gpo_id,
+                "gpo_name": gpo_names.get(gpo_id, gpo_id),
+                "gpo_resolvable": gpo_id in gpo_names,
+                "can_triage": principal.has(Permission.TRIAGE),
+            },
+        )
+
     @app.post("/findings/{finding_id}/triage", response_model=None, name="findings_triage")
     def findings_triage(
         request: Request,

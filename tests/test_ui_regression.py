@@ -509,6 +509,84 @@ class TestFindingsInboxIntegration:
         assert "Distinctive needle here" in hit.text
         assert "Unrelated haystack" not in hit.text
 
+    def test_occurrence_view_shows_observations_and_provenance(
+        self, _client, _fixture_db
+    ) -> None:
+        finding = SimpleNamespace(
+            category="occurrence-rule", gpo_id=_GPO_A, gpo_name="gpo-cpassword",
+            severity="high", summary="Traceable finding", detail="trace-evidence",
+        )
+        occurrence_id = self._store_findings(_fixture_db, [finding])[0]
+
+        response = _client.get(f"/findings/{occurrence_id}")
+        assert response.status_code == 200
+        html = response.text
+        assert "Traceable finding" in html
+        assert "occurrence-rule" in html
+        # Provenance: the run that produced the observation, not just the row.
+        assert "Observations" in html
+        assert "Detector set" in html
+        assert "Triage history" in html
+        # The inbox links here, so the page must be reachable by a click.
+        assert f"/findings/{occurrence_id}" in _client.get("/findings").text
+
+    def test_occurrence_view_shows_triage_log_append_only(
+        self, _client, _fixture_db
+    ) -> None:
+        finding = SimpleNamespace(
+            category="triaged-rule", gpo_id=_GPO_A, gpo_name="gpo-cpassword",
+            severity="high", summary="Decided finding", detail="decision-evidence",
+        )
+        occurrence_id = self._store_findings(_fixture_db, [finding])[0]
+        _client.post(
+            f"/findings/{occurrence_id}/triage",
+            data={"status": "acknowledged", "note": "Seen, deferring"},
+            follow_redirects=False,
+        )
+        _client.post(
+            f"/findings/{occurrence_id}/triage",
+            data={"status": "accepted_risk", "note": "Tracked in ticket 7"},
+            follow_redirects=False,
+        )
+        html = _client.get(f"/findings/{occurrence_id}").text
+        # Both decisions survive — the log is append-only, not last-write-wins.
+        assert "Seen, deferring" in html
+        assert "Tracked in ticket 7" in html
+        assert "acknowledged" in html
+        assert "accepted_risk" in html
+
+    def test_occurrence_view_reports_regression_predecessor(
+        self, _client, _fixture_db
+    ) -> None:
+        persisting = SimpleNamespace(
+            category="persist-rule", gpo_id=_GPO_A, gpo_name="gpo-cpassword",
+            severity="high", summary="Steady finding", detail="steady-evidence",
+        )
+        regressing = SimpleNamespace(
+            category="regress-rule", gpo_id=_GPO_B, gpo_name="gpo-b",
+            severity="high", summary="Returned finding", detail="return-evidence",
+        )
+        self._store_multi_run_findings(_fixture_db, persisting, regressing)
+
+        from gpo_lens.findings import finding_inbox
+
+        conn = sqlite3.connect(_fixture_db)
+        try:
+            regressed = finding_inbox(conn, lifecycle_state="regressed")
+        finally:
+            conn.close()
+        assert len(regressed) == 1
+        occurrence_id = regressed[0].occurrence_id
+
+        html = _client.get(f"/findings/{occurrence_id}").text
+        assert "Regression" in html
+        assert "has reappeared" in html
+        # Accepted risk must not silently carry over from the predecessor.
+        assert "not inherited" in html
+
+    def test_occurrence_view_404s_for_unknown_id(self, _client, _fixture_db) -> None:
+        assert _client.get("/findings/999999").status_code == 404
+
     def test_dossier_count_uses_lifecycle_inbox(self, _client, _fixture_db) -> None:
         finding = SimpleNamespace(
             category="dossier-rule", gpo_id=_GPO_A, gpo_name="gpo-cpassword",

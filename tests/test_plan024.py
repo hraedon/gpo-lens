@@ -51,6 +51,7 @@ from gpo_lens.findings import (
     finding_inbox,
     finding_inbox_categories,
     finding_inbox_count,
+    finding_observation_history,
     fold_triage,
     get_triage_status,
     load_triage_events,
@@ -1085,6 +1086,62 @@ class TestCoreQueries:
             assert finding_inbox_categories(conn) == [
                 ("cpassword", 2), ("ms16_072", 1),
             ]
+        finally:
+            conn.close()
+
+    def test_observation_history_attributes_change_to_rules_or_estate(self) -> None:
+        # The occurrence view has to distinguish "the estate got worse" from
+        # "the detector changed its mind", so each observation carries its run's
+        # provenance alongside the severity it reported.
+        conn = _make_db()
+        try:
+            _make_snapshot(conn, 1)
+            _make_snapshot(conn, 2)
+            run1 = _make_run(conn, 1)
+            run_evaluation(conn, run1, [
+                _make_candidate("cpassword", subject_key=("gpo1",), severity="high"),
+            ])
+            run2 = _make_run(conn, 2)
+            run_evaluation(conn, run2, [
+                _make_candidate(
+                    "cpassword", subject_key=("gpo1",), severity="critical",
+                ),
+            ])
+
+            occ_id = finding_inbox(conn)[0].occurrence_id
+            history = finding_observation_history(conn, occ_id)
+
+            # Oldest run first, so a reader sees the progression in order.
+            assert [h["run_id"] for h in history] == [run1, run2]
+            assert [h["severity"] for h in history] == ["high", "critical"]
+            # Provenance is joined from evaluation_run, not the observation row.
+            assert all("detector_set_digest" in h for h in history)
+            assert all(h["snapshot_id"] in (1, 2) for h in history)
+            assert all(h["status"] == "completed" for h in history)
+            # Evidence arrives parsed rather than as a JSON blob.
+            assert history[0]["evidence"][0]["gpo_id"] == "gpo1"
+        finally:
+            conn.close()
+
+    def test_observation_history_survives_malformed_evidence(self) -> None:
+        # One unparseable evidence blob must not take down the whole history.
+        conn = _make_db()
+        try:
+            _make_snapshot(conn, 1)
+            run_id = _make_run(conn, 1)
+            run_evaluation(conn, run_id, [
+                _make_candidate("cpassword", subject_key=("gpo1",)),
+            ])
+            conn.execute(
+                "UPDATE finding_observation SET evidence_json = 'not json'"
+            )
+            conn.commit()
+
+            occ_id = finding_inbox(conn)[0].occurrence_id
+            history = finding_observation_history(conn, occ_id)
+            assert len(history) == 1
+            assert history[0]["evidence"] == []
+            assert history[0]["severity"] == "critical"
         finally:
             conn.close()
 

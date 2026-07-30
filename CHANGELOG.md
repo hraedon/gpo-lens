@@ -39,6 +39,29 @@ the hardened `finding_inbox` query built for exactly this had no consumer.
 Bookmarks are unaffected: every previous query parameter still addresses the
 same filter.
 
+### Occurrence view (Plan 025 WI-1)
+
+Each finding summary in the inbox now links to `/findings/{occurrence_id}`, a
+page for the question the inbox row has no room for: *why does this finding say
+what it says, and has that changed?*
+
+- **Observations across evaluation runs**, oldest first, each with its bounded
+  evidence and the provenance of the run that produced it — snapshot,
+  evaluation kind, detector-set digest, comparator input, application version,
+  and run status.
+- **A "what changed between runs" table.** Severity, claim level, and
+  detector-set digest transitions are called out explicitly, so a severity
+  change can be attributed to the estate or to a detector revision rather than
+  left ambiguous.
+- **Regression provenance.** A regressed occurrence links to the predecessor
+  interval it reappeared from, and states plainly that accepted risk is not
+  inherited — the predecessor's acceptance does not silence the new occurrence.
+- **The full triage log**, append-only: an acceptance that was later revoked
+  stays visible above its revocation rather than being overwritten.
+- New core query `finding_observation_history` joins `finding_observation` to
+  `evaluation_run`. Malformed evidence JSON in one row degrades that row's
+  evidence to empty rather than failing the page.
+
 ### Review hardening
 
 - Correct the accepted-risk register's point-in-time behavior and retain

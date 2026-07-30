@@ -95,7 +95,7 @@
         <td>{% set sev_class = {'critical':'crit','high':'crit','medium':'warn','low':'muted','info':'info'}.get(r.severity, 'muted') %}<span class="gp-chip {{ sev_class }}">{{ r.severity }}</span></td>
         <td>{{ r.rule_id }}</td>
         <td>
-          {{ r.summary }}
+          <a href="{{ url_for('finding_occurrence', occurrence_id=r.id) }}">{{ r.summary }}</a>
           {% if r.predecessor_id %}
           <p style="margin-top:4px"><span class="gp-chip warn">regression</span> &mdash; previously resolved, has reappeared.</p>
           {% endif %}
