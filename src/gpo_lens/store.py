@@ -46,7 +46,12 @@ from gpo_lens.normalize import parse_dt
 #      ``rationale`` columns to ``finding_triage``.
 # v7 = fix coverage_gap PK to include ``kind`` so multiple gap types per GPO
 #      (e.g. unreadable_sysvol + corrupt_gpp_xml) are not silently dropped.
-CURRENT_SCHEMA_VERSION: int = 7
+# v8 = WI-092: unify triage storage on the Plan 024 ``finding_triage_event``
+#      log. Existing ``finding_triage`` (v1) rows are copied into the event
+#      log; the legacy table remains (unused) for audit. Writes to
+#      ``finding_triage`` stop entirely — v1 triage APIs become shims over
+#      the event log.
+CURRENT_SCHEMA_VERSION: int = 8
 
 
 def _safe_json_loads(raw: str | None, default: Any) -> Any:
@@ -294,6 +299,10 @@ def init_db(conn: sqlite3.Connection) -> None:
         WHERE resolved_in_snapshot IS NULL
         """
     )
+    # WI-092 (schema v8): triage unified on ``finding_triage_event``. This
+    # legacy v1 table is retained as the migration source for pre-v8 DBs and
+    # for audit — it is never written post-v8. Do not drop it: the v7->v8
+    # migration in ``_migrate_schema`` reads from it.
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS finding_triage (
@@ -537,6 +546,50 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
             conn.execute(
                 "ALTER TABLE coverage_gap_new RENAME TO coverage_gap"
             )
+
+        # v7 -> v8 (WI-092): migrate legacy ``finding_triage`` rows into the
+        # Plan 024 ``finding_triage_event`` log so triage state lives in one
+        # store. Status mapping: ``open`` -> ``reopened`` (the v2 action that
+        # folds to open); ``acknowledged``/``accepted_risk`` carry over. For
+        # accepted-risk rows, fall back to the note as the rationale when the
+        # v1 row recorded none (v1 had no rationale concept) — nothing is
+        # fabricated beyond the operator's own text. The NOT EXISTS guard
+        # keeps a re-run after an interrupted migration a no-op. Match every
+        # stored payload field so distinct same-timestamp events are preserved.
+        # Orphaned legacy rows are skipped defensively: old databases may have
+        # been modified while foreign-key enforcement was disabled.
+        conn.execute(
+            """
+            INSERT INTO finding_triage_event
+                (occurrence_id, action, actor, occurred_at, note, rationale,
+                 expires_at, supersedes_event_id)
+            SELECT t.finding_id,
+                   CASE t.status WHEN 'open' THEN 'reopened' ELSE t.status END,
+                   t.actor, t.timestamp, t.note,
+                   CASE WHEN t.status = 'accepted_risk'
+                        THEN COALESCE(NULLIF(t.rationale, ''), t.note, '')
+                        ELSE '' END,
+                   t.expires_at, NULL
+            FROM finding_triage t
+            JOIN finding f ON f.id = t.finding_id
+            WHERE NOT EXISTS (
+                SELECT 1 FROM finding_triage_event e
+                WHERE e.occurrence_id = t.finding_id
+                  AND e.action = CASE t.status
+                                     WHEN 'open' THEN 'reopened'
+                                     ELSE t.status END
+                  AND e.occurred_at = t.timestamp
+                  AND e.actor = t.actor
+                  AND e.note = t.note
+                  AND e.rationale = CASE
+                      WHEN t.status = 'accepted_risk'
+                      THEN COALESCE(NULLIF(t.rationale, ''), t.note, '')
+                      ELSE '' END
+                  AND e.expires_at IS t.expires_at
+            )
+            ORDER BY t.id
+            """
+        )
 
     conn.execute(f"PRAGMA user_version = {CURRENT_SCHEMA_VERSION}")
 

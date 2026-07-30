@@ -204,13 +204,17 @@ class LedgerRow:
     admx_explain: str = ""
 
 
-def _extract_registry_truth(raw: dict[str, object]) -> tuple[str, str, str, str]:
+def _extract_registry_truth(
+    raw: dict[str, object],
+    display_value: str = "",
+) -> tuple[str, str, str, str]:
     """Extract ``(key, value_name, type, data)`` from a Setting's raw dict.
 
     For Registry CSE settings the raw element carries ``@attr.KeyName`` /
     ``@attr.ValueName`` and a ``text`` value.  For ``Registry.pol``-sourced
-    settings (PReg records) the raw dict carries ``key``, ``valueName``,
-    ``type``, and ``data``.  Other CSEs have no registry truth.
+    settings (PReg records) the persisted raw dict carries ``key``,
+    ``value_name``, and ``type_name``; its decoded data is the setting's
+    display value. Other CSEs have no registry truth.
     """
     attr = raw.get("@attr")
     if isinstance(attr, dict):
@@ -222,9 +226,9 @@ def _extract_registry_truth(raw: dict[str, object]) -> tuple[str, str, str, str]
     if "key" in raw and isinstance(raw["key"], str):
         return (
             str(raw["key"]),
-            str(raw.get("valueName", "")),
-            str(raw.get("type", "")),
-            str(raw.get("data", "")),
+            str(raw.get("value_name") or raw.get("valueName", "")),
+            str(raw.get("type_name") or raw.get("type", "")),
+            str(raw.get("data") or display_value),
         )
     return "", "", "", ""
 
@@ -251,7 +255,8 @@ def settings_ledger(
     rows: list[LedgerRow] = []
     for s in gpo.settings:
         reg_key, reg_val_name, reg_type, reg_data = _extract_registry_truth(
-            s.raw if isinstance(s.raw, dict) else {}
+            s.raw if isinstance(s.raw, dict) else {},
+            s.display_value,
         )
         admx_name = ""
         admx_explain = ""

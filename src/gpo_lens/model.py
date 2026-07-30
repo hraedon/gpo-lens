@@ -331,8 +331,8 @@ class Estate:
 
     @property
     def gpo_names(self) -> dict[str, str]:
-        """Lazy, cached ``{gpo_id: gpo_name}`` map."""
-        return {g.id: g.name for g in self.gpo_index.values()}
+        """``{gpo_id: gpo_name}`` map with stored and canonical ID keys."""
+        return {gpo_id: g.name for gpo_id, g in self.gpo_index.items()}
 
     def gpo_by_id(self, gpo_id: str) -> Gpo | None:
         result = self.gpo_index.get(gpo_id)

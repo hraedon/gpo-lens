@@ -1,5 +1,47 @@
 # Changelog
 
+## Unreleased
+
+### Review hardening
+
+- Correct the accepted-risk register's point-in-time behavior and retain
+  expired or revoked acceptance history.
+- Preserve distinct same-timestamp triage events during schema migration and
+  skip orphaned legacy rows rather than blocking database startup.
+- Populate Registry.pol value names, types, and decoded data in the settings
+  ledger.
+- Stop advertising the upload-backed `golden_diff` query through the GET API.
+- Report finding-evaluation failures as warnings after a successful CLI
+  snapshot ingest, matching the web ingest path (WI-094).
+- Resolve GPO names through both stored and canonical GUID forms for older
+  snapshot databases.
+
+### Triage storage convergence (WI-092)
+
+- **One triage store.** The web triage endpoint previously wrote the v1
+  `finding_triage` table, which *no* Plan 024 query (`finding_inbox`,
+  `accepted_risk_register`, `load_triage_status_map`, `finding_history`)
+  reads — operator triage performed in the UI was invisible to the Plan 024
+  layer, a data-loss trap the moment the inbox moves onto `finding_inbox()`
+  (Plan 025 / Plan 027 Phase 2). Triage now lives only in the Plan 024
+  `finding_triage_event` log:
+  - `triage_finding` is a compatibility shim over `append_triage_event`
+    (v1 statuses map to v2 actions: `open` → `reopened`); it keeps the
+    not-resolved guard and its signature.
+  - `load_finding_triage` / `load_finding_triage_map` are legacy-shaped
+    projections of the event log (the web inbox template is unchanged).
+  - **Schema migration v7 → v8** copies existing `finding_triage` rows into
+    `finding_triage_event` (idempotent, timestamp/actor/note preserved;
+    `accepted_risk` falls back to the note as rationale — nothing
+    fabricated). The legacy table is retained for audit and is no longer
+    written.
+  - Both triage generations key off `finding.id`, so no identity mapping is
+    needed.
+- **Behavior change:** accepting risk now requires a non-empty note, which
+  doubles as the Plan 024-required rationale. Blank-note risk acceptance
+  previously stored in v1 is rejected with a 400 on the web path; the
+  template's note field says so.
+
 ## v1.2.0 — 2026-07-16
 
 ### Adversarial review hardening

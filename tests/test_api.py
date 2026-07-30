@@ -86,10 +86,12 @@ class TestApiQueries:
         assert resp.status_code == 200
         body = resp.json()
         assert "queries" in body
-        # Every valid query should appear with a description.
+        # Every HTTP-callable query should appear with a description. Queries
+        # requiring an in-process object use dedicated upload routes instead.
         from gpo_lens.query_dispatch import VALID_QUERIES
 
-        for name in VALID_QUERIES:
+        assert "golden_diff" not in body["queries"]
+        for name in VALID_QUERIES - {"golden_diff"}:
             assert name in body["queries"]
             assert "description" in body["queries"][name]
             assert "required_params" in body["queries"][name]
@@ -127,6 +129,13 @@ class TestApiQueryExecution:
         body = resp.json()
         assert body["status"] == "error"
         assert "Unknown query" in body["detail"]
+
+    def test_object_parameter_query_not_exposed_over_get(self, _client) -> None:
+        resp = _client.get(
+            "/api/v1/query/golden_diff",
+            params={"golden_estate": "not-an-estate"},
+        )
+        assert resp.status_code == 404
 
     def test_missing_required_param_400(self, _client) -> None:
         resp = _client.get("/api/v1/query/settings_at_som")
@@ -273,7 +282,7 @@ class TestApiQuerySmoke:
         },
     }
 
-    @pytest.mark.parametrize("query_name", sorted(VALID_QUERIES))
+    @pytest.mark.parametrize("query_name", sorted(VALID_QUERIES - {"golden_diff"}))
     def test_query_all_valid_queries_smoke(self, _client, query_name: str) -> None:
         params = self._FIXTURE_PARAMS.get(query_name, {})
         resp = _client.get(f"/api/v1/query/{query_name}", params=params)

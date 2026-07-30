@@ -141,7 +141,7 @@
                 <option value="accepted_risk" {% if r.triage_state == 'accepted_risk' %}selected{% endif %}>Accepted risk</option>
               </select>
               <label class="gp-label" for="triage-note-{{ r.id }}">Note</label>
-              <textarea id="triage-note-{{ r.id }}" name="note" class="gp-input" rows="3" maxlength="2000" placeholder="Reason, ticket, or follow-up…">{{ r.triage_note }}</textarea>
+              <textarea id="triage-note-{{ r.id }}" name="note" class="gp-input" rows="3" maxlength="2000" placeholder="Reason, ticket, or follow-up… (required as rationale when accepting risk)">{{ r.triage_note }}</textarea>
               <input type="hidden" name="return_q" value="{{ f_q }}">
               <input type="hidden" name="return_severity" value="{{ f_severity }}">
               <input type="hidden" name="return_category" value="{{ f_category }}">

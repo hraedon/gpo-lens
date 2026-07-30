@@ -377,17 +377,36 @@ def evaluate_finding_lifecycle(
     )
 
 
+# WI-092: v1 triage statuses mapped onto Plan 024 actions. ``open`` becomes
+# ``reopened`` — the v2 action that folds a triaged finding back to open.
+_V1_STATUS_TO_ACTION: dict[str, TriageAction] = {
+    "open": "reopened",
+    "acknowledged": "acknowledged",
+    "accepted_risk": "accepted_risk",
+}
+
+
 def load_finding_triage(conn: sqlite3.Connection, finding_id: int) -> list[dict[str, Any]]:
-    """Load triage history for a finding (append-only, oldest first)."""
-    rows = conn.execute(
-        "SELECT id, status, note, actor, timestamp "
-        "FROM finding_triage WHERE finding_id = ? "
-        "ORDER BY id ASC",
-        (finding_id,),
-    ).fetchall()
+    """Load triage history for a finding (append-only, oldest first).
+
+    WI-092: this is a legacy-shaped projection of the Plan 024
+    ``finding_triage_event`` log (the single triage store). The v2 action
+    ``reopened`` projects back to the v1 status ``open``; all other actions
+    pass through by name — including v2-only actions (``commented``,
+    ``risk_acceptance_expired``, ``risk_acceptance_revoked``), so consumers
+    expecting strictly v1 statuses (``open``/``acknowledged``/
+    ``accepted_risk``) must tolerate the wider vocabulary.
+    """
+    events = load_triage_events(conn, finding_id)
     return [
-        {"id": r[0], "status": r[1], "note": r[2], "actor": r[3], "timestamp": r[4]}
-        for r in rows
+        {
+            "id": ev.id,
+            "status": "open" if ev.action == "reopened" else ev.action,
+            "note": ev.note,
+            "actor": ev.actor,
+            "timestamp": ev.occurred_at.isoformat(),
+        }
+        for ev in events
     ]
 
 
@@ -405,6 +424,12 @@ def triage_finding(
 
     *status* must be one of ``open``, ``acknowledged``, ``accepted_risk``.
     *actor* is the authenticated principal name (from forwarded-user or token).
+
+    WI-092: compatibility shim over the Plan 024 event store — statuses map to
+    v2 actions (``open`` -> ``reopened``) and the append lands in
+    ``finding_triage_event`` so the v1 and Plan 024 query surfaces can never
+    disagree. Accepting risk requires a non-empty note, which doubles as the
+    Plan 024-required rationale (``accepted_risk`` without one raises).
     """
     if status not in ("open", "acknowledged", "accepted_risk"):
         raise ValueError(f"invalid triage status: {status!r}")
@@ -420,12 +445,15 @@ def triage_finding(
     if row[0] is not None or row[1] is not None:
         raise ValueError(f"finding {finding_id} is already resolved")
 
-    conn.execute(
-        "INSERT INTO finding_triage (finding_id, status, note, actor, timestamp) "
-        "VALUES (?, ?, ?, ?, ?)",
-        (finding_id, status, note, actor, datetime.now(UTC).isoformat()),
+    action = _V1_STATUS_TO_ACTION[status]
+    append_triage_event(
+        conn,
+        finding_id,
+        action,
+        actor,
+        note=note,
+        rationale=note if status == "accepted_risk" else "",
     )
-    conn.commit()
 
 
 def load_finding_triage_map(
@@ -434,17 +462,19 @@ def load_finding_triage_map(
     """Load the latest triage state for each finding.
 
     Returns ``{finding_id: {status, note, actor, timestamp}}``.
+
+    WI-092: legacy-shaped projection of the Plan 024 fold
+    (:func:`load_triage_status_map`). Occurrence ids are finding ids, so the
+    keys are unchanged; only findings with at least one triage event appear.
     """
-    rows = conn.execute(
-        "SELECT ft.finding_id, ft.status, ft.note, ft.actor, ft.timestamp "
-        "FROM finding_triage ft "
-        "INNER JOIN (SELECT finding_id, MAX(id) AS max_id "
-        "FROM finding_triage GROUP BY finding_id) latest "
-        "ON ft.id = latest.max_id"
-    ).fetchall()
     return {
-        r[0]: {"status": r[1], "note": r[2], "actor": r[3], "timestamp": r[4]}
-        for r in rows
+        fid: {
+            "status": s.status,
+            "note": s.note,
+            "actor": s.actor,
+            "timestamp": s.updated_at.isoformat(),
+        }
+        for fid, s in load_triage_status_map(conn).items()
     }
 
 
@@ -1346,45 +1376,62 @@ def accepted_risk_register(
     if as_of is None:
         as_of = datetime.now(UTC)
 
-    status_map = load_triage_status_map(conn)
-    result: list[RiskAcceptance] = []
+    rows = conn.execute(
+        "SELECT e.id, e.occurrence_id, e.action, e.actor, e.occurred_at, "
+        "e.note, e.rationale, e.expires_at, e.supersedes_event_id, "
+        "f.finding_key, f.rule_id, f.severity, f.summary "
+        "FROM finding_triage_event e "
+        "JOIN finding f ON f.id = e.occurrence_id "
+        "ORDER BY e.occurrence_id, e.id"
+    ).fetchall()
+    events_by_occurrence: dict[int, list[tuple[TriageEvent, tuple[Any, ...]]]] = {}
+    for row in rows:
+        event = TriageEvent(
+            id=row[0], occurrence_id=row[1], action=row[2], actor=row[3],
+            occurred_at=_parse_dt(row[4]) or datetime.min.replace(tzinfo=UTC),
+            note=row[5], rationale=row[6], expires_at=_parse_dt(row[7]),
+            supersedes_event_id=row[8],
+        )
+        if event.occurred_at <= as_of:
+            events_by_occurrence.setdefault(event.occurrence_id, []).append(
+                (event, row[9:13])
+            )
 
-    for occ_id, status in status_map.items():
-        if status.status != "accepted_risk":
-            continue
-        # Find the accepted_risk event.
-        events = load_triage_events(conn, occ_id)
-        accepted_ev = None
-        revoked_ev = None
-        for ev in events:
+    result: list[RiskAcceptance] = []
+    for occ_id, event_rows in events_by_occurrence.items():
+        accepted_ev: TriageEvent | None = None
+        revoked_ev: TriageEvent | None = None
+        explicitly_expired = False
+        finding_row: tuple[Any, ...] | None = None
+        for ev, details in event_rows:
             if ev.action == "accepted_risk":
                 accepted_ev = ev
                 revoked_ev = None
+                explicitly_expired = False
+                finding_row = details
             elif ev.action == "risk_acceptance_revoked":
-                revoked_ev = ev
+                if accepted_ev is not None:
+                    revoked_ev = ev
+            elif ev.action == "risk_acceptance_expired" and accepted_ev is not None:
+                explicitly_expired = True
 
-        if accepted_ev is None:
-            continue
-
-        # Get occurrence details.
-        row = conn.execute(
-            "SELECT finding_key, rule_id, severity, summary FROM finding WHERE id = ?",
-            (occ_id,),
-        ).fetchone()
-        if row is None:
+        if accepted_ev is None or finding_row is None:
             continue
 
         is_expired = (
-            accepted_ev.expires_at is not None
-            and accepted_ev.expires_at <= as_of
+            explicitly_expired
+            or (
+                accepted_ev.expires_at is not None
+                and accepted_ev.expires_at <= as_of
+            )
         )
 
         result.append(RiskAcceptance(
             occurrence_id=occ_id,
-            fingerprint=row[0],
-            category=row[1],
-            severity=row[2],
-            summary=row[3] or row[2],
+            fingerprint=finding_row[0],
+            category=finding_row[1],
+            severity=finding_row[2],
+            summary=finding_row[3] or finding_row[2],
             actor=accepted_ev.actor,
             rationale=accepted_ev.rationale,
             accepted_at=accepted_ev.occurred_at,

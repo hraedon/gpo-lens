@@ -24,6 +24,7 @@ from fastapi.templating import Jinja2Templates
 
 from gpo_lens.display import serialize_result
 from gpo_lens.query_dispatch import (
+    _PARAM_VALIDATORS,
     _QUERY_DESCRIPTIONS,
     QUERY_OPTIONAL_PARAMS,
     QUERY_REQUIRED_PARAMS,
@@ -35,6 +36,18 @@ from gpo_lens.web._helpers import get_ro_conn
 from gpo_lens.web.auth import Permission, Principal, requires
 
 _logger = logging.getLogger(__name__)
+
+# HTTP query parameters arrive as strings. Queries that require an in-process
+# object (currently golden_diff's uploaded Estate) have dedicated web routes
+# and must not be advertised as callable through this GET API.
+_HTTP_QUERIES = frozenset(
+    name
+    for name in VALID_QUERIES
+    if all(
+        _PARAM_VALIDATORS.get(name, {}).get(param) is str
+        for param in QUERY_REQUIRED_PARAMS.get(name, [])
+    )
+)
 
 
 def register(app: FastAPI, templates: Jinja2Templates) -> None:
@@ -80,7 +93,7 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         _principal: Principal = Depends(requires(Permission.VIEW)),
     ) -> JSONResponse:
         queries: dict[str, dict[str, object]] = {}
-        for name in sorted(VALID_QUERIES):
+        for name in sorted(_HTTP_QUERIES):
             queries[name] = {
                 "description": _QUERY_DESCRIPTIONS.get(name, ""),
                 "required_params": QUERY_REQUIRED_PARAMS.get(name, []),
@@ -94,7 +107,7 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         query_name: str,
         _principal: Principal = Depends(requires(Permission.VIEW)),
     ) -> JSONResponse:
-        if query_name not in VALID_QUERIES:
+        if query_name not in _HTTP_QUERIES:
             return JSONResponse(
                 {"status": "error", "detail": f"Unknown query: {query_name}"},
                 status_code=404,

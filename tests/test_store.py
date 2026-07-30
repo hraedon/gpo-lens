@@ -545,6 +545,14 @@ def test_gpo_by_id_finds_hyphenated_via_canonical_lookup(tmp_path):
     assert estate.gpo_by_id("{" + _HYPHEN_ID.upper() + "}") is not None
 
 
+def test_gpo_names_contains_stored_and_canonical_ids():
+    gpo = _make_gpo(id=_HYPHEN_ID, name="Default Domain Policy")
+    estate = Estate(domain="test.local", gpos=[gpo])
+
+    assert estate.gpo_names[_HYPHEN_ID] == "Default Domain Policy"
+    assert estate.gpo_names[_CANON_ID] == "Default Domain Policy"
+
+
 def test_gpo_by_id_finds_canonical_via_hyphenated_lookup(tmp_path):
     """A GPO stored with a canonical (no-hyphens) ID must also be found
     when the lookup uses a hyphenated form."""

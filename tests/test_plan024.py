@@ -973,6 +973,55 @@ class TestCoreQueries:
         finally:
             conn.close()
 
+    def test_accepted_risk_register_respects_as_of_and_retains_history(self) -> None:
+        conn = _make_db()
+        try:
+            _make_snapshot(conn, 1)
+            run_id = _make_run(conn, 1)
+            run_evaluation(conn, run_id, [
+                _make_candidate("cpassword", subject_key=("gpo1",)),
+            ])
+            occ_id = finding_inbox(conn)[0].occurrence_id
+            expires_at = datetime(2025, 1, 3, tzinfo=UTC)
+            event_id = append_triage_event(
+                conn, occ_id, "accepted_risk", "admin",
+                rationale="temporary exception", expires_at=expires_at,
+            )
+            conn.execute(
+                "UPDATE finding_triage_event SET occurred_at = ? WHERE id = ?",
+                ("2025-01-02T00:00:00+00:00", event_id),
+            )
+            conn.commit()
+
+            assert accepted_risk_register(
+                conn, as_of=datetime(2025, 1, 1, tzinfo=UTC),
+            ) == []
+
+            expired = accepted_risk_register(
+                conn, as_of=datetime(2025, 1, 4, tzinfo=UTC),
+            )
+            assert len(expired) == 1
+            assert expired[0].is_expired
+
+            revoke_id = append_triage_event(
+                conn, occ_id, "risk_acceptance_revoked", "reviewer",
+                note="exception withdrawn",
+            )
+            conn.execute(
+                "UPDATE finding_triage_event SET occurred_at = ? WHERE id = ?",
+                ("2025-01-05T00:00:00+00:00", revoke_id),
+            )
+            conn.commit()
+
+            revoked = accepted_risk_register(
+                conn, as_of=datetime(2025, 1, 6, tzinfo=UTC),
+            )
+            assert len(revoked) == 1
+            assert revoked[0].revoked_by == "reviewer"
+            assert revoked[0].revoked_at == datetime(2025, 1, 5, tzinfo=UTC)
+        finally:
+            conn.close()
+
     def test_evaluation_runs_query(self) -> None:
         conn = _make_db()
         try:
@@ -1073,7 +1122,104 @@ class TestSchemaMigration:
     def test_fresh_db_at_latest(self) -> None:
         conn = _make_db()
         try:
-            assert conn.execute("PRAGMA user_version").fetchone()[0] == 7
+            assert conn.execute("PRAGMA user_version").fetchone()[0] == CURRENT_SCHEMA_VERSION
+        finally:
+            conn.close()
+
+    def test_v7_db_migrates_triage_rows_to_events(self, tmp_path: Path) -> None:
+        """WI-092: v7 -> v8 migrates legacy ``finding_triage`` rows into the
+        Plan 024 ``finding_triage_event`` log (the unified triage store)."""
+        db_path = str(tmp_path / "test-v7.sqlite3")
+        conn = sqlite3.connect(db_path)
+        try:
+            conn.execute("PRAGMA user_version = 7")
+            conn.execute(
+                "CREATE TABLE snapshot ("
+                "id INTEGER PRIMARY KEY, domain TEXT NOT NULL, taken_at TEXT NOT NULL)"
+            )
+            conn.execute("INSERT INTO snapshot VALUES (1, 'test', '2025-01-01')")
+            conn.execute(
+                "CREATE TABLE finding ("
+                "id INTEGER PRIMARY KEY, finding_key TEXT NOT NULL, "
+                "rule_id TEXT NOT NULL, subject_identity TEXT NOT NULL, "
+                "severity TEXT NOT NULL, summary TEXT NOT NULL, "
+                "detail TEXT NOT NULL DEFAULT '', "
+                "remediation TEXT NOT NULL DEFAULT '', "
+                "gpo_id TEXT NOT NULL DEFAULT '', "
+                "gpo_name TEXT NOT NULL DEFAULT '', "
+                "first_seen_snapshot INTEGER NOT NULL, "
+                "last_seen_snapshot INTEGER NOT NULL, "
+                "resolved_in_snapshot INTEGER, predecessor_id INTEGER, "
+                "fingerprint_version INTEGER NOT NULL DEFAULT 1, "
+                "series_key TEXT NOT NULL DEFAULT '', "
+                "detector_id TEXT NOT NULL DEFAULT '', "
+                "detector_version TEXT NOT NULL DEFAULT '1', "
+                "subject_type TEXT NOT NULL DEFAULT '', "
+                "subject_key_json TEXT NOT NULL DEFAULT '[]', "
+                "first_seen_run_id INTEGER, last_seen_run_id INTEGER, "
+                "resolved_run_id INTEGER)"
+            )
+            conn.execute(
+                "INSERT INTO finding (id, finding_key, rule_id, subject_identity, "
+                "severity, summary, first_seen_snapshot, last_seen_snapshot) "
+                "VALUES (1, 'k1', 'cpassword', 'gpo1', 'high', 'legacy', 1, 1)"
+            )
+            # Full v7 shape: base columns + v6 additions.
+            conn.execute(
+                "CREATE TABLE finding_triage ("
+                "id INTEGER PRIMARY KEY, finding_id INTEGER NOT NULL, "
+                "status TEXT NOT NULL, note TEXT NOT NULL DEFAULT '', "
+                "actor TEXT NOT NULL, timestamp TEXT NOT NULL, "
+                "expires_at TEXT, supersedes_event_id INTEGER, "
+                "rationale TEXT NOT NULL DEFAULT '')"
+            )
+            conn.executemany(
+                "INSERT INTO finding_triage "
+                "(finding_id, status, note, actor, timestamp) "
+                "VALUES (1, ?, ?, ?, ?)",
+                [
+                    ("acknowledged", "looking into it", "alice", "2025-01-02T00:00:00+00:00"),
+                    # Same actor/action/timestamp but distinct notes must both
+                    # survive migration.
+                    ("acknowledged", "second note", "alice", "2025-01-02T00:00:00+00:00"),
+                    # Legacy rows predate the rationale concept, so the note
+                    # becomes the rationale.
+                    ("accepted_risk", "temporary exception", "bob", "2025-01-03T00:00:00+00:00"),
+                    ("open", "changed our mind", "carol", "2025-01-04T00:00:00+00:00"),
+                ],
+            )
+            conn.execute(
+                "INSERT INTO finding_triage "
+                "(finding_id, status, note, actor, timestamp) "
+                "VALUES (999, 'acknowledged', 'orphan', 'nobody', "
+                "'2025-01-05T00:00:00+00:00')"
+            )
+            conn.commit()
+
+            init_db(conn)
+
+            assert conn.execute("PRAGMA user_version").fetchone()[0] == 8
+
+            events = load_triage_events(conn, 1)
+            assert [e.action for e in events] == [
+                "acknowledged", "acknowledged", "accepted_risk", "reopened",
+            ]
+            assert [e.note for e in events[:2]] == ["looking into it", "second note"]
+            assert [e.actor for e in events] == ["alice", "alice", "bob", "carol"]
+            assert events[2].rationale == "temporary exception"
+            # Legacy timestamps preserved as occurred_at, in order.
+            assert events[0].occurred_at == datetime(
+                2025, 1, 2, tzinfo=UTC
+            )
+            # Fold: ack -> accepted -> reopened ends at open.
+            assert get_triage_status(conn, 1).status == "open"
+
+            # Idempotent: force the migration guard to execute again.
+            conn.execute("PRAGMA user_version = 7")
+            init_db(conn)
+            assert conn.execute(
+                "SELECT COUNT(*) FROM finding_triage_event"
+            ).fetchone()[0] == 4
         finally:
             conn.close()
 

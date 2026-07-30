@@ -67,6 +67,28 @@ class TestSettingsLedger:
         assert row.reg_value_name == "FakeValue"
         assert row.reg_data == "1"
 
+    def test_ledger_registry_truth_from_registry_pol(self) -> None:
+        """Registry.pol settings use their persisted raw-key vocabulary."""
+        estate = _load_fixture_estate()
+        gpo = estate.gpo_by_id("cccccccccccccccccccccccccccccccc")
+        assert gpo is not None
+        setting = gpo.settings[0]
+        setting.display_value = "42"
+        setting.raw = {
+            "key": r"Software\Policies\Synthetic",
+            "value_name": "SyntheticValue",
+            "type_code": 4,
+            "type_name": "REG_DWORD",
+            "source": "registry_pol",
+        }
+        setting.source_state = "registry_pol"
+
+        row = settings_ledger(estate, gpo.id)[0]
+        assert row.reg_key == r"Software\Policies\Synthetic"
+        assert row.reg_value_name == "SyntheticValue"
+        assert row.reg_type == "REG_DWORD"
+        assert row.reg_data == "42"
+
     def test_ledger_no_admx_marked(self) -> None:
         """Rows with no ADMX mapping are first-class, not exiled."""
         estate = _load_fixture_estate()
