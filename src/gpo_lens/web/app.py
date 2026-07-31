@@ -564,6 +564,7 @@ def create_app(
         conflicts,
         dashboard,
         delegation,
+        explore,
         export,
         findings,
         golden,
@@ -592,6 +593,7 @@ def create_app(
     admx_cov.register(app, templates)
     golden.register(app, templates)
     findings.register(app, templates)
+    explore.register(app, templates)
     api.register(app, templates)
 
     return app

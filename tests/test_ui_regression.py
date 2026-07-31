@@ -62,6 +62,8 @@ _PAGES = [
     "/resultant",
     "/inventory",
     "/trends",
+    "/explore",
+    "/tools",
 ]
 
 

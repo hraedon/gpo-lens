@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+### Explore and Tools directories (Plan 025 WI-3)
+
+Two question-oriented landing pages organize every specialist destination
+without removing or renaming a route:
+
+- **`/explore` — "why is this setting what it is here?"** Groups the estate
+  surfaces (inventory, directory, search) and the analytical workbenches
+  (resultant, conflicts, dangerous settings, delegation).
+- **`/tools` — "what specialist operation do I need?"** Groups snapshots
+  (ingest), comparisons (baseline, golden diff, ADMX coverage), and output
+  (findings export, narration) — each entry stating what it reads or writes.
+- **No dead links by construction.** Both pages render from one destination
+  registry resolved through `url_path_for` at request time; a renamed route
+  fails the request and the tests, instead of shipping a stale href.
+- Directory pages read nothing from the estate database and render
+  identically with or without a snapshot. Shipped as opt-in destinations per
+  the Plan 025 sequencing gates; primary navigation is unchanged until WI-4.
+
 ### Findings inbox on the Plan 024 core queries (Plan 025 WI-1)
 
 The Findings page now consumes the Plan 024 query layer instead of loading
