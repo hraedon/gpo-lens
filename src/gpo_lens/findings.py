@@ -1,11 +1,13 @@
-"""Finding identity and lifecycle (Plan 023 WI-4, Plan 024).
+"""Finding evaluation, triage, and queries (Plan 024).
 
-Findings (danger rules, conflicts, broken refs, delegation issues, ADMX gaps,
-version skew) become durable objects with identity across snapshots, so the
-tool can say **new / persisting / resolved** instead of re-reporting the world
-every scan.
+This module owns the Plan 024 finding surface: evaluation runs, the
+occurrence/observation model, durable finding identity (fingerprints), the
+append-only triage event log, and the core queries (``finding_inbox``,
+``finding_history``, ``finding_delta``, ``accepted_risk_register``,
+``evaluation_runs``). The legacy Plan 023 lifecycle writer (``finding_key``,
+``update_finding_lifecycle``) moved to :mod:`gpo_lens._legacy_findings`.
 
-Plan 024 extends this with:
+Plan 024 features:
 
 - **Evaluation provenance** — ``evaluation_run`` records track which detector,
   rules, catalogue, comparator, snapshot, and software version produced each
@@ -59,7 +61,9 @@ from gpo_lens.finding_model import (
 from gpo_lens.normalize import parse_dt as _parse_dt
 
 if TYPE_CHECKING:
+    from gpo_lens.danger import DangerFinding
     from gpo_lens.model import AdmxResolver, Estate
+    from gpo_lens.queries._doctor import DoctorFinding
 
 
 @dataclass(frozen=True)
@@ -82,252 +86,6 @@ class FindingRecord:
     predecessor_id: int | None
 
 
-@dataclass(frozen=True)
-class FindingLifecycleResult:
-    """Summary of what happened during a lifecycle update."""
-
-    new_count: int
-    persisting_count: int
-    resolved_count: int
-    regressed_count: int
-    # Active findings that were absent from the current scan but whose absence
-    # is *not* evidence of resolution because the collection was incomplete
-    # (their subject GPO was not re-collected, or an estate-level detector
-    # could not be trusted under a coverage gap).  These stay active.
-    indeterminate_count: int = 0
-
-
-def finding_key(rule_id: str, subject_identity: str, detail: str = "") -> str:
-    """Compute a stable, deterministic finding key.
-
-    The key is a SHA-256 hash of ``(rule_id, subject_identity, detail)``, all
-    lowercased and stripped.  *detail* is a discriminator that prevents
-    silent deduplication when a single GPO has multiple findings from the
-    same rule (e.g. two dangerous registry values under the same check_id).
-
-    This ensures:
-    - Determinism: the same finding data always produces the same key.
-    - Stability across re-ingest: identical export data → identical keys.
-    - Invariance under export ordering: the key does not depend on the
-      order findings are emitted by the scanners.
-    """
-    raw = "\x00".join([
-        rule_id.strip().lower(),
-        subject_identity.strip().lower(),
-        detail.strip().lower(),
-    ])
-    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
-
-
-def _finding_to_key_parts(finding: Any) -> tuple[str, str, str, str]:
-    """Extract ``(rule_id, subject_identity, severity, detail)`` from a finding.
-
-    Works for both :class:`DoctorFinding` and :class:`DangerFinding` —
-    both carry ``category``/``check_id`` and ``gpo_id``.  The *detail*
-    field prevents silent deduplication when one GPO has multiple findings
-    from the same rule (e.g. two broken refs of the same type).
-
-    When a finding declares an explicit ``subject_key`` (WI-089, Plan 024 §4),
-    that tuple *is* the identity — prose and evidence (summary, detail,
-    counts) are excluded so the finding does not churn identity every time
-    its wording or evidence changes.  This is how GPO-less findings
-    (topology discrepancies, excessive writers, orphaned WMI filters,
-    coverage gaps) stay stable across snapshots.
-    """
-    rule_id = getattr(finding, "category", "") or getattr(finding, "check_id", "")
-    severity = getattr(finding, "severity", "info")
-    subject_key = getattr(finding, "subject_key", ()) or ()
-    if subject_key:
-        return rule_id, "|".join(subject_key), severity, ""
-    subject = getattr(finding, "gpo_id", "") or getattr(finding, "summary", "")
-    detail = getattr(finding, "detail", "") or getattr(finding, "summary", "")
-    return rule_id, subject, severity, detail
-
-
-def _absence_is_meaningful(
-    gpo_id: str,
-    collected_gpo_ids: set[str] | None,
-    coverage_complete: bool,
-) -> bool:
-    """Decide whether a finding's absence from the current scan means resolved.
-
-    Absence only implies resolution when the subject was actually re-evaluated.
-    A partial collection (a denied SYSVOL subtree, a per-GPO collection error)
-    must never mark a finding *resolved* just because the GPO it belongs to was
-    not collected this time — that would silently report a real risk as fixed.
-
-    - Complete collection (no coverage gaps): absence is meaningful — the
-      condition was fixed or the GPO was deleted.  Resolve.
-    - Partial collection: only resolve findings whose subject GPO was actually
-      collected this run.  Findings on un-collected GPOs, and estate-level
-      findings (empty ``gpo_id``), are indeterminate and stay active.
-    """
-    if coverage_complete:
-        return True
-    if gpo_id and collected_gpo_ids is not None and gpo_id in collected_gpo_ids:
-        return True
-    return False
-
-
-def update_finding_lifecycle(
-    conn: sqlite3.Connection,
-    snapshot_id: int,
-    findings: list[Any],
-    *,
-    collected_gpo_ids: set[str] | None = None,
-    coverage_complete: bool = True,
-) -> FindingLifecycleResult:
-    """Diff current findings against the prior snapshot and update lifecycle.
-
-    Called at ingest time (after ``save_estate``) with the estate doctor's
-    findings for the new snapshot.  For each finding:
-
-    - If an active (non-resolved) finding with the same key exists: update
-      its ``last_seen_snapshot``.
-    - If no active finding exists but a resolved one does: create a **new**
-      finding row with ``predecessor_id`` linking to the resolved one
-      (regression signal).
-    - If no finding with the key exists at all: create a new finding.
-
-    For each active finding not present in the current scan: mark it resolved
-    (``resolved_in_snapshot = snapshot_id``) **only if its absence is
-    meaningful** — see :func:`_absence_is_meaningful`.  Under an incomplete
-    collection, findings whose subject was not re-evaluated stay active and are
-    counted as ``indeterminate`` rather than being falsely resolved.
-
-    *coverage_complete* is ``True`` when the estate has no coverage gaps;
-    *collected_gpo_ids* is the set of GPO ids actually present in this scan.
-    The defaults (complete coverage, no id set) preserve the plain
-    "everything absent is resolved" behaviour for callers with no estate.
-
-    Re-ingesting the same export twice creates no duplicate findings (the
-    second pass finds all keys already active and just bumps
-    ``last_seen_snapshot``).
-    """
-    current_keys: dict[str, Any] = {}
-    for f in findings:
-        rule_id, subject, _sev, detail = _finding_to_key_parts(f)
-        key = finding_key(rule_id, subject, detail)
-        current_keys[key] = f
-
-    # Load all active (non-resolved) findings
-    active_rows = conn.execute(
-        "SELECT id, finding_key, rule_id, subject_identity, severity, summary, "
-        "detail, remediation, "
-        "gpo_id, gpo_name, first_seen_snapshot, last_seen_snapshot, "
-        "resolved_in_snapshot, predecessor_id "
-        "FROM finding WHERE resolved_in_snapshot IS NULL"
-    ).fetchall()
-
-    active_by_key: dict[str, dict[str, Any]] = {}
-    for row in active_rows:
-        row_dict = {
-            "id": row[0],
-            "finding_key": row[1],
-            "rule_id": row[2],
-            "subject_identity": row[3],
-            "severity": row[4],
-            "summary": row[5],
-            "detail": row[6],
-            "remediation": row[7],
-            "gpo_id": row[8],
-            "gpo_name": row[9],
-            "first_seen_snapshot": row[10],
-            "last_seen_snapshot": row[11],
-            "resolved_in_snapshot": row[12],
-            "predecessor_id": row[13],
-        }
-        active_by_key[row[1]] = row_dict
-
-    new_count = 0
-    persisting_count = 0
-    regressed_count = 0
-
-    try:
-        # Update or create findings for current scan
-        for key, finding in current_keys.items():
-            rule_id, subject, severity, _detail = _finding_to_key_parts(finding)
-            summary = getattr(finding, "summary", "") or getattr(finding, "title", "")
-            raw_detail = getattr(finding, "detail", "")
-            raw_remediation = getattr(finding, "remediation", "")
-            finding_detail = raw_detail[:16_000] if isinstance(raw_detail, str) else ""
-            remediation = (
-                raw_remediation[:8_000] if isinstance(raw_remediation, str) else ""
-            )
-            gpo_id = getattr(finding, "gpo_id", "")
-            gpo_name = getattr(finding, "gpo_name", "")
-
-            if key in active_by_key:
-                # Persisting: bump last_seen_snapshot
-                existing = active_by_key[key]
-                conn.execute(
-                    "UPDATE finding SET last_seen_snapshot = ?, severity = ?, summary = ?, "
-                    "detail = ?, remediation = ? "
-                    "WHERE id = ?",
-                    (
-                        snapshot_id, severity, summary, finding_detail,
-                        remediation, existing["id"],
-                    ),
-                )
-                persisting_count += 1
-            else:
-                # Check for a resolved predecessor (regression)
-                predecessor_row = conn.execute(
-                    "SELECT id FROM finding WHERE finding_key = ? "
-                    "AND resolved_in_snapshot IS NOT NULL "
-                    "ORDER BY resolved_in_snapshot DESC LIMIT 1",
-                    (key,),
-                ).fetchone()
-
-                predecessor_id = predecessor_row[0] if predecessor_row else None
-                if predecessor_id is not None:
-                    regressed_count += 1
-
-                conn.execute(
-                    "INSERT INTO finding "
-                    "(finding_key, rule_id, subject_identity, severity, summary, "
-                    "detail, remediation, gpo_id, gpo_name, "
-                    "first_seen_snapshot, last_seen_snapshot, "
-                    "resolved_in_snapshot, predecessor_id) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)",
-                    (key, rule_id, subject, severity, summary, finding_detail, remediation,
-                     gpo_id, gpo_name, snapshot_id, snapshot_id, predecessor_id),
-                )
-                new_count += 1
-
-        # Resolve findings no longer present in the current scan — but only
-        # when their absence is meaningful (the subject was actually
-        # re-evaluated).  Under a partial collection, un-observed findings are
-        # indeterminate and stay active rather than being falsely resolved.
-        resolved_count = 0
-        indeterminate_count = 0
-        for key, existing in active_by_key.items():
-            if key not in current_keys:
-                if not _absence_is_meaningful(
-                    existing["gpo_id"], collected_gpo_ids, coverage_complete
-                ):
-                    indeterminate_count += 1
-                    continue
-                conn.execute(
-                    "UPDATE finding SET resolved_in_snapshot = ? WHERE id = ?",
-                    (snapshot_id, existing["id"]),
-                )
-                resolved_count += 1
-
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-
-    return FindingLifecycleResult(
-        new_count=new_count,
-        persisting_count=persisting_count,
-        resolved_count=resolved_count,
-        regressed_count=regressed_count,
-        indeterminate_count=indeterminate_count,
-    )
-
-
 def load_active_findings(conn: sqlite3.Connection) -> list[FindingRecord]:
     """Load all active (non-resolved) findings, newest first."""
     rows = conn.execute(
@@ -348,33 +106,6 @@ def load_active_findings(conn: sqlite3.Connection) -> list[FindingRecord]:
         )
         for row in rows
     ]
-
-
-def evaluate_finding_lifecycle(
-    conn: sqlite3.Connection,
-    snapshot_id: int,
-    estate: Estate,
-    *,
-    admx: AdmxResolver | None = None,
-) -> FindingLifecycleResult:
-    """Run the deterministic estate detectors and persist their lifecycle.
-
-    This is the single ingest-time evaluation path used by both the CLI and
-    web uploader. Keeping it in the core prevents either ingest surface from
-    producing an empty/stale findings inbox.
-    """
-    from gpo_lens.danger import danger_findings
-    from gpo_lens.queries import estate_doctor
-
-    danger = danger_findings(estate, admx=admx)
-    findings = estate_doctor(estate, admx=admx, danger=danger)
-    return update_finding_lifecycle(
-        conn,
-        snapshot_id,
-        findings,
-        collected_gpo_ids={g.id for g in estate.gpos},
-        coverage_complete=not estate.coverage_gaps,
-    )
 
 
 # WI-092: v1 triage statuses mapped onto Plan 024 actions. ``open`` becomes
@@ -634,12 +365,18 @@ class LifecycleResult:
     duplicate_fingerprint_count: int = 0
 
 
-def _absence_is_meaningful_v2(
+def absence_is_meaningful(
     gpo_id: str,
     collected_gpo_ids: set[str] | None,
     coverage_complete: bool,
 ) -> bool:
-    """Same logic as ``_absence_is_meaningful`` — kept separate for clarity."""
+    """Decide whether a finding's absence from the current scan means resolved.
+
+    Absence only implies resolution when the subject was actually re-evaluated.
+    A partial collection (a denied SYSVOL subtree, a per-GPO collection error)
+    must never mark a finding *resolved* just because the GPO it belongs to was
+    not collected this time — that would silently report a real risk as fixed.
+    """
     if coverage_complete:
         return True
     if gpo_id and collected_gpo_ids is not None and gpo_id in collected_gpo_ids:
@@ -830,7 +567,7 @@ def run_evaluation(
             for fp, existing in active_by_fp.items():
                 if fp in fingerprint_map:
                     continue
-                if not _absence_is_meaningful_v2(
+                if not absence_is_meaningful(
                     existing["gpo_id"], collected_gpo_ids, coverage_complete
                 ):
                     indeterminate_count += 1
@@ -1412,6 +1149,12 @@ def accepted_risk_register(
             elif ev.action == "risk_acceptance_revoked":
                 if accepted_ev is not None:
                     revoked_ev = ev
+            elif ev.action == "reopened":
+                # A reopen after an active acceptance cancels it (fold_triage
+                # returns the finding to "open"); record the revocation so the
+                # register shows a cancelled acceptance rather than a live one.
+                if accepted_ev is not None:
+                    revoked_ev = ev
             elif ev.action == "risk_acceptance_expired" and accepted_ev is not None:
                 explicitly_expired = True
 
@@ -1465,7 +1208,7 @@ def evaluation_runs(
 
 
 def _doctor_finding_to_candidate(
-    f: Any,
+    f: DoctorFinding,
     snapshot_id: int,
 ) -> FindingCandidate:
     """Convert a ``DoctorFinding`` to a ``FindingCandidate``.
@@ -1562,7 +1305,7 @@ def _doctor_finding_to_candidate(
 
 
 def _danger_finding_to_candidate(
-    f: Any,
+    f: DangerFinding,
     snapshot_id: int,
 ) -> FindingCandidate:
     """Convert a ``DangerFinding`` to a ``FindingCandidate``."""
@@ -1681,11 +1424,11 @@ def evaluate_finding_lifecycle_v2(
     3. Processes candidates through the lifecycle engine.
     4. Returns the lifecycle result.
 
-    This coexists with the legacy ``evaluate_finding_lifecycle`` (Plan 023)
-    which writes to the same ``finding`` table without evaluation-run
-    provenance. The v2 path is additive — it writes both the old columns
+    The v2 path is additive — it writes both the old columns
     (for backward compatibility with the existing web UI) and the new
-    columns (for Plan 024 queries).
+    columns (for Plan 024 queries). The legacy Plan 023 writer
+    (``update_finding_lifecycle``) now lives in
+    :mod:`gpo_lens._legacy_findings` and is test-only.
     """
     candidates = candidates_from_estate(
         estate, snapshot_id=snapshot_id, admx=admx,

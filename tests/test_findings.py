@@ -7,11 +7,11 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 from gpo_lens import store
-from gpo_lens.findings import (
+from gpo_lens._legacy_findings import (
     finding_key,
-    load_active_findings,
     update_finding_lifecycle,
 )
+from gpo_lens.findings import load_active_findings
 from gpo_lens.store import init_db
 
 FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures"
@@ -455,7 +455,7 @@ class TestDeclaredSubjectKey:
         return DoctorFinding(**defaults)
 
     def test_prose_and_evidence_changes_keep_identity(self) -> None:
-        from gpo_lens.findings import _finding_to_key_parts
+        from gpo_lens._legacy_findings import _finding_to_key_parts
 
         before = self._doctor_finding()
         after = self._doctor_finding(
@@ -467,7 +467,7 @@ class TestDeclaredSubjectKey:
         assert finding_key(r1, s1, d1) == finding_key(r2, s2, d2)
 
     def test_different_subject_key_different_identity(self) -> None:
-        from gpo_lens.findings import _finding_to_key_parts
+        from gpo_lens._legacy_findings import _finding_to_key_parts
 
         a = self._doctor_finding(subject_key=("S-1-5-21-1-2-3-1105",))
         b = self._doctor_finding(subject_key=("S-1-5-21-1-2-3-2201",))
@@ -476,7 +476,7 @@ class TestDeclaredSubjectKey:
         assert finding_key(ra, sa, da) != finding_key(rb, sb, db_)
 
     def test_no_subject_key_falls_back_to_prose(self) -> None:
-        from gpo_lens.findings import _finding_to_key_parts
+        from gpo_lens._legacy_findings import _finding_to_key_parts
 
         f = self._doctor_finding(subject_key=(), summary="some estate issue")
         _, subject, _, detail = _finding_to_key_parts(f)
