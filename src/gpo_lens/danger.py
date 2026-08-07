@@ -29,6 +29,7 @@ from gpo_lens.authz import (
     applies_broadly,
     broad_trustee_key,
     canonical_sddl_sid,
+    has_write_right,
     is_allow_ace_type,
     is_default_writer_sid,
     is_deny_ace_type,
@@ -38,7 +39,6 @@ from gpo_lens.authz import (
     resolve_principal,
 )
 from gpo_lens.detection import (
-    _has_write_right,
     scan_local_groups,
 )
 from gpo_lens.model import SEVERITY_ORDER
@@ -188,7 +188,7 @@ def gpo_writable_by_nonadmin(estate: Estate) -> list[DangerFinding]:
     or whose Owner is a non-default-writer SID.
 
     Reuses the existing SDDL parse and the ``is_default_writer_sid`` /
-    ``_has_write_right`` helpers — no new ACL evaluator (AC-7). Emits one
+    ``has_write_right`` helpers — no new ACL evaluator (AC-7). Emits one
     finding per (GPO, trustee) pair for DACL write ACEs, plus one finding
     per GPO with a non-admin Owner (the Owner implicitly holds WRITE_DAC
     and can escalate to full control — a GPO-hijack primitive).
@@ -220,7 +220,7 @@ def gpo_writable_by_nonadmin(estate: Estate) -> list[DangerFinding]:
         for ace in acl.dacl:
             if not is_allow_ace_type(ace.ace_type):
                 continue
-            if not _has_write_right(ace.rights):
+            if not has_write_right(ace.rights):
                 continue
             sid = ace.trustee_sid
             if not sid or is_default_writer_sid(sid):

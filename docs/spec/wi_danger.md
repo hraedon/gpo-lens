@@ -5,9 +5,8 @@
 - `interface_ref`: `model` (`DangerFinding` re-exported from here; `SEVERITY_ORDER`,
   `Estate`, `AdmxResolver` Protocol, `ResolvedPrincipal`)
 - `interface_ref`: `authz` (`parse_sddl`, `parse_sddl_rights`, `is_allow_ace_type`,
-  `resolve_principal`)
-- `interface_ref`: `detection` (`scan_local_groups`, `_has_write_right`,
-  `_is_default_writer_sid` — private helpers promoted to cross-module contract)
+  `resolve_principal`, `has_write_right`, `is_default_writer_sid`)
+- `interface_ref`: `detection` (`scan_local_groups`)
 - `interface_ref`: `admx_parser` (`PolicyDefinitions` satisfies `AdmxResolver`;
   passed in by the caller, never imported)
 - Reference: `plans/018-admx-policy-names-and-dangerous-config-detectors.md`
@@ -229,10 +228,10 @@ For each GPO with non-empty `g.sddl`:
    - Skip if `not is_allow_ace_type(ace.ace_type)` — both `"A"` (allow)
      and `"OA"` (object-allow) pass; deny ACEs are skipped
      (`test_detects_object_allow_ace`, `test_ignores_real_default_gpo_dacl`).
-   - Skip if `not _has_write_right(ace.rights)` — the write-rights set is
-     `{"GA", "GW", "WD", "WO", "SD", "DT", "WP", "DC", "CC"}`
-     (defined in `detection.py:_WRITE_RIGHTS`). Generic Read (`GR`)
-     alone does not qualify (`test_ignores_read_only_ace`).
+    - Skip if `not has_write_right(ace.rights)` — the write-rights set is
+      `{"GA", "GW", "WD", "WO", "SD", "DT", "WP", "DC", "CC"}`
+      (defined in `authz.WRITE_RIGHTS`). Generic Read (`GR`)
+      alone does not qualify (`test_ignores_read_only_ace`).
    - Skip if `ace.trustee_sid` is empty or
      `_is_default_writer_sid(ace.trustee_sid)` returns True (AC-05).
    - Otherwise emit one `DangerFinding`:
@@ -287,14 +286,13 @@ so a write ACE for them is not a hijack primitive. Flagging them produced
 a finding on every real GPO and buried the signal
 (`test_ignores_real_default_gpo_dacl` is the regression test).
 
-`detection._has_write_right(rights)` returns True when
+`authz.has_write_right(rights)` returns True when
 `parse_sddl_rights(rights)` intersects
 `{"GA", "GW", "WD", "WO", "SD", "DT", "WP", "DC", "CC"}`.
 
-Both helpers live in `detection.py` and are shared with
-`detection.excessive_writers`. They are private (`_`-prefixed) but are a
-cross-module contract: renaming or narrowing them silently changes
-`danger.py` output.
+Both helpers live in `authz` and are shared with
+`detection._acl.excessive_writers`. They are a cross-module contract:
+renaming or narrowing them silently changes `danger.py` output.
 
 ## AC-06: `local_admin_push`
 

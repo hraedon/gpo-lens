@@ -23,6 +23,7 @@ __all__ = [
     "ACE_TYPE_MAP",
     "APPLY_RIGHTS",
     "READ_OR_APPLY_RIGHTS",
+    "WRITE_RIGHTS",
     "AU_SID",
     "DEFAULT_WRITER_NAMES",
     "DEFAULT_WRITER_SID_SUFFIXES",
@@ -37,6 +38,7 @@ __all__ = [
     "applies_broadly",
     "broad_trustee_key",
     "canonical_sddl_sid",
+    "has_write_right",
     "is_allow_ace_type",
     "is_default_writer",
     "is_default_writer_sid",
@@ -80,6 +82,9 @@ READ_OR_APPLY_RIGHTS = frozenset({"GA", "GR", "CR", "RP"})
 # danger detection (overbroad_apply_gp) and over-granted the security
 # gate in merge.py.
 APPLY_RIGHTS = frozenset({"GA", "CR"})
+
+WRITE_RIGHTS = frozenset({"GA", "GW", "WD", "WO", "SD", "DT", "WP", "DC", "CC"})
+
 DOMAIN_COMPUTERS_RID_SUFFIX = "-515"
 _BUILTIN_PREFIX = "s-1-5-32-"
 _MANDATORY_PREFIX = "s-1-16-"
@@ -636,6 +641,11 @@ def parse_sddl_rights(rights: str) -> list[str]:
             else:
                 i += 1
     return result
+
+
+def has_write_right(rights: str) -> bool:
+    """True if any SDDL right code in *rights* is a write right."""
+    return any(r in WRITE_RIGHTS for r in parse_sddl_rights(rights))
 
 
 def _parse_ace_string(ace_str: str) -> SddlAce | None:
