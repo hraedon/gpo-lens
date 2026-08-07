@@ -93,7 +93,7 @@ a DC/RSAT box). The tool consumes its output dir.
 | `store.py` | SQLite persistence for snapshot history (additive schema migrations in `_migrate_schema`) |
 | `queries/` (package) | Query composition, Tier 2/2.5 queries, estate_doctor, baseline diff, topology, conflicts. `__init__.py` is the re-export facade (backward-compatible `__all__`); composition logic lives in `_search`, `_delegation`, `_topology`, `_wmi`, `_settings`, `_baseline`, `_summary`, `_doctor` |
 | `snapshot_diff.py` | SQLite-bound snapshot diffing — `snapshot_changelog`, `snapshot_settings_diff`, `snapshot_diff` |
-| `detection.py` | Pure scanner functions — cpassword, MS16-072, version skew, broken refs, scheduled tasks, local-group mods, etc. Result types: `CpasswordHit`, `BrokenRef`, `AdmxGap`, `ScheduledTaskInfo`, `LocalGroupMod` |
+| `detection/` (package) | Pure scanner functions — cpassword, MS16-072, version skew, broken refs, scheduled tasks, local-group mods, etc. Result types: `CpasswordHit`, `BrokenRef`, `AdmxGap`, `ScheduledTaskInfo`, `LocalGroupMod` |
 | `registry_pol.py` | PReg binary parser — decodes `Registry.pol` files into `PregRecord`s (resolves `<Blocked/>` settings) |
 | `danger.py` | Dangerous-configuration detectors — curated, cited Bucket 1 (setting-value rules) + Bucket 2 (structural attack-path) checks |
 | `admx_parser.py` | ADMX/ADML template parser — builds registry-path → policy-name crosswalk for baseline diff |
