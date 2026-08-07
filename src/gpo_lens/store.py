@@ -558,6 +558,10 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
         # stored payload field so distinct same-timestamp events are preserved.
         # Orphaned legacy rows are skipped defensively: old databases may have
         # been modified while foreign-key enforcement was disabled.
+        # Premise for the NOT EXISTS ordering assumption: no production DB can
+        # have pre-migration rows in ``finding_triage_event``, because no
+        # released code path called ``append_triage_event`` before this
+        # migration — so every row it finds is a legacy row to convert.
         conn.execute(
             """
             INSERT INTO finding_triage_event
@@ -641,6 +645,13 @@ def save_estate(conn: sqlite3.Connection, estate: Estate, taken_at: datetime | N
     if snapshot_id is None:
         raise RuntimeError("save_estate: cursor.lastrowid returned None")
 
+    # Batching: per-GPO rows are materialized into Python lists before the
+    # executemany calls below. This raises peak memory proportionally to the
+    # estate size — an acceptable trade for WI-085.
+    gpo_link_rows: list[tuple[Any, ...]] = []
+    setting_rows: list[tuple[Any, ...]] = []
+    delegation_rows: list[tuple[Any, ...]] = []
+
     for g in estate.gpos:
         conn.execute(
             """
@@ -674,12 +685,7 @@ def save_estate(conn: sqlite3.Connection, estate: Estate, taken_at: datetime | N
             ),
         )
         for link in g.links:
-            conn.execute(
-                """
-                INSERT INTO gpo_link (
-                    snapshot_id, gpo_id, som_name, som_path, link_enabled, enforced
-                ) VALUES (?, ?, ?, ?, ?, ?)
-                """,
+            gpo_link_rows.append(
                 (
                     snapshot_id,
                     link.gpo_id,
@@ -687,16 +693,10 @@ def save_estate(conn: sqlite3.Connection, estate: Estate, taken_at: datetime | N
                     link.som_path,
                     int(link.link_enabled),
                     int(link.enforced),
-                ),
+                )
             )
         for s in g.settings:
-            conn.execute(
-                """
-                INSERT INTO setting (
-                    snapshot_id, gpo_id, side, cse, identity, display_name,
-                    display_value, raw, from_disabled_side, source_state
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
+            setting_rows.append(
                 (
                     snapshot_id,
                     s.gpo_id,
@@ -708,15 +708,10 @@ def save_estate(conn: sqlite3.Connection, estate: Estate, taken_at: datetime | N
                     json.dumps(s.raw, sort_keys=True),
                     int(s.from_disabled_side),
                     s.source_state,
-                ),
+                )
             )
         for d in g.delegation:
-            conn.execute(
-                """
-                INSERT INTO delegation (
-                    snapshot_id, gpo_id, trustee, trustee_sid, permission, allowed
-                ) VALUES (?, ?, ?, ?, ?, ?)
-                """,
+            delegation_rows.append(
                 (
                     snapshot_id,
                     d.gpo_id,
@@ -724,8 +719,36 @@ def save_estate(conn: sqlite3.Connection, estate: Estate, taken_at: datetime | N
                     d.trustee_sid,
                     d.permission,
                     int(d.allowed),
-                ),
+                )
             )
+
+    conn.executemany(
+        """
+        INSERT INTO gpo_link (
+            snapshot_id, gpo_id, som_name, som_path, link_enabled, enforced
+        ) VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        gpo_link_rows,
+    )
+    conn.executemany(
+        """
+        INSERT INTO setting (
+            snapshot_id, gpo_id, side, cse, identity, display_name,
+            display_value, raw, from_disabled_side, source_state
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        setting_rows,
+    )
+    conn.executemany(
+        """
+        INSERT INTO delegation (
+            snapshot_id, gpo_id, trustee, trustee_sid, permission, allowed
+        ) VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        delegation_rows,
+    )
+
+    som_link_rows: list[tuple[Any, ...]] = []
 
     for som in estate.soms:
         conn.execute(
@@ -743,12 +766,7 @@ def save_estate(conn: sqlite3.Connection, estate: Estate, taken_at: datetime | N
             ),
         )
         for som_link in som.links:
-            conn.execute(
-                """
-                INSERT INTO som_link (
-                    snapshot_id, som_path, gpo_id, order_, enabled, enforced, target
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
+            som_link_rows.append(
                 (
                     snapshot_id,
                     som.path,
@@ -757,46 +775,54 @@ def save_estate(conn: sqlite3.Connection, estate: Estate, taken_at: datetime | N
                     int(som_link.enabled),
                     int(som_link.enforced),
                     som_link.target,
-                ),
+                )
             )
 
-    for wf in estate.wmi_filters:
-        conn.execute(
-            "INSERT INTO wmi_filter (snapshot_id, name, query) VALUES (?, ?, ?)",
-            (snapshot_id, wf.name, wf.query),
-        )
+    conn.executemany(
+        """
+        INSERT INTO som_link (
+            snapshot_id, som_path, gpo_id, order_, enabled, enforced, target
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        som_link_rows,
+    )
 
-    for ou in estate.ou_tree:
-        conn.execute(
-            "INSERT INTO ou_tree (snapshot_id, dn, name, gp_link, gp_options) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (snapshot_id, ou.dn, ou.name, ou.gp_link, ou.gp_options),
-        )
-
-    for gap in estate.coverage_gaps:
-        conn.execute(
-            "INSERT OR IGNORE INTO coverage_gap "
-            "(snapshot_id, gpo_id, display_name, kind, detail) VALUES (?, ?, ?, ?, ?)",
-            (snapshot_id, gap.gpo_id, gap.display_name, gap.kind, gap.detail),
-        )
-
-    for p in estate.principals.values():
-        conn.execute(
-            "INSERT OR IGNORE INTO principal "
-            "(snapshot_id, sid, name, sam, principal_type, domain, resolved) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (snapshot_id, p.sid, p.name, p.sam, p.principal_type,
-             p.domain, int(p.resolved)),
-        )
-
-    for gm in estate.group_members.values():
-        conn.execute(
-            "INSERT OR IGNORE INTO group_member "
-            "(snapshot_id, sid, name, members, member_count, implicit) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
+    conn.executemany(
+        "INSERT INTO wmi_filter (snapshot_id, name, query) VALUES (?, ?, ?)",
+        [(snapshot_id, wf.name, wf.query) for wf in estate.wmi_filters],
+    )
+    conn.executemany(
+        "INSERT INTO ou_tree (snapshot_id, dn, name, gp_link, gp_options) "
+        "VALUES (?, ?, ?, ?, ?)",
+        [(snapshot_id, ou.dn, ou.name, ou.gp_link, ou.gp_options) for ou in estate.ou_tree],
+    )
+    conn.executemany(
+        "INSERT OR IGNORE INTO coverage_gap "
+        "(snapshot_id, gpo_id, display_name, kind, detail) VALUES (?, ?, ?, ?, ?)",
+        [
+            (snapshot_id, gap.gpo_id, gap.display_name, gap.kind, gap.detail)
+            for gap in estate.coverage_gaps
+        ],
+    )
+    conn.executemany(
+        "INSERT OR IGNORE INTO principal "
+        "(snapshot_id, sid, name, sam, principal_type, domain, resolved) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        [
+            (snapshot_id, p.sid, p.name, p.sam, p.principal_type, p.domain, int(p.resolved))
+            for p in estate.principals.values()
+        ],
+    )
+    conn.executemany(
+        "INSERT OR IGNORE INTO group_member "
+        "(snapshot_id, sid, name, members, member_count, implicit) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        [
             (snapshot_id, gm.sid, gm.name, json.dumps(list(gm.members)),
-             gm.member_count, gm.implicit),
-        )
+             gm.member_count, gm.implicit)
+            for gm in estate.group_members.values()
+        ],
+    )
 
     conn.commit()
     restrict_db_permissions(conn)

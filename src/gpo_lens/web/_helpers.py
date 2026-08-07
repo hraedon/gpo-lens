@@ -25,7 +25,7 @@ from gpo_lens import store as _store
 from gpo_lens.model import SEVERITY_ORDER
 
 if TYPE_CHECKING:
-    from gpo_lens.model import AdmxResolver
+    from gpo_lens.model import AdmxResolver, Estate
 
 _MAX_QUESTION_LEN = 500
 _MAX_SEARCH_LEN = 200  # WI-033: cap q= on / and /ou to prevent unbounded substring scan
@@ -114,6 +114,17 @@ def get_rw_conn(db_path: str) -> sqlite3.Connection:
     conn.execute("PRAGMA foreign_keys = ON")
     _store.restrict_db_permissions(conn)
     return conn
+
+
+def get_estate(request: Request) -> Estate:
+    """Load the estate from the DB, managing the connection lifecycle."""
+    from gpo_lens.store import load_estate
+
+    conn = get_ro_conn(request.app.state.db_path)
+    try:
+        return load_estate(conn)
+    finally:
+        conn.close()
 
 
 def sanitize_question(raw: str) -> str:

@@ -5,7 +5,7 @@
 - `interface_ref`: `model` (`SddlAce`, `SddlAcl`, `ResolvedPrincipal`,
   `Estate`).
 - Consumers: `detection` (MS16-072, deny_aces, excessive_writers,
-  `_is_default_writer_sid`, `_has_write_right`), `topology`
+  `is_default_writer_sid`, `has_write_right`), `topology`
   (security-filtering, scope honesty), `danger` (SDDL-derived findings),
   `merge` (security-gate SDDL evaluation), `ingest.parse_principals`
   (loads `principals.json`).

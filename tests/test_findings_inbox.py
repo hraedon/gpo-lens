@@ -8,11 +8,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from gpo_lens._legacy_findings import update_finding_lifecycle
 from gpo_lens.findings import (
     load_finding_triage,
     load_finding_triage_map,
     triage_finding,
-    update_finding_lifecycle,
 )
 from gpo_lens.store import init_db
 
@@ -254,7 +254,7 @@ class TestFindingsInboxWeb:
             snaps = list_snapshots(conn)
             if snaps:
                 sid = snaps[0][0]
-                from gpo_lens.findings import update_finding_lifecycle
+                from gpo_lens._legacy_findings import update_finding_lifecycle
 
                 update_finding_lifecycle(
                     conn, sid,

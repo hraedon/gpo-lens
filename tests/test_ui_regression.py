@@ -276,7 +276,8 @@ class TestFindingsInboxIntegration:
 
     @staticmethod
     def _store_findings(db_path: str, findings: list[SimpleNamespace]) -> list[int]:
-        from gpo_lens.findings import load_active_findings, update_finding_lifecycle
+        from gpo_lens._legacy_findings import update_finding_lifecycle
+        from gpo_lens.findings import load_active_findings
         from gpo_lens.store import list_snapshots
 
         conn = sqlite3.connect(db_path)

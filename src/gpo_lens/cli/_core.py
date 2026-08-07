@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import argparse
 import sys
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from typing import Any
 
 from gpo_lens import __version__
 from gpo_lens.cli._danger import cmd_danger
@@ -62,6 +65,544 @@ from gpo_lens.cli._topology import (
 from gpo_lens.cli._trends import cmd_trends
 
 
+@dataclass
+class CliArg:
+    name: str
+    help: str = ""
+    choices: list[str] | None = None
+    type: Callable[[str], Any] | None = None
+    default: str | int | None = None
+    dest: str | None = None
+    action: str = "store"
+
+
+@dataclass
+class CliCommand:
+    name: str
+    func: Callable[..., Any]
+    help: str
+    args: list[CliArg] = field(default_factory=list)
+    src_arg: bool = False
+    positional_args: list[CliArg] = field(default_factory=list)
+    src_first: bool = False
+
+
+_COMMANDS: list[CliCommand] = [
+    CliCommand(
+        name="summary",
+        func=cmd_summary,
+        help="Estate health overview",
+        src_arg=True,
+    ),
+    CliCommand(
+        name="ingest",
+        func=cmd_ingest,
+        help="",
+        positional_args=[CliArg(name="sample_dir")],
+        args=[
+            CliArg(
+                name="--json", dest="_sub_json", action="store_true",
+                help="JSON output",
+            ),
+            CliArg(
+                name="--diff-latest", action="store_true",
+                help="After ingesting, diff against the previous snapshot and print the changelog",
+            ),
+        ],
+    ),
+    CliCommand(
+        name="unlinked",
+        func=cmd_unlinked,
+        help="",
+        src_arg=True,
+    ),
+    CliCommand(
+        name="empty",
+        func=cmd_empty,
+        help="",
+        src_arg=True,
+    ),
+    CliCommand(
+        name="disabled-populated",
+        func=cmd_disabled_populated,
+        help="",
+        src_arg=True,
+    ),
+    CliCommand(
+        name="who-sets",
+        func=cmd_who_sets,
+        help="",
+        positional_args=[CliArg(name="term")],
+        src_arg=True,
+    ),
+    CliCommand(
+        name="conflicts",
+        func=cmd_conflicts,
+        help="",
+        src_arg=True,
+    ),
+    CliCommand(
+        name="blocked",
+        func=cmd_blocked,
+        help="",
+        src_arg=True,
+    ),
+    CliCommand(
+        name="version-skew",
+        func=cmd_version_skew,
+        help="",
+        src_arg=True,
+    ),
+    CliCommand(
+        name="ms16-072",
+        func=cmd_ms16_072,
+        help="",
+        src_arg=True,
+    ),
+    CliCommand(
+        name="cpassword",
+        func=cmd_cpassword,
+        help="",
+        args=[
+            CliArg(
+                name="--show-secrets", action="store_true",
+                help="Reveal full cpassword values (default: masked)",
+            ),
+        ],
+        src_arg=True,
+    ),
+    CliCommand(
+        name="search",
+        func=cmd_search,
+        help="Full-text search",
+        positional_args=[CliArg(name="term")],
+        args=[
+            CliArg(
+                name="--scope", default="all",
+                choices=["all", "settings", "names", "delegation"],
+            ),
+        ],
+        src_arg=True,
+    ),
+    CliCommand(
+        name="show",
+        func=cmd_show,
+        help="",
+        positional_args=[CliArg(name="gpo_id")],
+        args=[
+            CliArg(name="--format", choices=["text", "json"], default="text"),
+        ],
+        src_arg=True,
+    ),
+    CliCommand(
+        name="perms",
+        func=cmd_perms,
+        help="",
+        src_arg=True,
+    ),
+    CliCommand(
+        name="delegation",
+        func=cmd_delegation,
+        help="Delegation deep-dive audit",
+        args=[
+            CliArg(
+                name="--rollup", action="store_true",
+                help="Show estate-wide trustee → GPO matrix (breadth-sorted)",
+            ),
+        ],
+        src_arg=True,
+    ),
+    CliCommand(
+        name="sddl",
+        func=cmd_sddl,
+        help="Parse and display SDDL for GPOs",
+        src_arg=True,
+    ),
+    CliCommand(
+        name="diff",
+        func=cmd_diff,
+        help="",
+        positional_args=[
+            CliArg(name="snapshot_a", type=int),
+            CliArg(name="snapshot_b", type=int),
+        ],
+    ),
+    CliCommand(
+        name="snapshots",
+        func=cmd_snapshots,
+        help="",
+    ),
+    CliCommand(
+        name="events",
+        func=cmd_events,
+        help="Query the append-only event log",
+        args=[
+            CliArg(name="--since", help="Filter events by timestamp (ISO 8601 prefix)"),
+            CliArg(
+                name="--type", dest="event_type",
+                help="Filter events by event_type (substring match)",
+            ),
+            CliArg(
+                name="--limit", type=int, default=1000,
+                help="Max events to return (default: 1000)",
+            ),
+        ],
+    ),
+    CliCommand(
+        name="events-export",
+        func=cmd_events_export,
+        help="Export events to NDJSON and/or Splunk HEC",
+        args=[
+            CliArg(name="--ndjson", help="Path to write NDJSON output"),
+            CliArg(name="--since", help="Filter events by timestamp (ISO 8601 prefix)"),
+            CliArg(
+                name="--sink", choices=["hec"],
+                help="External sink to send events to",
+            ),
+        ],
+    ),
+    CliCommand(
+        name="diff-settings",
+        func=cmd_diff_settings,
+        help="Per-setting delta between two snapshots",
+        positional_args=[
+            CliArg(name="snapshot_a", type=int),
+            CliArg(name="snapshot_b", type=int),
+        ],
+        args=[
+            CliArg(name="--gpo-id", help="Filter to a specific GPO ID"),
+            CliArg(name="--side", help="Filter by side (Computer/User)"),
+            CliArg(name="--cse", help="Filter by CSE name"),
+        ],
+    ),
+    CliCommand(
+        name="changelog",
+        func=cmd_changelog,
+        help="Version-aware change log between two snapshots",
+        positional_args=[
+            CliArg(name="snapshot_a", type=int),
+            CliArg(name="snapshot_b", type=int),
+        ],
+        args=[
+            CliArg(name="--gpo-id", help="Filter to a specific GPO ID"),
+            CliArg(name="--side", help="Filter by side (Computer/User)"),
+        ],
+    ),
+    CliCommand(
+        name="som",
+        func=cmd_som,
+        help="Show effective GPOs at a SOM path",
+        positional_args=[CliArg(name="som_path")],
+        src_arg=True,
+    ),
+    CliCommand(
+        name="dangling",
+        func=cmd_dangling,
+        help="SOM links to non-existent GPOs",
+        src_arg=True,
+    ),
+    CliCommand(
+        name="enforced",
+        func=cmd_enforced,
+        help="All enforced (NoOverride) links",
+        src_arg=True,
+    ),
+    CliCommand(
+        name="loopback",
+        func=cmd_loopback,
+        help="GPOs that configure loopback processing",
+        src_arg=True,
+    ),
+    CliCommand(
+        name="wmi",
+        func=cmd_wmi,
+        help="GPOs with WMI filters attached",
+        src_arg=True,
+    ),
+    CliCommand(
+        name="wmi-filters",
+        func=cmd_wmi_filters,
+        help="List WMI filters with query text",
+        src_arg=True,
+    ),
+    CliCommand(
+        name="sites",
+        func=cmd_sites,
+        help="AD sites and their GPO links (lowest precedence; not resolved per-machine)",
+        src_arg=True,
+    ),
+    CliCommand(
+        name="topology-check",
+        func=cmd_topology_check,
+        help="Cross-check ou-tree.json against gp-inheritance.json",
+        src_arg=True,
+    ),
+    CliCommand(
+        name="scope",
+        func=cmd_scope,
+        help="Show effective scoping for a GPO (links, security filtering, WMI, loopback)",
+        positional_args=[CliArg(name="gpo", help="GPO name or canonical id")],
+        src_arg=True,
+    ),
+    CliCommand(
+        name="admx-gaps",
+        func=cmd_admx_gaps,
+        help="Flag Registry CSE settings with raw key paths (no ADMX policy name)",
+        args=[
+            CliArg(name="--admx-dir", help="PolicyDefinitions directory for crosswalk"),
+        ],
+        src_arg=True,
+    ),
+    CliCommand(
+        name="admx-coverage",
+        func=cmd_admx_coverage,
+        help="Estate-wide ADMX template inventory and gap detection",
+        args=[
+            CliArg(name="--admx-dir", help="PolicyDefinitions directory for crosswalk"),
+        ],
+        src_arg=True,
+    ),
+    CliCommand(
+        name="settings-at",
+        func=cmd_settings_at,
+        help="Show effective settings at a SOM path",
+        positional_args=[CliArg(name="som_path")],
+        src_arg=True,
+    ),
+    CliCommand(
+        name="som-conflicts",
+        func=cmd_som_conflicts,
+        help="Settings that conflict in the SOM chain",
+        positional_args=[CliArg(name="som_path")],
+        src_arg=True,
+    ),
+    CliCommand(
+        name="precedence-conflicts",
+        func=cmd_precedence_conflicts,
+        help="All precedence conflicts across the estate",
+        src_arg=True,
+    ),
+    CliCommand(
+        name="broken-refs",
+        func=cmd_broken_refs,
+        help="Detect broken references in settings (UNC paths, etc.)",
+        src_arg=True,
+    ),
+    CliCommand(
+        name="gpp-tasks",
+        func=cmd_gpp_tasks,
+        help="Inventory of scheduled tasks deployed by GPO (GPP ScheduledTasks.xml)",
+        src_arg=True,
+    ),
+    CliCommand(
+        name="gpp-groups",
+        func=cmd_gpp_groups,
+        help="Local-group membership changes deployed by GPO (GPP Groups.xml)",
+        src_arg=True,
+    ),
+    CliCommand(
+        name="settings-dump",
+        func=cmd_settings_dump,
+        help="Flat export of all settings (pipe-friendly)",
+        args=[
+            CliArg(name="--side", help="Filter by side (Computer/User)"),
+            CliArg(name="--cse", help="Filter by CSE (substring match)"),
+            CliArg(name="--gpo", dest="gpo_name", help="Filter by GPO name (substring match)"),
+        ],
+        src_arg=True,
+    ),
+    CliCommand(
+        name="settings-diff",
+        func=cmd_settings_diff,
+        help="Diff two settings-dump JSON exports",
+        positional_args=[
+            CliArg(name="file_a", help="First settings-dump JSON file"),
+            CliArg(name="file_b", help="Second settings-dump JSON file"),
+        ],
+        args=[
+            CliArg(name="--side", help="Filter by side (Computer/User)"),
+            CliArg(name="--cse", help="Filter by CSE (substring match)"),
+            CliArg(name="--gpo", dest="gpo_id", help="Filter by GPO id (substring match)"),
+        ],
+    ),
+    CliCommand(
+        name="baseline-diff",
+        func=cmd_baseline_diff,
+        help="Diff estate settings against a baseline GPO backup",
+        src_arg=True,
+        src_first=True,
+        positional_args=[
+            CliArg(name="baseline_dir", help="Baseline GPO directory or .zip file"),
+        ],
+        args=[
+            CliArg(
+                name="--admx-dir",
+                help="PolicyDefinitions directory for registry-to-policy crosswalk",
+            ),
+        ],
+    ),
+    CliCommand(
+        name="golden-diff",
+        func=cmd_golden_diff,
+        help="Diff live estate against a known-good GPO backup (drift detection)",
+        src_arg=True,
+        src_first=True,
+        positional_args=[
+            CliArg(name="golden_dir", help="Golden backup GPO directory or .zip file"),
+        ],
+        args=[
+            CliArg(
+                name="--admx-dir",
+                help="PolicyDefinitions directory for registry-to-policy crosswalk",
+            ),
+        ],
+    ),
+    CliCommand(
+        name="doctor",
+        func=cmd_doctor,
+        help="Run all hygiene checks and produce a prioritized findings report",
+        src_arg=True,
+        args=[
+            CliArg(
+                name="--explain", action="store_true",
+                help="Add an LLM-powered plain-English explanation of findings",
+            ),
+        ],
+    ),
+    CliCommand(
+        name="report",
+        func=cmd_report,
+        help="Generate estate documentation report",
+        args=[
+            CliArg(name="--output", help="Output file path (default: stdout)"),
+            CliArg(name="--format", choices=["md", "html"], default="md"),
+            CliArg(name="--baseline", help="Baseline JSON file for compliance comparison"),
+            CliArg(
+                name="--since", type=int,
+                help="Snapshot ID to diff against (requires --db)",
+            ),
+            CliArg(
+                name="--max-settings", type=int, default=50,
+                help="Max settings per GPO to display (default: 50)",
+            ),
+            CliArg(
+                name="--admx-dir",
+                help=(
+                    "PolicyDefinitions directory for registry-to-policy crosswalk "
+                    "(used with --baseline)"
+                ),
+            ),
+        ],
+        src_arg=True,
+    ),
+    CliCommand(
+        name="ask",
+        func=cmd_ask,
+        help="Ask a natural-language question about the estate",
+        positional_args=[
+            CliArg(name="question", help="Free-text question about the GPO estate"),
+        ],
+        args=[
+            CliArg(
+                name="--no-narrate", action="store_true",
+                help="Print raw query results as JSON without narration",
+            ),
+        ],
+        src_arg=True,
+    ),
+    CliCommand(
+        name="explain-setting",
+        func=cmd_explain_setting,
+        help="Explain what a registry setting / GPO identity does",
+        positional_args=[
+            CliArg(
+                name="identity",
+                help="Registry path or setting identity (optionally 'key:value')",
+            ),
+        ],
+        args=[
+            CliArg(name="--admx-dir", help="PolicyDefinitions directory for ADMX crosswalk"),
+        ],
+    ),
+    CliCommand(
+        name="repl",
+        func=cmd_repl,
+        help="Interactive Python REPL with the estate loaded",
+        src_arg=True,
+    ),
+    CliCommand(
+        name="danger",
+        func=cmd_danger,
+        help="Scan for dangerous GPO configurations (curated, cited checks)",
+        args=[
+            CliArg(name="--json", dest="_sub_json", action="store_true", help="JSON output"),
+            CliArg(
+                name="--admx-dir",
+                help="PolicyDefinitions directory for policy-name-keyed rules",
+            ),
+        ],
+        src_arg=True,
+    ),
+    CliCommand(
+        name="serve",
+        func=cmd_serve,
+        help="Launch the web UI",
+        args=[
+            CliArg(name="--host", default="127.0.0.1", help="Bind host (default: 127.0.0.1)"),
+            CliArg(name="--port", type=int, default=8000, help="Bind port (default: 8000)"),
+            CliArg(name="--open", action="store_true", help="Open browser on start"),
+            CliArg(
+                name="--root-path", default="",
+                help="ASGI root_path for reverse-proxy mounting",
+            ),
+            CliArg(
+                name="--admx-dir",
+                help="PolicyDefinitions directory for registry-to-policy crosswalk",
+            ),
+        ],
+    ),
+    CliCommand(
+        name="resultant",
+        func=cmd_resultant,
+        help="Principal resultant (RSoP) — effective policy for a principal",
+        positional_args=[
+            CliArg(
+                name="principal_sid",
+                help="SID of the principal (user or computer) to compute resultant for",
+            ),
+        ],
+        args=[
+            CliArg(
+                name="--computer-sid", default=None,
+                help="Computer SID (for user+computer pair)",
+            ),
+            CliArg(
+                name="--dn", default=None,
+                help="Distinguished name of the principal (for SOM chain)",
+            ),
+            CliArg(
+                name="--computer-dn", default=None,
+                help="Computer DN (for user+computer SOM chain)",
+            ),
+            CliArg(name="--json", dest="_sub_json", action="store_true", help="JSON output"),
+        ],
+        src_arg=True,
+    ),
+    CliCommand(
+        name="trends",
+        func=cmd_trends,
+        help="Posture-over-time from snapshot history",
+        args=[
+            CliArg(name="--json", dest="_sub_json", action="store_true", help="JSON output"),
+            CliArg(
+                name="--changes-only", action="store_true",
+                help="Only show snapshots where key metrics changed",
+            ),
+        ],
+    ),
+]
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="gpo-lens")
     parser.add_argument("--version", action="version", version=f"gpo-lens {__version__}")
@@ -72,419 +613,40 @@ def main(argv: list[str] | None = None) -> int:
     def _add_src(p: argparse.ArgumentParser) -> None:
         p.add_argument("src", nargs="?", help="Sample directory (omit to use --db)")
 
-    # summary
-    p = sub.add_parser("summary", help="Estate health overview")
-    _add_src(p)
-    p.set_defaults(func=cmd_summary)
-
-    # ingest
-    p = sub.add_parser("ingest")
-    p.add_argument("sample_dir")
-    p.add_argument("--json", dest="_sub_json", action="store_true", help="JSON output")
-    p.add_argument(
-        "--diff-latest", action="store_true",
-        help="After ingesting, diff against the previous snapshot and print the changelog",
-    )
-    p.set_defaults(func=cmd_ingest)
-
-    # analysis commands
-    p = sub.add_parser("unlinked")
-    _add_src(p)
-    p.set_defaults(func=cmd_unlinked)
-
-    p = sub.add_parser("empty")
-    _add_src(p)
-    p.set_defaults(func=cmd_empty)
-
-    p = sub.add_parser("disabled-populated")
-    _add_src(p)
-    p.set_defaults(func=cmd_disabled_populated)
-
-    p = sub.add_parser("who-sets")
-    p.add_argument("term")
-    _add_src(p)
-    p.set_defaults(func=cmd_who_sets)
-
-    p = sub.add_parser("conflicts")
-    _add_src(p)
-    p.set_defaults(func=cmd_conflicts)
-
-    p = sub.add_parser("blocked")
-    _add_src(p)
-    p.set_defaults(func=cmd_blocked)
-
-    p = sub.add_parser("version-skew")
-    _add_src(p)
-    p.set_defaults(func=cmd_version_skew)
-
-    p = sub.add_parser("ms16-072")
-    _add_src(p)
-    p.set_defaults(func=cmd_ms16_072)
-
-    p = sub.add_parser("cpassword")
-    p.add_argument(
-        "--show-secrets", action="store_true",
-        help="Reveal full cpassword values (default: masked)",
-    )
-    _add_src(p)
-    p.set_defaults(func=cmd_cpassword)
-
-    # search
-    p = sub.add_parser("search", help="Full-text search")
-    p.add_argument("term")
-    p.add_argument("--scope", default="all", choices=["all", "settings", "names", "delegation"])
-    _add_src(p)
-    p.set_defaults(func=cmd_search)
-
-    # show
-    p = sub.add_parser("show")
-    p.add_argument("gpo_id")
-    p.add_argument("--format", choices=["text", "json"], default="text")
-    _add_src(p)
-    p.set_defaults(func=cmd_show)
-
-    p = sub.add_parser("perms")
-    _add_src(p)
-    p.set_defaults(func=cmd_perms)
-
-    p = sub.add_parser("delegation", help="Delegation deep-dive audit")
-    p.add_argument(
-        "--rollup", action="store_true",
-        help="Show estate-wide trustee → GPO matrix (breadth-sorted)",
-    )
-    _add_src(p)
-    p.set_defaults(func=cmd_delegation)
-
-    p = sub.add_parser("sddl", help="Parse and display SDDL for GPOs")
-    _add_src(p)
-    p.set_defaults(func=cmd_sddl)
-
-    p = sub.add_parser("diff")
-    p.add_argument("snapshot_a", type=int)
-    p.add_argument("snapshot_b", type=int)
-    p.set_defaults(func=cmd_diff)
-
-    p = sub.add_parser("snapshots")
-    p.set_defaults(func=cmd_snapshots)
-
-    p = sub.add_parser("events", help="Query the append-only event log")
-    p.add_argument("--since", help="Filter events by timestamp (ISO 8601 prefix)")
-    p.add_argument(
-        "--type", dest="event_type", help="Filter events by event_type (substring match)",
-    )
-    p.add_argument(
-        "--limit", type=int, default=1000, help="Max events to return (default: 1000)",
-    )
-    p.set_defaults(func=cmd_events)
-
-    # events-export
-    p = sub.add_parser("events-export", help="Export events to NDJSON and/or Splunk HEC")
-    p.add_argument("--ndjson", help="Path to write NDJSON output")
-    p.add_argument("--since", help="Filter events by timestamp (ISO 8601 prefix)")
-    p.add_argument(
-        "--sink", choices=["hec"], help="External sink to send events to",
-    )
-    p.set_defaults(func=cmd_events_export)
-
-    p = sub.add_parser(
-        "diff-settings",
-        help="Per-setting delta between two snapshots",
-    )
-    p.add_argument("snapshot_a", type=int)
-    p.add_argument("snapshot_b", type=int)
-    p.add_argument("--gpo-id", help="Filter to a specific GPO ID")
-    p.add_argument("--side", help="Filter by side (Computer/User)")
-    p.add_argument("--cse", help="Filter by CSE name")
-    p.set_defaults(func=cmd_diff_settings)
-
-    p = sub.add_parser(
-        "changelog",
-        help="Version-aware change log between two snapshots",
-    )
-    p.add_argument("snapshot_a", type=int)
-    p.add_argument("snapshot_b", type=int)
-    p.add_argument("--gpo-id", help="Filter to a specific GPO ID")
-    p.add_argument("--side", help="Filter by side (Computer/User)")
-    p.set_defaults(func=cmd_changelog)
-
-    # topology commands
-    p = sub.add_parser("som", help="Show effective GPOs at a SOM path")
-    p.add_argument("som_path")
-    _add_src(p)
-    p.set_defaults(func=cmd_som)
-
-    p = sub.add_parser("dangling", help="SOM links to non-existent GPOs")
-    _add_src(p)
-    p.set_defaults(func=cmd_dangling)
-
-    p = sub.add_parser("enforced", help="All enforced (NoOverride) links")
-    _add_src(p)
-    p.set_defaults(func=cmd_enforced)
-
-    # feature-flag commands
-    p = sub.add_parser("loopback", help="GPOs that configure loopback processing")
-    _add_src(p)
-    p.set_defaults(func=cmd_loopback)
-
-    p = sub.add_parser("wmi", help="GPOs with WMI filters attached")
-    _add_src(p)
-    p.set_defaults(func=cmd_wmi)
-
-    p = sub.add_parser("wmi-filters", help="List WMI filters with query text")
-    _add_src(p)
-    p.set_defaults(func=cmd_wmi_filters)
-
-    p = sub.add_parser(
-        "sites",
-        help="AD sites and their GPO links (lowest precedence; not resolved per-machine)",
-    )
-    _add_src(p)
-    p.set_defaults(func=cmd_sites)
-
-    p = sub.add_parser(
-        "topology-check",
-        help="Cross-check ou-tree.json against gp-inheritance.json",
-    )
-    _add_src(p)
-    p.set_defaults(func=cmd_topology_check)
-
-    p = sub.add_parser(
-        "scope",
-        help="Show effective scoping for a GPO (links, security filtering, WMI, loopback)",
-    )
-    p.add_argument("gpo", help="GPO name or canonical id")
-    _add_src(p)
-    p.set_defaults(func=cmd_scope)
-
-    p = sub.add_parser(
-        "admx-gaps",
-        help="Flag Registry CSE settings with raw key paths (no ADMX policy name)",
-    )
-    p.add_argument("--admx-dir", help="PolicyDefinitions directory for crosswalk")
-    _add_src(p)
-    p.set_defaults(func=cmd_admx_gaps)
-
-    p = sub.add_parser(
-        "admx-coverage",
-        help="Estate-wide ADMX template inventory and gap detection",
-    )
-    p.add_argument("--admx-dir", help="PolicyDefinitions directory for crosswalk")
-    _add_src(p)
-    p.set_defaults(func=cmd_admx_coverage)
-
-    p = sub.add_parser(
-        "settings-at",
-        help="Show effective settings at a SOM path",
-    )
-    p.add_argument("som_path")
-    _add_src(p)
-    p.set_defaults(func=cmd_settings_at)
-
-    p = sub.add_parser(
-        "som-conflicts",
-        help="Settings that conflict in the SOM chain",
-    )
-    p.add_argument("som_path")
-    _add_src(p)
-    p.set_defaults(func=cmd_som_conflicts)
-
-    p = sub.add_parser(
-        "precedence-conflicts",
-        help="All precedence conflicts across the estate",
-    )
-    _add_src(p)
-    p.set_defaults(func=cmd_precedence_conflicts)
-
-    p = sub.add_parser(
-        "broken-refs",
-        help="Detect broken references in settings (UNC paths, etc.)",
-    )
-    _add_src(p)
-    p.set_defaults(func=cmd_broken_refs)
-
-    # Structured GPP audits
-    p = sub.add_parser(
-        "gpp-tasks",
-        help="Inventory of scheduled tasks deployed by GPO (GPP ScheduledTasks.xml)",
-    )
-    _add_src(p)
-    p.set_defaults(func=cmd_gpp_tasks)
-
-    p = sub.add_parser(
-        "gpp-groups",
-        help="Local-group membership changes deployed by GPO (GPP Groups.xml)",
-    )
-    _add_src(p)
-    p.set_defaults(func=cmd_gpp_groups)
-
-    # settings-dump
-    p = sub.add_parser(
-        "settings-dump",
-        help="Flat export of all settings (pipe-friendly)",
-    )
-    p.add_argument("--side", help="Filter by side (Computer/User)")
-    p.add_argument("--cse", help="Filter by CSE (substring match)")
-    p.add_argument("--gpo", dest="gpo_name", help="Filter by GPO name (substring match)")
-    _add_src(p)
-    p.set_defaults(func=cmd_settings_dump)
-
-    # settings-diff
-    p = sub.add_parser(
-        "settings-diff",
-        help="Diff two settings-dump JSON exports",
-    )
-    p.add_argument("file_a", help="First settings-dump JSON file")
-    p.add_argument("file_b", help="Second settings-dump JSON file")
-    p.add_argument("--side", help="Filter by side (Computer/User)")
-    p.add_argument("--cse", help="Filter by CSE (substring match)")
-    p.add_argument("--gpo", dest="gpo_id", help="Filter by GPO id (substring match)")
-    p.set_defaults(func=cmd_settings_diff)
-
-    # baseline-diff
-    p = sub.add_parser(
-        "baseline-diff",
-        help="Diff estate settings against a baseline GPO backup",
-    )
-    _add_src(p)
-    p.add_argument("baseline_dir", help="Baseline GPO directory or .zip file")
-    p.add_argument(
-        "--admx-dir", help="PolicyDefinitions directory for registry-to-policy crosswalk",
-    )
-    p.set_defaults(func=cmd_baseline_diff)
-
-    # golden-diff
-    p = sub.add_parser(
-        "golden-diff",
-        help="Diff live estate against a known-good GPO backup (drift detection)",
-    )
-    _add_src(p)
-    p.add_argument("golden_dir", help="Golden backup GPO directory or .zip file")
-    p.add_argument(
-        "--admx-dir", help="PolicyDefinitions directory for registry-to-policy crosswalk",
-    )
-    p.set_defaults(func=cmd_golden_diff)
-
-    # doctor
-    p = sub.add_parser(
-        "doctor",
-        help="Run all hygiene checks and produce a prioritized findings report",
-    )
-    _add_src(p)
-    p.add_argument(
-        "--explain", action="store_true",
-        help="Add an LLM-powered plain-English explanation of findings",
-    )
-    p.set_defaults(func=cmd_doctor)
-
-    # report
-    p = sub.add_parser("report", help="Generate estate documentation report")
-    p.add_argument("--output", help="Output file path (default: stdout)")
-    p.add_argument("--format", choices=["md", "html"], default="md")
-    p.add_argument(
-        "--baseline", help="Baseline JSON file for compliance comparison"
-    )
-    p.add_argument(
-        "--since", type=int,
-        help="Snapshot ID to diff against (requires --db)"
-    )
-    p.add_argument(
-        "--max-settings", type=int, default=50,
-        help="Max settings per GPO to display (default: 50)",
-    )
-    p.add_argument(
-        "--admx-dir",
-        help="PolicyDefinitions directory for registry-to-policy crosswalk (used with --baseline)",
-    )
-    _add_src(p)
-    p.set_defaults(func=cmd_report)
-
-    # ask
-    p = sub.add_parser("ask", help="Ask a natural-language question about the estate")
-    p.add_argument("question", help="Free-text question about the GPO estate")
-    p.add_argument(
-        "--no-narrate", action="store_true",
-        help="Print raw query results as JSON without narration",
-    )
-    _add_src(p)
-    p.set_defaults(func=cmd_ask)
-
-    # explain-setting
-    p = sub.add_parser(
-        "explain-setting",
-        help="Explain what a registry setting / GPO identity does",
-    )
-    p.add_argument(
-        "identity",
-        help="Registry path or setting identity (optionally 'key:value')",
-    )
-    p.add_argument(
-        "--admx-dir", help="PolicyDefinitions directory for ADMX crosswalk",
-    )
-    p.set_defaults(func=cmd_explain_setting)
-
-    # REPL
-    p = sub.add_parser("repl", help="Interactive Python REPL with the estate loaded")
-    _add_src(p)
-    p.set_defaults(func=cmd_repl)
-
-    # danger
-    p = sub.add_parser(
-        "danger",
-        help="Scan for dangerous GPO configurations (curated, cited checks)",
-    )
-    p.add_argument("--json", dest="_sub_json", action="store_true", help="JSON output")
-    p.add_argument(
-        "--admx-dir",
-        help="PolicyDefinitions directory for policy-name-keyed rules",
-    )
-    _add_src(p)
-    p.set_defaults(func=cmd_danger)
-
-    # serve
-    p = sub.add_parser("serve", help="Launch the web UI")
-    p.add_argument("--host", default="127.0.0.1", help="Bind host (default: 127.0.0.1)")
-    p.add_argument("--port", type=int, default=8000, help="Bind port (default: 8000)")
-    p.add_argument("--open", action="store_true", help="Open browser on start")
-    p.add_argument("--root-path", default="", help="ASGI root_path for reverse-proxy mounting")
-    p.add_argument(
-        "--admx-dir",
-        help="PolicyDefinitions directory for registry-to-policy crosswalk",
-    )
-    p.set_defaults(func=cmd_serve)
-
-    # resultant (Plan 021)
-    p = sub.add_parser(
-        "resultant",
-        help="Principal resultant (RSoP) — effective policy for a principal",
-    )
-    p.add_argument(
-        "principal_sid",
-        help="SID of the principal (user or computer) to compute resultant for",
-    )
-    p.add_argument("--computer-sid", default=None, help="Computer SID (for user+computer pair)")
-    p.add_argument("--dn", default=None, help="Distinguished name of the principal (for SOM chain)")
-    p.add_argument("--computer-dn", default=None, help="Computer DN (for user+computer SOM chain)")
-    p.add_argument("--json", dest="_sub_json", action="store_true", help="JSON output")
-    _add_src(p)
-    p.set_defaults(func=cmd_resultant)
-
-    # trends
-    p = sub.add_parser(
-        "trends",
-        help="Posture-over-time from snapshot history",
-    )
-    p.add_argument("--json", dest="_sub_json", action="store_true", help="JSON output")
-    p.add_argument(
-        "--changes-only", action="store_true",
-        help="Only show snapshots where key metrics changed",
-    )
-    p.set_defaults(func=cmd_trends)
+    for cmd in _COMMANDS:
+        p = sub.add_parser(cmd.name, help=cmd.help)
+        if cmd.src_arg and cmd.src_first:
+            _add_src(p)
+        for arg in cmd.positional_args:
+            pos_kwargs: dict[str, Any] = {"help": arg.help}
+            if arg.choices:
+                pos_kwargs["choices"] = arg.choices
+            if arg.type:
+                pos_kwargs["type"] = arg.type
+            p.add_argument(arg.name, **pos_kwargs)
+        if cmd.src_arg and not cmd.src_first:
+            _add_src(p)
+        for arg in cmd.args:
+            kwargs: dict[str, Any] = {"help": arg.help}
+            if arg.choices:
+                kwargs["choices"] = arg.choices
+            if arg.type:
+                kwargs["type"] = arg.type
+            if arg.default is not None:
+                kwargs["default"] = arg.default
+            if arg.dest:
+                kwargs["dest"] = arg.dest
+            if arg.action != "store":
+                kwargs["action"] = arg.action
+                kwargs.pop("type", None)
+                kwargs.pop("default", None)
+            p.add_argument(arg.name, **kwargs)
+        p.set_defaults(func=cmd.func)
 
     args = parser.parse_args(argv)
     if not hasattr(args, "func"):
         parser.print_help()
         return 1
-    # Label every --json envelope with the active subcommand (the contract `kind`).
     _set_json_kind(getattr(args, "command", None))
     args.json = bool(args.json) or bool(getattr(args, "_sub_json", False))
     try:
