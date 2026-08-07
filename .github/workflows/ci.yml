@@ -56,6 +56,12 @@ jobs:
       - name: Ruff lint
         run: .venv/bin/ruff check .
 
+      # Also covers Python code blocks inside docs/ and plans/ — ruff formats
+      # fenced examples in Markdown, so a hand-styled spec example fails here.
+      # Fix with `ruff format .`, never by hand.
+      - name: Ruff format
+        run: .venv/bin/ruff format --check .
+
       - name: Mypy typecheck
         run: .venv/bin/mypy src
 

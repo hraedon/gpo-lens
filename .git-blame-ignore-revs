@@ -1,0 +1,13 @@
+# Revisions to skip when running `git blame`.
+#
+# Only whole-tree mechanical reformats belong here — commits that touch many
+# lines without changing behaviour, and would otherwise make `git blame` report
+# the formatter instead of the author.
+#
+# Enable locally (once per clone):
+#     git config blame.ignoreRevsFile .git-blame-ignore-revs
+#
+# GitHub applies this file automatically in its blame view.
+
+# style: adopt ruff format across the repo (2026-08-07)
+4b7f2cd6687c96d311d15674929c68749204389b

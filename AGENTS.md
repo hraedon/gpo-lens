@@ -66,8 +66,18 @@ uv venv && uv pip install -e ".[dev]"   # local dev
 .venv/bin/pytest -q            # unit + calibration tests (sample tests skip if samples/ absent)
 .venv/bin/pytest -q -m samples # calibration tests against the real exports (needs samples/)
 .venv/bin/ruff check .
+.venv/bin/ruff format .          # formatter is authoritative — see below
 .venv/bin/mypy src
 ```
+
+**Formatting is `ruff format`'s job, not yours.** CI runs
+`ruff format --check`, so a hand-styled block fails the build; run
+`ruff format .` rather than reflowing by hand or arguing with it in review.
+Note it also formats Python code blocks inside Markdown, so `docs/spec/` and
+`plans/` examples are governed too. Adopted 2026-08-07 in `4b7f2cd`, which is
+listed in `.git-blame-ignore-revs` — run
+`git config blame.ignoreRevsFile .git-blame-ignore-revs` once per clone so
+`git blame` reports authors instead of the reformat.
 
 CI installs from the lockfile (`uv sync --locked --extra dev --extra web`), so
 **regenerate `uv.lock` (`uv lock`) and commit it whenever you touch
