@@ -98,9 +98,7 @@ class TestForwardedProtoMiddleware:
     def test_invalid_proto_is_ignored(self, forwarded_client):
         """B. Invalid values (junk, ftp) are rejected and the scheme stays http."""
         for bad in ("junk", "ftp"):
-            resp = forwarded_client.get(
-                "/", headers={"X-Forwarded-Proto": bad}
-            )
+            resp = forwarded_client.get("/", headers={"X-Forwarded-Proto": bad})
             assert resp.status_code == 200
             assert 'href="http://testserver/' in resp.text
 
@@ -176,9 +174,7 @@ class TestServeConfig:
         assert ret == 0
         assert captured["kwargs"].get("proxy_headers") is False
 
-    def test_non_loopback_without_token_refuses_to_start(
-        self, tmp_path, monkeypatch, capsys
-    ):
+    def test_non_loopback_without_token_refuses_to_start(self, tmp_path, monkeypatch, capsys):
         """E. Binding to non-loopback without GPO_LENS_AUTH_TOKEN returns 1."""
         from gpo_lens.cli._serve import cmd_serve
 

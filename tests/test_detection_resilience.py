@@ -31,20 +31,31 @@ _SCHED_XML = (
     '<?xml version="1.0" encoding="utf-8"?>'
     '<ScheduledTasks><ImmediateTaskV2 name="t">'
     '<Properties action="C" runAs="SYSTEM"><Task><Actions>'
-    '<Exec><Command>cmd.exe</Command></Exec>'
-    '</Actions></Task></Properties></ImmediateTaskV2></ScheduledTasks>'
+    "<Exec><Command>cmd.exe</Command></Exec>"
+    "</Actions></Task></Properties></ImmediateTaskV2></ScheduledTasks>"
 )
 
 
 def _make_gpo(sysvol_path: str) -> Gpo:
     return Gpo(
-        id="gpo-1", name="Partial GPO", domain="test.local",
-        created=None, modified=None, read=None,
-        computer_enabled=True, user_enabled=True,
-        computer_ver_ds=None, computer_ver_sysvol=None,
-        user_ver_ds=None, user_ver_sysvol=None,
-        sddl=None, owner=None, filter_data_available=False,
-        wmi_filter=None, sysvol_path=sysvol_path, settings=[],
+        id="gpo-1",
+        name="Partial GPO",
+        domain="test.local",
+        created=None,
+        modified=None,
+        read=None,
+        computer_enabled=True,
+        user_enabled=True,
+        computer_ver_ds=None,
+        computer_ver_sysvol=None,
+        user_ver_ds=None,
+        user_ver_sysvol=None,
+        sddl=None,
+        owner=None,
+        filter_data_available=False,
+        wmi_filter=None,
+        sysvol_path=sysvol_path,
+        settings=[],
     )
 
 
@@ -80,7 +91,7 @@ _GROUPS_XML = (
     '<Properties action="U" groupSid="S-1-5-32-544" groupName="Administrators">'
     '<Members><Member name="HRAENET\\helpdesk" action="ADD" '
     'sid="S-1-5-21-1-2-3-1106"/></Members>'
-    '</Properties></Group></Groups>'
+    "</Properties></Group></Groups>"
 )
 
 
@@ -130,14 +141,14 @@ def test_scheduled_task_v2_extracts_nested_exec(tmp_path):
         '<?xml version="1.0" encoding="utf-8"?>'
         '<ScheduledTasks><ImmediateTaskV2 name="Set Timezone">'
         '<Properties action="UPDATE">'
-        '<Task><Actions><Exec>'
-        '<Command>tzutil.exe</Command>'
+        "<Task><Actions><Exec>"
+        "<Command>tzutil.exe</Command>"
         '<Arguments>/s "UTC"</Arguments>'
-        '</Exec></Actions>'
+        "</Exec></Actions>"
         '<Principals><Principal id="Author">'
-        '<UserId>NT AUTHORITY\\SYSTEM</UserId>'
-        '</Principal></Principals>'
-        '</Task></Properties></ImmediateTaskV2></ScheduledTasks>'
+        "<UserId>NT AUTHORITY\\SYSTEM</UserId>"
+        "</Principal></Principals>"
+        "</Task></Properties></ImmediateTaskV2></ScheduledTasks>"
     )
     sched = base / "Machine" / "Preferences" / "ScheduledTasks"
     sched.mkdir(parents=True)
@@ -161,7 +172,7 @@ def test_scheduled_task_v2_nested_falls_back_to_v1_attrs(tmp_path):
         '<?xml version="1.0" encoding="utf-8"?>'
         '<ScheduledTasks><Task name="Legacy" runAs="HRAENET\\svc">'
         '<Properties action="C" appName="legacy.exe" arguments="-q"/>'
-        '</Task></ScheduledTasks>'
+        "</Task></ScheduledTasks>"
     )
     sched = base / "Machine" / "Preferences" / "ScheduledTasks"
     sched.mkdir(parents=True)
@@ -182,12 +193,12 @@ def test_scheduled_task_v1_and_v2_mixed(tmp_path):
     base = tmp_path / "{GUID}"
     xml = (
         '<?xml version="1.0" encoding="utf-8"?>'
-        '<ScheduledTasks>'
+        "<ScheduledTasks>"
         '<Task name="Legacy"><Properties action="C" appName="a.exe"/></Task>'
         '<ImmediateTaskV2 name="Modern"><Properties action="C">'
-        '<Task><Actions><Exec><Command>b.exe</Command></Exec></Actions></Task>'
-        '</Properties></ImmediateTaskV2>'
-        '</ScheduledTasks>'
+        "<Task><Actions><Exec><Command>b.exe</Command></Exec></Actions></Task>"
+        "</Properties></ImmediateTaskV2>"
+        "</ScheduledTasks>"
     )
     sched = base / "Machine" / "Preferences" / "ScheduledTasks"
     sched.mkdir(parents=True)
@@ -267,13 +278,13 @@ def test_load_estate_malformed_optional_json_degrades(tmp_path):
     (tmp_path / "AllGPOs.xml").write_text(
         '<?xml version="1.0" encoding="utf-8"?>'
         '<GPO xmlns="http://www.microsoft.com/GroupPolicy/Settings">'
-        '  <GPO><Identifier><Identifier>'
-        '{11111111-1111-1111-1111-111111111111}'
-        '</Identifier></Identifier><Name>Test</Name>'
-        '<Computer><Enabled>true</Enabled></Computer>'
-        '<User><Enabled>true</Enabled></User>'
-        '<FilterDataAvailable>false</FilterDataAvailable></GPO>'
-        '</GPO>',
+        "  <GPO><Identifier><Identifier>"
+        "{11111111-1111-1111-1111-111111111111}"
+        "</Identifier></Identifier><Name>Test</Name>"
+        "<Computer><Enabled>true</Enabled></Computer>"
+        "<User><Enabled>true</Enabled></User>"
+        "<FilterDataAvailable>false</FilterDataAvailable></GPO>"
+        "</GPO>",
         encoding="utf-8",
     )
     (tmp_path / "gp-inheritance.json").write_text("not json", encoding="utf-8")
@@ -285,19 +296,36 @@ def test_load_estate_malformed_optional_json_degrades(tmp_path):
 
 def _make_blocked_gpo(sysvol_path: str) -> Gpo:
     return Gpo(
-        id="gpo-1", name="Blocked GPO", domain="test.local",
-        created=None, modified=None, read=None,
-        computer_enabled=True, user_enabled=True,
-        computer_ver_ds=None, computer_ver_sysvol=None,
-        user_ver_ds=None, user_ver_sysvol=None,
-        sddl=None, owner=None, filter_data_available=False,
-        wmi_filter=None, sysvol_path=sysvol_path,
-        settings=[Setting(
-            gpo_id="gpo-1", side="Computer", cse="Registry",
-            identity="Registry:blocked", display_name="(blocked extension)",
-            display_value="", raw={"blocked": True},
-            from_disabled_side=False, source_state="blocked",
-        )],
+        id="gpo-1",
+        name="Blocked GPO",
+        domain="test.local",
+        created=None,
+        modified=None,
+        read=None,
+        computer_enabled=True,
+        user_enabled=True,
+        computer_ver_ds=None,
+        computer_ver_sysvol=None,
+        user_ver_ds=None,
+        user_ver_sysvol=None,
+        sddl=None,
+        owner=None,
+        filter_data_available=False,
+        wmi_filter=None,
+        sysvol_path=sysvol_path,
+        settings=[
+            Setting(
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Registry",
+                identity="Registry:blocked",
+                display_name="(blocked extension)",
+                display_value="",
+                raw={"blocked": True},
+                from_disabled_side=False,
+                source_state="blocked",
+            )
+        ],
     )
 
 
@@ -307,9 +335,7 @@ def test_augment_ignores_truncated_registry_pol(tmp_path):
     machine = base / "Machine"
     machine.mkdir(parents=True)
     # Valid header followed by an incomplete record.
-    (machine / "Registry.pol").write_bytes(
-        b"PReg\x01\x00\x00\x00" + b"\x5b\x00" + b"\x00" * 3
-    )
+    (machine / "Registry.pol").write_bytes(b"PReg\x01\x00\x00\x00" + b"\x5b\x00" + b"\x00" * 3)
     gpo = _make_blocked_gpo(str(base))
     augment_blocked_registry_from_pol([gpo])
     assert any(s.source_state == "blocked" for s in gpo.settings)
@@ -322,8 +348,8 @@ def test_ilt_reports_specific_gpp_file(tmp_path):
     xml = (
         '<?xml version="1.0" encoding="utf-8"?>'
         '<ScheduledTasks><Task name="t">'
-        '<Filters><Filter1/></Filters>'
-        '</Task></ScheduledTasks>'
+        "<Filters><Filter1/></Filters>"
+        "</Task></ScheduledTasks>"
     )
     sched = base / "Machine" / "Preferences" / "ScheduledTasks"
     sched.mkdir(parents=True)
@@ -346,23 +372,23 @@ def test_parse_admx_dir_corrupted_adml_is_skipped(tmp_path):
     base = tmp_path / "PolicyDefinitions"
     en_us = base / "en-US"
     en_us.mkdir(parents=True)
-    ns = 'http://schemas.microsoft.com/GroupPolicy/2006/07/PolicyDefinitions'
+    ns = "http://schemas.microsoft.com/GroupPolicy/2006/07/PolicyDefinitions"
     (en_us / "good.adml").write_text(
         f'<?xml version="1.0" encoding="utf-8"?>'
         f'<policyDefinitionResources xmlns="{ns}">'
         f'<stringTable><string id="Foo">Foo Policy</string></stringTable>'
-        f'</policyDefinitionResources>',
+        f"</policyDefinitionResources>",
         encoding="utf-8",
     )
     (en_us / "bad.adml").write_text("not xml", encoding="utf-8")
     (base / "test.admx").write_text(
         '<?xml version="1.0" encoding="utf-8"?>'
         '<policyDefinitions xmlns="'
-        'http://schemas.microsoft.com/GroupPolicy/2006/07/PolicyDefinitions'
+        "http://schemas.microsoft.com/GroupPolicy/2006/07/PolicyDefinitions"
         '">'
         '<policy name="TestPolicy" class="Both" key="Software\\Test" '
         'valueName="Val" displayName="$(string.Foo)"/>'
-        '</policyDefinitions>',
+        "</policyDefinitions>",
         encoding="utf-8",
     )
     pd = parse_admx_dir(base)
@@ -388,6 +414,7 @@ def test_parse_admx_dir_unreadable_directory_returns_empty(tmp_path):
 # ---------------------------------------------------------------------------
 # Coverage honesty: unreadable SYSVOL Preferences dirs must be surfaced
 # ---------------------------------------------------------------------------
+
 
 def test_unreadable_sysvol_produces_coverage_gap(tmp_path):
     """A Windows zip extracted on Linux often drops the traversal bit on
@@ -433,7 +460,7 @@ _DRIVE_XML = (
     '<?xml version="1.0" encoding="utf-8"?>'
     '<Drives><Drive clsid="{...}" name="Public" changed="2025-01-01">'
     '<Properties action="C" driveLetter="P:" path="\\\\oldserver\\share"/>'
-    '</Drive></Drives>'
+    "</Drive></Drives>"
 )
 
 

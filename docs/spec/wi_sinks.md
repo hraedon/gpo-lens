@@ -172,8 +172,12 @@ writing to a closed fh (`test_thread_safety`).
 ```python
 class HecSink:
     def __init__(
-        self, url: str, token: str, *,
-        verify_tls: bool = True, timeout: int = 30,
+        self,
+        url: str,
+        token: str,
+        *,
+        verify_tls: bool = True,
+        timeout: int = 30,
     ) -> None: ...
     @classmethod
     def from_env(cls) -> HecSink | None: ...

@@ -43,9 +43,9 @@ REG_TYPE_NAMES: dict[int, str] = {
 _SIGNATURE = b"PReg"
 _HEADER_LEN = 8  # 4-byte signature DWORD + 4-byte version DWORD
 # Delimiters are UTF-16LE characters (two bytes each), not single ANSI bytes.
-_OPEN = b"\x5b\x00"   # '['
+_OPEN = b"\x5b\x00"  # '['
 _CLOSE = b"\x5d\x00"  # ']'
-_SEP = b"\x3b\x00"    # ';'
+_SEP = b"\x3b\x00"  # ';'
 _NULL_TERM = b"\x00\x00"  # UTF-16LE null terminator
 
 
@@ -53,22 +53,24 @@ _NULL_TERM = b"\x00\x00"  # UTF-16LE null terminator
 # Dataclass
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class PregRecord:
     """One registry setting from a Registry.pol file."""
 
-    key: str               # registry key path, e.g. r"Software\Policies\Acme"
-    value_name: str        # value name, e.g. "EnableFoo"
-    type_code: int         # REG_* code (4 = DWORD, 1 = SZ, ...)
-    type_name: str         # human label, e.g. "REG_DWORD"
-    size: int              # byte count of the original data
-    data: bytes            # raw data bytes
-    display_value: str     # decoded representation per the type table
+    key: str  # registry key path, e.g. r"Software\Policies\Acme"
+    value_name: str  # value name, e.g. "EnableFoo"
+    type_code: int  # REG_* code (4 = DWORD, 1 = SZ, ...)
+    type_name: str  # human label, e.g. "REG_DWORD"
+    size: int  # byte count of the original data
+    data: bytes  # raw data bytes
+    display_value: str  # decoded representation per the type table
 
 
 # ---------------------------------------------------------------------------
 # Value decoding
 # ---------------------------------------------------------------------------
+
 
 def decode_value(type_code: int, data: bytes) -> str:
     """Decode *data* bytes according to the REG *type_code*.
@@ -117,6 +119,7 @@ def _decode_multi_sz(data: bytes) -> str:
 # Helpers for reading UTF-16LE null-terminated strings from a byte buffer
 # ---------------------------------------------------------------------------
 
+
 def _read_utf16_null(buf: bytes, offset: int) -> tuple[str, int]:
     """Read a UTF-16LE null-terminated string starting at *offset*.
 
@@ -141,6 +144,7 @@ def _read_utf16_null(buf: bytes, offset: int) -> tuple[str, int]:
 # ---------------------------------------------------------------------------
 # Main parser
 # ---------------------------------------------------------------------------
+
 
 def parse_registry_pol(data: bytes) -> list[PregRecord]:
     """Parse a Registry.pol file's bytes into records.

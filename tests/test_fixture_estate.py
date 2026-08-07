@@ -84,6 +84,7 @@ def fixture_estate():
 
 # AC-1: fixture loads via load_estate
 
+
 def test_fixture_gpo_count(fixture_estate):
     assert len(fixture_estate.gpos) == 14
 
@@ -99,17 +100,14 @@ def test_fixture_som_counts(fixture_estate):
 
 # AC-2: calibration assertions ported to fixture
 
+
 def test_fixture_disabled_but_populated(fixture_estate):
     hits = disabled_but_populated(fixture_estate)
     assert len(hits) == 2
     # GPO C has Computer side disabled but with settings
-    assert any(
-        g.id == GPO_IDS["version_skew"] and side == "Computer" for g, side in hits
-    )
+    assert any(g.id == GPO_IDS["version_skew"] and side == "Computer" for g, side in hits)
     # GPO G has User side disabled but with settings
-    assert any(
-        g.id == GPO_IDS["user_disabled"] and side == "User" for g, side in hits
-    )
+    assert any(g.id == GPO_IDS["user_disabled"] and side == "User" for g, side in hits)
 
 
 def test_fixture_enforced_flag_is_boolean(fixture_estate):
@@ -203,6 +201,7 @@ def test_fixture_settings_at_som(fixture_estate):
 
 # AC-1 additional sanity checks
 
+
 def test_fixture_domain(fixture_estate):
     assert fixture_estate.domain == "fakefixture.local"
 
@@ -211,9 +210,7 @@ def test_fixture_description_parsed(fixture_estate):
     """GPO A carries a <Description>; it must round-trip into Gpo.description."""
     gpo_a = fixture_estate.gpo_by_id(GPO_IDS["cpassword"])
     assert gpo_a is not None
-    assert gpo_a.description == (
-        "Baseline domain security; do not modify without change review."
-    )
+    assert gpo_a.description == ("Baseline domain security; do not modify without change review.")
     # GPOs without <Description> parse to None.
     gpo_b = fixture_estate.gpo_by_id(GPO_IDS["ms16_072"])
     assert gpo_b is not None
@@ -254,6 +251,7 @@ def test_fixture_ou_tree(fixture_estate):
 
 def test_fixture_estate_doctor(fixture_estate):
     from gpo_lens.queries import estate_summary
+
     summary = estate_summary(fixture_estate)
     assert summary.gpo_count == 14
     assert summary.som_count == 2
@@ -366,6 +364,7 @@ def test_fixture_conflicts(fixture_estate):
 # Scope honesty tests (Plan 013 Workstream S)
 # ---------------------------------------------------------------------------
 
+
 def test_fixture_security_filtered(fixture_estate):
     sec_gpo = fixture_estate.gpo_by_id(GPO_IDS["security_filtered"])
     assert sec_gpo is not None
@@ -445,6 +444,7 @@ def test_fixture_stale_gpos_threshold(fixture_estate):
 
 def test_fixture_ilt_detection(fixture_estate):
     from gpo_lens.detection import scan_ilt
+
     hits = scan_ilt(fixture_estate)
     ilt_ids = {h.gpo_id for h in hits}
     assert GPO_IDS["gpp_ilt"] in ilt_ids

@@ -102,9 +102,7 @@ def _safe_extract(zip_path: Path, dest: Path) -> None:
                     continue
                 target.parent.mkdir(parents=True, exist_ok=True)
                 with zf.open(member) as src:
-                    wrapped = SizeLimitedReader(
-                        src, _MAX_UNCOMPRESSED_BYTES - total_bytes_read
-                    )
+                    wrapped = SizeLimitedReader(src, _MAX_UNCOMPRESSED_BYTES - total_bytes_read)
                     with open(target, "wb") as out:
                         while True:
                             chunk = wrapped.read(65536)
@@ -137,7 +135,8 @@ def _safe_extract(zip_path: Path, dest: Path) -> None:
                 except OSError as cleanup_exc:
                     _logger.warning(
                         "cleanup of %s after extraction failure failed: %s",
-                        child, cleanup_exc,
+                        child,
+                        cleanup_exc,
                     )
         raise
 
@@ -256,9 +255,7 @@ class _FileLock:
         if not self._thread_lock.acquire(blocking=blocking):
             return False
         try:
-            self._fd = os.open(
-                self._lock_path, os.O_CREAT | os.O_RDWR, 0o600
-            )
+            self._fd = os.open(self._lock_path, os.O_CREAT | os.O_RDWR, 0o600)
         except OSError as exc:
             self._thread_lock.release()
             _logger.warning("Ingest lock file unavailable: %s", exc)
@@ -307,9 +304,7 @@ class _FileLock:
             self._thread_lock.release()
 
 
-def create_app(
-    db_path: str, *, root_path: str = "", admx_dir: str | None = None
-) -> FastAPI:
+def create_app(db_path: str, *, root_path: str = "", admx_dir: str | None = None) -> FastAPI:
     app = FastAPI(root_path=root_path, docs_url=None, redoc_url=None, openapi_url=None)
     app.state.db_path = db_path
     if db_path == ":memory:":
@@ -362,6 +357,7 @@ def create_app(
 
     def _is_localhost_origin(origin: str) -> bool:
         from urllib.parse import urlparse
+
         parsed = urlparse(origin)
         # Reject non-http(s) schemes — ``data:``, ``javascript:``, ``ftp://``,
         # etc. can carry a localhost hostname but are not browser navigations.
@@ -370,7 +366,9 @@ def create_app(
         # `0.0.0.0` is the bind-any wildcard, not a legitimate client Origin —
         # a cross-origin attacker can spoof it, so it must NOT be allow-listed.
         return parsed.hostname in (
-            "localhost", "127.0.0.1", "::1",
+            "localhost",
+            "127.0.0.1",
+            "::1",
             "localhost.localdomain",
         )
 
@@ -402,6 +400,7 @@ def create_app(
           align Origin and Host on a name they control.
         """
         from urllib.parse import urlparse
+
         parsed = urlparse(url)
         if parsed.scheme not in ("http", "https"):
             return False
@@ -475,9 +474,7 @@ def create_app(
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; "
-            "script-src 'self'; "
-            "style-src 'self' 'unsafe-inline'"
+            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'"
         )
         return response
 
@@ -487,8 +484,7 @@ def create_app(
         # ASGI framework buffers the full body. Upload routes (/ingest,
         # /baseline, /golden-diff) accept up to 500 MB and are excluded.
         if request.method == "POST" and not any(
-            request.url.path.startswith(p)
-            for p in ("/ingest", "/baseline", "/golden-diff")
+            request.url.path.startswith(p) for p in ("/ingest", "/baseline", "/golden-diff")
         ):
             cl = request.headers.get("content-length")
             if cl:

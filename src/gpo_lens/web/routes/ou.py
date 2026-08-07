@@ -53,7 +53,8 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         page_soms, pag = paginate(filtered, page, per_page_int, per_page_raw)
         ou_qs = base_qs(request, "page", "per_page")
         return templates.TemplateResponse(
-            request, "ou_list.html",
+            request,
+            "ou_list.html",
             {
                 "soms": page_soms,
                 "pag": pag,
@@ -113,7 +114,8 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         settings_qs = base_qs(request, "page", "per_page")
 
         return templates.TemplateResponse(
-            request, "ou_detail.html",
+            request,
+            "ou_detail.html",
             {
                 "som": target_som,
                 "effective_gpos": effective_gpos,

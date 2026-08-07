@@ -35,40 +35,51 @@ class SearchResult:
     cse: str | None = None
 
 
-def search(
-    estate: Estate, term: str, scope: str = "all"
-) -> list[SearchResult]:
+def search(estate: Estate, term: str, scope: str = "all") -> list[SearchResult]:
     """Full-text search across GPOs, settings, and delegations."""
     term_lower = term.lower()
     results: list[SearchResult] = []
 
     for g in estate.gpos:
         if scope in ("all", "names") and term_lower in g.name.lower():
-            results.append(SearchResult(
-                gpo_id=g.id, gpo_name=g.name,
-                match_field="gpo_name", detail=g.name,
-            ))
+            results.append(
+                SearchResult(
+                    gpo_id=g.id,
+                    gpo_name=g.name,
+                    match_field="gpo_name",
+                    detail=g.name,
+                )
+            )
 
         if scope in ("all", "settings"):
             for s in g.settings:
-                if (term_lower in s.display_name.lower()
-                        or term_lower in s.identity.lower()
-                        or term_lower in s.display_value.lower()):
-                    results.append(SearchResult(
-                        gpo_id=g.id, gpo_name=g.name,
-                        match_field="setting",
-                        detail=f"[{s.cse}] {s.side}/{s.identity}: {s.display_value}",
-                        side=s.side, cse=s.cse,
-                    ))
+                if (
+                    term_lower in s.display_name.lower()
+                    or term_lower in s.identity.lower()
+                    or term_lower in s.display_value.lower()
+                ):
+                    results.append(
+                        SearchResult(
+                            gpo_id=g.id,
+                            gpo_name=g.name,
+                            match_field="setting",
+                            detail=f"[{s.cse}] {s.side}/{s.identity}: {s.display_value}",
+                            side=s.side,
+                            cse=s.cse,
+                        )
+                    )
 
         if scope in ("all", "delegation"):
             for d in g.delegation:
                 if term_lower in d.trustee.lower() or term_lower in d.permission.lower():
-                    results.append(SearchResult(
-                        gpo_id=g.id, gpo_name=g.name,
-                        match_field="delegation",
-                        detail=f"{d.trustee}: {d.permission} (allowed={d.allowed})",
-                    ))
+                    results.append(
+                        SearchResult(
+                            gpo_id=g.id,
+                            gpo_name=g.name,
+                            match_field="delegation",
+                            detail=f"{d.trustee}: {d.permission} (allowed={d.allowed})",
+                        )
+                    )
     return results
 
 
@@ -111,10 +122,15 @@ def conflicts(estate: Estate) -> list[Conflict]:
                 seen_pairs.add(pair)
                 entries.append(pair)
         entries.sort()
-        results.append(Conflict(
-            cse=cse, side=side, identity=identity,
-            display_name=settings[0].display_name, entries=entries,
-        ))
+        results.append(
+            Conflict(
+                cse=cse,
+                side=side,
+                identity=identity,
+                display_name=settings[0].display_name,
+                entries=entries,
+            )
+        )
     results.sort(key=lambda c: (c.cse, c.side, c.identity.lower()))
     return results
 

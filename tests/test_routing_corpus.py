@@ -257,9 +257,7 @@ def _expected_result(query: str, params: dict[str, object] | None) -> dict[str, 
     return {"query": query, "params": params}
 
 
-def _mock_llm_response(
-    query: str, params: dict[str, object] | None
-) -> str:
+def _mock_llm_response(query: str, params: dict[str, object] | None) -> str:
     return json.dumps(_expected_result(query, params))
 
 

@@ -53,8 +53,7 @@ def test_snapshot_changelog_no_changes_direct(tmp_path):
     conn = sqlite3.connect(str(db))
     store.init_db(conn)
 
-    gpo = _make_gpo(id="gpo-alpha", name="Alpha",
-                    computer_ver_ds=1, computer_ver_sysvol=1)
+    gpo = _make_gpo(id="gpo-alpha", name="Alpha", computer_ver_ds=1, computer_ver_sysvol=1)
     sid_a = store.save_estate(conn, Estate(domain="test.local", gpos=[gpo]))
     sid_b = store.save_estate(conn, Estate(domain="test.local", gpos=[gpo]))
 
@@ -76,11 +75,22 @@ def test_snapshot_settings_diff_setting_added_direct(tmp_path):
     gpo_a = _make_gpo(id="gpo-alpha", name="Alpha")
     sid_a = store.save_estate(conn, Estate(domain="test.local", gpos=[gpo_a]))
 
-    gpo_b = _make_gpo(id="gpo-alpha", name="Alpha", settings=[
-        Setting(gpo_id="gpo-alpha", side="Computer", cse="Registry",
-                identity="HKLM\\X", display_name="X", display_value="1",
-                raw={}, from_disabled_side=False),
-    ])
+    gpo_b = _make_gpo(
+        id="gpo-alpha",
+        name="Alpha",
+        settings=[
+            Setting(
+                gpo_id="gpo-alpha",
+                side="Computer",
+                cse="Registry",
+                identity="HKLM\\X",
+                display_name="X",
+                display_value="1",
+                raw={},
+                from_disabled_side=False,
+            ),
+        ],
+    )
     sid_b = store.save_estate(conn, Estate(domain="test.local", gpos=[gpo_b]))
 
     changes = snapshot_settings_diff(conn, sid_a, sid_b)
@@ -96,11 +106,22 @@ def test_snapshot_settings_diff_setting_removed_direct(tmp_path):
     conn = sqlite3.connect(str(db))
     store.init_db(conn)
 
-    gpo_a = _make_gpo(id="gpo-alpha", name="Alpha", settings=[
-        Setting(gpo_id="gpo-alpha", side="Computer", cse="Registry",
-                identity="HKLM\\X", display_name="X", display_value="1",
-                raw={}, from_disabled_side=False),
-    ])
+    gpo_a = _make_gpo(
+        id="gpo-alpha",
+        name="Alpha",
+        settings=[
+            Setting(
+                gpo_id="gpo-alpha",
+                side="Computer",
+                cse="Registry",
+                identity="HKLM\\X",
+                display_name="X",
+                display_value="1",
+                raw={},
+                from_disabled_side=False,
+            ),
+        ],
+    )
     sid_a = store.save_estate(conn, Estate(domain="test.local", gpos=[gpo_a]))
 
     gpo_b = _make_gpo(id="gpo-alpha", name="Alpha")
@@ -124,28 +145,72 @@ def test_snapshot_settings_diff_filter_by_gpo_id_direct(tmp_path):
     conn = sqlite3.connect(str(db))
     store.init_db(conn)
 
-    gpo_a = _make_gpo(id="gpo-alpha", name="Alpha", settings=[
-        Setting(gpo_id="gpo-alpha", side="Computer", cse="Registry",
-                identity="HKLM\\X", display_name="X", display_value="old",
-                raw={}, from_disabled_side=False),
-    ])
-    gpo_b = _make_gpo(id="gpo-beta", name="Beta", settings=[
-        Setting(gpo_id="gpo-beta", side="Computer", cse="Registry",
-                identity="HKLM\\Y", display_name="Y", display_value="old",
-                raw={}, from_disabled_side=False),
-    ])
+    gpo_a = _make_gpo(
+        id="gpo-alpha",
+        name="Alpha",
+        settings=[
+            Setting(
+                gpo_id="gpo-alpha",
+                side="Computer",
+                cse="Registry",
+                identity="HKLM\\X",
+                display_name="X",
+                display_value="old",
+                raw={},
+                from_disabled_side=False,
+            ),
+        ],
+    )
+    gpo_b = _make_gpo(
+        id="gpo-beta",
+        name="Beta",
+        settings=[
+            Setting(
+                gpo_id="gpo-beta",
+                side="Computer",
+                cse="Registry",
+                identity="HKLM\\Y",
+                display_name="Y",
+                display_value="old",
+                raw={},
+                from_disabled_side=False,
+            ),
+        ],
+    )
     sid_a = store.save_estate(conn, Estate(domain="test.local", gpos=[gpo_a, gpo_b]))
 
-    gpo_a2 = _make_gpo(id="gpo-alpha", name="Alpha", settings=[
-        Setting(gpo_id="gpo-alpha", side="Computer", cse="Registry",
-                identity="HKLM\\X", display_name="X", display_value="new",
-                raw={}, from_disabled_side=False),
-    ])
-    gpo_b2 = _make_gpo(id="gpo-beta", name="Beta", settings=[
-        Setting(gpo_id="gpo-beta", side="Computer", cse="Registry",
-                identity="HKLM\\Y", display_name="Y", display_value="new",
-                raw={}, from_disabled_side=False),
-    ])
+    gpo_a2 = _make_gpo(
+        id="gpo-alpha",
+        name="Alpha",
+        settings=[
+            Setting(
+                gpo_id="gpo-alpha",
+                side="Computer",
+                cse="Registry",
+                identity="HKLM\\X",
+                display_name="X",
+                display_value="new",
+                raw={},
+                from_disabled_side=False,
+            ),
+        ],
+    )
+    gpo_b2 = _make_gpo(
+        id="gpo-beta",
+        name="Beta",
+        settings=[
+            Setting(
+                gpo_id="gpo-beta",
+                side="Computer",
+                cse="Registry",
+                identity="HKLM\\Y",
+                display_name="Y",
+                display_value="new",
+                raw={},
+                from_disabled_side=False,
+            ),
+        ],
+    )
     sid_b = store.save_estate(conn, Estate(domain="test.local", gpos=[gpo_a2, gpo_b2]))
 
     all_changes = snapshot_settings_diff(conn, sid_a, sid_b)
@@ -163,24 +228,60 @@ def test_snapshot_settings_diff_filter_by_side_direct(tmp_path):
     conn = sqlite3.connect(str(db))
     store.init_db(conn)
 
-    gpo = _make_gpo(id="gpo-alpha", name="Alpha", settings=[
-        Setting(gpo_id="gpo-alpha", side="Computer", cse="Registry",
-                identity="HKLM\\X", display_name="X", display_value="old",
-                raw={}, from_disabled_side=False),
-        Setting(gpo_id="gpo-alpha", side="User", cse="Registry",
-                identity="HKCU\\Y", display_name="Y", display_value="old",
-                raw={}, from_disabled_side=False),
-    ])
+    gpo = _make_gpo(
+        id="gpo-alpha",
+        name="Alpha",
+        settings=[
+            Setting(
+                gpo_id="gpo-alpha",
+                side="Computer",
+                cse="Registry",
+                identity="HKLM\\X",
+                display_name="X",
+                display_value="old",
+                raw={},
+                from_disabled_side=False,
+            ),
+            Setting(
+                gpo_id="gpo-alpha",
+                side="User",
+                cse="Registry",
+                identity="HKCU\\Y",
+                display_name="Y",
+                display_value="old",
+                raw={},
+                from_disabled_side=False,
+            ),
+        ],
+    )
     sid_a = store.save_estate(conn, Estate(domain="test.local", gpos=[gpo]))
 
-    gpo2 = _make_gpo(id="gpo-alpha", name="Alpha", settings=[
-        Setting(gpo_id="gpo-alpha", side="Computer", cse="Registry",
-                identity="HKLM\\X", display_name="X", display_value="new",
-                raw={}, from_disabled_side=False),
-        Setting(gpo_id="gpo-alpha", side="User", cse="Registry",
-                identity="HKCU\\Y", display_name="Y", display_value="new",
-                raw={}, from_disabled_side=False),
-    ])
+    gpo2 = _make_gpo(
+        id="gpo-alpha",
+        name="Alpha",
+        settings=[
+            Setting(
+                gpo_id="gpo-alpha",
+                side="Computer",
+                cse="Registry",
+                identity="HKLM\\X",
+                display_name="X",
+                display_value="new",
+                raw={},
+                from_disabled_side=False,
+            ),
+            Setting(
+                gpo_id="gpo-alpha",
+                side="User",
+                cse="Registry",
+                identity="HKCU\\Y",
+                display_name="Y",
+                display_value="new",
+                raw={},
+                from_disabled_side=False,
+            ),
+        ],
+    )
     sid_b = store.save_estate(conn, Estate(domain="test.local", gpos=[gpo2]))
 
     comp_only = snapshot_settings_diff(conn, sid_a, sid_b, side="Computer")
@@ -199,24 +300,60 @@ def test_snapshot_settings_diff_filter_by_cse_direct(tmp_path):
     conn = sqlite3.connect(str(db))
     store.init_db(conn)
 
-    gpo = _make_gpo(id="gpo-alpha", name="Alpha", settings=[
-        Setting(gpo_id="gpo-alpha", side="Computer", cse="Registry",
-                identity="HKLM\\X", display_name="X", display_value="old",
-                raw={}, from_disabled_side=False),
-        Setting(gpo_id="gpo-alpha", side="Computer", cse="Security",
-                identity="Security:X", display_name="X", display_value="old",
-                raw={}, from_disabled_side=False),
-    ])
+    gpo = _make_gpo(
+        id="gpo-alpha",
+        name="Alpha",
+        settings=[
+            Setting(
+                gpo_id="gpo-alpha",
+                side="Computer",
+                cse="Registry",
+                identity="HKLM\\X",
+                display_name="X",
+                display_value="old",
+                raw={},
+                from_disabled_side=False,
+            ),
+            Setting(
+                gpo_id="gpo-alpha",
+                side="Computer",
+                cse="Security",
+                identity="Security:X",
+                display_name="X",
+                display_value="old",
+                raw={},
+                from_disabled_side=False,
+            ),
+        ],
+    )
     sid_a = store.save_estate(conn, Estate(domain="test.local", gpos=[gpo]))
 
-    gpo2 = _make_gpo(id="gpo-alpha", name="Alpha", settings=[
-        Setting(gpo_id="gpo-alpha", side="Computer", cse="Registry",
-                identity="HKLM\\X", display_name="X", display_value="new",
-                raw={}, from_disabled_side=False),
-        Setting(gpo_id="gpo-alpha", side="Computer", cse="Security",
-                identity="Security:X", display_name="X", display_value="new",
-                raw={}, from_disabled_side=False),
-    ])
+    gpo2 = _make_gpo(
+        id="gpo-alpha",
+        name="Alpha",
+        settings=[
+            Setting(
+                gpo_id="gpo-alpha",
+                side="Computer",
+                cse="Registry",
+                identity="HKLM\\X",
+                display_name="X",
+                display_value="new",
+                raw={},
+                from_disabled_side=False,
+            ),
+            Setting(
+                gpo_id="gpo-alpha",
+                side="Computer",
+                cse="Security",
+                identity="Security:X",
+                display_name="X",
+                display_value="new",
+                raw={},
+                from_disabled_side=False,
+            ),
+        ],
+    )
     sid_b = store.save_estate(conn, Estate(domain="test.local", gpos=[gpo2]))
 
     reg_only = snapshot_settings_diff(conn, sid_a, sid_b, cse="Registry")
@@ -262,12 +399,10 @@ def test_snapshot_diff_version_skew_appears_direct(tmp_path):
     conn = sqlite3.connect(str(db))
     store.init_db(conn)
 
-    gpo_a = _make_gpo(id="gpo-alpha", name="Alpha",
-                      computer_ver_ds=1, computer_ver_sysvol=1)
+    gpo_a = _make_gpo(id="gpo-alpha", name="Alpha", computer_ver_ds=1, computer_ver_sysvol=1)
     sid_a = store.save_estate(conn, Estate(domain="test.local", gpos=[gpo_a]))
 
-    gpo_b = _make_gpo(id="gpo-alpha", name="Alpha",
-                      computer_ver_ds=1, computer_ver_sysvol=2)
+    gpo_b = _make_gpo(id="gpo-alpha", name="Alpha", computer_ver_ds=1, computer_ver_sysvol=2)
     sid_b = store.save_estate(conn, Estate(domain="test.local", gpos=[gpo_b]))
 
     diff = snapshot_diff(conn, sid_a, sid_b)
@@ -281,12 +416,10 @@ def test_snapshot_diff_version_skew_resolved_direct(tmp_path):
     conn = sqlite3.connect(str(db))
     store.init_db(conn)
 
-    gpo_a = _make_gpo(id="gpo-alpha", name="Alpha",
-                      computer_ver_ds=1, computer_ver_sysvol=2)
+    gpo_a = _make_gpo(id="gpo-alpha", name="Alpha", computer_ver_ds=1, computer_ver_sysvol=2)
     sid_a = store.save_estate(conn, Estate(domain="test.local", gpos=[gpo_a]))
 
-    gpo_b = _make_gpo(id="gpo-alpha", name="Alpha",
-                      computer_ver_ds=2, computer_ver_sysvol=2)
+    gpo_b = _make_gpo(id="gpo-alpha", name="Alpha", computer_ver_ds=2, computer_ver_sysvol=2)
     sid_b = store.save_estate(conn, Estate(domain="test.local", gpos=[gpo_b]))
 
     diff = snapshot_diff(conn, sid_a, sid_b)
@@ -454,16 +587,34 @@ def test_snapshot_diff_links_changed_direct(tmp_path):
 
     from gpo_lens.model import GpoLink
 
-    gpo_a = _make_gpo(id="gpo-alpha", name="Alpha", links=[
-        GpoLink(gpo_id="gpo-alpha", som_name="test",
-                som_path="dc=test,dc=local", link_enabled=True, enforced=False),
-    ])
+    gpo_a = _make_gpo(
+        id="gpo-alpha",
+        name="Alpha",
+        links=[
+            GpoLink(
+                gpo_id="gpo-alpha",
+                som_name="test",
+                som_path="dc=test,dc=local",
+                link_enabled=True,
+                enforced=False,
+            ),
+        ],
+    )
     sid_a = store.save_estate(conn, Estate(domain="test.local", gpos=[gpo_a]))
 
-    gpo_b = _make_gpo(id="gpo-alpha", name="Alpha", links=[
-        GpoLink(gpo_id="gpo-alpha", som_name="test",
-                som_path="dc=test,dc=local", link_enabled=False, enforced=False),
-    ])
+    gpo_b = _make_gpo(
+        id="gpo-alpha",
+        name="Alpha",
+        links=[
+            GpoLink(
+                gpo_id="gpo-alpha",
+                som_name="test",
+                som_path="dc=test,dc=local",
+                link_enabled=False,
+                enforced=False,
+            ),
+        ],
+    )
     sid_b = store.save_estate(conn, Estate(domain="test.local", gpos=[gpo_b]))
 
     diff = snapshot_diff(conn, sid_a, sid_b)
@@ -484,18 +635,34 @@ def test_snapshot_diff_delegation_changed_direct(tmp_path):
 
     from gpo_lens.model import DelegationEntry
 
-    gpo_a = _make_gpo(id="gpo-alpha", name="Alpha", delegation=[
-        DelegationEntry(gpo_id="gpo-alpha", trustee="Authenticated Users",
-                        trustee_sid="S-1-5-11",
-                        permission="Apply Group Policy", allowed=True),
-    ])
+    gpo_a = _make_gpo(
+        id="gpo-alpha",
+        name="Alpha",
+        delegation=[
+            DelegationEntry(
+                gpo_id="gpo-alpha",
+                trustee="Authenticated Users",
+                trustee_sid="S-1-5-11",
+                permission="Apply Group Policy",
+                allowed=True,
+            ),
+        ],
+    )
     sid_a = store.save_estate(conn, Estate(domain="test.local", gpos=[gpo_a]))
 
-    gpo_b = _make_gpo(id="gpo-alpha", name="Alpha", delegation=[
-        DelegationEntry(gpo_id="gpo-alpha", trustee="Authenticated Users",
-                        trustee_sid="S-1-5-11",
-                        permission="Read", allowed=True),
-    ])
+    gpo_b = _make_gpo(
+        id="gpo-alpha",
+        name="Alpha",
+        delegation=[
+            DelegationEntry(
+                gpo_id="gpo-alpha",
+                trustee="Authenticated Users",
+                trustee_sid="S-1-5-11",
+                permission="Read",
+                allowed=True,
+            ),
+        ],
+    )
     sid_b = store.save_estate(conn, Estate(domain="test.local", gpos=[gpo_b]))
 
     diff = snapshot_diff(conn, sid_a, sid_b)
@@ -518,8 +685,7 @@ def test_load_row_sets_rejects_disallowed_table(tmp_path):
     conn = sqlite3.connect(str(db))
     store.init_db(conn)
     with pytest.raises(ValueError, match="unexpected table"):
-        _load_row_sets(conn, "evil_table", "side, cse, identity, display_value",
-                        1, [])
+        _load_row_sets(conn, "evil_table", "side, cse, identity, display_value", 1, [])
     conn.close()
 
 
@@ -563,25 +729,43 @@ def test_snapshot_diff_chunking_path(tmp_path, monkeypatch):
     store.init_db(conn)
 
     gpos_a = [
-        _make_gpo(id=f"gpo-{i:03d}", name=f"GPO-{i}",
-                  settings=[
-                      Setting(gpo_id=f"gpo-{i:03d}", side="Computer",
-                              cse="Registry", identity="HKLM\\X",
-                              display_name="X", display_value="old",
-                              raw={}, from_disabled_side=False),
-                  ])
+        _make_gpo(
+            id=f"gpo-{i:03d}",
+            name=f"GPO-{i}",
+            settings=[
+                Setting(
+                    gpo_id=f"gpo-{i:03d}",
+                    side="Computer",
+                    cse="Registry",
+                    identity="HKLM\\X",
+                    display_name="X",
+                    display_value="old",
+                    raw={},
+                    from_disabled_side=False,
+                ),
+            ],
+        )
         for i in range(5)
     ]
     sid_a = store.save_estate(conn, Estate(domain="test.local", gpos=gpos_a))
 
     gpos_b = [
-        _make_gpo(id=f"gpo-{i:03d}", name=f"GPO-{i}",
-                  settings=[
-                      Setting(gpo_id=f"gpo-{i:03d}", side="Computer",
-                              cse="Registry", identity="HKLM\\X",
-                              display_name="X", display_value="new",
-                              raw={}, from_disabled_side=False),
-                  ])
+        _make_gpo(
+            id=f"gpo-{i:03d}",
+            name=f"GPO-{i}",
+            settings=[
+                Setting(
+                    gpo_id=f"gpo-{i:03d}",
+                    side="Computer",
+                    cse="Registry",
+                    identity="HKLM\\X",
+                    display_name="X",
+                    display_value="new",
+                    raw={},
+                    from_disabled_side=False,
+                ),
+            ],
+        )
         for i in range(5)
     ]
     sid_b = store.save_estate(conn, Estate(domain="test.local", gpos=gpos_b))
@@ -590,7 +774,11 @@ def test_snapshot_diff_chunking_path(tmp_path, monkeypatch):
     conn.close()
 
     assert sorted(diff.settings_changed) == [
-        "gpo-000", "gpo-001", "gpo-002", "gpo-003", "gpo-004",
+        "gpo-000",
+        "gpo-001",
+        "gpo-002",
+        "gpo-003",
+        "gpo-004",
     ]
     assert len(chunk_calls) >= 3, (
         f"chunking path not exercised: expected >=3 chunks, got {chunk_calls}"

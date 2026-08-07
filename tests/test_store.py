@@ -86,9 +86,14 @@ def test_load_estate_round_trip_is_stable(tmp_path):
         name="RoundTrip",
         settings=[
             Setting(
-                gpo_id="gpo-1", side="Computer", cse="Security",
-                identity="X", display_name="X", display_value="1",
-                raw={}, from_disabled_side=False,
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Security",
+                identity="X",
+                display_name="X",
+                display_value="1",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
@@ -239,47 +244,70 @@ def test_snapshot_changelog_batched_query_shape(tmp_path):
     store.init_db(conn)
 
     gpo_alpha_a = _make_gpo(
-        id="gpo-alpha", name="Alpha",
-        computer_ver_ds=1, computer_ver_sysvol=1,
-        user_ver_ds=1, user_ver_sysvol=1,
+        id="gpo-alpha",
+        name="Alpha",
+        computer_ver_ds=1,
+        computer_ver_sysvol=1,
+        user_ver_ds=1,
+        user_ver_sysvol=1,
         settings=[
             Setting(
-                gpo_id="gpo-alpha", side="Computer", cse="Registry",
-                identity="HKLM\\Software\\Foo", display_name="Foo",
-                display_value="old", raw={}, from_disabled_side=False,
+                gpo_id="gpo-alpha",
+                side="Computer",
+                cse="Registry",
+                identity="HKLM\\Software\\Foo",
+                display_name="Foo",
+                display_value="old",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
     gpo_beta_a = _make_gpo(
-        id="gpo-beta", name="Beta",
-        computer_ver_ds=1, computer_ver_sysvol=1,
-        user_ver_ds=1, user_ver_sysvol=1,
+        id="gpo-beta",
+        name="Beta",
+        computer_ver_ds=1,
+        computer_ver_sysvol=1,
+        user_ver_ds=1,
+        user_ver_sysvol=1,
     )
-    sid_a = store.save_estate(
-        conn, Estate(domain="test.local", gpos=[gpo_alpha_a, gpo_beta_a])
-    )
+    sid_a = store.save_estate(conn, Estate(domain="test.local", gpos=[gpo_alpha_a, gpo_beta_a]))
 
     gpo_alpha_b = _make_gpo(
-        id="gpo-alpha", name="Alpha",
-        computer_ver_ds=2, computer_ver_sysvol=3,
-        user_ver_ds=1, user_ver_sysvol=1,
+        id="gpo-alpha",
+        name="Alpha",
+        computer_ver_ds=2,
+        computer_ver_sysvol=3,
+        user_ver_ds=1,
+        user_ver_sysvol=1,
         settings=[
             Setting(
-                gpo_id="gpo-alpha", side="Computer", cse="Registry",
-                identity="HKLM\\Software\\Foo", display_name="Foo",
-                display_value="new", raw={}, from_disabled_side=False,
+                gpo_id="gpo-alpha",
+                side="Computer",
+                cse="Registry",
+                identity="HKLM\\Software\\Foo",
+                display_name="Foo",
+                display_value="new",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
     gpo_beta_b = _make_gpo(
-        id="gpo-beta", name="Beta",
-        computer_ver_ds=1, computer_ver_sysvol=1,
-        user_ver_ds=2, user_ver_sysvol=2,
+        id="gpo-beta",
+        name="Beta",
+        computer_ver_ds=1,
+        computer_ver_sysvol=1,
+        user_ver_ds=2,
+        user_ver_sysvol=2,
     )
     gpo_gamma_b = _make_gpo(
-        id="gpo-gamma", name="Gamma",
-        computer_ver_ds=1, computer_ver_sysvol=1,
-        user_ver_ds=1, user_ver_sysvol=1,
+        id="gpo-gamma",
+        name="Gamma",
+        computer_ver_ds=1,
+        computer_ver_sysvol=1,
+        user_ver_ds=1,
+        user_ver_sysvol=1,
     )
     sid_b = store.save_estate(
         conn, Estate(domain="test.local", gpos=[gpo_alpha_b, gpo_beta_b, gpo_gamma_b])
@@ -344,24 +372,36 @@ def test_principals_and_group_members_round_trip(tmp_path):
 
     principals = {
         "s-1-5-21-1-2-3-1000": ResolvedPrincipal(
-            sid="s-1-5-21-1-2-3-1000", name="TEST\\GPO-Admins", sam="GPO-Admins",
-            principal_type="Group", domain="TEST", resolved=True,
+            sid="s-1-5-21-1-2-3-1000",
+            name="TEST\\GPO-Admins",
+            sam="GPO-Admins",
+            principal_type="Group",
+            domain="TEST",
+            resolved=True,
         ),
         "s-1-5-21-1-2-3-9999": ResolvedPrincipal(
-            sid="s-1-5-21-1-2-3-9999", name="s-1-5-21-1-2-3-9999", sam="",
-            principal_type="Unresolved", domain="", resolved=False,
+            sid="s-1-5-21-1-2-3-9999",
+            name="s-1-5-21-1-2-3-9999",
+            sam="",
+            principal_type="Unresolved",
+            domain="",
+            resolved=False,
         ),
     }
     group_members = {
         "s-1-5-21-1-2-3-1000": GroupMembership(
-            sid="s-1-5-21-1-2-3-1000", name="TEST\\GPO-Admins",
+            sid="s-1-5-21-1-2-3-1000",
+            name="TEST\\GPO-Admins",
             members=("s-1-5-21-1-2-3-1001", "s-1-5-21-1-2-3-1002"),
-            member_count=2, implicit="",
+            member_count=2,
+            implicit="",
         ),
     }
     estate_in = Estate(
-        domain="test.local", gpos=[_make_gpo()],
-        principals=principals, group_members=group_members,
+        domain="test.local",
+        gpos=[_make_gpo()],
+        principals=principals,
+        group_members=group_members,
     )
     sid = store.save_estate(conn, estate_in)
     out = store.load_estate(conn, sid)
@@ -371,7 +411,8 @@ def test_principals_and_group_members_round_trip(tmp_path):
     # the resolved name is what the danger/resultant surfaces depend on
     assert out.principals["s-1-5-21-1-2-3-1000"].name == "TEST\\GPO-Admins"
     assert out.group_members["s-1-5-21-1-2-3-1000"].members == (
-        "s-1-5-21-1-2-3-1001", "s-1-5-21-1-2-3-1002"
+        "s-1-5-21-1-2-3-1001",
+        "s-1-5-21-1-2-3-1002",
     )
 
 
@@ -400,12 +441,18 @@ def test_load_estate_corrupted_setting_raw_raises(tmp_path):
     store.init_db(conn)
 
     gpo = _make_gpo(
-        id="gpo-1", name="Corrupt",
+        id="gpo-1",
+        name="Corrupt",
         settings=[
             Setting(
-                gpo_id="gpo-1", side="Computer", cse="Registry",
-                identity="X", display_name="X", display_value="1",
-                raw={}, from_disabled_side=False,
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Registry",
+                identity="X",
+                display_name="X",
+                display_value="1",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
@@ -431,20 +478,23 @@ def test_load_estate_corrupted_group_members_raises(tmp_path):
     store.init_db(conn)
 
     gm = GroupMembership(
-        sid="s-1-5-21-1-2-3-1000", name="Test",
-        members=("s-1-5-21-1-2-3-1001",), member_count=1, implicit="",
+        sid="s-1-5-21-1-2-3-1000",
+        name="Test",
+        members=("s-1-5-21-1-2-3-1001",),
+        member_count=1,
+        implicit="",
     )
     sid = store.save_estate(
         conn,
         Estate(
-            domain="test.local", gpos=[_make_gpo()],
+            domain="test.local",
+            gpos=[_make_gpo()],
             group_members={"s-1-5-21-1-2-3-1000": gm},
         ),
     )
 
     conn.execute(
-        "UPDATE group_member SET members = 'not-valid-json' "
-        "WHERE snapshot_id = ? AND sid = ?",
+        "UPDATE group_member SET members = 'not-valid-json' WHERE snapshot_id = ? AND sid = ?",
         (sid, "s-1-5-21-1-2-3-1000"),
     )
     conn.commit()
@@ -476,14 +526,26 @@ def test_delete_snapshot_cascades_and_reports(tmp_path):
     store.init_db(conn)
     s1 = store.save_estate(
         conn,
-        Estate(domain="a.local", gpos=[_make_gpo(
-            id="gpo-a",
-            settings=[Setting(
-                gpo_id="gpo-a", side="Computer", cse="Registry",
-                identity="HKLM\\X:V", display_name="V", display_value="1", raw={},
-                from_disabled_side=False,
-            )],
-        )]),
+        Estate(
+            domain="a.local",
+            gpos=[
+                _make_gpo(
+                    id="gpo-a",
+                    settings=[
+                        Setting(
+                            gpo_id="gpo-a",
+                            side="Computer",
+                            cse="Registry",
+                            identity="HKLM\\X:V",
+                            display_name="V",
+                            display_value="1",
+                            raw={},
+                            from_disabled_side=False,
+                        )
+                    ],
+                )
+            ],
+        ),
     )
     s2 = store.save_estate(conn, Estate(domain="b.local", gpos=[_make_gpo(id="gpo-b")]))
 
@@ -492,7 +554,8 @@ def test_delete_snapshot_cascades_and_reports(tmp_path):
     # cascade: no child rows survive for the deleted snapshot
     for table in ("gpo", "setting", "gpo_link", "delegation", "som", "som_link"):
         n = conn.execute(
-            f"SELECT COUNT(*) FROM {table} WHERE snapshot_id=?", (s2,)  # noqa: S608
+            f"SELECT COUNT(*) FROM {table} WHERE snapshot_id=?",
+            (s2,),  # noqa: S608
         ).fetchone()[0]
         assert n == 0, table
     # deleting a non-existent snapshot is a no-op that reports False
@@ -575,9 +638,14 @@ def test_hyphenated_gpo_id_round_trips_through_db(tmp_path):
         name="Old Estate GPO",
         settings=[
             Setting(
-                gpo_id=_HYPHEN_ID, side="Computer", cse="Security",
-                identity="X", display_name="X", display_value="1",
-                raw={}, from_disabled_side=False,
+                gpo_id=_HYPHEN_ID,
+                side="Computer",
+                cse="Security",
+                identity="X",
+                display_name="X",
+                display_value="1",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )

@@ -87,9 +87,7 @@ _POSTURE_CATEGORY: dict[str, str] = {
 }
 
 
-async def stream_upload_to_file(
-    file: UploadFile, dest: Path, max_bytes: int
-) -> bool:
+async def stream_upload_to_file(file: UploadFile, dest: Path, max_bytes: int) -> bool:
     """Stream upload to disk. Returns True if size limit exceeded."""
     total = 0
     with open(dest, "wb") as out:
@@ -131,9 +129,7 @@ def sanitize_question(raw: str) -> str:
     """Strip control characters and truncate user question to limit injection risk."""
     # Remove newlines (delimiter breakout vector), null bytes, and other control chars.
     # Tab (\t) is kept because it cannot break delimiter framing.
-    cleaned = "".join(
-        ch for ch in raw if (ord(ch) >= 32 or ch == "\t") and ch not in ("\n", "\r")
-    )
+    cleaned = "".join(ch for ch in raw if (ord(ch) >= 32 or ch == "\t") and ch not in ("\n", "\r"))
     return cleaned[:_MAX_QUESTION_LEN]
 
 
@@ -208,14 +204,18 @@ def paginate_total(
     offset = (page - 1) * per_page
     if total_pages <= 1:
         return page, offset, None
-    return page, offset, {
-        "page": page,
-        "per_page_raw": per_page_raw,
-        "total": total,
-        "total_pages": total_pages,
-        "has_prev": page > 1,
-        "has_next": page < total_pages,
-    }
+    return (
+        page,
+        offset,
+        {
+            "page": page,
+            "per_page_raw": per_page_raw,
+            "total": total,
+            "total_pages": total_pages,
+            "has_prev": page > 1,
+            "has_next": page < total_pages,
+        },
+    )
 
 
 def base_qs(request: Request, *strip: str) -> str:
@@ -238,8 +238,7 @@ def filter_findings(
     result = findings
     if category:
         result = [
-            f for f in result
-            if f.category == category or f.category.startswith(category + ":")
+            f for f in result if f.category == category or f.category.startswith(category + ":")
         ]
     if severity and severity != "all":
         wanted = {s.strip() for s in severity.split(",") if s.strip()}
@@ -248,7 +247,8 @@ def filter_findings(
     if q:
         needle = q.lower()
         result = [
-            f for f in result
+            f
+            for f in result
             if needle in (f.gpo_name or "").lower() or needle in (f.summary or "").lower()
         ]
     if sort == "gpo":
@@ -267,9 +267,7 @@ def filter_findings(
     return result
 
 
-def filter_soms(
-    soms: list[Any], q: str, type_filter: str, sort: str
-) -> list[Any]:
+def filter_soms(soms: list[Any], q: str, type_filter: str, sort: str) -> list[Any]:
     """Apply type filter, text search, and sort to a SOM list.
 
     Search is a case-insensitive substring match over both ``som.name`` and
@@ -283,18 +281,14 @@ def filter_soms(
     if q:
         needle = q.lower()
         result = [
-            s for s in result
-            if needle in (s.name or "").lower()
-            or needle in (s.path or "").lower()
+            s
+            for s in result
+            if needle in (s.name or "").lower() or needle in (s.path or "").lower()
         ]
     if sort == "links":
-        result = sorted(
-            result, key=lambda s: (-len(s.links), (s.name or "").lower())
-        )
+        result = sorted(result, key=lambda s: (-len(s.links), (s.name or "").lower()))
     elif sort == "type":
-        result = sorted(
-            result, key=lambda s: (s.container_type, (s.name or "").lower())
-        )
+        result = sorted(result, key=lambda s: (s.container_type, (s.name or "").lower()))
     else:
         result = sorted(result, key=lambda s: (s.name or "").lower())
     return result
@@ -316,27 +310,22 @@ def filter_gpos(gpos: list[Any], q: str, status: str, sort: str) -> list[Any]:
     elif status == "empty":
         result = [g for g in result if not g.settings]
     elif status == "disabled":
-        result = [
-            g for g in result if not g.computer_enabled and not g.user_enabled
-        ]
+        result = [g for g in result if not g.computer_enabled and not g.user_enabled]
     q = (q or "")[:_MAX_SEARCH_LEN]
     if q:
         needle = q.lower()
         result = [
-            g for g in result
-            if needle in (g.name or "").lower() or needle in (g.id or "").lower()
+            g for g in result if needle in (g.name or "").lower() or needle in (g.id or "").lower()
         ]
     if sort == "links":
         result = sorted(result, key=lambda g: (-len(g.links), (g.name or "").lower()))
     elif sort == "settings":
-        result = sorted(
-            result, key=lambda g: (-len(g.settings), (g.name or "").lower())
-        )
+        result = sorted(result, key=lambda g: (-len(g.settings), (g.name or "").lower()))
     elif sort == "modified":
         # Most-recent first; GPOs without a timestamp sort last.
         result = sorted(
             result,
-            key=lambda g: (g.modified.timestamp() if g.modified else float("-inf")),
+            key=lambda g: g.modified.timestamp() if g.modified else float("-inf"),
             reverse=True,
         )
     else:
@@ -360,7 +349,8 @@ def filter_settings(items: list[Any], q: str, cse: str) -> list[Any]:
     if q:
         needle = q.lower()
         result = [
-            s for s in result
+            s
+            for s in result
             if needle in (s.identity or "").lower()
             or needle in (s.display_name or "").lower()
             or needle in (s.display_value or "").lower()
@@ -393,9 +383,7 @@ def csv_sanitize_cell(value: Any) -> Any:
     return value
 
 
-def csv_response(
-    rows: list[list[Any]], header: list[str], filename: str
-) -> StreamingResponse:
+def csv_response(rows: list[list[Any]], header: list[str], filename: str) -> StreamingResponse:
     """Build a streaming CSV attachment from a list of row lists.
 
     All cells are run through :func:`csv_sanitize_cell` to neutralize CSV

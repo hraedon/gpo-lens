@@ -184,10 +184,14 @@ class TestFindingLifecycle:
                 "INSERT INTO snapshot (id, domain, taken_at) VALUES (2, 'test', '2025-01-02')"
             )
             # New delegation issue introduced
-            result = update_finding_lifecycle(conn, 2, [
-                _make_finding("cpassword", "gpo1"),
-                _make_finding("delegation", "gpo2", "medium"),
-            ])
+            result = update_finding_lifecycle(
+                conn,
+                2,
+                [
+                    _make_finding("cpassword", "gpo1"),
+                    _make_finding("delegation", "gpo2", "medium"),
+                ],
+            )
             assert result.new_count == 1
             assert result.persisting_count == 1
             assert result.resolved_count == 0
@@ -218,9 +222,9 @@ class TestFindingLifecycle:
                 _make_finding("delegation", "gpo4", "medium"),
             ]
             result = update_finding_lifecycle(conn, 2, findings_s2)
-            assert result.new_count == 1       # delegation
+            assert result.new_count == 1  # delegation
             assert result.persisting_count == 2  # ms16_072 + version_skew
-            assert result.resolved_count == 1    # cpassword
+            assert result.resolved_count == 1  # cpassword
         finally:
             conn.close()
 
@@ -276,7 +280,8 @@ class TestCoverageAwareResolution:
                 "INSERT INTO snapshot (id, domain, taken_at) VALUES (1, 'test', '2025-01-01')"
             )
             update_finding_lifecycle(
-                conn, 1,
+                conn,
+                1,
                 [_make_finding("cpassword", "gpo1"), _make_finding("ms16_072", "gpo2")],
             )
             conn.execute(
@@ -284,7 +289,9 @@ class TestCoverageAwareResolution:
             )
             # Complete re-scan (both GPOs collected) with cpassword gone → resolved.
             result = update_finding_lifecycle(
-                conn, 2, [_make_finding("ms16_072", "gpo2")],
+                conn,
+                2,
+                [_make_finding("ms16_072", "gpo2")],
                 collected_gpo_ids={"gpo1", "gpo2"},
                 coverage_complete=True,
             )
@@ -300,7 +307,8 @@ class TestCoverageAwareResolution:
                 "INSERT INTO snapshot (id, domain, taken_at) VALUES (1, 'test', '2025-01-01')"
             )
             update_finding_lifecycle(
-                conn, 1,
+                conn,
+                1,
                 [_make_finding("cpassword", "gpo1"), _make_finding("ms16_072", "gpo2")],
             )
             conn.execute(
@@ -309,7 +317,9 @@ class TestCoverageAwareResolution:
             # Partial collection: gpo1 was NOT collected (coverage gap), so its
             # cpassword finding is absent — but that is NOT evidence it is fixed.
             result = update_finding_lifecycle(
-                conn, 2, [_make_finding("ms16_072", "gpo2")],
+                conn,
+                2,
+                [_make_finding("ms16_072", "gpo2")],
                 collected_gpo_ids={"gpo2"},
                 coverage_complete=False,
             )
@@ -328,7 +338,8 @@ class TestCoverageAwareResolution:
                 "INSERT INTO snapshot (id, domain, taken_at) VALUES (1, 'test', '2025-01-01')"
             )
             update_finding_lifecycle(
-                conn, 1,
+                conn,
+                1,
                 [_make_finding("cpassword", "gpo1"), _make_finding("ms16_072", "gpo2")],
             )
             conn.execute(
@@ -337,7 +348,9 @@ class TestCoverageAwareResolution:
             # Partial elsewhere, but gpo1 WAS collected and its finding is gone →
             # genuinely resolved; gpo2 not collected → its finding stays active.
             result = update_finding_lifecycle(
-                conn, 2, [],
+                conn,
+                2,
+                [],
                 collected_gpo_ids={"gpo1"},
                 coverage_complete=False,
             )
@@ -356,13 +369,17 @@ class TestCoverageAwareResolution:
             )
             # Estate-level finding (empty gpo_id), e.g. topology_discrepancy.
             update_finding_lifecycle(
-                conn, 1, [_make_finding("topology_discrepancy", "", summary="ou mismatch")],
+                conn,
+                1,
+                [_make_finding("topology_discrepancy", "", summary="ou mismatch")],
             )
             conn.execute(
                 "INSERT INTO snapshot (id, domain, taken_at) VALUES (2, 'test', '2025-01-02')"
             )
             result = update_finding_lifecycle(
-                conn, 2, [],
+                conn,
+                2,
+                [],
                 collected_gpo_ids={"gpo1"},
                 coverage_complete=False,
             )
@@ -394,10 +411,7 @@ class TestSchemaMigration:
             assert "finding" in tables
             assert "finding_triage" in tables
             # Verify version bumped
-            assert (
-                conn.execute("PRAGMA user_version").fetchone()[0]
-                == store.CURRENT_SCHEMA_VERSION
-            )
+            assert conn.execute("PRAGMA user_version").fetchone()[0] == store.CURRENT_SCHEMA_VERSION
         finally:
             conn.close()
 
@@ -416,14 +430,9 @@ class TestSchemaMigration:
                 "resolved_in_snapshot INTEGER, predecessor_id INTEGER)"
             )
             init_db(conn)
-            columns = {
-                row[1] for row in conn.execute("PRAGMA table_info(finding)").fetchall()
-            }
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(finding)").fetchall()}
             assert {"detail", "remediation"} <= columns
-            assert (
-                conn.execute("PRAGMA user_version").fetchone()[0]
-                == store.CURRENT_SCHEMA_VERSION
-            )
+            assert conn.execute("PRAGMA user_version").fetchone()[0] == store.CURRENT_SCHEMA_VERSION
         finally:
             conn.close()
 

@@ -1,4 +1,5 @@
 """CLI subcommands for GPO settings inspection (search, who-sets, settings-dump, etc.)."""
+
 from __future__ import annotations
 
 import argparse
@@ -31,8 +32,7 @@ def cmd_who_sets(args: argparse.Namespace) -> None:
         _print_table(
             ["gpo_id", "gpo_name", "cse", "identity", "display_value"],
             [
-                [s.gpo_id, name_map.get(s.gpo_id, ""), s.cse,
-                 s.identity, s.display_value]
+                [s.gpo_id, name_map.get(s.gpo_id, ""), s.cse, s.identity, s.display_value]
                 for s in result
             ],
         )
@@ -49,9 +49,7 @@ def cmd_conflicts(args: argparse.Namespace) -> None:
                     "side": c.side,
                     "identity": c.identity,
                     "display_name": c.display_name,
-                    "entries": [
-                        {"gpo_id": gid, "display_value": val} for gid, val in c.entries
-                    ],
+                    "entries": [{"gpo_id": gid, "display_value": val} for gid, val in c.entries],
                 }
                 for c in result
             ]
@@ -68,8 +66,9 @@ def cmd_search(args: argparse.Namespace) -> None:
     estate = _get_estate(args)
     results = queries.search(estate, args.term, scope=args.scope)
     if args.json:
-        _render_json([{"gpo_id": r.gpo_id, "field": r.match_field,
-                        "detail": r.detail} for r in results])
+        _render_json(
+            [{"gpo_id": r.gpo_id, "field": r.match_field, "detail": r.detail} for r in results]
+        )
     else:
         for r in results:
             print(f"{r.gpo_id}\t{r.gpo_name}\t{r.match_field}\t{r.detail}")
@@ -87,21 +86,27 @@ def cmd_show(args: argparse.Namespace) -> None:
         print(f"GPO {target} not found", file=sys.stderr)
         return
     if args.json or args.format == "json":
-        _render_json({
-            "id": gpo.id,
-            "name": gpo.name,
-            "domain": gpo.domain,
-            "description": gpo.description,
-            "computer_enabled": gpo.computer_enabled,
-            "user_enabled": gpo.user_enabled,
-            "links": [
-                {"som_name": link.som_name, "som_path": link.som_path,
-                 "enabled": link.link_enabled, "enforced": link.enforced}
-                for link in gpo.links
-            ],
-            "settings_count": len(gpo.settings),
-            "delegation_count": len(gpo.delegation),
-        })
+        _render_json(
+            {
+                "id": gpo.id,
+                "name": gpo.name,
+                "domain": gpo.domain,
+                "description": gpo.description,
+                "computer_enabled": gpo.computer_enabled,
+                "user_enabled": gpo.user_enabled,
+                "links": [
+                    {
+                        "som_name": link.som_name,
+                        "som_path": link.som_path,
+                        "enabled": link.link_enabled,
+                        "enforced": link.enforced,
+                    }
+                    for link in gpo.links
+                ],
+                "settings_count": len(gpo.settings),
+                "delegation_count": len(gpo.delegation),
+            }
+        )
     else:
         print(f"GPO: {gpo.name} ({gpo.id})")
         print(f"  Domain: {gpo.domain}")
@@ -118,25 +123,25 @@ def cmd_settings_at(args: argparse.Namespace) -> None:
     result = queries.settings_at_som(estate, args.som_path)
     caveats = queries.scope_caveats(estate, args.som_path)
     if args.json:
-        _render_json({
-            "settings": [
-                {
-                    "cse": r.cse,
-                    "side": r.side,
-                    "identity": r.identity,
-                    "display_name": r.display_name,
-                    "display_value": r.display_value,
-                    "winner_gpo_id": r.winner_gpo_id,
-                    "winner_gpo_name": r.winner_gpo_name,
-                    "overridden_by": [
-                        {"gpo_name": n, "value": v} for n, v in r.overridden_by
-                    ],
-                    "enforced": r.enforced,
-                }
-                for r in result
-            ],
-            "caveats": caveats,
-        })
+        _render_json(
+            {
+                "settings": [
+                    {
+                        "cse": r.cse,
+                        "side": r.side,
+                        "identity": r.identity,
+                        "display_name": r.display_name,
+                        "display_value": r.display_value,
+                        "winner_gpo_id": r.winner_gpo_id,
+                        "winner_gpo_name": r.winner_gpo_name,
+                        "overridden_by": [{"gpo_name": n, "value": v} for n, v in r.overridden_by],
+                        "enforced": r.enforced,
+                    }
+                    for r in result
+                ],
+                "caveats": caveats,
+            }
+        )
     else:
         if not result:
             print(f"No effective settings at {args.som_path}")
@@ -187,12 +192,9 @@ def cmd_som_conflicts(args: argparse.Namespace) -> None:
         rows: list[Sequence[str]] = []
         for c in result:
             for name, value, status in c.entries:
-                rows.append(
-                    [c.som_path, c.cse, c.side, c.identity, name, value, status]
-                )
+                rows.append([c.som_path, c.cse, c.side, c.identity, name, value, status])
         _print_table(
-            ["som_path", "cse", "side", "identity",
-             "gpo_name", "value", "status"],
+            ["som_path", "cse", "side", "identity", "gpo_name", "value", "status"],
             rows,
         )
 
@@ -215,8 +217,7 @@ def cmd_precedence_conflicts(args: argparse.Namespace) -> None:
                             "display_name": c.display_name,
                             "winner": c.winner,
                             "entries": [
-                                {"gpo_name": n, "value": v, "status": s}
-                                for n, v, s in c.entries
+                                {"gpo_name": n, "value": v, "status": s} for n, v, s in c.entries
                             ],
                         }
                         for c in conflicts
@@ -238,13 +239,9 @@ def cmd_precedence_conflicts(args: argparse.Namespace) -> None:
         for som, conflicts in result:
             for c in conflicts:
                 for name, value, status in c.entries:
-                    rows.append(
-                        [som.path, c.cse, c.side, c.identity,
-                         name, value, status]
-                    )
+                    rows.append([som.path, c.cse, c.side, c.identity, name, value, status])
         _print_table(
-            ["som_path", "cse", "side", "identity",
-             "gpo_name", "value", "status"],
+            ["som_path", "cse", "side", "identity", "gpo_name", "value", "status"],
             rows,
         )
 
@@ -258,42 +255,8 @@ def cmd_settings_dump(args: argparse.Namespace) -> None:
         gpo_name=getattr(args, "gpo_name", None),
     )
     if args.json:
-        _render_json([
-            {
-                "gpo_id": r.gpo_id,
-                "gpo_name": r.gpo_name,
-                "side": r.side,
-                "cse": r.cse,
-                "identity": r.identity,
-                "display_name": r.display_name,
-                "display_value": r.display_value,
-                "from_disabled_side": r.from_disabled_side,
-                "source_state": r.source_state,
-            }
-            for r in results
-        ])
-    else:
-        _print_table(
-            ["gpo_id", "gpo_name", "side", "cse", "identity", "value"],
+        _render_json(
             [
-                [r.gpo_id, r.gpo_name, r.side, r.cse, r.identity, r.display_value]
-                for r in results
-            ],
-        )
-
-
-def cmd_settings_diff(args: argparse.Namespace) -> None:
-    result = queries.settings_diff(
-        args.file_a, args.file_b,
-        side=getattr(args, "side", None),
-        cse=getattr(args, "cse", None),
-        gpo_id=getattr(args, "gpo_id", None),
-    )
-    skipped = getattr(result, "skipped_count", 0)
-    if args.json:
-        _render_json({
-            "skipped": skipped,
-            "changes": [
                 {
                     "gpo_id": r.gpo_id,
                     "gpo_name": r.gpo_name,
@@ -301,13 +264,49 @@ def cmd_settings_diff(args: argparse.Namespace) -> None:
                     "cse": r.cse,
                     "identity": r.identity,
                     "display_name": r.display_name,
-                    "change_type": r.change_type,
-                    "old_value": r.old_value,
-                    "new_value": r.new_value,
+                    "display_value": r.display_value,
+                    "from_disabled_side": r.from_disabled_side,
+                    "source_state": r.source_state,
                 }
-                for r in result
-            ],
-        })
+                for r in results
+            ]
+        )
+    else:
+        _print_table(
+            ["gpo_id", "gpo_name", "side", "cse", "identity", "value"],
+            [[r.gpo_id, r.gpo_name, r.side, r.cse, r.identity, r.display_value] for r in results],
+        )
+
+
+def cmd_settings_diff(args: argparse.Namespace) -> None:
+    result = queries.settings_diff(
+        args.file_a,
+        args.file_b,
+        side=getattr(args, "side", None),
+        cse=getattr(args, "cse", None),
+        gpo_id=getattr(args, "gpo_id", None),
+    )
+    skipped = getattr(result, "skipped_count", 0)
+    if args.json:
+        _render_json(
+            {
+                "skipped": skipped,
+                "changes": [
+                    {
+                        "gpo_id": r.gpo_id,
+                        "gpo_name": r.gpo_name,
+                        "side": r.side,
+                        "cse": r.cse,
+                        "identity": r.identity,
+                        "display_name": r.display_name,
+                        "change_type": r.change_type,
+                        "old_value": r.old_value,
+                        "new_value": r.new_value,
+                    }
+                    for r in result
+                ],
+            }
+        )
     else:
         if not result:
             print("No differences found.")
@@ -349,10 +348,7 @@ def cmd_admx_gaps(args: argparse.Namespace) -> None:
         else:
             _print_table(
                 ["gpo_id", "gpo_name", "side", "key_path", "value_name"],
-                [
-                    [r.gpo_id, r.gpo_name, r.side, r.key_path, r.value_name]
-                    for r in result
-                ],
+                [[r.gpo_id, r.gpo_name, r.side, r.key_path, r.value_name] for r in result],
             )
 
 
@@ -362,12 +358,15 @@ def cmd_admx_coverage(args: argparse.Namespace) -> None:
     report = queries.admx_coverage(estate, admx)
     if args.json:
         import dataclasses
-        _render_json({
-            "summary": dataclasses.asdict(report.summary),
-            "referenced": [dataclasses.asdict(e) for e in report.referenced],
-            "unreferenced": [dataclasses.asdict(e) for e in report.unreferenced],
-            "gaps": [dataclasses.asdict(e) for e in report.gaps],
-        })
+
+        _render_json(
+            {
+                "summary": dataclasses.asdict(report.summary),
+                "referenced": [dataclasses.asdict(e) for e in report.referenced],
+                "unreferenced": [dataclasses.asdict(e) for e in report.unreferenced],
+                "gaps": [dataclasses.asdict(e) for e in report.gaps],
+            }
+        )
     else:
         s = report.summary
         print("ADMX Coverage")
@@ -391,8 +390,5 @@ def cmd_admx_coverage(args: argparse.Namespace) -> None:
             print("--- Referenced Policies ---")
             _print_table(
                 ["Policy Name", "Display Name", "GPOs"],
-                [
-                    [e.policy_name, e.display_name, e.referenced_gpos]
-                    for e in report.referenced
-                ],
+                [[e.policy_name, e.display_name, e.referenced_gpos] for e in report.referenced],
             )

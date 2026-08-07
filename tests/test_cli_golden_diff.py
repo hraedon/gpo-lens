@@ -1,4 +1,5 @@
 """Direct-call CLI tests for the golden-diff subcommand."""
+
 from __future__ import annotations
 
 import json
@@ -15,13 +16,23 @@ GPO_B = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 
 def _make_gpo(gpo_id: str, name: str, settings: list[Setting] | None = None) -> Gpo:
     return Gpo(
-        id=gpo_id, name=name, domain="test.local",
-        created=None, modified=None, read=None,
-        computer_enabled=True, user_enabled=True,
-        computer_ver_ds=None, computer_ver_sysvol=None,
-        user_ver_ds=None, user_ver_sysvol=None,
-        sddl=None, owner=None, filter_data_available=False,
-        wmi_filter=None, sysvol_path=None,
+        id=gpo_id,
+        name=name,
+        domain="test.local",
+        created=None,
+        modified=None,
+        read=None,
+        computer_enabled=True,
+        user_enabled=True,
+        computer_ver_ds=None,
+        computer_ver_sysvol=None,
+        user_ver_ds=None,
+        user_ver_sysvol=None,
+        sddl=None,
+        owner=None,
+        filter_data_available=False,
+        wmi_filter=None,
+        sysvol_path=None,
         settings=settings or [],
     )
 
@@ -35,7 +46,10 @@ def _make_setting(
     display_name: str = "",
 ) -> Setting:
     return Setting(
-        gpo_id=gpo_id, side=side, cse=cse, identity=identity,
+        gpo_id=gpo_id,
+        side=side,
+        cse=cse,
+        identity=identity,
         display_name=display_name or identity,
         display_value=value,
         raw={},
@@ -80,8 +94,10 @@ def _make_golden_estate() -> Estate:
     ]
     settings_c = [
         _make_setting(
-            "cccccccccccccccccccccccccccccccc", "User",
-            "HKCU\\Software\\Example\\Value", "v",
+            "cccccccccccccccccccccccccccccccc",
+            "User",
+            "HKCU\\Software\\Example\\Value",
+            "v",
         ),
     ]
     gpos = [

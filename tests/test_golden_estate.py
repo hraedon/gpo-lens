@@ -33,14 +33,14 @@ GOLDEN_DIR = Path(__file__).resolve().parent / "golden_estate"
 
 # Canonical GUIDs (lowercase, braces and hyphens stripped — the contract key)
 G = {
-    "v2task":    "aaaaaaaa000100010001aaaaaaaaaaaa",
+    "v2task": "aaaaaaaa000100010001aaaaaaaaaaaa",
     "cpassword": "aaaaaaaa000200020002aaaaaaaaaaaa",
-    "blocked":   "aaaaaaaa000300030003aaaaaaaaaaaa",
-    "secfilt":   "aaaaaaaa000400040004aaaaaaaaaaaa",
-    "wmifilt":   "aaaaaaaa000500050005aaaaaaaaaaaa",
-    "invonly":   "aaaaaaaa000600060006aaaaaaaaaaaa",
-    "collerr":   "aaaaaaaa000700070007aaaaaaaaaaaa",
-    "drives":    "aaaaaaaa000800080008aaaaaaaaaaaa",
+    "blocked": "aaaaaaaa000300030003aaaaaaaaaaaa",
+    "secfilt": "aaaaaaaa000400040004aaaaaaaaaaaa",
+    "wmifilt": "aaaaaaaa000500050005aaaaaaaaaaaa",
+    "invonly": "aaaaaaaa000600060006aaaaaaaaaaaa",
+    "collerr": "aaaaaaaa000700070007aaaaaaaaaaaa",
+    "drives": "aaaaaaaa000800080008aaaaaaaaaaaa",
 }
 
 
@@ -54,6 +54,7 @@ def golden_estate() -> Estate:
 # AC-1: All GPOs are ingested — count matches expected
 # ===========================================================================
 
+
 class TestIngestCount:
     """6 GPOs in AllGPOs.xml; the 7th (invonly) is inventory-only → coverage gap."""
 
@@ -63,8 +64,12 @@ class TestIngestCount:
     def test_all_six_ids_present(self, golden_estate: Estate) -> None:
         ingested_ids = {g.id for g in golden_estate.gpos}
         expected = {
-            G["v2task"], G["cpassword"], G["blocked"],
-            G["secfilt"], G["wmifilt"], G["drives"],
+            G["v2task"],
+            G["cpassword"],
+            G["blocked"],
+            G["secfilt"],
+            G["wmifilt"],
+            G["drives"],
         }
         assert ingested_ids == expected
 
@@ -75,6 +80,7 @@ class TestIngestCount:
 # ===========================================================================
 # AC-2: V2 scheduled task command is parsed from nested <Exec>
 # ===========================================================================
+
 
 class TestV2ScheduledTask:
     """The V2 ImmediateTaskV2 uses <Properties><Task><Actions><Exec><Command>
@@ -90,9 +96,7 @@ class TestV2ScheduledTask:
 
         # The V2 task — command from nested <Exec>
         v2 = next(t for t in tasks if t.kind == "ImmediateTaskV2")
-        assert v2.command == "tzutil.exe", (
-            f"V2 command should be 'tzutil.exe', got {v2.command!r}"
-        )
+        assert v2.command == "tzutil.exe", f"V2 command should be 'tzutil.exe', got {v2.command!r}"
         assert v2.arguments == '/s "UTC"', (
             f"V2 arguments should be '/s \"UTC\"', got {v2.arguments!r}"
         )
@@ -121,6 +125,7 @@ class TestV2ScheduledTask:
 # ===========================================================================
 # AC-3: Cpassword is detected (WI-013) — from nested Groups/Groups.xml
 # ===========================================================================
+
 
 class TestCpasswordDetection:
     """cpassword_scan / estate_doctor finds the cpassword in the nested
@@ -158,6 +163,7 @@ class TestCpasswordDetection:
 # AC-4: Registry.pol is parsed — <Blocked/> resolved from PReg binary
 # ===========================================================================
 
+
 class TestBlockedRegistryResolution:
     """The <Blocked/> GPO's settings are resolved from the PReg binary file,
     not left as opaque <Blocked/> placeholders."""
@@ -178,8 +184,7 @@ class TestBlockedRegistryResolution:
         assert gpo is not None
         blocked = [s for s in gpo.settings if s.source_state == "blocked"]
         assert len(blocked) == 0, (
-            "Blocked placeholder should have been replaced"
-            " by Registry.pol records"
+            "Blocked placeholder should have been replaced by Registry.pol records"
         )
 
     def test_registry_pol_values(self, golden_estate: Estate) -> None:
@@ -206,6 +211,7 @@ class TestBlockedRegistryResolution:
 # AC-5: Security-filtered GPO is flagged
 # ===========================================================================
 
+
 class TestSecurityFiltering:
     """is_security_filtered returns True for the narrowed GPO."""
 
@@ -229,6 +235,7 @@ class TestSecurityFiltering:
 # ===========================================================================
 # AC-6: Nested layout works — file paths use nested-subfolder format
 # ===========================================================================
+
 
 class TestNestedLayoutPaths:
     """All GPP findings come from nested-subfolder paths (e.g.
@@ -265,6 +272,7 @@ class TestNestedLayoutPaths:
 # ===========================================================================
 # AC-7: Coverage gap is surfaced — not a crash
 # ===========================================================================
+
 
 class TestCoverageGap:
     """The empty/unreadable policy folder generates a coverage_gap finding,
@@ -303,6 +311,7 @@ class TestCoverageGap:
 # Bonus structural checks
 # ===========================================================================
 
+
 class TestStructural:
     """Cross-cutting structural assertions."""
 
@@ -333,9 +342,7 @@ class TestStructural:
     def test_all_gpos_have_sysvol_path(self, golden_estate: Estate) -> None:
         """Every ingested GPO should have a sysvol_path attached."""
         for gpo in golden_estate.gpos:
-            assert gpo.sysvol_path is not None, (
-                f"GPO {gpo.name} ({gpo.id}) has no sysvol_path"
-            )
+            assert gpo.sysvol_path is not None, f"GPO {gpo.name} ({gpo.id}) has no sysvol_path"
 
     def test_description_round_trips(self, golden_estate: Estate) -> None:
         """GPO cpassword carries a <Description>; it must round-trip."""
@@ -362,6 +369,7 @@ class TestStructural:
 # AC-8: Drive mappings GPO — Drives.xml with UNC paths
 # ===========================================================================
 
+
 class TestDriveMappings:
     """The drives GPO carries USER-side Drive Maps settings parsed from
     Drives.xml.  The broken_refs scanner must surface UNC paths as
@@ -385,9 +393,9 @@ class TestDriveMappings:
         """
         findings = estate_doctor(golden_estate)
         drive_refs = [
-            f for f in findings
-            if f.category == "broken_ref:drive_mapping_unc"
-            and f.gpo_id == G["drives"]
+            f
+            for f in findings
+            if f.category == "broken_ref:drive_mapping_unc" and f.gpo_id == G["drives"]
         ]
         assert len(drive_refs) >= 3, (
             f"Expected >= 3 drive_mapping_unc findings, got {len(drive_refs)}"
@@ -405,9 +413,7 @@ class TestDriveMappings:
         """
         refs = broken_refs(golden_estate)
         drive_refs = [
-            r for r in refs
-            if r.ref_type == "drive_mapping_unc"
-            and r.gpo_id == G["drives"]
+            r for r in refs if r.ref_type == "drive_mapping_unc" and r.gpo_id == G["drives"]
         ]
         assert len(drive_refs) == 4
         ref_values = {r.ref_value for r in drive_refs}
@@ -434,6 +440,7 @@ class TestDriveMappings:
 # AC-9: ILT (FilterOrgUnit) detection
 # ===========================================================================
 
+
 class TestILTDetection:
     """scan_ilt detects the FilterOrgUnit targeting filter in Drives.xml."""
 
@@ -441,9 +448,7 @@ class TestILTDetection:
         """scan_ilt should find the FilterOrgUnit in the drives GPO."""
         hits = scan_ilt(golden_estate)
         drives_hits = [h for h in hits if h.gpo_id == G["drives"]]
-        assert len(drives_hits) == 1, (
-            f"Expected 1 ILT hit for drives GPO, got {len(drives_hits)}"
-        )
+        assert len(drives_hits) == 1, f"Expected 1 ILT hit for drives GPO, got {len(drives_hits)}"
         hit = drives_hits[0]
         assert "FilterOrgUnit" in hit.filter_types, (
             f"Expected FilterOrgUnit in filter_types, got {hit.filter_types}"
@@ -455,17 +460,12 @@ class TestILTDetection:
         drives_hits = [h for h in hits if h.gpo_id == G["drives"]]
         assert len(drives_hits) == 1
         hit = drives_hits[0]
-        assert "Drives/Drives.xml" in hit.files[0], (
-            f"Expected nested Drives path, got {hit.files}"
-        )
+        assert "Drives/Drives.xml" in hit.files[0], f"Expected nested Drives path, got {hit.files}"
 
     def test_ilt_in_doctor(self, golden_estate: Estate) -> None:
         """The doctor should surface the ILT finding."""
         findings = estate_doctor(golden_estate)
-        ilt_findings = [
-            f for f in findings
-            if f.category == "ilt_gpo" and f.gpo_id == G["drives"]
-        ]
+        ilt_findings = [f for f in findings if f.category == "ilt_gpo" and f.gpo_id == G["drives"]]
         assert len(ilt_findings) == 1, (
             f"Expected 1 ilt_gpo finding for drives GPO, got {len(ilt_findings)}"
         )
@@ -474,6 +474,7 @@ class TestILTDetection:
 # ===========================================================================
 # AC-10: Printers.xml — UNC path exercised
 # ===========================================================================
+
 
 class TestPrintersPreference:
     """The drives GPO also carries a Printers.xml with a UNC printer path."""
@@ -488,9 +489,7 @@ class TestPrintersPreference:
         """
         refs = broken_refs(golden_estate)
         printer_refs = [
-            r for r in refs
-            if r.gpo_id == G["drives"]
-            and "printserver" in r.ref_value.lower()
+            r for r in refs if r.gpo_id == G["drives"] and "printserver" in r.ref_value.lower()
         ]
         assert len(printer_refs) >= 1, (
             f"Expected >= 1 broken ref for printer UNC, got {len(printer_refs)}. "

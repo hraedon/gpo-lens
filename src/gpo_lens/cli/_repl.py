@@ -1,4 +1,5 @@
 """CLI subcommand: interactive Python REPL."""
+
 from __future__ import annotations
 
 import argparse

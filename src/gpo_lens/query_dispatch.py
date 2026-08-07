@@ -44,8 +44,7 @@ _QUERIES: dict[str, QuerySpec] = {
         name="estate_doctor",
         func=lambda **kw: queries.estate_doctor(kw["estate"]),
         description=(
-            "Health and hygiene findings across GPOs "
-            "(cpassword, version skew, broken refs, etc.)"
+            "Health and hygiene findings across GPOs (cpassword, version skew, broken refs, etc.)"
         ),
     ),
     "cpassword_scan": QuerySpec(
@@ -110,7 +109,7 @@ _QUERIES: dict[str, QuerySpec] = {
         func=lambda **kw: queries.effective_scope(kw["estate"], kw["gpo_id"]),
         description=(
             "Effective scoping for a single GPO: links, security filtering, "
-            "WMI filter, loopback (requires param: \"gpo_id\")"
+            'WMI filter, loopback (requires param: "gpo_id")'
         ),
         required_params=["gpo_id"],
         param_validators={"gpo_id": str},
@@ -149,7 +148,7 @@ _QUERIES: dict[str, QuerySpec] = {
         ),
         description=(
             "Principal resultant (RSoP) — effective policy for a given principal SID "
-            "from the static snapshot (requires param: \"principal_sid\")"
+            'from the static snapshot (requires param: "principal_sid")'
         ),
         required_params=["principal_sid"],
         optional_params=["computer_sid", "dn", "computer_dn"],
@@ -178,11 +177,10 @@ _QUERIES: dict[str, QuerySpec] = {
     "admx_coverage": QuerySpec(
         name="admx_coverage",
         func=lambda **kw: queries.admx_coverage(
-            kw["estate"], admx=kw.get("admx"),
+            kw["estate"],
+            admx=kw.get("admx"),
         ),
-        description=(
-            "ADMX coverage view — estate-wide template inventory and gap detection"
-        ),
+        description=("ADMX coverage view — estate-wide template inventory and gap detection"),
         optional_params=["admx"],
         param_validators={"admx": object},
     ),
@@ -206,26 +204,18 @@ _QUERY_DISPATCH: dict[str, Callable[..., Any]] = {
     name: spec.func for name, spec in _QUERIES.items()
 }
 
-_QUERY_DESCRIPTIONS: dict[str, str] = {
-    name: spec.description for name, spec in _QUERIES.items()
-}
+_QUERY_DESCRIPTIONS: dict[str, str] = {name: spec.description for name, spec in _QUERIES.items()}
 
 QUERY_REQUIRED_PARAMS: dict[str, list[str]] = {
-    name: list(spec.required_params)
-    for name, spec in _QUERIES.items()
-    if spec.required_params
+    name: list(spec.required_params) for name, spec in _QUERIES.items() if spec.required_params
 }
 
 QUERY_OPTIONAL_PARAMS: dict[str, list[str]] = {
-    name: list(spec.optional_params)
-    for name, spec in _QUERIES.items()
-    if spec.optional_params
+    name: list(spec.optional_params) for name, spec in _QUERIES.items() if spec.optional_params
 }
 
 _PARAM_VALIDATORS: dict[str, dict[str, type]] = {
-    name: dict(spec.param_validators)
-    for name, spec in _QUERIES.items()
-    if spec.param_validators
+    name: dict(spec.param_validators) for name, spec in _QUERIES.items() if spec.param_validators
 }
 
 
@@ -247,15 +237,12 @@ def validate_params(query_name: str, params: dict[str, object]) -> dict[str, obj
         expected_type = schema.get(key)
         if expected_type and not isinstance(value, expected_type):
             raise ValueError(
-                f"Parameter '{key}' must be {expected_type.__name__}, "
-                f"got {type(value).__name__}"
+                f"Parameter '{key}' must be {expected_type.__name__}, got {type(value).__name__}"
             )
         validated[key] = value
     missing = required - set(validated.keys())
     if missing:
-        raise ValueError(
-            f"Query '{query_name}' requires parameter '{missing.pop()}'"
-        )
+        raise ValueError(f"Query '{query_name}' requires parameter '{missing.pop()}'")
     return validated
 
 

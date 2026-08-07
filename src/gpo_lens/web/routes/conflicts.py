@@ -72,7 +72,8 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
                     resolved_total = len(rows)
                     if needle:
                         rows = [
-                            r for r in rows
+                            r
+                            for r in rows
                             if needle in r.identity.lower()
                             or needle in r.display_name.lower()
                             or needle in r.winner.lower()
@@ -83,7 +84,8 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
                     resolved_total = None  # not computed on this tab
                     if needle:
                         rows = [
-                            r for r in rows
+                            r
+                            for r in rows
                             if needle in r.identity.lower()
                             or needle in r.display_name.lower()
                             or needle in r.cse.lower()

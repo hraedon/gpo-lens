@@ -32,8 +32,7 @@ def serialize_result(result: object) -> object:
         # Manually recurse through fields instead of ``dataclasses.asdict`` so
         # that nested datetime/Enum values are converted, not passed through.
         return {
-            f.name: serialize_result(getattr(result, f.name))
-            for f in dataclasses.fields(result)
+            f.name: serialize_result(getattr(result, f.name)) for f in dataclasses.fields(result)
         }
     if isinstance(result, list):
         return [serialize_result(item) for item in result]
@@ -128,15 +127,13 @@ def render_settings_diff(
         parts.append(f"Added ({len(added)}):")
         for row in added:
             parts.append(
-                f"  [{row.cse}] {row.side}/{row.gpo_name}: "
-                f"{row.identity} = {row.new_value or ''}"
+                f"  [{row.cse}] {row.side}/{row.gpo_name}: {row.identity} = {row.new_value or ''}"
             )
     if removed:
         parts.append(f"Removed ({len(removed)}):")
         for row in removed:
             parts.append(
-                f"  [{row.cse}] {row.side}/{row.gpo_name}: "
-                f"{row.identity} = {row.old_value or ''}"
+                f"  [{row.cse}] {row.side}/{row.gpo_name}: {row.identity} = {row.old_value or ''}"
             )
     if modified:
         parts.append(f"Modified ({len(modified)}):")

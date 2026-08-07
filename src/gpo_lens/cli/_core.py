@@ -101,11 +101,14 @@ _COMMANDS: list[CliCommand] = [
         positional_args=[CliArg(name="sample_dir")],
         args=[
             CliArg(
-                name="--json", dest="_sub_json", action="store_true",
+                name="--json",
+                dest="_sub_json",
+                action="store_true",
                 help="JSON output",
             ),
             CliArg(
-                name="--diff-latest", action="store_true",
+                name="--diff-latest",
+                action="store_true",
                 help="After ingesting, diff against the previous snapshot and print the changelog",
             ),
         ],
@@ -165,7 +168,8 @@ _COMMANDS: list[CliCommand] = [
         help="",
         args=[
             CliArg(
-                name="--show-secrets", action="store_true",
+                name="--show-secrets",
+                action="store_true",
                 help="Reveal full cpassword values (default: masked)",
             ),
         ],
@@ -178,7 +182,8 @@ _COMMANDS: list[CliCommand] = [
         positional_args=[CliArg(name="term")],
         args=[
             CliArg(
-                name="--scope", default="all",
+                name="--scope",
+                default="all",
                 choices=["all", "settings", "names", "delegation"],
             ),
         ],
@@ -206,7 +211,8 @@ _COMMANDS: list[CliCommand] = [
         help="Delegation deep-dive audit",
         args=[
             CliArg(
-                name="--rollup", action="store_true",
+                name="--rollup",
+                action="store_true",
                 help="Show estate-wide trustee → GPO matrix (breadth-sorted)",
             ),
         ],
@@ -239,11 +245,14 @@ _COMMANDS: list[CliCommand] = [
         args=[
             CliArg(name="--since", help="Filter events by timestamp (ISO 8601 prefix)"),
             CliArg(
-                name="--type", dest="event_type",
+                name="--type",
+                dest="event_type",
                 help="Filter events by event_type (substring match)",
             ),
             CliArg(
-                name="--limit", type=int, default=1000,
+                name="--limit",
+                type=int,
+                default=1000,
                 help="Max events to return (default: 1000)",
             ),
         ],
@@ -256,7 +265,8 @@ _COMMANDS: list[CliCommand] = [
             CliArg(name="--ndjson", help="Path to write NDJSON output"),
             CliArg(name="--since", help="Filter events by timestamp (ISO 8601 prefix)"),
             CliArg(
-                name="--sink", choices=["hec"],
+                name="--sink",
+                choices=["hec"],
                 help="External sink to send events to",
             ),
         ],
@@ -464,7 +474,8 @@ _COMMANDS: list[CliCommand] = [
         src_arg=True,
         args=[
             CliArg(
-                name="--explain", action="store_true",
+                name="--explain",
+                action="store_true",
                 help="Add an LLM-powered plain-English explanation of findings",
             ),
         ],
@@ -478,11 +489,14 @@ _COMMANDS: list[CliCommand] = [
             CliArg(name="--format", choices=["md", "html"], default="md"),
             CliArg(name="--baseline", help="Baseline JSON file for compliance comparison"),
             CliArg(
-                name="--since", type=int,
+                name="--since",
+                type=int,
                 help="Snapshot ID to diff against (requires --db)",
             ),
             CliArg(
-                name="--max-settings", type=int, default=50,
+                name="--max-settings",
+                type=int,
+                default=50,
                 help="Max settings per GPO to display (default: 50)",
             ),
             CliArg(
@@ -504,7 +518,8 @@ _COMMANDS: list[CliCommand] = [
         ],
         args=[
             CliArg(
-                name="--no-narrate", action="store_true",
+                name="--no-narrate",
+                action="store_true",
                 help="Print raw query results as JSON without narration",
             ),
         ],
@@ -552,7 +567,8 @@ _COMMANDS: list[CliCommand] = [
             CliArg(name="--port", type=int, default=8000, help="Bind port (default: 8000)"),
             CliArg(name="--open", action="store_true", help="Open browser on start"),
             CliArg(
-                name="--root-path", default="",
+                name="--root-path",
+                default="",
                 help="ASGI root_path for reverse-proxy mounting",
             ),
             CliArg(
@@ -573,15 +589,18 @@ _COMMANDS: list[CliCommand] = [
         ],
         args=[
             CliArg(
-                name="--computer-sid", default=None,
+                name="--computer-sid",
+                default=None,
                 help="Computer SID (for user+computer pair)",
             ),
             CliArg(
-                name="--dn", default=None,
+                name="--dn",
+                default=None,
                 help="Distinguished name of the principal (for SOM chain)",
             ),
             CliArg(
-                name="--computer-dn", default=None,
+                name="--computer-dn",
+                default=None,
                 help="Computer DN (for user+computer SOM chain)",
             ),
             CliArg(name="--json", dest="_sub_json", action="store_true", help="JSON output"),
@@ -595,7 +614,8 @@ _COMMANDS: list[CliCommand] = [
         args=[
             CliArg(name="--json", dest="_sub_json", action="store_true", help="JSON output"),
             CliArg(
-                name="--changes-only", action="store_true",
+                name="--changes-only",
+                action="store_true",
                 help="Only show snapshots where key metrics changed",
             ),
         ],

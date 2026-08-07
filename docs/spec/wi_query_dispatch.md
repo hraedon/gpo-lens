@@ -159,7 +159,8 @@ descriptions are the routing menu fed to the LLM in
 
 ```python
 def validate_params(
-    query_name: str, params: dict[str, object],
+    query_name: str,
+    params: dict[str, object],
 ) -> dict[str, object]: ...
 ```
 

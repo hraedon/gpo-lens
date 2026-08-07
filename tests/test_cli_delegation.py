@@ -3,6 +3,7 @@
 Exercises cmd_perms, cmd_delegation, and cmd_sddl via main() directly so
 coverage is measured. Uses capsys for output capture.
 """
+
 from __future__ import annotations
 
 import json
@@ -21,10 +22,7 @@ ORPHANED_SID = "S-1-5-21-999-999-999-9999"
 GPO_DENY = "11111111111111111111111111111111"
 GPO_CLEAN = "cccccccccccccccccccccccccccccccc"
 
-DENY_SDDL = (
-    "O:BAG:BAD:(A;;GA;;;BA)(D;;GA;;;BA)"
-    f"(D;CI;GR;;;{UNKNOWN_DENY_SID})S:(AU;SA;GA;;;BA)"
-)
+DENY_SDDL = f"O:BAG:BAD:(A;;GA;;;BA)(D;;GA;;;BA)(D;CI;GR;;;{UNKNOWN_DENY_SID})S:(AU;SA;GA;;;BA)"
 WRITER_SDDL = f"O:BAG:BAD:(A;;GA;;;{HELPDESK_SID})"
 WRITER_SDDL_NO_OWNER = f"D:(A;;GA;;;{HELPDESK_SID})"
 UNKNOWN_WRITER_SDDL = f"O:BAG:BAD:(A;;GA;;;{UNKNOWN_WRITER_SID})"
@@ -34,13 +32,23 @@ def _make_gpo(gpo_id: str, name: str, *, sddl: str | None = None, delegation=Non
     from gpo_lens.model import Gpo
 
     return Gpo(
-        id=gpo_id, name=name, domain="test.local",
-        created=None, modified=None, read=None,
-        computer_enabled=True, user_enabled=True,
-        computer_ver_ds=None, computer_ver_sysvol=None,
-        user_ver_ds=None, user_ver_sysvol=None,
-        sddl=sddl, owner=None, filter_data_available=False,
-        wmi_filter=None, sysvol_path=None,
+        id=gpo_id,
+        name=name,
+        domain="test.local",
+        created=None,
+        modified=None,
+        read=None,
+        computer_enabled=True,
+        user_enabled=True,
+        computer_ver_ds=None,
+        computer_ver_sysvol=None,
+        user_ver_ds=None,
+        user_ver_sysvol=None,
+        sddl=sddl,
+        owner=None,
+        filter_data_available=False,
+        wmi_filter=None,
+        sysvol_path=None,
         delegation=delegation or [],
     )
 
@@ -55,40 +63,63 @@ def _make_deleg_db(tmp_path: Path) -> Path:
 
     principals = {
         HELPDESK_SID_LOWER: ResolvedPrincipal(
-            sid=HELPDESK_SID_LOWER, name="TEST\\Helpdesk", sam="Helpdesk",
-            principal_type="Group", domain="TEST", resolved=True,
+            sid=HELPDESK_SID_LOWER,
+            name="TEST\\Helpdesk",
+            sam="Helpdesk",
+            principal_type="Group",
+            domain="TEST",
+            resolved=True,
         ),
     }
 
     deny_delegation = [
         DelegationEntry(
-            gpo_id=GPO_DENY, trustee="Authenticated Users",
-            trustee_sid="S-1-5-11", permission="Read", allowed=True,
+            gpo_id=GPO_DENY,
+            trustee="Authenticated Users",
+            trustee_sid="S-1-5-11",
+            permission="Read",
+            allowed=True,
         ),
         DelegationEntry(
-            gpo_id=GPO_DENY, trustee="Helpdesk",
-            trustee_sid=HELPDESK_SID, permission="Write", allowed=True,
+            gpo_id=GPO_DENY,
+            trustee="Helpdesk",
+            trustee_sid=HELPDESK_SID,
+            permission="Write",
+            allowed=True,
         ),
         DelegationEntry(
-            gpo_id=GPO_DENY, trustee="",
-            trustee_sid=ORPHANED_SID, permission="Apply Group Policy",
+            gpo_id=GPO_DENY,
+            trustee="",
+            trustee_sid=ORPHANED_SID,
+            permission="Apply Group Policy",
             allowed=True,
         ),
     ]
 
     gpos = [_make_gpo(GPO_DENY, "gpo-deny", sddl=DENY_SDDL, delegation=deny_delegation)]
     for i in range(1, 6):
-        gpos.append(_make_gpo(
-            f"22222222222222222222{i:012x}", f"gpo-w{i}", sddl=WRITER_SDDL,
-        ))
-    gpos.append(_make_gpo(
-        "22222222222222222222000000000006", "gpo-w6",
-        sddl=WRITER_SDDL_NO_OWNER,
-    ))
+        gpos.append(
+            _make_gpo(
+                f"22222222222222222222{i:012x}",
+                f"gpo-w{i}",
+                sddl=WRITER_SDDL,
+            )
+        )
+    gpos.append(
+        _make_gpo(
+            "22222222222222222222000000000006",
+            "gpo-w6",
+            sddl=WRITER_SDDL_NO_OWNER,
+        )
+    )
     for i in range(1, 6):
-        gpos.append(_make_gpo(
-            f"33333333333333333333{i:012x}", f"gpo-v{i}", sddl=UNKNOWN_WRITER_SDDL,
-        ))
+        gpos.append(
+            _make_gpo(
+                f"33333333333333333333{i:012x}",
+                f"gpo-v{i}",
+                sddl=UNKNOWN_WRITER_SDDL,
+            )
+        )
 
     estate = Estate(domain="test.local", gpos=gpos, principals=principals)
     store.save_estate(conn, estate)
@@ -107,17 +138,30 @@ def _make_clean_db(tmp_path: Path) -> Path:
         domain="test.local",
         gpos=[
             Gpo(
-                id=GPO_CLEAN, name="gpo-clean", domain="test.local",
-                created=None, modified=None, read=None,
-                computer_enabled=True, user_enabled=True,
-                computer_ver_ds=None, computer_ver_sysvol=None,
-                user_ver_ds=None, user_ver_sysvol=None,
-                sddl=None, owner=None, filter_data_available=False,
-                wmi_filter=None, sysvol_path=None,
+                id=GPO_CLEAN,
+                name="gpo-clean",
+                domain="test.local",
+                created=None,
+                modified=None,
+                read=None,
+                computer_enabled=True,
+                user_enabled=True,
+                computer_ver_ds=None,
+                computer_ver_sysvol=None,
+                user_ver_ds=None,
+                user_ver_sysvol=None,
+                sddl=None,
+                owner=None,
+                filter_data_available=False,
+                wmi_filter=None,
+                sysvol_path=None,
                 delegation=[
                     DelegationEntry(
-                        gpo_id=GPO_CLEAN, trustee="Authenticated Users",
-                        trustee_sid="S-1-5-11", permission="Read", allowed=True,
+                        gpo_id=GPO_CLEAN,
+                        trustee="Authenticated Users",
+                        trustee_sid="S-1-5-11",
+                        permission="Read",
+                        allowed=True,
                     ),
                 ],
             ),
@@ -250,19 +294,13 @@ class TestDelegationDirectCall:
         assert ba_deny["resolved_name"] == "BUILTIN\\Administrators"
         assert ba_deny["rights"] == "GA"
         assert ba_deny["flags"] == ""
-        unknown_deny = next(
-            x for x in d["deny_aces"] if x["trustee_sid"] == UNKNOWN_DENY_SID
-        )
+        unknown_deny = next(x for x in d["deny_aces"] if x["trustee_sid"] == UNKNOWN_DENY_SID)
         assert unknown_deny["resolved_name"] == UNKNOWN_DENY_SID
         assert unknown_deny["flags"] == "CI"
-        helpdesk_writer = next(
-            x for x in d["excessive_writers"] if x["gpo_count"] == 6
-        )
+        helpdesk_writer = next(x for x in d["excessive_writers"] if x["gpo_count"] == 6)
         assert helpdesk_writer["resolved_name"] == "TEST\\Helpdesk"
         assert helpdesk_writer["trustee_sid"] == HELPDESK_SID_LOWER
-        unknown_writer = next(
-            x for x in d["excessive_writers"] if x["gpo_count"] == 5
-        )
+        unknown_writer = next(x for x in d["excessive_writers"] if x["gpo_count"] == 5)
         assert unknown_writer["resolved_name"] == UNKNOWN_WRITER_SID
         assert unknown_writer["trustee_sid"] == UNKNOWN_WRITER_SID
         assert d["orphaned_sids"][0]["sid"] == ORPHANED_SID

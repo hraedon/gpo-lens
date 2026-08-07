@@ -37,6 +37,7 @@ def _make_gpo(**kwargs) -> Gpo:
 
 # ---- version_skew ----------------------------------------------------------
 
+
 def test_version_skew_none():
     estate = Estate(gpos=[_make_gpo()])
     assert queries.version_skew(estate) == []
@@ -79,6 +80,7 @@ def test_version_skew_one_none():
 
 # ---- ms16_072 --------------------------------------------------------------
 
+
 def test_ms16_072_empty_delegation():
     gpo = _make_gpo(delegation=[])
     estate = Estate(gpos=[gpo])
@@ -90,8 +92,11 @@ def test_ms16_072_has_au_read():
     gpo = _make_gpo(
         delegation=[
             DelegationEntry(
-                gpo_id="x", trustee="Authenticated Users", trustee_sid=None,
-                permission="Read", allowed=True,
+                gpo_id="x",
+                trustee="Authenticated Users",
+                trustee_sid=None,
+                permission="Read",
+                allowed=True,
             ),
         ]
     )
@@ -104,8 +109,11 @@ def test_ms16_072_has_dc_read():
     gpo = _make_gpo(
         delegation=[
             DelegationEntry(
-                gpo_id="x", trustee="Domain Computers", trustee_sid="S-1-5-21-123-515",
-                permission="Read", allowed=True,
+                gpo_id="x",
+                trustee="Domain Computers",
+                trustee_sid="S-1-5-21-123-515",
+                permission="Read",
+                allowed=True,
             ),
         ]
     )
@@ -122,8 +130,11 @@ def test_ms16_072_custom_permission_is_vulnerable():
     gpo = _make_gpo(
         delegation=[
             DelegationEntry(
-                gpo_id="x", trustee="Authenticated Users", trustee_sid=None,
-                permission="Custom", allowed=True,
+                gpo_id="x",
+                trustee="Authenticated Users",
+                trustee_sid=None,
+                permission="Custom",
+                allowed=True,
             ),
         ]
     )
@@ -136,8 +147,11 @@ def test_ms16_072_denied_read():
     gpo = _make_gpo(
         delegation=[
             DelegationEntry(
-                gpo_id="x", trustee="Authenticated Users", trustee_sid=None,
-                permission="Read", allowed=False,
+                gpo_id="x",
+                trustee="Authenticated Users",
+                trustee_sid=None,
+                permission="Read",
+                allowed=False,
             ),
         ]
     )
@@ -149,8 +163,11 @@ def test_ms16_072_case_insensitive():
     gpo = _make_gpo(
         delegation=[
             DelegationEntry(
-                gpo_id="x", trustee="authenticated users", trustee_sid=None,
-                permission="read", allowed=True,
+                gpo_id="x",
+                trustee="authenticated users",
+                trustee_sid=None,
+                permission="read",
+                allowed=True,
             ),
         ]
     )
@@ -163,8 +180,11 @@ def test_ms16_072_dc_read_via_sid():
     gpo = _make_gpo(
         delegation=[
             DelegationEntry(
-                gpo_id="x", trustee="SomeGroup", trustee_sid="S-1-5-21-123-515",
-                permission="Read", allowed=True,
+                gpo_id="x",
+                trustee="SomeGroup",
+                trustee_sid="S-1-5-21-123-515",
+                permission="Read",
+                allowed=True,
             ),
         ]
     )
@@ -182,8 +202,11 @@ def test_ms16_072_dc_sid_requires_domain_prefix():
     gpo = _make_gpo(
         delegation=[
             DelegationEntry(
-                gpo_id="x", trustee="Backup-thing", trustee_sid="S-1-5-32-515",
-                permission="Read", allowed=True,
+                gpo_id="x",
+                trustee="Backup-thing",
+                trustee_sid="S-1-5-32-515",
+                permission="Read",
+                allowed=True,
             ),
         ]
     )
@@ -196,7 +219,7 @@ def test_ms16_072_dc_sid_requires_domain_prefix():
 
 
 def test_ms16_072_apply_group_policy_is_not_vulnerable():
-    """"Apply Group Policy" IS Read+Apply (GpoApply) — it satisfies MS16-072.
+    """ "Apply Group Policy" IS Read+Apply (GpoApply) — it satisfies MS16-072.
 
     Per Microsoft (gpmgmt.h GPMPermissionType / KB MS16-072), permGPOApply
     "corresponds to the READ and APPLY Group Policy access rights"; GPMC shows
@@ -206,8 +229,11 @@ def test_ms16_072_apply_group_policy_is_not_vulnerable():
     gpo = _make_gpo(
         delegation=[
             DelegationEntry(
-                gpo_id="x", trustee="Authenticated Users", trustee_sid=None,
-                permission="Apply Group Policy", allowed=True,
+                gpo_id="x",
+                trustee="Authenticated Users",
+                trustee_sid=None,
+                permission="Apply Group Policy",
+                allowed=True,
             ),
         ]
     )
@@ -220,8 +246,11 @@ def test_ms16_072_edit_settings_is_not_vulnerable():
     gpo = _make_gpo(
         delegation=[
             DelegationEntry(
-                gpo_id="x", trustee="Authenticated Users", trustee_sid=None,
-                permission="Edit settings", allowed=True,
+                gpo_id="x",
+                trustee="Authenticated Users",
+                trustee_sid=None,
+                permission="Edit settings",
+                allowed=True,
             ),
         ]
     )
@@ -234,8 +263,11 @@ def test_ms16_072_edit_delete_modify_security_variant_is_not_vulnerable():
     gpo = _make_gpo(
         delegation=[
             DelegationEntry(
-                gpo_id="x", trustee="Authenticated Users", trustee_sid=None,
-                permission="Edit, delete, modify security", allowed=True,
+                gpo_id="x",
+                trustee="Authenticated Users",
+                trustee_sid=None,
+                permission="Edit, delete, modify security",
+                allowed=True,
             ),
         ]
     )
@@ -247,8 +279,11 @@ def test_ms16_072_narrow_trustee_with_read_is_vulnerable():
     gpo = _make_gpo(
         delegation=[
             DelegationEntry(
-                gpo_id="x", trustee="Helpdesk Operators", trustee_sid="S-1-5-21-999-1000",
-                permission="Read", allowed=True,
+                gpo_id="x",
+                trustee="Helpdesk Operators",
+                trustee_sid="S-1-5-21-999-1000",
+                permission="Read",
+                allowed=True,
             ),
         ]
     )
@@ -261,12 +296,18 @@ def test_ms16_072_allow_plus_deny_same_trustee_not_vulnerable():
     gpo = _make_gpo(
         delegation=[
             DelegationEntry(
-                gpo_id="x", trustee="Authenticated Users", trustee_sid=None,
-                permission="Read", allowed=True,
+                gpo_id="x",
+                trustee="Authenticated Users",
+                trustee_sid=None,
+                permission="Read",
+                allowed=True,
             ),
             DelegationEntry(
-                gpo_id="x", trustee="Authenticated Users", trustee_sid=None,
-                permission="Read", allowed=False,
+                gpo_id="x",
+                trustee="Authenticated Users",
+                trustee_sid=None,
+                permission="Read",
+                allowed=False,
             ),
         ]
     )
@@ -279,8 +320,11 @@ def test_ms16_072_bogus_515_sid_is_vulnerable():
     gpo = _make_gpo(
         delegation=[
             DelegationEntry(
-                gpo_id="x", trustee="Builtin-515", trustee_sid="S-1-5-32-515",
-                permission="Read", allowed=True,
+                gpo_id="x",
+                trustee="Builtin-515",
+                trustee_sid="S-1-5-32-515",
+                permission="Read",
+                allowed=True,
             ),
         ]
     )
@@ -293,20 +337,28 @@ def test_ms16_072_bogus_515_sid_is_vulnerable():
 
 def test_delegation_deep_dive_privilege_rollup():
     gpo_a = _make_gpo(
-        id="gpo-a", name="Alpha",
+        id="gpo-a",
+        name="Alpha",
         delegation=[
             DelegationEntry(
-                gpo_id="gpo-a", trustee="Rogue Admin", trustee_sid=None,
-                permission="Edit settings, delete, modify security", allowed=True,
+                gpo_id="gpo-a",
+                trustee="Rogue Admin",
+                trustee_sid=None,
+                permission="Edit settings, delete, modify security",
+                allowed=True,
             ),
         ],
     )
     gpo_b = _make_gpo(
-        id="gpo-b", name="Beta",
+        id="gpo-b",
+        name="Beta",
         delegation=[
             DelegationEntry(
-                gpo_id="gpo-b", trustee="Rogue Admin", trustee_sid=None,
-                permission="Edit settings, delete, modify security", allowed=True,
+                gpo_id="gpo-b",
+                trustee="Rogue Admin",
+                trustee_sid=None,
+                permission="Edit settings, delete, modify security",
+                allowed=True,
             ),
         ],
     )
@@ -318,11 +370,15 @@ def test_delegation_deep_dive_privilege_rollup():
 
 def test_delegation_deep_dive_orphaned_sid():
     gpo = _make_gpo(
-        id="gpo-1", name="Test",
+        id="gpo-1",
+        name="Test",
         delegation=[
             DelegationEntry(
-                gpo_id="gpo-1", trustee="", trustee_sid="S-1-5-21-999999",
-                permission="Read", allowed=True,
+                gpo_id="gpo-1",
+                trustee="",
+                trustee_sid="S-1-5-21-999999",
+                permission="Read",
+                allowed=True,
             ),
         ],
     )
@@ -335,15 +391,22 @@ def test_delegation_deep_dive_orphaned_sid():
 
 def test_delegation_deep_dive_broad_writers():
     gpo = _make_gpo(
-        id="gpo-1", name="Test",
+        id="gpo-1",
+        name="Test",
         delegation=[
             DelegationEntry(
-                gpo_id="gpo-1", trustee="Domain Admins", trustee_sid=None,
-                permission="Edit settings", allowed=True,
+                gpo_id="gpo-1",
+                trustee="Domain Admins",
+                trustee_sid=None,
+                permission="Edit settings",
+                allowed=True,
             ),
             DelegationEntry(
-                gpo_id="gpo-1", trustee="Rogue Editor", trustee_sid=None,
-                permission="Edit settings", allowed=True,
+                gpo_id="gpo-1",
+                trustee="Rogue Editor",
+                trustee_sid=None,
+                permission="Edit settings",
+                allowed=True,
             ),
         ],
     )
@@ -356,11 +419,15 @@ def test_delegation_deep_dive_broad_writers():
 
 def test_delegation_deep_dive_no_issues():
     gpo = _make_gpo(
-        id="gpo-1", name="Test",
+        id="gpo-1",
+        name="Test",
         delegation=[
             DelegationEntry(
-                gpo_id="gpo-1", trustee="Domain Admins", trustee_sid=None,
-                permission="Read", allowed=True,
+                gpo_id="gpo-1",
+                trustee="Domain Admins",
+                trustee_sid=None,
+                permission="Read",
+                allowed=True,
             ),
         ],
     )
@@ -374,6 +441,7 @@ def test_delegation_deep_dive_no_issues():
 
 
 # ---- cpassword_scan --------------------------------------------------------
+
 
 def test_cpassword_scan_no_sysvol_path(tmp_path):
     gpo = _make_gpo(sysvol_path=None)
@@ -427,6 +495,7 @@ def test_cpassword_scan_skips_broken_xml(tmp_path):
 
 # ---- topology queries ------------------------------------------------------
 
+
 def test_som_effective_gpos():
     from gpo_lens.model import Som, SomLink
 
@@ -438,8 +507,11 @@ def test_som_effective_gpos():
         inheritance_blocked=False,
         links=[
             SomLink(
-                gpo_id="gpo-1", order=1, enabled=True,
-                enforced=False, target="ou=workstations,dc=test,dc=local",
+                gpo_id="gpo-1",
+                order=1,
+                enabled=True,
+                enforced=False,
+                target="ou=workstations,dc=test,dc=local",
             ),
         ],
     )
@@ -478,8 +550,11 @@ def test_som_effective_gpos_parent_ou_walk():
         inheritance_blocked=False,
         links=[
             SomLink(
-                gpo_id="gpo-1", order=1, enabled=True,
-                enforced=False, target="ou=parent,dc=test,dc=local",
+                gpo_id="gpo-1",
+                order=1,
+                enabled=True,
+                enforced=False,
+                target="ou=parent,dc=test,dc=local",
             ),
         ],
     )
@@ -487,7 +562,8 @@ def test_som_effective_gpos_parent_ou_walk():
 
     # Query for a child OU that is NOT in the estate — should fall back to parent.
     result = queries.som_effective_gpos(
-        estate, "ou=child,ou=parent,dc=test,dc=local",
+        estate,
+        "ou=child,ou=parent,dc=test,dc=local",
     )
     assert len(result) == 1
     assert result[0].gpo_id == "gpo-1"
@@ -498,15 +574,21 @@ def test_som_effective_gpos_no_parent_found():
     """When no parent SOM exists, return empty list."""
     from gpo_lens.model import Som
 
-    estate = Estate(gpos=[], soms=[Som(
-        path="ou=other,dc=test,dc=local",
-        name="Other",
-        container_type="ou",
-        inheritance_blocked=False,
-        links=[],
-    )])
+    estate = Estate(
+        gpos=[],
+        soms=[
+            Som(
+                path="ou=other,dc=test,dc=local",
+                name="Other",
+                container_type="ou",
+                inheritance_blocked=False,
+                links=[],
+            )
+        ],
+    )
     result = queries.som_effective_gpos(
-        estate, "ou=nonexistent,dc=test,dc=local",
+        estate,
+        "ou=nonexistent,dc=test,dc=local",
     )
     assert result == []
 
@@ -523,15 +605,19 @@ def test_som_effective_gpos_multi_level_parent_walk():
         inheritance_blocked=False,
         links=[
             SomLink(
-                gpo_id="gpo-1", order=1, enabled=True,
-                enforced=False, target="ou=grandparent,dc=test,dc=local",
+                gpo_id="gpo-1",
+                order=1,
+                enabled=True,
+                enforced=False,
+                target="ou=grandparent,dc=test,dc=local",
             ),
         ],
     )
     estate = Estate(gpos=[gpo], soms=[grandparent_som])
 
     result = queries.som_effective_gpos(
-        estate, "ou=grandchild,ou=child,ou=grandparent,dc=test,dc=local",
+        estate,
+        "ou=grandchild,ou=child,ou=grandparent,dc=test,dc=local",
     )
     assert len(result) == 1
     assert result[0].gpo_id == "gpo-1"
@@ -553,7 +639,8 @@ def test_som_effective_gpos_skips_site_som_in_parent_walk():
     estate = Estate(gpos=[gpo], soms=[site_som])
 
     result = queries.som_effective_gpos(
-        estate, "ou=child,dc=test,dc=local",
+        estate,
+        "ou=child,dc=test,dc=local",
     )
     assert result == []
 
@@ -583,7 +670,9 @@ def test_split_dn_plain_dn():
     from gpo_lens.topology import _split_dn
 
     assert _split_dn("OU=Users,DC=test,DC=local") == [
-        "OU=Users", "DC=test", "DC=local",
+        "OU=Users",
+        "DC=test",
+        "DC=local",
     ]
 
 
@@ -613,8 +702,13 @@ def test_som_effective_gpos_target_present_empty_links_no_walk():
         container_type="ou",
         inheritance_blocked=False,
         links=[
-            SomLink(gpo_id="gpo-1", order=1, enabled=True,
-                    enforced=False, target="ou=parent,dc=test,dc=local"),
+            SomLink(
+                gpo_id="gpo-1",
+                order=1,
+                enabled=True,
+                enforced=False,
+                target="ou=parent,dc=test,dc=local",
+            ),
         ],
     )
     child_som = Som(
@@ -626,7 +720,8 @@ def test_som_effective_gpos_target_present_empty_links_no_walk():
     )
     estate = Estate(gpos=[gpo], soms=[parent_som, child_som])
     result = queries.som_effective_gpos(
-        estate, "ou=child,ou=parent,dc=test,dc=local",
+        estate,
+        "ou=child,ou=parent,dc=test,dc=local",
     )
     assert result == []
 
@@ -642,13 +737,19 @@ def test_som_effective_gpos_parent_walk_case_insensitive():
         container_type="ou",
         inheritance_blocked=False,
         links=[
-            SomLink(gpo_id="gpo-1", order=1, enabled=True,
-                    enforced=False, target="OU=Parent,DC=Test,DC=Local"),
+            SomLink(
+                gpo_id="gpo-1",
+                order=1,
+                enabled=True,
+                enforced=False,
+                target="OU=Parent,DC=Test,DC=Local",
+            ),
         ],
     )
     estate = Estate(gpos=[gpo], soms=[parent_som])
     result = queries.som_effective_gpos(
-        estate, "ou=child,ou=parent,dc=test,dc=local",
+        estate,
+        "ou=child,ou=parent,dc=test,dc=local",
     )
     assert len(result) == 1
     assert result[0].gpo_id == "gpo-1"
@@ -696,10 +797,14 @@ def test_loopback_gpos_detects_loopback_setting():
         id="gpo-1",
         settings=[
             Setting(
-                gpo_id="gpo-1", side="Computer", cse="Registry",
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Registry",
                 identity="Configure user Group Policy loopback processing mode",
-                display_name="Loopback", display_value="Enabled",
-                raw={}, from_disabled_side=False,
+                display_name="Loopback",
+                display_value="Enabled",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
@@ -716,10 +821,14 @@ def test_loopback_awareness_extracts_mode():
         id="gpo-1",
         settings=[
             Setting(
-                gpo_id="gpo-1", side="Computer", cse="Security",
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Security",
                 identity="Configure user Group Policy loopback processing mode",
-                display_name="Loopback", display_value="Replace",
-                raw={}, from_disabled_side=False,
+                display_name="Loopback",
+                display_value="Replace",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
@@ -735,10 +844,14 @@ def test_loopback_awareness_merge_mode():
         id="gpo-1",
         settings=[
             Setting(
-                gpo_id="gpo-1", side="Computer", cse="Security",
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Security",
                 identity="Configure Group Policy loopback processing mode",
-                display_name="Loopback", display_value="Merge",
-                raw={}, from_disabled_side=False,
+                display_name="Loopback",
+                display_value="Merge",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
@@ -754,10 +867,14 @@ def test_loopback_awareness_unknown_mode():
         id="gpo-1",
         settings=[
             Setting(
-                gpo_id="gpo-1", side="Computer", cse="Security",
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Security",
                 identity="Configure Group Policy loopback processing mode",
-                display_name="Loopback", display_value="Enabled",
-                raw={}, from_disabled_side=False,
+                display_name="Loopback",
+                display_value="Enabled",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
@@ -778,9 +895,12 @@ def test_loopback_awareness_raw_replace():
         id="gpo-1",
         settings=[
             Setting(
-                gpo_id="gpo-1", side="Computer", cse="Security",
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Security",
                 identity="Configure user Group Policy loopback processing mode",
-                display_name="Loopback", display_value="Some display text",
+                display_name="Loopback",
+                display_value="Some display text",
                 raw={
                     "tag": "Security",
                     "@attr": {
@@ -805,9 +925,12 @@ def test_loopback_awareness_raw_merge():
         id="gpo-1",
         settings=[
             Setting(
-                gpo_id="gpo-1", side="Computer", cse="Security",
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Security",
                 identity="Configure Group Policy loopback processing mode",
-                display_name="Loopback", display_value="Configured",
+                display_name="Loopback",
+                display_value="Configured",
                 raw={
                     "tag": "Security",
                     "@attr": {
@@ -832,9 +955,12 @@ def test_loopback_awareness_raw_numeric_replace():
         id="gpo-1",
         settings=[
             Setting(
-                gpo_id="gpo-1", side="Computer", cse="Security",
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Security",
                 identity="Configure user Group Policy loopback processing mode",
-                display_name="Loopback", display_value="Enabled",
+                display_name="Loopback",
+                display_value="Enabled",
                 raw={
                     "tag": "Security",
                     "@attr": {
@@ -859,9 +985,12 @@ def test_loopback_awareness_raw_numeric_merge():
         id="gpo-1",
         settings=[
             Setting(
-                gpo_id="gpo-1", side="Computer", cse="Security",
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Security",
                 identity="Configure user Group Policy loopback processing mode",
-                display_name="Loopback", display_value="Enabled",
+                display_name="Loopback",
+                display_value="Enabled",
                 raw={
                     "tag": "Security",
                     "@attr": {
@@ -887,7 +1016,9 @@ def test_loopback_awareness_policy_dropdown_replace():
         id="gpo-1",
         settings=[
             Setting(
-                gpo_id="gpo-1", side="Computer", cse="Registry",
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Registry",
                 identity="Registry:Policy:abc123",
                 display_name=_name,
                 display_value=_name,
@@ -929,7 +1060,9 @@ def test_loopback_awareness_policy_dropdown_merge():
         id="gpo-1",
         settings=[
             Setting(
-                gpo_id="gpo-1", side="Computer", cse="Registry",
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Registry",
                 identity="Registry:Policy:abc123",
                 display_name=_name,
                 display_value=_name,
@@ -969,7 +1102,9 @@ def test_loopback_awareness_policy_disabled_returns_none():
         id="gpo-1",
         settings=[
             Setting(
-                gpo_id="gpo-1", side="Computer", cse="Registry",
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Registry",
                 identity="Registry:Policy:abc123",
                 display_name=_name,
                 display_value=_name,
@@ -981,8 +1116,7 @@ def test_loopback_awareness_policy_disabled_returns_none():
                         {
                             "tag": "DropDownList",
                             "children": [
-                                {"tag": "Value",
-                                 "children": [{"tag": "Name", "text": "Merge"}]},
+                                {"tag": "Value", "children": [{"tag": "Name", "text": "Merge"}]},
                             ],
                         },
                     ],
@@ -1004,7 +1138,9 @@ def test_loopback_awareness_policy_enabled_no_dropdown_unknown():
         id="gpo-1",
         settings=[
             Setting(
-                gpo_id="gpo-1", side="Computer", cse="Registry",
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Registry",
                 identity="Registry:Policy:abc123",
                 display_name=_name,
                 display_value=_name,
@@ -1028,10 +1164,14 @@ def test_loopback_awareness_policy_enabled_no_dropdown_unknown():
         id="gpo-1",
         settings=[
             Setting(
-                gpo_id="gpo-1", side="Computer", cse="Security",
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Security",
                 identity="Configure user Group Policy loopback processing mode",
-                display_name="Loopback", display_value="Loopback: Replace",
-                raw={}, from_disabled_side=False,
+                display_name="Loopback",
+                display_value="Loopback: Replace",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
@@ -1047,9 +1187,12 @@ def test_loopback_awareness_unrecognized_text_is_unknown():
         id="gpo-1",
         settings=[
             Setting(
-                gpo_id="gpo-1", side="Computer", cse="Security",
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Security",
                 identity="Configure user Group Policy loopback processing mode",
-                display_name="Loopback", display_value="Custom Loopback Mode",
+                display_name="Loopback",
+                display_value="Custom Loopback Mode",
                 raw={
                     "tag": "Security",
                     "@attr": {
@@ -1074,10 +1217,14 @@ def test_loopback_awareness_none_display_value():
         id="gpo-1",
         settings=[
             Setting(
-                gpo_id="gpo-1", side="Computer", cse="Security",
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Security",
                 identity="Configure user Group Policy loopback processing mode",
-                display_name="Loopback", display_value="",
-                raw={}, from_disabled_side=False,
+                display_name="Loopback",
+                display_value="",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
@@ -1093,10 +1240,14 @@ def test_loopback_awareness_all_variants_bannered():
         id="gpo-replace",
         settings=[
             Setting(
-                gpo_id="gpo-replace", side="Computer", cse="Security",
+                gpo_id="gpo-replace",
+                side="Computer",
+                cse="Security",
                 identity="Configure user Group Policy loopback processing mode",
-                display_name="Loopback", display_value="Replace",
-                raw={}, from_disabled_side=False,
+                display_name="Loopback",
+                display_value="Replace",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
@@ -1104,10 +1255,14 @@ def test_loopback_awareness_all_variants_bannered():
         id="gpo-merge",
         settings=[
             Setting(
-                gpo_id="gpo-merge", side="Computer", cse="Security",
+                gpo_id="gpo-merge",
+                side="Computer",
+                cse="Security",
                 identity="Configure user Group Policy loopback processing mode",
-                display_name="Loopback", display_value="Merge",
-                raw={}, from_disabled_side=False,
+                display_name="Loopback",
+                display_value="Merge",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
@@ -1115,10 +1270,14 @@ def test_loopback_awareness_all_variants_bannered():
         id="gpo-unknown",
         settings=[
             Setting(
-                gpo_id="gpo-unknown", side="Computer", cse="Security",
+                gpo_id="gpo-unknown",
+                side="Computer",
+                cse="Security",
                 identity="Configure user Group Policy loopback processing mode",
-                display_name="Loopback", display_value="OddValue",
-                raw={}, from_disabled_side=False,
+                display_name="Loopback",
+                display_value="OddValue",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
@@ -1140,6 +1299,7 @@ def test_wmi_filtered_gpos():
 
 # ---- Tier 2.5 chain-aware queries -----------------------------------------
 
+
 def test_som_conflicts_empty_when_no_som():
     estate = Estate(gpos=[], soms=[])
     assert queries.som_conflicts(estate, "dc=test,dc=local") == []
@@ -1152,9 +1312,14 @@ def test_som_conflicts_empty_when_single_gpo():
         id="gpo-1",
         settings=[
             Setting(
-                gpo_id="gpo-1", side="Computer", cse="Security",
-                identity="Account:Foo", display_name="Foo",
-                display_value="bar", raw={}, from_disabled_side=False,
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Security",
+                identity="Account:Foo",
+                display_name="Foo",
+                display_value="bar",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
@@ -1174,24 +1339,34 @@ def test_som_conflicts_detects_value_mismatch():
     from gpo_lens.model import Setting, Som, SomLink
 
     gpo_a = _make_gpo(
-        id="gpo-a", name="GPO A",
+        id="gpo-a",
+        name="GPO A",
         settings=[
             Setting(
-                gpo_id="gpo-a", side="Computer", cse="Security",
+                gpo_id="gpo-a",
+                side="Computer",
+                cse="Security",
                 identity="Account:LockoutBadCount",
                 display_name="LockoutBadCount",
-                display_value="5", raw={}, from_disabled_side=False,
+                display_value="5",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
     gpo_b = _make_gpo(
-        id="gpo-b", name="GPO B",
+        id="gpo-b",
+        name="GPO B",
         settings=[
             Setting(
-                gpo_id="gpo-b", side="Computer", cse="Security",
+                gpo_id="gpo-b",
+                side="Computer",
+                cse="Security",
                 identity="Account:LockoutBadCount",
                 display_name="LockoutBadCount",
-                display_value="10", raw={}, from_disabled_side=False,
+                display_value="10",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
@@ -1221,9 +1396,14 @@ def test_som_conflicts_ignores_disabled_links():
         id="gpo-a",
         settings=[
             Setting(
-                gpo_id="gpo-a", side="Computer", cse="Security",
-                identity="Account:Foo", display_name="Foo",
-                display_value="5", raw={}, from_disabled_side=False,
+                gpo_id="gpo-a",
+                side="Computer",
+                cse="Security",
+                identity="Account:Foo",
+                display_name="Foo",
+                display_value="5",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
@@ -1231,9 +1411,14 @@ def test_som_conflicts_ignores_disabled_links():
         id="gpo-b",
         settings=[
             Setting(
-                gpo_id="gpo-b", side="Computer", cse="Security",
-                identity="Account:Foo", display_name="Foo",
-                display_value="10", raw={}, from_disabled_side=False,
+                gpo_id="gpo-b",
+                side="Computer",
+                cse="Security",
+                identity="Account:Foo",
+                display_name="Foo",
+                display_value="10",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
@@ -1245,8 +1430,11 @@ def test_som_conflicts_ignores_disabled_links():
         links=[
             SomLink(gpo_id="gpo-a", order=1, enabled=True, enforced=False, target=""),
             SomLink(
-                gpo_id="gpo-b", order=2, enabled=False,
-                enforced=False, target="",
+                gpo_id="gpo-b",
+                order=2,
+                enabled=False,
+                enforced=False,
+                target="",
             ),
         ],
     )
@@ -1267,9 +1455,13 @@ def test_broken_refs_detects_unc_in_display_value():
         id="gpo-1",
         settings=[
             Setting(
-                gpo_id="gpo-1", side="Computer", cse="Registry",
-                identity="InstallDir", display_name="Install Dir",
-                display_value=r"\\server\share\app", raw={},
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Registry",
+                identity="InstallDir",
+                display_name="Install Dir",
+                display_value=r"\\server\share\app",
+                raw={},
                 from_disabled_side=False,
             ),
         ],
@@ -1294,8 +1486,11 @@ def test_broken_refs_detects_unc_in_raw_dict():
         id="gpo-1",
         settings=[
             Setting(
-                gpo_id="gpo-1", side="Computer", cse="Registry",
-                identity="InstallDir", display_name="Install Dir",
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Registry",
+                identity="InstallDir",
+                display_name="Install Dir",
                 display_value="local",
                 raw={"children": [{"text": r"\\server\share\path"}]},
                 from_disabled_side=False,
@@ -1319,10 +1514,14 @@ def test_broken_refs_detects_missing_script(tmp_path):
         sysvol_path=str(gpo_dir),
         settings=[
             Setting(
-                gpo_id="gpo-1", side="Computer", cse="Scripts",
-                identity="StartupScript", display_name="StartupScript",
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Scripts",
+                identity="StartupScript",
+                display_name="StartupScript",
                 display_value="missing.bat",
-                raw={}, from_disabled_side=False,
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
@@ -1346,10 +1545,14 @@ def test_broken_refs_script_found_in_sysvol(tmp_path):
         sysvol_path=str(gpo_dir),
         settings=[
             Setting(
-                gpo_id="gpo-1", side="Computer", cse="Scripts",
-                identity="StartupScript", display_name="StartupScript",
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Scripts",
+                identity="StartupScript",
+                display_name="StartupScript",
                 display_value="exists.bat",
-                raw={}, from_disabled_side=False,
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
@@ -1366,8 +1569,11 @@ def test_broken_refs_deduplicates():
         id="gpo-1",
         settings=[
             Setting(
-                gpo_id="gpo-1", side="Computer", cse="Registry",
-                identity="X", display_name="X",
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Registry",
+                identity="X",
+                display_name="X",
                 display_value=r"\\server\share\path",
                 raw={"text": r"\\server\share\path"},
                 from_disabled_side=False,
@@ -1377,22 +1583,27 @@ def test_broken_refs_deduplicates():
     estate = Estate(gpos=[gpo])
     result = queries.broken_refs(estate)
     unc_refs = [
-        r for r in result
-        if r.ref_type == "unc_path" and r.ref_value == r"\\server\share\path"
+        r for r in result if r.ref_type == "unc_path" and r.ref_value == r"\\server\share\path"
     ]
     assert len(unc_refs) == 1
 
 
 # ---- estate_summary ---------------------------------------------------------
 
+
 def test_estate_summary():
     gpo = _make_gpo(
         id="gpo-1",
         settings=[
             Setting(
-                gpo_id="gpo-1", side="Computer", cse="Security",
-                identity="X", display_name="X", display_value="1",
-                raw={}, from_disabled_side=False,
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Security",
+                identity="X",
+                display_name="X",
+                display_value="1",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
@@ -1414,6 +1625,7 @@ def test_estate_summary():
 
 # ---- existing queries still pass smoke --------------------------------------
 
+
 def test_empty_gpos():
     gpo = _make_gpo(settings=[])
     estate = Estate(gpos=[gpo])
@@ -1425,23 +1637,35 @@ def test_empty_gpos_counts_only_blocked_as_empty():
 
     truly_empty = _make_gpo(id="gpo-empty", name="Truly Empty", settings=[])
     blocked_only = _make_gpo(
-        id="gpo-blocked", name="Blocked Only",
+        id="gpo-blocked",
+        name="Blocked Only",
         settings=[
             Setting(
-                gpo_id="gpo-blocked", side="Computer", cse="Registry",
-                identity="Registry:blocked", display_name="(blocked extension)",
-                display_value="", raw={"blocked": True},
-                from_disabled_side=False, source_state="blocked",
+                gpo_id="gpo-blocked",
+                side="Computer",
+                cse="Registry",
+                identity="Registry:blocked",
+                display_name="(blocked extension)",
+                display_value="",
+                raw={"blocked": True},
+                from_disabled_side=False,
+                source_state="blocked",
             ),
         ],
     )
     normal = _make_gpo(
-        id="gpo-normal", name="Normal",
+        id="gpo-normal",
+        name="Normal",
         settings=[
             Setting(
-                gpo_id="gpo-normal", side="Computer", cse="Security",
-                identity="X", display_name="X", display_value="1",
-                raw={}, from_disabled_side=False,
+                gpo_id="gpo-normal",
+                side="Computer",
+                cse="Security",
+                identity="X",
+                display_name="X",
+                display_value="1",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
@@ -1466,9 +1690,14 @@ def test_disabled_but_populated_computer_side():
         computer_enabled=False,
         settings=[
             Setting(
-                gpo_id="gpo-1", side="Computer", cse="Security",
-                identity="X", display_name="X", display_value="1",
-                raw={}, from_disabled_side=True,
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Security",
+                identity="X",
+                display_name="X",
+                display_value="1",
+                raw={},
+                from_disabled_side=True,
             ),
         ],
     )
@@ -1482,9 +1711,14 @@ def test_disabled_but_populated_user_side():
         user_enabled=False,
         settings=[
             Setting(
-                gpo_id="gpo-1", side="User", cse="Registry",
-                identity="Y", display_name="Y", display_value="2",
-                raw={}, from_disabled_side=True,
+                gpo_id="gpo-1",
+                side="User",
+                cse="Registry",
+                identity="Y",
+                display_name="Y",
+                display_value="2",
+                raw={},
+                from_disabled_side=True,
             ),
         ],
     )
@@ -1499,14 +1733,24 @@ def test_disabled_but_populated_both_sides():
         user_enabled=False,
         settings=[
             Setting(
-                gpo_id="gpo-1", side="Computer", cse="Security",
-                identity="X", display_name="X", display_value="1",
-                raw={}, from_disabled_side=True,
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Security",
+                identity="X",
+                display_name="X",
+                display_value="1",
+                raw={},
+                from_disabled_side=True,
             ),
             Setting(
-                gpo_id="gpo-1", side="User", cse="Registry",
-                identity="Y", display_name="Y", display_value="2",
-                raw={}, from_disabled_side=True,
+                gpo_id="gpo-1",
+                side="User",
+                cse="Registry",
+                identity="Y",
+                display_name="Y",
+                display_value="2",
+                raw={},
+                from_disabled_side=True,
             ),
         ],
     )
@@ -1522,9 +1766,14 @@ def test_disabled_but_populated_enabled_side_ignored():
         computer_enabled=True,
         settings=[
             Setting(
-                gpo_id="gpo-1", side="Computer", cse="Security",
-                identity="X", display_name="X", display_value="1",
-                raw={}, from_disabled_side=False,
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Security",
+                identity="X",
+                display_name="X",
+                display_value="1",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
@@ -1533,6 +1782,7 @@ def test_disabled_but_populated_enabled_side_ignored():
 
 
 # ---- settings_at_som --------------------------------------------------------
+
 
 def test_settings_at_som_empty_when_no_som():
     estate = Estate(gpos=[], soms=[])
@@ -1546,9 +1796,14 @@ def test_settings_at_som_empty_when_single_gpo():
         id="gpo-1",
         settings=[
             Setting(
-                gpo_id="gpo-1", side="Computer", cse="Security",
-                identity="Account:Foo", display_name="Foo",
-                display_value="bar", raw={}, from_disabled_side=False,
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Security",
+                identity="Account:Foo",
+                display_name="Foo",
+                display_value="bar",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
@@ -1573,24 +1828,34 @@ def test_settings_at_som_last_gpo_wins():
     from gpo_lens.model import Setting, Som, SomLink
 
     gpo_a = _make_gpo(
-        id="gpo-a", name="GPO A",
+        id="gpo-a",
+        name="GPO A",
         settings=[
             Setting(
-                gpo_id="gpo-a", side="Computer", cse="Security",
+                gpo_id="gpo-a",
+                side="Computer",
+                cse="Security",
                 identity="Account:LockoutBadCount",
                 display_name="LockoutBadCount",
-                display_value="5", raw={}, from_disabled_side=False,
+                display_value="5",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
     gpo_b = _make_gpo(
-        id="gpo-b", name="GPO B",
+        id="gpo-b",
+        name="GPO B",
         settings=[
             Setting(
-                gpo_id="gpo-b", side="Computer", cse="Security",
+                gpo_id="gpo-b",
+                side="Computer",
+                cse="Security",
                 identity="Account:LockoutBadCount",
                 display_name="LockoutBadCount",
-                display_value="10", raw={}, from_disabled_side=False,
+                display_value="10",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
@@ -1618,22 +1883,34 @@ def test_settings_at_som_ignores_disabled_links():
     from gpo_lens.model import Setting, Som, SomLink
 
     gpo_a = _make_gpo(
-        id="gpo-a", name="GPO A",
+        id="gpo-a",
+        name="GPO A",
         settings=[
             Setting(
-                gpo_id="gpo-a", side="Computer", cse="Security",
-                identity="Account:Foo", display_name="Foo",
-                display_value="5", raw={}, from_disabled_side=False,
+                gpo_id="gpo-a",
+                side="Computer",
+                cse="Security",
+                identity="Account:Foo",
+                display_name="Foo",
+                display_value="5",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
     gpo_b = _make_gpo(
-        id="gpo-b", name="GPO B",
+        id="gpo-b",
+        name="GPO B",
         settings=[
             Setting(
-                gpo_id="gpo-b", side="Computer", cse="Security",
-                identity="Account:Foo", display_name="Foo",
-                display_value="10", raw={}, from_disabled_side=False,
+                gpo_id="gpo-b",
+                side="Computer",
+                cse="Security",
+                identity="Account:Foo",
+                display_name="Foo",
+                display_value="10",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
@@ -1645,8 +1922,11 @@ def test_settings_at_som_ignores_disabled_links():
         links=[
             SomLink(gpo_id="gpo-a", order=1, enabled=True, enforced=False, target=""),
             SomLink(
-                gpo_id="gpo-b", order=2, enabled=False,
-                enforced=False, target="",
+                gpo_id="gpo-b",
+                order=2,
+                enabled=False,
+                enforced=False,
+                target="",
             ),
         ],
     )
@@ -1661,12 +1941,18 @@ def test_settings_at_som_enforced_flag():
     from gpo_lens.model import Setting, Som, SomLink
 
     gpo = _make_gpo(
-        id="gpo-1", name="GPO One",
+        id="gpo-1",
+        name="GPO One",
         settings=[
             Setting(
-                gpo_id="gpo-1", side="Computer", cse="Security",
-                identity="Account:Foo", display_name="Foo",
-                display_value="5", raw={}, from_disabled_side=False,
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Security",
+                identity="Account:Foo",
+                display_name="Foo",
+                display_value="5",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
@@ -1692,23 +1978,36 @@ def test_settings_at_som_excludes_disabled_side_settings():
     from gpo_lens.model import Setting, Som, SomLink
 
     gpo = _make_gpo(
-        id="gpo-1", name="Disabled Side GPO",
+        id="gpo-1",
+        name="Disabled Side GPO",
         settings=[
             Setting(
-                gpo_id="gpo-1", side="Computer", cse="Security",
-                identity="Account:Foo", display_name="Foo",
-                display_value="5", raw={}, from_disabled_side=True,
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Security",
+                identity="Account:Foo",
+                display_name="Foo",
+                display_value="5",
+                raw={},
+                from_disabled_side=True,
             ),
             Setting(
-                gpo_id="gpo-1", side="User", cse="Registry",
-                identity="Bar", display_name="Bar",
-                display_value="B", raw={}, from_disabled_side=False,
+                gpo_id="gpo-1",
+                side="User",
+                cse="Registry",
+                identity="Bar",
+                display_name="Bar",
+                display_value="B",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
     som = Som(
         path="ou=ws,dc=test,dc=local",
-        name="WS", container_type="ou", inheritance_blocked=False,
+        name="WS",
+        container_type="ou",
+        inheritance_blocked=False,
         links=[SomLink(gpo_id="gpo-1", order=1, enabled=True, enforced=True, target="")],
     )
     estate = Estate(gpos=[gpo], soms=[som])
@@ -1724,28 +2023,42 @@ def test_som_conflicts_excludes_disabled_side_settings():
     from gpo_lens.model import Setting, Som, SomLink
 
     gpo_live = _make_gpo(
-        id="gpo-live", name="Live",
+        id="gpo-live",
+        name="Live",
         settings=[
             Setting(
-                gpo_id="gpo-live", side="Computer", cse="Security",
-                identity="X", display_name="X",
-                display_value="1", raw={}, from_disabled_side=False,
+                gpo_id="gpo-live",
+                side="Computer",
+                cse="Security",
+                identity="X",
+                display_name="X",
+                display_value="1",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
     gpo_ghost = _make_gpo(
-        id="gpo-ghost", name="Ghost",
+        id="gpo-ghost",
+        name="Ghost",
         settings=[
             Setting(
-                gpo_id="gpo-ghost", side="Computer", cse="Security",
-                identity="X", display_name="X",
-                display_value="2", raw={}, from_disabled_side=True,
+                gpo_id="gpo-ghost",
+                side="Computer",
+                cse="Security",
+                identity="X",
+                display_name="X",
+                display_value="2",
+                raw={},
+                from_disabled_side=True,
             ),
         ],
     )
     som = Som(
         path="ou=ws,dc=test,dc=local",
-        name="WS", container_type="ou", inheritance_blocked=False,
+        name="WS",
+        container_type="ou",
+        inheritance_blocked=False,
         links=[
             SomLink(gpo_id="gpo-live", order=1, enabled=True, enforced=False, target=""),
             SomLink(gpo_id="gpo-ghost", order=2, enabled=True, enforced=False, target=""),
@@ -1760,17 +2073,28 @@ def test_settings_at_som_multiple_identities():
     from gpo_lens.model import Setting, Som, SomLink
 
     gpo = _make_gpo(
-        id="gpo-1", name="GPO One",
+        id="gpo-1",
+        name="GPO One",
         settings=[
             Setting(
-                gpo_id="gpo-1", side="Computer", cse="Security",
-                identity="Account:Foo", display_name="Foo",
-                display_value="A", raw={}, from_disabled_side=False,
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Security",
+                identity="Account:Foo",
+                display_name="Foo",
+                display_value="A",
+                raw={},
+                from_disabled_side=False,
             ),
             Setting(
-                gpo_id="gpo-1", side="User", cse="Registry",
-                identity="Bar", display_name="Bar",
-                display_value="B", raw={}, from_disabled_side=False,
+                gpo_id="gpo-1",
+                side="User",
+                cse="Registry",
+                identity="Bar",
+                display_name="Bar",
+                display_value="B",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
@@ -1797,6 +2121,7 @@ def test_settings_at_som_multiple_identities():
 
 
 # ---- topology_crosscheck ----------------------------------------------------
+
 
 def test_topology_crosscheck_no_tree():
     estate = Estate(gpos=[], soms=[], ou_tree=[])
@@ -1881,9 +2206,14 @@ def test_admx_gaps_no_registry_settings():
         id="gpo-1",
         settings=[
             Setting(
-                gpo_id="gpo-1", side="Computer", cse="Security",
-                identity="Account:Foo", display_name="Foo",
-                display_value="1", raw={}, from_disabled_side=False,
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Security",
+                identity="Account:Foo",
+                display_name="Foo",
+                display_value="1",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
@@ -1898,10 +2228,14 @@ def test_admx_gaps_detects_raw_registry_path():
         id="gpo-1",
         settings=[
             Setting(
-                gpo_id="gpo-1", side="Computer", cse="Registry",
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Registry",
                 identity=r"Software\MyApp:Setting1",
                 display_name=r"Software\MyApp",
-                display_value="1", raw={}, from_disabled_side=False,
+                display_value="1",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
@@ -1919,10 +2253,14 @@ def test_admx_gaps_resolved_by_admx_crosswalk():
         id="gpo-1",
         settings=[
             Setting(
-                gpo_id="gpo-1", side="Computer", cse="Registry",
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Registry",
                 identity=r"Software\Policies\Foo:Bar",
                 display_name="Bar",
-                display_value="1", raw={}, from_disabled_side=False,
+                display_value="1",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
@@ -1954,10 +2292,14 @@ def test_admx_gaps_detects_hklm_prefix():
         id="gpo-1",
         settings=[
             Setting(
-                gpo_id="gpo-1", side="User", cse="Registry",
+                gpo_id="gpo-1",
+                side="User",
+                cse="Registry",
                 identity=r"HKLM\Software\Foo:Bar",
                 display_name=r"HKLM\Software\Foo",
-                display_value="2", raw={}, from_disabled_side=False,
+                display_value="2",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
@@ -1974,10 +2316,14 @@ def test_admx_gaps_skips_blocked_extensions():
         id="gpo-1",
         settings=[
             Setting(
-                gpo_id="gpo-1", side="Computer", cse="Registry",
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Registry",
                 identity=r"Software\MyApp:Set",
                 display_name=r"Software\MyApp",
-                display_value="1", raw={}, from_disabled_side=False,
+                display_value="1",
+                raw={},
+                from_disabled_side=False,
                 source_state="blocked",
             ),
         ],
@@ -1993,10 +2339,14 @@ def test_admx_gaps_included_in_summary():
         id="gpo-1",
         settings=[
             Setting(
-                gpo_id="gpo-1", side="Computer", cse="Registry",
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Registry",
                 identity=r"Software\MyApp:Set",
                 display_name=r"Software\MyApp",
-                display_value="1", raw={}, from_disabled_side=False,
+                display_value="1",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
@@ -2015,11 +2365,14 @@ def test_broken_refs_drive_mapping_unc():
         id="gpo-1",
         settings=[
             Setting(
-                gpo_id="gpo-1", side="User", cse="Drives",
+                gpo_id="gpo-1",
+                side="User",
+                cse="Drives",
                 identity="DriveMap:H:",
                 display_name="H Drive",
                 display_value=r"\\server\share\home",
-                raw={}, from_disabled_side=False,
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
@@ -2037,11 +2390,14 @@ def test_broken_refs_scheduled_task_path():
         id="gpo-1",
         settings=[
             Setting(
-                gpo_id="gpo-1", side="Computer", cse="Scheduled Tasks",
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Scheduled Tasks",
                 identity="Task:Cleanup",
                 display_name="Cleanup Task",
                 display_value=r"C:\Scripts\cleanup.bat",
-                raw={}, from_disabled_side=False,
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
@@ -2280,18 +2636,38 @@ def test_snapshot_diff_settings_changed(tmp_path):
     conn = sqlite3.connect(str(db))
     store.init_db(conn)
 
-    gpo_a = _make_gpo(id="gpo-1", settings=[
-        Setting(gpo_id="gpo-1", side="Computer", cse="Registry",
-                identity="HKLM\\Software\\Foo", display_name="Foo",
-                display_value="old", raw={}, from_disabled_side=False),
-    ])
+    gpo_a = _make_gpo(
+        id="gpo-1",
+        settings=[
+            Setting(
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Registry",
+                identity="HKLM\\Software\\Foo",
+                display_name="Foo",
+                display_value="old",
+                raw={},
+                from_disabled_side=False,
+            ),
+        ],
+    )
     sid_a = store.save_estate(conn, Estate(domain="test.local", gpos=[gpo_a]))
 
-    gpo_b = _make_gpo(id="gpo-1", settings=[
-        Setting(gpo_id="gpo-1", side="Computer", cse="Registry",
-                identity="HKLM\\Software\\Foo", display_name="Foo",
-                display_value="new", raw={}, from_disabled_side=False),
-    ])
+    gpo_b = _make_gpo(
+        id="gpo-1",
+        settings=[
+            Setting(
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Registry",
+                identity="HKLM\\Software\\Foo",
+                display_name="Foo",
+                display_value="new",
+                raw={},
+                from_disabled_side=False,
+            ),
+        ],
+    )
     sid_b = store.save_estate(conn, Estate(domain="test.local", gpos=[gpo_b]))
 
     diff = queries.snapshot_diff(conn, sid_a, sid_b)
@@ -2308,16 +2684,32 @@ def test_snapshot_diff_links_changed(tmp_path):
     conn = sqlite3.connect(str(db))
     store.init_db(conn)
 
-    gpo_a = _make_gpo(id="gpo-1", links=[
-        GpoLink(gpo_id="gpo-1", som_name="OU=Foo", som_path="OU=Foo,DC=test,DC=local",
-                link_enabled=True, enforced=False),
-    ])
+    gpo_a = _make_gpo(
+        id="gpo-1",
+        links=[
+            GpoLink(
+                gpo_id="gpo-1",
+                som_name="OU=Foo",
+                som_path="OU=Foo,DC=test,DC=local",
+                link_enabled=True,
+                enforced=False,
+            ),
+        ],
+    )
     sid_a = store.save_estate(conn, Estate(domain="test.local", gpos=[gpo_a]))
 
-    gpo_b = _make_gpo(id="gpo-1", links=[
-        GpoLink(gpo_id="gpo-1", som_name="OU=Bar", som_path="OU=Bar,DC=test,DC=local",
-                link_enabled=True, enforced=False),
-    ])
+    gpo_b = _make_gpo(
+        id="gpo-1",
+        links=[
+            GpoLink(
+                gpo_id="gpo-1",
+                som_name="OU=Bar",
+                som_path="OU=Bar,DC=test,DC=local",
+                link_enabled=True,
+                enforced=False,
+            ),
+        ],
+    )
     sid_b = store.save_estate(conn, Estate(domain="test.local", gpos=[gpo_b]))
 
     diff = queries.snapshot_diff(conn, sid_a, sid_b)
@@ -2334,16 +2726,24 @@ def test_snapshot_diff_delegation_changed(tmp_path):
     conn = sqlite3.connect(str(db))
     store.init_db(conn)
 
-    gpo_a = _make_gpo(id="gpo-1", delegation=[
-        DelegationEntry(gpo_id="gpo-1", trustee="User1", trustee_sid=None,
-                        permission="READ", allowed=True),
-    ])
+    gpo_a = _make_gpo(
+        id="gpo-1",
+        delegation=[
+            DelegationEntry(
+                gpo_id="gpo-1", trustee="User1", trustee_sid=None, permission="READ", allowed=True
+            ),
+        ],
+    )
     sid_a = store.save_estate(conn, Estate(domain="test.local", gpos=[gpo_a]))
 
-    gpo_b = _make_gpo(id="gpo-1", delegation=[
-        DelegationEntry(gpo_id="gpo-1", trustee="User2", trustee_sid=None,
-                        permission="READ", allowed=True),
-    ])
+    gpo_b = _make_gpo(
+        id="gpo-1",
+        delegation=[
+            DelegationEntry(
+                gpo_id="gpo-1", trustee="User2", trustee_sid=None, permission="READ", allowed=True
+            ),
+        ],
+    )
     sid_b = store.save_estate(conn, Estate(domain="test.local", gpos=[gpo_b]))
 
     diff = queries.snapshot_diff(conn, sid_a, sid_b)
@@ -2361,15 +2761,19 @@ def test_snapshot_diff_version_skew_changed(tmp_path):
 
     gpo_a = _make_gpo(
         id="gpo-1",
-        computer_ver_ds=1, computer_ver_sysvol=1,
-        user_ver_ds=1, user_ver_sysvol=1,
+        computer_ver_ds=1,
+        computer_ver_sysvol=1,
+        user_ver_ds=1,
+        user_ver_sysvol=1,
     )
     sid_a = store.save_estate(conn, Estate(domain="test.local", gpos=[gpo_a]))
 
     gpo_b = _make_gpo(
         id="gpo-1",
-        computer_ver_ds=2, computer_ver_sysvol=1,
-        user_ver_ds=1, user_ver_sysvol=1,
+        computer_ver_ds=2,
+        computer_ver_sysvol=1,
+        user_ver_ds=1,
+        user_ver_sysvol=1,
     )
     sid_b = store.save_estate(conn, Estate(domain="test.local", gpos=[gpo_b]))
 
@@ -2414,11 +2818,21 @@ def test_snapshot_diff_settings_appeared(tmp_path):
     gpo_a = _make_gpo(id="gpo-1")
     sid_a = store.save_estate(conn, Estate(domain="test.local", gpos=[gpo_a]))
 
-    gpo_b = _make_gpo(id="gpo-1", settings=[
-        Setting(gpo_id="gpo-1", side="Computer", cse="Registry",
-                identity="HKLM\\Software\\New", display_name="New",
-                display_value="1", raw={}, from_disabled_side=False),
-    ])
+    gpo_b = _make_gpo(
+        id="gpo-1",
+        settings=[
+            Setting(
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Registry",
+                identity="HKLM\\Software\\New",
+                display_name="New",
+                display_value="1",
+                raw={},
+                from_disabled_side=False,
+            ),
+        ],
+    )
     sid_b = store.save_estate(conn, Estate(domain="test.local", gpos=[gpo_b]))
 
     diff = queries.snapshot_diff(conn, sid_a, sid_b)
@@ -2441,9 +2855,14 @@ def test_snapshot_settings_diff_modified(tmp_path):
         id="gpo-1",
         settings=[
             Setting(
-                gpo_id="gpo-1", side="Computer", cse="Registry",
-                identity="HKLM\\Software\\Foo", display_name="Foo",
-                display_value="old_val", raw={}, from_disabled_side=False,
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Registry",
+                identity="HKLM\\Software\\Foo",
+                display_name="Foo",
+                display_value="old_val",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
@@ -2454,9 +2873,14 @@ def test_snapshot_settings_diff_modified(tmp_path):
         id="gpo-1",
         settings=[
             Setting(
-                gpo_id="gpo-1", side="Computer", cse="Registry",
-                identity="HKLM\\Software\\Foo", display_name="Foo",
-                display_value="new_val", raw={}, from_disabled_side=False,
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Registry",
+                identity="HKLM\\Software\\Foo",
+                display_name="Foo",
+                display_value="new_val",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
@@ -2491,9 +2915,14 @@ def test_snapshot_settings_diff_added(tmp_path):
         id="gpo-1",
         settings=[
             Setting(
-                gpo_id="gpo-1", side="Computer", cse="Registry",
-                identity="HKLM\\Software\\New", display_name="New",
-                display_value="enabled", raw={}, from_disabled_side=False,
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Registry",
+                identity="HKLM\\Software\\New",
+                display_name="New",
+                display_value="enabled",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
@@ -2520,9 +2949,13 @@ def test_snapshot_settings_diff_removed(tmp_path):
         id="gpo-1",
         settings=[
             Setting(
-                gpo_id="gpo-1", side="User", cse="Folders",
-                identity="Folder:Desktop", display_name="Desktop",
-                display_value=r"\\server\desktop", raw={},
+                gpo_id="gpo-1",
+                side="User",
+                cse="Folders",
+                identity="Folder:Desktop",
+                display_name="Desktop",
+                display_value=r"\\server\desktop",
+                raw={},
                 from_disabled_side=False,
             ),
         ],
@@ -2551,9 +2984,14 @@ def test_snapshot_settings_diff_no_changes(tmp_path):
     store.init_db(conn)
 
     s = Setting(
-        gpo_id="gpo-1", side="Computer", cse="Registry",
-        identity="HKLM\\Software\\Foo", display_name="Foo",
-        display_value="same", raw={}, from_disabled_side=False,
+        gpo_id="gpo-1",
+        side="Computer",
+        cse="Registry",
+        identity="HKLM\\Software\\Foo",
+        display_name="Foo",
+        display_value="same",
+        raw={},
+        from_disabled_side=False,
     )
     gpo_a = _make_gpo(id="gpo-1", settings=[s])
     gpo_b = _make_gpo(id="gpo-1", settings=[s])
@@ -2579,9 +3017,14 @@ def test_snapshot_settings_diff_filter_by_gpo_id(tmp_path):
         id="gpo-1",
         settings=[
             Setting(
-                gpo_id="gpo-1", side="Computer", cse="Registry",
-                identity="Key1", display_name="K1",
-                display_value="v1", raw={}, from_disabled_side=False,
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Registry",
+                identity="Key1",
+                display_name="K1",
+                display_value="v1",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
@@ -2589,9 +3032,14 @@ def test_snapshot_settings_diff_filter_by_gpo_id(tmp_path):
         id="gpo-2",
         settings=[
             Setting(
-                gpo_id="gpo-2", side="Computer", cse="Registry",
-                identity="Key2", display_name="K2",
-                display_value="v2", raw={}, from_disabled_side=False,
+                gpo_id="gpo-2",
+                side="Computer",
+                cse="Registry",
+                identity="Key2",
+                display_name="K2",
+                display_value="v2",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
@@ -2608,9 +3056,14 @@ def test_snapshot_settings_diff_filter_by_gpo_id(tmp_path):
         id="gpo-1",
         settings=[
             Setting(
-                gpo_id="gpo-1", side="Computer", cse="Registry",
-                identity="Key1", display_name="K1",
-                display_value="changed", raw={}, from_disabled_side=False,
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Registry",
+                identity="Key1",
+                display_name="K1",
+                display_value="changed",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
@@ -2618,13 +3071,19 @@ def test_snapshot_settings_diff_filter_by_gpo_id(tmp_path):
     sid_c = store.save_estate(conn, estate_c)
 
     changes_filtered = queries.snapshot_settings_diff(
-        conn, sid_a, sid_c, gpo_id="gpo-1",
+        conn,
+        sid_a,
+        sid_c,
+        gpo_id="gpo-1",
     )
     assert len(changes_filtered) == 1
     assert changes_filtered[0].gpo_id == "gpo-1"
 
     changes_other = queries.snapshot_settings_diff(
-        conn, sid_a, sid_c, gpo_id="gpo-2",
+        conn,
+        sid_a,
+        sid_c,
+        gpo_id="gpo-2",
     )
     assert changes_other == []
 
@@ -2639,41 +3098,67 @@ def test_snapshot_settings_diff_filter_by_side(tmp_path):
     store.init_db(conn)
 
     s_comp = Setting(
-        gpo_id="gpo-1", side="Computer", cse="Registry",
-        identity="Key1", display_name="K1",
-        display_value="v1", raw={}, from_disabled_side=False,
+        gpo_id="gpo-1",
+        side="Computer",
+        cse="Registry",
+        identity="Key1",
+        display_name="K1",
+        display_value="v1",
+        raw={},
+        from_disabled_side=False,
     )
     s_user = Setting(
-        gpo_id="gpo-1", side="User", cse="Registry",
-        identity="Key2", display_name="K2",
-        display_value="v2", raw={}, from_disabled_side=False,
+        gpo_id="gpo-1",
+        side="User",
+        cse="Registry",
+        identity="Key2",
+        display_name="K2",
+        display_value="v2",
+        raw={},
+        from_disabled_side=False,
     )
     gpo_a = _make_gpo(id="gpo-1", settings=[s_comp, s_user])
     estate_a = Estate(domain="test.local", gpos=[gpo_a])
     sid_a = store.save_estate(conn, estate_a)
 
     s_comp_mod = Setting(
-        gpo_id="gpo-1", side="Computer", cse="Registry",
-        identity="Key1", display_name="K1",
-        display_value="changed", raw={}, from_disabled_side=False,
+        gpo_id="gpo-1",
+        side="Computer",
+        cse="Registry",
+        identity="Key1",
+        display_name="K1",
+        display_value="changed",
+        raw={},
+        from_disabled_side=False,
     )
     s_user_mod = Setting(
-        gpo_id="gpo-1", side="User", cse="Registry",
-        identity="Key2", display_name="K2",
-        display_value="changed_user", raw={}, from_disabled_side=False,
+        gpo_id="gpo-1",
+        side="User",
+        cse="Registry",
+        identity="Key2",
+        display_name="K2",
+        display_value="changed_user",
+        raw={},
+        from_disabled_side=False,
     )
     gpo_b = _make_gpo(id="gpo-1", settings=[s_comp_mod, s_user_mod])
     estate_b = Estate(domain="test.local", gpos=[gpo_b])
     sid_b = store.save_estate(conn, estate_b)
 
     comp_only = queries.snapshot_settings_diff(
-        conn, sid_a, sid_b, side="Computer",
+        conn,
+        sid_a,
+        sid_b,
+        side="Computer",
     )
     assert len(comp_only) == 1
     assert comp_only[0].side == "Computer"
 
     user_only = queries.snapshot_settings_diff(
-        conn, sid_a, sid_b, side="User",
+        conn,
+        sid_a,
+        sid_b,
+        side="User",
     )
     assert len(user_only) == 1
     assert user_only[0].side == "User"
@@ -2689,12 +3174,18 @@ def test_snapshot_settings_diff_gpo_name_resolved(tmp_path):
     store.init_db(conn)
 
     gpo_a = _make_gpo(
-        id="gpo-1", name="My Policy",
+        id="gpo-1",
+        name="My Policy",
         settings=[
             Setting(
-                gpo_id="gpo-1", side="Computer", cse="Registry",
-                identity="Key1", display_name="K1",
-                display_value="v1", raw={}, from_disabled_side=False,
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Registry",
+                identity="Key1",
+                display_name="K1",
+                display_value="v1",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
@@ -2702,12 +3193,18 @@ def test_snapshot_settings_diff_gpo_name_resolved(tmp_path):
     sid_a = store.save_estate(conn, estate_a)
 
     gpo_b = _make_gpo(
-        id="gpo-1", name="My Policy",
+        id="gpo-1",
+        name="My Policy",
         settings=[
             Setting(
-                gpo_id="gpo-1", side="Computer", cse="Registry",
-                identity="Key1", display_name="K1",
-                display_value="v2", raw={}, from_disabled_side=False,
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Registry",
+                identity="Key1",
+                display_name="K1",
+                display_value="v2",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
@@ -2732,10 +3229,12 @@ def test_ou_tree_persisted_and_loaded(tmp_path):
     store.init_db(conn)
 
     gpo = _make_gpo(id="gpo-1")
-    ou = OuRecord(dn="OU=WS,DC=test,DC=local", name="WS",
-                  gp_link="[LDAP://cn={AAA};0]", gp_options=1)
+    ou = OuRecord(
+        dn="OU=WS,DC=test,DC=local", name="WS", gp_link="[LDAP://cn={AAA};0]", gp_options=1
+    )
     estate = Estate(
-        domain="test.local", gpos=[gpo],
+        domain="test.local",
+        gpos=[gpo],
         ou_tree=[ou],
     )
     sid = store.save_estate(conn, estate)
@@ -2759,10 +3258,13 @@ def test_admx_gaps_detects_hkcr_prefix():
         id="gpo-1",
         settings=[
             Setting(
-                gpo_id="gpo-1", side="User", cse="Windows Registry",
+                gpo_id="gpo-1",
+                side="User",
+                cse="Windows Registry",
                 identity=r"HKCR\.ext:Content Type",
                 display_name=r"HKCR\.ext",
-                display_value="application/x-foo", raw={},
+                display_value="application/x-foo",
+                raw={},
                 from_disabled_side=False,
             ),
         ],
@@ -2780,10 +3282,13 @@ def test_admx_gaps_detects_mid_path_match():
         id="gpo-1",
         settings=[
             Setting(
-                gpo_id="gpo-1", side="Computer", cse="Registry",
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Registry",
                 identity=r"System\CurrentControlSet\Services\MySvc:Start",
                 display_name="MySvc Start",
-                display_value="3", raw={},
+                display_value="3",
+                raw={},
                 from_disabled_side=False,
             ),
         ],
@@ -2800,10 +3305,14 @@ def test_admx_gaps_windows_registry_cse():
         id="gpo-1",
         settings=[
             Setting(
-                gpo_id="gpo-1", side="User", cse="Windows Registry",
+                gpo_id="gpo-1",
+                side="User",
+                cse="Windows Registry",
                 identity=r"Software\MyApp:Setting",
                 display_name=r"Software\MyApp",
-                display_value="1", raw={}, from_disabled_side=False,
+                display_value="1",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
@@ -2871,13 +3380,19 @@ def test_estate_doctor_sorted_by_severity():
 
     gpo = _make_gpo(
         id="gpo-1",
-        computer_ver_ds=1, computer_ver_sysvol=2,
+        computer_ver_ds=1,
+        computer_ver_sysvol=2,
         delegation=[],
         settings=[
             Setting(
-                gpo_id="gpo-1", side="Computer", cse="Registry",
-                identity=r"Software\X:Y", display_name=r"Software\X",
-                display_value="1", raw={}, from_disabled_side=False,
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Registry",
+                identity=r"Software\X:Y",
+                display_name=r"Software\X",
+                display_value="1",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
@@ -2896,17 +3411,28 @@ def test_settings_dump_all():
     from gpo_lens.model import Setting
 
     gpo = _make_gpo(
-        id="gpo-1", name="Test",
+        id="gpo-1",
+        name="Test",
         settings=[
             Setting(
-                gpo_id="gpo-1", side="Computer", cse="Security",
-                identity="X", display_name="X", display_value="1",
-                raw={}, from_disabled_side=False,
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Security",
+                identity="X",
+                display_name="X",
+                display_value="1",
+                raw={},
+                from_disabled_side=False,
             ),
             Setting(
-                gpo_id="gpo-1", side="User", cse="Registry",
-                identity="Y", display_name="Y", display_value="2",
-                raw={}, from_disabled_side=False,
+                gpo_id="gpo-1",
+                side="User",
+                cse="Registry",
+                identity="Y",
+                display_name="Y",
+                display_value="2",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
@@ -2919,17 +3445,28 @@ def test_settings_dump_filter_side():
     from gpo_lens.model import Setting
 
     gpo = _make_gpo(
-        id="gpo-1", name="Test",
+        id="gpo-1",
+        name="Test",
         settings=[
             Setting(
-                gpo_id="gpo-1", side="Computer", cse="Security",
-                identity="X", display_name="X", display_value="1",
-                raw={}, from_disabled_side=False,
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Security",
+                identity="X",
+                display_name="X",
+                display_value="1",
+                raw={},
+                from_disabled_side=False,
             ),
             Setting(
-                gpo_id="gpo-1", side="User", cse="Registry",
-                identity="Y", display_name="Y", display_value="2",
-                raw={}, from_disabled_side=False,
+                gpo_id="gpo-1",
+                side="User",
+                cse="Registry",
+                identity="Y",
+                display_name="Y",
+                display_value="2",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
@@ -2943,17 +3480,28 @@ def test_settings_dump_filter_cse():
     from gpo_lens.model import Setting
 
     gpo = _make_gpo(
-        id="gpo-1", name="Test",
+        id="gpo-1",
+        name="Test",
         settings=[
             Setting(
-                gpo_id="gpo-1", side="Computer", cse="Security",
-                identity="X", display_name="X", display_value="1",
-                raw={}, from_disabled_side=False,
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Security",
+                identity="X",
+                display_name="X",
+                display_value="1",
+                raw={},
+                from_disabled_side=False,
             ),
             Setting(
-                gpo_id="gpo-1", side="Computer", cse="Registry",
-                identity="Y", display_name="Y", display_value="2",
-                raw={}, from_disabled_side=False,
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Registry",
+                identity="Y",
+                display_name="Y",
+                display_value="2",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
@@ -2967,22 +3515,34 @@ def test_settings_dump_filter_gpo_name():
     from gpo_lens.model import Setting
 
     gpo_a = _make_gpo(
-        id="gpo-a", name="Alpha GPO",
+        id="gpo-a",
+        name="Alpha GPO",
         settings=[
             Setting(
-                gpo_id="gpo-a", side="Computer", cse="Security",
-                identity="X", display_name="X", display_value="1",
-                raw={}, from_disabled_side=False,
+                gpo_id="gpo-a",
+                side="Computer",
+                cse="Security",
+                identity="X",
+                display_name="X",
+                display_value="1",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
     gpo_b = _make_gpo(
-        id="gpo-b", name="Beta GPO",
+        id="gpo-b",
+        name="Beta GPO",
         settings=[
             Setting(
-                gpo_id="gpo-b", side="Computer", cse="Security",
-                identity="Y", display_name="Y", display_value="2",
-                raw={}, from_disabled_side=False,
+                gpo_id="gpo-b",
+                side="Computer",
+                cse="Security",
+                identity="Y",
+                display_name="Y",
+                display_value="2",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
@@ -2996,17 +3556,28 @@ def test_settings_dump_filter_combined():
     from gpo_lens.model import Setting
 
     gpo = _make_gpo(
-        id="gpo-1", name="Test",
+        id="gpo-1",
+        name="Test",
         settings=[
             Setting(
-                gpo_id="gpo-1", side="Computer", cse="Security",
-                identity="X", display_name="X", display_value="1",
-                raw={}, from_disabled_side=False,
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Security",
+                identity="X",
+                display_name="X",
+                display_value="1",
+                raw={},
+                from_disabled_side=False,
             ),
             Setting(
-                gpo_id="gpo-1", side="User", cse="Registry",
-                identity="Y", display_name="Y", display_value="2",
-                raw={}, from_disabled_side=False,
+                gpo_id="gpo-1",
+                side="User",
+                cse="Registry",
+                identity="Y",
+                display_name="Y",
+                display_value="2",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
@@ -3027,27 +3598,44 @@ def test_settings_dump_output_is_sorted():
     from gpo_lens.model import Setting
 
     gpo_b = _make_gpo(
-        id="gpo-b", name="Beta",
+        id="gpo-b",
+        name="Beta",
         settings=[
             Setting(
-                gpo_id="gpo-b", side="User", cse="Registry",
-                identity="Z", display_name="Z", display_value="z",
-                raw={}, from_disabled_side=False,
+                gpo_id="gpo-b",
+                side="User",
+                cse="Registry",
+                identity="Z",
+                display_name="Z",
+                display_value="z",
+                raw={},
+                from_disabled_side=False,
             ),
             Setting(
-                gpo_id="gpo-b", side="Computer", cse="Security",
-                identity="A", display_name="A", display_value="a",
-                raw={}, from_disabled_side=False,
+                gpo_id="gpo-b",
+                side="Computer",
+                cse="Security",
+                identity="A",
+                display_name="A",
+                display_value="a",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
     gpo_a = _make_gpo(
-        id="gpo-a", name="Alpha",
+        id="gpo-a",
+        name="Alpha",
         settings=[
             Setting(
-                gpo_id="gpo-a", side="Computer", cse="Security",
-                identity="B", display_name="B", display_value="b",
-                raw={}, from_disabled_side=False,
+                gpo_id="gpo-a",
+                side="Computer",
+                cse="Security",
+                identity="B",
+                display_name="B",
+                display_value="b",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
@@ -3064,12 +3652,18 @@ def test_conflicts_output_is_sorted_and_deterministic():
 
     def _make_conflicting(name: str, ident: str, value: str) -> Gpo:
         return _make_gpo(
-            id=f"gpo-{name}", name=name,
+            id=f"gpo-{name}",
+            name=name,
             settings=[
                 Setting(
-                    gpo_id=f"gpo-{name}", side="Computer", cse="Security",
-                    identity=ident, display_name=ident, display_value=value,
-                    raw={}, from_disabled_side=False,
+                    gpo_id=f"gpo-{name}",
+                    side="Computer",
+                    cse="Security",
+                    identity=ident,
+                    display_name=ident,
+                    display_value=value,
+                    raw={},
+                    from_disabled_side=False,
                 ),
             ],
         )
@@ -3095,13 +3689,18 @@ def test_broken_refs_prefers_gpp_detail_over_settings(tmp_path):
     tree.write(prefs / "Drives.xml")
 
     gpo = _make_gpo(
-        id="gpo-1", sysvol_path=str(gpo_dir),
+        id="gpo-1",
+        sysvol_path=str(gpo_dir),
         settings=[
             Setting(
-                gpo_id="gpo-1", side="User", cse="Drives",
-                identity="DriveMap:H:", display_name="H Drive",
+                gpo_id="gpo-1",
+                side="User",
+                cse="Drives",
+                identity="DriveMap:H:",
+                display_name="H Drive",
                 display_value=r"\\fileserver\share\home",
-                raw={}, from_disabled_side=False,
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
@@ -3117,13 +3716,18 @@ def test_broken_refs_prefers_gpp_detail_over_settings(tmp_path):
 def test_broken_refs_settings_detail_kept_when_no_gpp(tmp_path):
     """When only settings-level scan catches a UNC, settings detail is used."""
     gpo = _make_gpo(
-        id="gpo-1", sysvol_path=None,
+        id="gpo-1",
+        sysvol_path=None,
         settings=[
             Setting(
-                gpo_id="gpo-1", side="User", cse="Drives",
-                identity="DriveMap:H:", display_name="H Drive",
+                gpo_id="gpo-1",
+                side="User",
+                cse="Drives",
+                identity="DriveMap:H:",
+                display_name="H Drive",
                 display_value=r"\\server\share",
-                raw={}, from_disabled_side=False,
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
@@ -3142,19 +3746,25 @@ def test_baseline_diff_compliant():
 
     baseline = [
         queries.BaselineSetting(
-            side="Computer", cse="Security",
+            side="Computer",
+            cse="Security",
             identity="Account:LockoutBadCount",
-            display_name="LockoutBadCount", expected_value="5",
+            display_name="LockoutBadCount",
+            expected_value="5",
         ),
     ]
     gpo = _make_gpo(
         id="gpo-1",
         settings=[
             Setting(
-                gpo_id="gpo-1", side="Computer", cse="Security",
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Security",
                 identity="Account:LockoutBadCount",
-                display_name="LockoutBadCount", display_value="5",
-                raw={}, from_disabled_side=False,
+                display_name="LockoutBadCount",
+                display_value="5",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
@@ -3169,19 +3779,25 @@ def test_baseline_diff_drift():
 
     baseline = [
         queries.BaselineSetting(
-            side="Computer", cse="Security",
+            side="Computer",
+            cse="Security",
             identity="Account:LockoutBadCount",
-            display_name="LockoutBadCount", expected_value="5",
+            display_name="LockoutBadCount",
+            expected_value="5",
         ),
     ]
     gpo = _make_gpo(
         id="gpo-1",
         settings=[
             Setting(
-                gpo_id="gpo-1", side="Computer", cse="Security",
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Security",
                 identity="Account:LockoutBadCount",
-                display_name="LockoutBadCount", display_value="10",
-                raw={}, from_disabled_side=False,
+                display_name="LockoutBadCount",
+                display_value="10",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
@@ -3196,9 +3812,11 @@ def test_baseline_diff_drift():
 def test_baseline_diff_missing():
     baseline = [
         queries.BaselineSetting(
-            side="Computer", cse="Security",
+            side="Computer",
+            cse="Security",
             identity="Account:LockoutBadCount",
-            display_name="LockoutBadCount", expected_value="5",
+            display_name="LockoutBadCount",
+            expected_value="5",
         ),
     ]
     estate = Estate(gpos=[_make_gpo(settings=[])])
@@ -3215,10 +3833,14 @@ def test_baseline_diff_extra():
         id="gpo-1",
         settings=[
             Setting(
-                gpo_id="gpo-1", side="Computer", cse="Security",
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Security",
                 identity="Account:LockoutBadCount",
-                display_name="LockoutBadCount", display_value="5",
-                raw={}, from_disabled_side=False,
+                display_name="LockoutBadCount",
+                display_value="5",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
@@ -3233,21 +3855,32 @@ def test_baseline_diff_sorted_by_status():
 
     baseline = [
         queries.BaselineSetting(
-            side="Computer", cse="Security",
-            identity="A", display_name="A", expected_value="1",
+            side="Computer",
+            cse="Security",
+            identity="A",
+            display_name="A",
+            expected_value="1",
         ),
         queries.BaselineSetting(
-            side="Computer", cse="Security",
-            identity="B", display_name="B", expected_value="2",
+            side="Computer",
+            cse="Security",
+            identity="B",
+            display_name="B",
+            expected_value="2",
         ),
     ]
     gpo = _make_gpo(
         id="gpo-1",
         settings=[
             Setting(
-                gpo_id="gpo-1", side="Computer", cse="Security",
-                identity="B", display_name="B", display_value="99",
-                raw={}, from_disabled_side=False,
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Security",
+                identity="B",
+                display_name="B",
+                display_value="99",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
@@ -3261,31 +3894,40 @@ def test_baseline_diff_uses_admx_crosswalk():
     from gpo_lens.admx_parser import AdmxPolicy, PolicyDefinitions
     from gpo_lens.model import Setting
 
-    admx = PolicyDefinitions(policies=[
-        AdmxPolicy(
-            name="LockoutPolicy", class_scope="Machine",
-            key="Software\\Policies\\Microsoft\\System",
-            value_name="LockoutBadCount",
-            display_name_ref="$(string.LockoutPolicy)",
-            display_name="Account Lockout Threshold",
-            explain_text="",
-        ),
-    ])
+    admx = PolicyDefinitions(
+        policies=[
+            AdmxPolicy(
+                name="LockoutPolicy",
+                class_scope="Machine",
+                key="Software\\Policies\\Microsoft\\System",
+                value_name="LockoutBadCount",
+                display_name_ref="$(string.LockoutPolicy)",
+                display_name="Account Lockout Threshold",
+                explain_text="",
+            ),
+        ]
+    )
     baseline = [
         queries.BaselineSetting(
-            side="Computer", cse="Security",
+            side="Computer",
+            cse="Security",
             identity="Account:LockoutBadCount",
-            display_name="LockoutBadCount", expected_value="5",
+            display_name="LockoutBadCount",
+            expected_value="5",
         ),
     ]
     gpo = _make_gpo(
         id="gpo-1",
         settings=[
             Setting(
-                gpo_id="gpo-1", side="Computer", cse="Security",
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Security",
                 identity="Account:LockoutBadCount",
-                display_name="LockoutBadCount", display_value="10",
-                raw={}, from_disabled_side=False,
+                display_name="LockoutBadCount",
+                display_value="10",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
@@ -3300,31 +3942,40 @@ def test_baseline_diff_admx_resolves_registry_identity():
     from gpo_lens.admx_parser import AdmxPolicy, PolicyDefinitions
     from gpo_lens.model import Setting
 
-    admx = PolicyDefinitions(policies=[
-        AdmxPolicy(
-            name="NoControlPanel", class_scope="User",
-            key="Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer",
-            value_name="NoControlPanel",
-            display_name_ref="$(string.NoControlPanel)",
-            display_name="Prohibit Control Panel",
-            explain_text="",
-        ),
-    ])
+    admx = PolicyDefinitions(
+        policies=[
+            AdmxPolicy(
+                name="NoControlPanel",
+                class_scope="User",
+                key="Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer",
+                value_name="NoControlPanel",
+                display_name_ref="$(string.NoControlPanel)",
+                display_name="Prohibit Control Panel",
+                explain_text="",
+            ),
+        ]
+    )
     baseline = [
         queries.BaselineSetting(
-            side="User", cse="Registry",
+            side="User",
+            cse="Registry",
             identity=r"Software\Microsoft\Windows\CurrentVersion\Policies\Explorer:NoControlPanel",
-            display_name="NoControlPanel", expected_value="1",
+            display_name="NoControlPanel",
+            expected_value="1",
         ),
     ]
     gpo = _make_gpo(
         id="gpo-1",
         settings=[
             Setting(
-                gpo_id="gpo-1", side="User", cse="Registry",
+                gpo_id="gpo-1",
+                side="User",
+                cse="Registry",
                 identity=r"Software\Microsoft\Windows\CurrentVersion\Policies\Explorer:NoControlPanel",
-                display_name="NoControlPanel", display_value="1",
-                raw={}, from_disabled_side=False,
+                display_name="NoControlPanel",
+                display_value="1",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
@@ -3342,9 +3993,14 @@ def test_load_baseline_from_estate():
         id="gpo-1",
         settings=[
             Setting(
-                gpo_id="gpo-1", side="Computer", cse="Security",
-                identity="X", display_name="X", display_value="1",
-                raw={}, from_disabled_side=False,
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Security",
+                identity="X",
+                display_name="X",
+                display_value="1",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
@@ -3366,18 +4022,24 @@ def test_snapshot_changelog_metadata_only(tmp_path):
 
     # Snapshot A: GPO with Computer ver 1/1, User ver 1/1
     gpo_a = _make_gpo(
-        id="gpo-1", name="Test",
-        computer_ver_ds=1, computer_ver_sysvol=1,
-        user_ver_ds=1, user_ver_sysvol=1,
+        id="gpo-1",
+        name="Test",
+        computer_ver_ds=1,
+        computer_ver_sysvol=1,
+        user_ver_ds=1,
+        user_ver_sysvol=1,
     )
     estate_a = Estate(domain="test.local", gpos=[gpo_a])
     sid_a = store.save_estate(conn, estate_a)
 
     # Snapshot B: same GPO, only Computer sysvol bumped to 3 (2 edits)
     gpo_b = _make_gpo(
-        id="gpo-1", name="Test",
-        computer_ver_ds=1, computer_ver_sysvol=3,
-        user_ver_ds=1, user_ver_sysvol=1,
+        id="gpo-1",
+        name="Test",
+        computer_ver_ds=1,
+        computer_ver_sysvol=3,
+        user_ver_ds=1,
+        user_ver_sysvol=1,
     )
     estate_b = Estate(domain="test.local", gpos=[gpo_b])
     sid_b = store.save_estate(conn, estate_b)
@@ -3406,13 +4068,20 @@ def test_snapshot_changelog_settings_detail(tmp_path):
     store.init_db(conn)
 
     gpo_a = _make_gpo(
-        id="gpo-1", name="Test",
-        computer_ver_ds=1, computer_ver_sysvol=1,
+        id="gpo-1",
+        name="Test",
+        computer_ver_ds=1,
+        computer_ver_sysvol=1,
         settings=[
             Setting(
-                gpo_id="gpo-1", side="Computer", cse="Registry",
-                identity="HKLM\\Software\\Foo", display_name="Foo",
-                display_value="old", raw={}, from_disabled_side=False,
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Registry",
+                identity="HKLM\\Software\\Foo",
+                display_name="Foo",
+                display_value="old",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
@@ -3420,13 +4089,20 @@ def test_snapshot_changelog_settings_detail(tmp_path):
     sid_a = store.save_estate(conn, estate_a)
 
     gpo_b = _make_gpo(
-        id="gpo-1", name="Test",
-        computer_ver_ds=1, computer_ver_sysvol=3,
+        id="gpo-1",
+        name="Test",
+        computer_ver_ds=1,
+        computer_ver_sysvol=3,
         settings=[
             Setting(
-                gpo_id="gpo-1", side="Computer", cse="Registry",
-                identity="HKLM\\Software\\Foo", display_name="Foo",
-                display_value="new", raw={}, from_disabled_side=False,
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Registry",
+                identity="HKLM\\Software\\Foo",
+                display_name="Foo",
+                display_value="new",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
@@ -3459,17 +4135,23 @@ def test_snapshot_changelog_user_and_computer(tmp_path):
     store.init_db(conn)
 
     gpo_a = _make_gpo(
-        id="gpo-1", name="Test",
-        computer_ver_ds=1, computer_ver_sysvol=1,
-        user_ver_ds=2, user_ver_sysvol=2,
+        id="gpo-1",
+        name="Test",
+        computer_ver_ds=1,
+        computer_ver_sysvol=1,
+        user_ver_ds=2,
+        user_ver_sysvol=2,
     )
     estate_a = Estate(domain="test.local", gpos=[gpo_a])
     sid_a = store.save_estate(conn, estate_a)
 
     gpo_b = _make_gpo(
-        id="gpo-1", name="Test",
-        computer_ver_ds=2, computer_ver_sysvol=2,
-        user_ver_ds=3, user_ver_sysvol=3,
+        id="gpo-1",
+        name="Test",
+        computer_ver_ds=2,
+        computer_ver_sysvol=2,
+        user_ver_ds=3,
+        user_ver_sysvol=3,
     )
     estate_b = Estate(domain="test.local", gpos=[gpo_b])
     sid_b = store.save_estate(conn, estate_b)
@@ -3872,6 +4554,7 @@ def test_settings_diff_bom_json(tmp_path):
     assert len(result) == 1
     assert result[0].change_type == "added"
 
+
 # ---- SDDL parsing ----------------------------------------------------------
 
 
@@ -4040,8 +4723,10 @@ def test_excessive_writers_excludes_builtin_admins():
 def test_excessive_writers_mixed_rights():
     sddl_a = "O:S-1-5-21-999-512D:(A;;GW;;;S-1-5-21-999-1111)"
     sddl_b = "O:S-1-5-21-999-512D:(A;;WD;;;S-1-5-21-999-1111)"
-    gpos = [_make_gpo(id=f"gpo-{i}", name=f"GPO {i}",
-                       sddl=sddl_a if i % 2 == 0 else sddl_b) for i in range(6)]
+    gpos = [
+        _make_gpo(id=f"gpo-{i}", name=f"GPO {i}", sddl=sddl_a if i % 2 == 0 else sddl_b)
+        for i in range(6)
+    ]
     estate = Estate(gpos=gpos)
     result = queries.excessive_writers(estate, threshold=5)
     assert len(result) == 1
@@ -4053,10 +4738,9 @@ def test_excessive_writers_mixed_rights():
 def test_excessive_writers_sorted_by_count():
     sddl_svc = "O:S-1-5-18D:(A;;GA;;;S-1-5-21-999-1111)"
     sddl_other = "O:S-1-5-18D:(A;;GA;;;S-1-5-21-999-2222)"
-    gpos = (
-        [_make_gpo(id=f"svc-{i}", name=f"SvcGPO {i}", sddl=sddl_svc) for i in range(8)]
-        + [_make_gpo(id=f"other-{i}", name=f"OtherGPO {i}", sddl=sddl_other) for i in range(6)]
-    )
+    gpos = [_make_gpo(id=f"svc-{i}", name=f"SvcGPO {i}", sddl=sddl_svc) for i in range(8)] + [
+        _make_gpo(id=f"other-{i}", name=f"OtherGPO {i}", sddl=sddl_other) for i in range(6)
+    ]
     estate = Estate(gpos=gpos)
     result = queries.excessive_writers(estate, threshold=5)
     assert len(result) == 2
@@ -4101,8 +4785,12 @@ def test_deny_aces_trustee_name_resolved_from_collected_map():
     gpo = _make_gpo(id="gpo-1", name="Test", sddl=sddl)
     principals = {
         _COLLATED_SID: ResolvedPrincipal(
-            sid=_COLLATED_SID, name="TEST\\GPO-Admins", sam="GPO-Admins",
-            principal_type="Group", domain="TEST", resolved=True,
+            sid=_COLLATED_SID,
+            name="TEST\\GPO-Admins",
+            sam="GPO-Admins",
+            principal_type="Group",
+            domain="TEST",
+            resolved=True,
         ),
     }
     estate = _estate_with_principals([gpo], principals)
@@ -4147,12 +4835,19 @@ def test_deny_aces_verdict_invariant_with_and_without_principals():
     sddl = f"O:S-1-5-18D:(D;;GA;;;{sid})"
     gpo = _make_gpo(id="gpo-1", name="Test", sddl=sddl)
     estate_bare = _estate_with_principals([gpo])
-    estate_resolved = _estate_with_principals([gpo], {
-        sid.lower(): ResolvedPrincipal(
-            sid=sid.lower(), name="X\\Admins", sam="Admins",
-            principal_type="Group", domain="X", resolved=True,
-        ),
-    })
+    estate_resolved = _estate_with_principals(
+        [gpo],
+        {
+            sid.lower(): ResolvedPrincipal(
+                sid=sid.lower(),
+                name="X\\Admins",
+                sam="Admins",
+                principal_type="Group",
+                domain="X",
+                resolved=True,
+            ),
+        },
+    )
     bare = queries.deny_aces(estate_bare)
     resolved = queries.deny_aces(estate_resolved)
     assert len(bare) == len(resolved) == 1
@@ -4175,8 +4870,12 @@ def test_excessive_writers_trustee_name_resolved_from_collected_map():
     gpos = [_make_gpo(id=f"gpo-{i}", name=f"GPO {i}", sddl=sddl) for i in range(6)]
     principals = {
         sid.lower(): ResolvedPrincipal(
-            sid=sid.lower(), name="TEST\\GPO-Admins", sam="GPO-Admins",
-            principal_type="Group", domain="TEST", resolved=True,
+            sid=sid.lower(),
+            name="TEST\\GPO-Admins",
+            sam="GPO-Admins",
+            principal_type="Group",
+            domain="TEST",
+            resolved=True,
         ),
     }
     estate = _estate_with_principals(gpos, principals)
@@ -4206,12 +4905,19 @@ def test_excessive_writers_verdict_invariant_with_and_without_principals():
     sddl = f"O:S-1-5-21-999-512D:(A;;GA;;;{sid})"
     gpos = [_make_gpo(id=f"gpo-{i}", name=f"GPO {i}", sddl=sddl) for i in range(6)]
     estate_bare = _estate_with_principals(gpos)
-    estate_resolved = _estate_with_principals(gpos, {
-        sid.lower(): ResolvedPrincipal(
-            sid=sid.lower(), name="X\\Admins", sam="Admins",
-            principal_type="Group", domain="X", resolved=True,
-        ),
-    })
+    estate_resolved = _estate_with_principals(
+        gpos,
+        {
+            sid.lower(): ResolvedPrincipal(
+                sid=sid.lower(),
+                name="X\\Admins",
+                sam="Admins",
+                principal_type="Group",
+                domain="X",
+                resolved=True,
+            ),
+        },
+    )
     bare = queries.excessive_writers(estate_bare, threshold=5)
     resolved = queries.excessive_writers(estate_resolved, threshold=5)
     assert len(bare) == len(resolved) == 1
@@ -4420,8 +5126,8 @@ def test_scan_scheduled_tasks_extracts_structured_fields(tmp_path):
         '  <Task clsid="{y}" name="Backup Job">\n'
         '    <Properties action="REPLACE" appName="C:\\Tools\\bkup.exe"\n'
         '      arguments="--full" runAs="DOMAIN\\BackupSvc"/>\n'
-        '  </Task>\n'
-        '</ScheduledTasks>\n'
+        "  </Task>\n"
+        "</ScheduledTasks>\n"
     )
     gpo = _write_gpp(tmp_path, "gpo-1", "Machine", "ScheduledTasks.xml", xml)
     hits = scan_scheduled_tasks(gpo)
@@ -4442,11 +5148,11 @@ def test_scan_scheduled_tasks_picks_up_immediate_tasks(tmp_path):
 
     xml = (
         '<?xml version="1.0"?>\n'
-        '<ScheduledTasks>\n'
+        "<ScheduledTasks>\n"
         '  <ImmediateTaskV2 name="OneShot">\n'
         '    <Properties action="CREATE" appName="boot.cmd"/>\n'
-        '  </ImmediateTaskV2>\n'
-        '</ScheduledTasks>\n'
+        "  </ImmediateTaskV2>\n"
+        "</ScheduledTasks>\n"
     )
     gpo = _write_gpp(tmp_path, "gpo-u", "User", "ScheduledTasks.xml", xml)
     hits = scan_scheduled_tasks(gpo)
@@ -4467,16 +5173,16 @@ def test_scan_local_groups_extracts_member_deltas(tmp_path):
 
     xml = (
         '<?xml version="1.0"?>\n'
-        '<Groups>\n'
+        "<Groups>\n"
         '  <Group name="Administrators (local)">\n'
         '    <Properties action="UPDATE" groupName="Administrators" groupSid="S-1-5-32-544">\n'
-        '      <Members>\n'
+        "      <Members>\n"
         '        <Member name="DOMAIN\\Tier1" action="ADD" sid="S-1-5-21-1-1101"/>\n'
         '        <Member name="DOMAIN\\Old" action="REMOVE" sid="S-1-5-21-1-1102"/>\n'
-        '      </Members>\n'
-        '    </Properties>\n'
-        '  </Group>\n'
-        '</Groups>\n'
+        "      </Members>\n"
+        "    </Properties>\n"
+        "  </Group>\n"
+        "</Groups>\n"
     )
     # Real GPP stores this in Groups.xml, not a separate file.
     gpo = _write_gpp(tmp_path, "gpo-2", "Machine", "Groups.xml", xml)
@@ -4496,11 +5202,11 @@ def test_scan_local_groups_ignores_user_elements(tmp_path):
 
     xml = (
         '<?xml version="1.0"?>\n'
-        '<Groups>\n'
+        "<Groups>\n"
         '  <User name="svc">\n'
         '    <Properties action="UPDATE" userName="svc"/>\n'
-        '  </User>\n'
-        '</Groups>\n'
+        "  </User>\n"
+        "</Groups>\n"
     )
     gpo = _write_gpp(tmp_path, "gpo-3", "Machine", "Groups.xml", xml)
     assert scan_local_groups(gpo) == []
@@ -4519,17 +5225,13 @@ def test_scheduled_tasks_and_local_group_mods_are_deterministic(tmp_path):
     fwd = scheduled_tasks(Estate(gpos=[g1, g2]))
     rev = scheduled_tasks(Estate(gpos=[g2, g1]))
     assert fwd == rev
-    assert [(t.gpo_id, t.name) for t in fwd] == sorted(
-        (t.gpo_id, t.name) for t in fwd
-    )
+    assert [(t.gpo_id, t.name) for t in fwd] == sorted((t.gpo_id, t.name) for t in fwd)
     # local_group_mods with the same property
     xml_g = (
         '<Groups><Group name="x"><Properties groupName="Administrators">'
         '<Members><Member name="D\\A" action="ADD"/></Members></Properties>'
-        '</Group></Groups>'
+        "</Group></Groups>"
     )
     h1 = _write_gpp(tmp_path, "gpo-d", "Machine", "Groups.xml", xml_g)
     h2 = _write_gpp(tmp_path, "gpo-c", "Machine", "Groups.xml", xml_g)
-    assert local_group_mods(Estate(gpos=[h1, h2])) == local_group_mods(
-        Estate(gpos=[h2, h1])
-    )
+    assert local_group_mods(Estate(gpos=[h1, h2])) == local_group_mods(Estate(gpos=[h2, h1]))

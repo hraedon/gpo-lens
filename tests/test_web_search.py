@@ -1,4 +1,5 @@
 """Web route tests for /search (WI-082 — estate-wide settings search)."""
+
 from __future__ import annotations
 
 import sqlite3
@@ -17,6 +18,7 @@ def empty_db(tmp_path):
     db = tmp_path / "test.db"
     conn = sqlite3.connect(str(db))
     from gpo_lens.store import init_db
+
     init_db(conn)
     conn.close()
     return str(db)
@@ -31,23 +33,41 @@ def blank_file_db(tmp_path):
 
 def _gpo(gpo_id: str, name: str, settings):
     from gpo_lens.model import Gpo
+
     return Gpo(
-        id=gpo_id, name=name, domain="test.local",
-        created=None, modified=None, read=None,
-        computer_enabled=True, user_enabled=True,
-        computer_ver_ds=None, computer_ver_sysvol=None,
-        user_ver_ds=None, user_ver_sysvol=None,
-        sddl=None, owner=None, filter_data_available=False,
-        wmi_filter=None, sysvol_path=None,
-        settings=settings, delegation=[],
+        id=gpo_id,
+        name=name,
+        domain="test.local",
+        created=None,
+        modified=None,
+        read=None,
+        computer_enabled=True,
+        user_enabled=True,
+        computer_ver_ds=None,
+        computer_ver_sysvol=None,
+        user_ver_ds=None,
+        user_ver_sysvol=None,
+        sddl=None,
+        owner=None,
+        filter_data_available=False,
+        wmi_filter=None,
+        sysvol_path=None,
+        settings=settings,
+        delegation=[],
     )
 
 
 def _setting(gpo_id, side, cse, identity, name, value):
     from gpo_lens.model import Setting
+
     return Setting(
-        gpo_id=gpo_id, side=side, cse=cse, identity=identity,
-        display_name=name, display_value=value, raw={},
+        gpo_id=gpo_id,
+        side=side,
+        cse=cse,
+        identity=identity,
+        display_name=name,
+        display_value=value,
+        raw={},
         from_disabled_side=False,
     )
 
@@ -64,16 +84,25 @@ def populated_db(tmp_path):
     g1 = "11111111111111111111111111111111"
     g2 = "22222222222222222222222222222222"
     gpos = [
-        _gpo(g1, "gpo-kerberos", [
-            _setting(g1, "Computer", "Security",
-                     r"HKLM\System\MaxTokenSize", "MaxTokenSize", "48000"),
-            _setting(g1, "Computer", "Registry",
-                     r"HKLM\Software\Foo", "Foo policy", "1"),
-        ]),
-        _gpo(g2, "gpo-tokens", [
-            _setting(g2, "User", "Registry",
-                     r"HKCU\Software\MaxTokenSize", "MaxTokenSize", "65535"),
-        ]),
+        _gpo(
+            g1,
+            "gpo-kerberos",
+            [
+                _setting(
+                    g1, "Computer", "Security", r"HKLM\System\MaxTokenSize", "MaxTokenSize", "48000"
+                ),
+                _setting(g1, "Computer", "Registry", r"HKLM\Software\Foo", "Foo policy", "1"),
+            ],
+        ),
+        _gpo(
+            g2,
+            "gpo-tokens",
+            [
+                _setting(
+                    g2, "User", "Registry", r"HKCU\Software\MaxTokenSize", "MaxTokenSize", "65535"
+                ),
+            ],
+        ),
     ]
     estate = Estate(domain="test.local", gpos=gpos, principals={})
     save_estate(conn, estate)
@@ -119,7 +148,7 @@ class TestSearchRoute:
         client = self._client(populated_db, auth_token)
         r = client.get("/search", params={"q": "MaxTokenSize", "cse": "Security"})
         assert r.status_code == 200
-        assert "gpo-kerberos" in r.text   # Security CSE hit
+        assert "gpo-kerberos" in r.text  # Security CSE hit
         assert "gpo-tokens" not in r.text  # Registry CSE filtered out
 
     def test_no_match_shows_empty_state(self, populated_db, auth_token):

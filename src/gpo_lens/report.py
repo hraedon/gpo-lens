@@ -61,6 +61,7 @@ _SEVERITY_COLOR = {
 # Shared data structures for GPO sections
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class _GpoSectionItem:
     label: str
@@ -131,15 +132,9 @@ def _gpo_sections(
     if gpo.owner:
         properties.append(_GpoSectionItem("Owner", gpo.owner))
 
-    links = [
-        _GpoLinkItem(link.som_path, link.link_enabled, link.enforced)
-        for link in gpo.links
-    ]
+    links = [_GpoLinkItem(link.som_path, link.link_enabled, link.enforced) for link in gpo.links]
 
-    delegation = [
-        _GpoDelegationItem(d.trustee, d.permission, d.allowed)
-        for d in gpo.delegation
-    ]
+    delegation = [_GpoDelegationItem(d.trustee, d.permission, d.allowed) for d in gpo.delegation]
 
     settings: list[_GpoSettingItem] = []
     for s in gpo.settings:
@@ -148,11 +143,7 @@ def _gpo_sections(
             flags += " [DISABLED SIDE]"
         if s.source_state == "blocked":
             flags += " [BLOCKED]"
-        settings.append(
-            _GpoSettingItem(
-                s.cse, s.side, s.identity, s.display_value, flags
-            )
-        )
+        settings.append(_GpoSettingItem(s.cse, s.side, s.identity, s.display_value, flags))
 
     return properties, links, delegation, settings
 
@@ -160,6 +151,7 @@ def _gpo_sections(
 # ---------------------------------------------------------------------------
 # Format-specific renderers for GPO sections
 # ---------------------------------------------------------------------------
+
 
 def _gpo_md(gpo: Gpo, *, max_settings: int = 50) -> str:
     parts: list[str] = []
@@ -199,7 +191,6 @@ def _gpo_md(gpo: Gpo, *, max_settings: int = 50) -> str:
 
     parts.append("")
     return "\n".join(parts)
-
 
 
 def _esc(text: str) -> str:
@@ -286,9 +277,7 @@ def _gpo_html(gpo: Gpo, *, max_settings: int = 50) -> list[str]:
             )
         remaining = len(gpo.settings) - max_settings
         if remaining > 0:
-            parts.append(
-                f"<tr><td colspan='4'>... ({remaining} more settings)</td></tr>"
-            )
+            parts.append(f"<tr><td colspan='4'>... ({remaining} more settings)</td></tr>")
         parts.append("</table>")
 
     return parts
@@ -297,6 +286,7 @@ def _gpo_html(gpo: Gpo, *, max_settings: int = 50) -> list[str]:
 # ---------------------------------------------------------------------------
 # Shared section generators
 # ---------------------------------------------------------------------------
+
 
 def _summary_lines(summary: EstateSummary) -> list[tuple[str, str]]:
     """Return (label, value) pairs for the summary table."""
@@ -335,6 +325,7 @@ def _baseline_categories(
 # ---------------------------------------------------------------------------
 # Markdown builders
 # ---------------------------------------------------------------------------
+
 
 def _summary_table_md(summary: EstateSummary) -> str:
     lines = [
@@ -448,15 +439,13 @@ def _baseline_md(baseline: list[BaselineDiffEntry]) -> list[str]:
                 if r.status == "drift":
                     parts.append(f"  - Expected: `{_md_code(r.expected_value)}`")
                     parts.append(
-                        f"  - Actual: `{_md_code(r.actual_value)}` "
-                        f"(GPO: {_md_esc(r.gpo_id)})"
+                        f"  - Actual: `{_md_code(r.actual_value)}` (GPO: {_md_esc(r.gpo_id)})"
                     )
                 elif r.status == "missing":
                     parts.append(f"  - Expected: `{_md_code(r.expected_value)}`")
                 else:
                     parts.append(
-                        f"  - Actual: `{_md_code(r.actual_value)}` "
-                        f"(GPO: {_md_esc(r.gpo_id)})"
+                        f"  - Actual: `{_md_code(r.actual_value)}` (GPO: {_md_esc(r.gpo_id)})"
                     )
             parts.append("")
     return parts
@@ -486,8 +475,7 @@ def _changelog_md(changelog_entries: list[ChangelogEntry]) -> list[str]:
             )
             if sc.old_value or sc.new_value:
                 parts.append(
-                    f"  - `{_md_code(sc.old_value or '')}` -> "
-                    f"`{_md_code(sc.new_value or '')}`"
+                    f"  - `{_md_code(sc.old_value or '')}` -> `{_md_code(sc.new_value or '')}`"
                 )
         parts.append("")
     return parts
@@ -497,12 +485,10 @@ def _changelog_md(changelog_entries: list[ChangelogEntry]) -> list[str]:
 # HTML builders
 # ---------------------------------------------------------------------------
 
+
 def _badge(sev: str) -> str:
     color = _SEVERITY_COLOR.get(sev, "#6b7280")
-    return (
-        f'<span class="badge" style="background:{color};">'
-        f"{_esc(sev.upper())}</span>"
-    )
+    return f'<span class="badge" style="background:{color};">{_esc(sev.upper())}</span>'
 
 
 def _summary_table_html(summary: EstateSummary) -> list[str]:
@@ -529,8 +515,7 @@ def _findings_html(findings: list[DoctorFinding]) -> list[str]:
         for f in group:
             detail = f"<br><small>{_esc(f.detail)}</small>" if f.detail else ""
             remediation = (
-                f"<br><strong>Remediation:</strong> {_esc(f.remediation)}"
-                if f.remediation else ""
+                f"<br><strong>Remediation:</strong> {_esc(f.remediation)}" if f.remediation else ""
             )
             parts.append(
                 f"<li>{_badge(sev)} <strong>{_esc(f.category)}</strong> — "
@@ -552,8 +537,7 @@ def _topology_html(estate: Estate, soms_with_links: list[Som]) -> list[str]:
 
     for som in soms_with_links:
         block = (
-            ' <span class="badge" style="background:#7c3aed;">'
-            "BLOCKED</span>"
+            ' <span class="badge" style="background:#7c3aed;">BLOCKED</span>'
             if som.inheritance_blocked
             else ""
         )
@@ -596,8 +580,7 @@ def _effective_settings_html(estate: Estate, soms_with_links: list[Som]) -> list
             continue
         any_eff = True
         block = (
-            ' <span class="badge" style="background:#7c3aed;">'
-            "BLOCKED</span>"
+            ' <span class="badge" style="background:#7c3aed;">BLOCKED</span>'
             if som.inheritance_blocked
             else ""
         )
@@ -606,13 +589,15 @@ def _effective_settings_html(estate: Estate, soms_with_links: list[Som]) -> list
         caveats = queries.scope_caveats(estate, som.path)
         if caveats:
             parts.append('<div class="caveats">')
-            parts.append("<strong>\u26a0 Scope caveats</strong> "
-                         "<em>(flagged, not simulated)</em>:<ul>")
+            parts.append(
+                "<strong>\u26a0 Scope caveats</strong> <em>(flagged, not simulated)</em>:<ul>"
+            )
             for c in caveats:
                 parts.append(f"<li>{_esc(c.strip())}</li>")
             parts.append("</ul>")
-            parts.append("<em>Effective settings may differ \u2014 "
-                         "scoping mechanisms not simulated.</em>")
+            parts.append(
+                "<em>Effective settings may differ \u2014 scoping mechanisms not simulated.</em>"
+            )
             parts.append("</div>")
         parts.append("<table>")
         parts.append(
@@ -620,9 +605,7 @@ def _effective_settings_html(estate: Estate, soms_with_links: list[Som]) -> list
             "<th>Value</th><th>Winner GPO</th><th>Overridden</th></tr>"
         )
         for s in eff:
-            overridden_parts = [
-                f"{_esc(n)} = {_esc(v)}" for n, v in s.overridden_by
-            ]
+            overridden_parts = [f"{_esc(n)} = {_esc(v)}" for n, v in s.overridden_by]
             overridden_text = "<br>".join(overridden_parts) if overridden_parts else ""
             parts.append(
                 f"<tr><td>{_esc(s.cse)}</td><td>{_esc(s.side)}</td>"
@@ -640,19 +623,14 @@ def _effective_settings_html(estate: Estate, soms_with_links: list[Som]) -> list
 def _baseline_html(baseline: list[BaselineDiffEntry]) -> list[str]:
     parts: list[str] = []
     compliant, drift, missing, extra, total, pct = _baseline_categories(baseline)
-    parts.append(
-        f"<p><strong>Compliance: {pct}%</strong> "
-        f"({len(compliant)} / {total})</p>"
-    )
+    parts.append(f"<p><strong>Compliance: {pct}%</strong> ({len(compliant)} / {total})</p>")
 
     for title, items in [("Drift", drift), ("Missing", missing), ("Extra", extra)]:
         if items:
             parts.append(f"<h3>{title}</h3><ul>")
             for r in items:
                 name = r.admx_name or r.display_name or r.identity
-                parts.append(
-                    f"<li><code>[{_esc(r.cse)}] {_esc(r.side)}/{_esc(name)}</code>"
-                )
+                parts.append(f"<li><code>[{_esc(r.cse)}] {_esc(r.side)}/{_esc(name)}</code>")
                 if r.status == "drift":
                     parts.append(
                         f"<br>Expected: <code>{_esc(r.expected_value)}</code><br>"
@@ -660,13 +638,10 @@ def _baseline_html(baseline: list[BaselineDiffEntry]) -> list[str]:
                         f"(GPO: {_esc(r.gpo_id)})"
                     )
                 elif r.status == "missing":
-                    parts.append(
-                        f" — Expected: <code>{_esc(r.expected_value)}</code>"
-                    )
+                    parts.append(f" — Expected: <code>{_esc(r.expected_value)}</code>")
                 else:
                     parts.append(
-                        f" — Actual: <code>{_esc(r.actual_value)}</code> "
-                        f"(GPO: {_esc(r.gpo_id)})"
+                        f" — Actual: <code>{_esc(r.actual_value)}</code> (GPO: {_esc(r.gpo_id)})"
                     )
                 parts.append("</li>")
             parts.append("</ul>")
@@ -681,9 +656,7 @@ def _changelog_html(changelog_entries: list[ChangelogEntry]) -> list[str]:
 
     for e in changelog_entries:
         prefix = "DETAIL" if e.kind == "settings_detail" else "META"
-        parts.append(
-            f"<h3>[{prefix}] {_esc(e.gpo_name)} ({_esc(e.gpo_id)})</h3>"
-        )
+        parts.append(f"<h3>[{prefix}] {_esc(e.gpo_name)} ({_esc(e.gpo_id)})</h3>")
         parts.append(f"<p><em>{_esc(e.summary)}</em></p>")
         if e.version_change:
             vc = e.version_change
@@ -714,6 +687,7 @@ def _changelog_html(changelog_entries: list[ChangelogEntry]) -> list[str]:
 # Public API
 # ---------------------------------------------------------------------------
 
+
 def generate_markdown(
     estate: Estate,
     *,
@@ -723,7 +697,9 @@ def generate_markdown(
 ) -> str:
     """Produce a self-contained markdown report for the estate."""
     return _generate_md(
-        estate, baseline=baseline, changelog_entries=changelog_entries,
+        estate,
+        baseline=baseline,
+        changelog_entries=changelog_entries,
         max_settings=max_settings,
     )
 
@@ -737,7 +713,9 @@ def generate_html(
 ) -> str:
     """Wrap the report in a standalone HTML template with inline CSS."""
     return _generate_html(
-        estate, baseline=baseline, changelog_entries=changelog_entries,
+        estate,
+        baseline=baseline,
+        changelog_entries=changelog_entries,
         max_settings=max_settings,
     )
 
@@ -753,11 +731,15 @@ def generate_report(
     """Generate a report string in the requested format."""
     if format == "html":
         return generate_html(
-            estate, baseline=baseline, changelog_entries=changelog_entries,
+            estate,
+            baseline=baseline,
+            changelog_entries=changelog_entries,
             max_settings=max_settings,
         )
     return generate_markdown(
-        estate, baseline=baseline, changelog_entries=changelog_entries,
+        estate,
+        baseline=baseline,
+        changelog_entries=changelog_entries,
         max_settings=max_settings,
     )
 
@@ -786,6 +768,7 @@ def write_report(
 # Internal report generators
 # ---------------------------------------------------------------------------
 
+
 def _generate_md(
     estate: Estate,
     *,
@@ -797,9 +780,7 @@ def _generate_md(
 
     summary = queries.estate_summary(estate)
     findings = queries.estate_doctor(estate)
-    soms_with_links = [
-        som for som in estate.soms if som.links and som.container_type != "site"
-    ]
+    soms_with_links = [som for som in estate.soms if som.links and som.container_type != "site"]
 
     parts: list[str] = []
     parts.append(f"# Estate Report: {_md_esc(summary.domain)}\n")
@@ -868,9 +849,7 @@ def _generate_html(
 
     summary = queries.estate_summary(estate)
     findings = queries.estate_doctor(estate)
-    soms_with_links = [
-        som for som in estate.soms if som.links and som.container_type != "site"
-    ]
+    soms_with_links = [som for som in estate.soms if som.links and som.container_type != "site"]
 
     body_parts: list[str] = []
 

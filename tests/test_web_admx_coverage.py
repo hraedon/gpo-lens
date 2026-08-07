@@ -1,4 +1,5 @@
 """Web route tests for /admx-coverage (WI-075)."""
+
 from __future__ import annotations
 
 import sqlite3

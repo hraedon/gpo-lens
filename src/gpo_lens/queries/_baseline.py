@@ -26,15 +26,15 @@ class BaselineSetting:
 class BaselineDiffEntry:
     """One finding from a baseline comparison."""
 
-    status: str         # "compliant", "drift", "missing", "extra"
+    status: str  # "compliant", "drift", "missing", "extra"
     side: Side
     cse: str
     identity: str
     display_name: str
     expected_value: str
     actual_value: str
-    gpo_id: str         # GPO(s) that set this value (comma-separated if multiple)
-    admx_name: str      # resolved ADMX policy name (empty if no crosswalk)
+    gpo_id: str  # GPO(s) that set this value (comma-separated if multiple)
+    admx_name: str  # resolved ADMX policy name (empty if no crosswalk)
 
 
 def load_baseline_from_estate(estate: Estate) -> list[BaselineSetting]:
@@ -44,10 +44,15 @@ def load_baseline_from_estate(estate: Estate) -> list[BaselineSetting]:
         for s in g.settings:
             if s.source_state == "blocked":
                 continue
-            results.append(BaselineSetting(
-                side=s.side, cse=s.cse, identity=s.identity,
-                display_name=s.display_name, expected_value=s.display_value,
-            ))
+            results.append(
+                BaselineSetting(
+                    side=s.side,
+                    cse=s.cse,
+                    identity=s.identity,
+                    display_name=s.display_name,
+                    expected_value=s.display_value,
+                )
+            )
     return results
 
 
@@ -84,31 +89,50 @@ def baseline_diff(
         admx_name = admx.resolve_display_name(bs.identity) or ""
 
         if not actuals:
-            results.append(BaselineDiffEntry(
-                status="missing", side=bs.side, cse=bs.cse,
-                identity=bs.identity, display_name=bs.display_name,
-                expected_value=bs.expected_value, actual_value="",
-                gpo_id="", admx_name=admx_name,
-            ))
+            results.append(
+                BaselineDiffEntry(
+                    status="missing",
+                    side=bs.side,
+                    cse=bs.cse,
+                    identity=bs.identity,
+                    display_name=bs.display_name,
+                    expected_value=bs.expected_value,
+                    actual_value="",
+                    gpo_id="",
+                    admx_name=admx_name,
+                )
+            )
         else:
             values = {v for _, v in actuals}
             gpo_ids = ",".join(sorted({gid for gid, _ in actuals}))
             if bs.expected_value in values:
-                results.append(BaselineDiffEntry(
-                    status="compliant", side=bs.side, cse=bs.cse,
-                    identity=bs.identity, display_name=bs.display_name,
-                    expected_value=bs.expected_value,
-                    actual_value=bs.expected_value,
-                    gpo_id=gpo_ids, admx_name=admx_name,
-                ))
+                results.append(
+                    BaselineDiffEntry(
+                        status="compliant",
+                        side=bs.side,
+                        cse=bs.cse,
+                        identity=bs.identity,
+                        display_name=bs.display_name,
+                        expected_value=bs.expected_value,
+                        actual_value=bs.expected_value,
+                        gpo_id=gpo_ids,
+                        admx_name=admx_name,
+                    )
+                )
             else:
-                results.append(BaselineDiffEntry(
-                    status="drift", side=bs.side, cse=bs.cse,
-                    identity=bs.identity, display_name=bs.display_name,
-                    expected_value=bs.expected_value,
-                    actual_value=actuals[0][1],
-                    gpo_id=gpo_ids, admx_name=admx_name,
-                ))
+                results.append(
+                    BaselineDiffEntry(
+                        status="drift",
+                        side=bs.side,
+                        cse=bs.cse,
+                        identity=bs.identity,
+                        display_name=bs.display_name,
+                        expected_value=bs.expected_value,
+                        actual_value=actuals[0][1],
+                        gpo_id=gpo_ids,
+                        admx_name=admx_name,
+                    )
+                )
 
     baseline_identity_set = {(bs.cse.lower(), bs.identity.lower()) for bs in baseline}
     for (cse, ident), entries in estate_settings.items():
@@ -125,15 +149,26 @@ def baseline_diff(
                     break
             gpo_ids = ",".join(sorted({gid for gid, _ in entries}))
             admx_name = admx.resolve_display_name(ident) or ""
-            results.append(BaselineDiffEntry(
-                status="extra", side=side, cse=cse,
-                identity=ident, display_name=display_name,
-                expected_value="", actual_value=entries[0][1],
-                gpo_id=gpo_ids, admx_name=admx_name,
-            ))
+            results.append(
+                BaselineDiffEntry(
+                    status="extra",
+                    side=side,
+                    cse=cse,
+                    identity=ident,
+                    display_name=display_name,
+                    expected_value="",
+                    actual_value=entries[0][1],
+                    gpo_id=gpo_ids,
+                    admx_name=admx_name,
+                )
+            )
 
-    results.sort(key=lambda e: (
-        {"drift": 0, "missing": 1, "extra": 2, "compliant": 3}[e.status],
-        e.cse, e.side, e.identity,
-    ))
+    results.sort(
+        key=lambda e: (
+            {"drift": 0, "missing": 1, "extra": 2, "compliant": 3}[e.status],
+            e.cse,
+            e.side,
+            e.identity,
+        )
+    )
     return results

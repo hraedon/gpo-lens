@@ -35,28 +35,32 @@ def deny_aces(estate: Estate) -> list[DenyAce]:
             if is_deny_ace_type(ace.ace_type):
                 canon_sid = canonical_sddl_sid(ace.trustee_sid or "")
                 rp = resolve_principal(estate, canon_sid)
-                results.append(DenyAce(
-                    gpo_id=g.id,
-                    gpo_name=g.name,
-                    trustee_sid=canon_sid,
-                    rights=ace.rights,
-                    flags=ace.flags,
-                    acl_section="dacl",
-                    trustee_name=rp.name,
-                ))
+                results.append(
+                    DenyAce(
+                        gpo_id=g.id,
+                        gpo_name=g.name,
+                        trustee_sid=canon_sid,
+                        rights=ace.rights,
+                        flags=ace.flags,
+                        acl_section="dacl",
+                        trustee_name=rp.name,
+                    )
+                )
         for ace in acl.sacl:
             if is_deny_ace_type(ace.ace_type):
                 canon_sid = canonical_sddl_sid(ace.trustee_sid or "")
                 rp = resolve_principal(estate, canon_sid)
-                results.append(DenyAce(
-                    gpo_id=g.id,
-                    gpo_name=g.name,
-                    trustee_sid=canon_sid,
-                    rights=ace.rights,
-                    flags=ace.flags,
-                    acl_section="sacl",
-                    trustee_name=rp.name,
-                ))
+                results.append(
+                    DenyAce(
+                        gpo_id=g.id,
+                        gpo_name=g.name,
+                        trustee_sid=canon_sid,
+                        rights=ace.rights,
+                        flags=ace.flags,
+                        acl_section="sacl",
+                        trustee_name=rp.name,
+                    )
+                )
     return results
 
 
@@ -99,18 +103,15 @@ def excessive_writers(
         for rights_set in gpo_rights.values():
             all_rights |= rights_set
         rp = resolve_principal(estate, sid)
-        results.append(ExcessiveWriter(
-            trustee_sid=sid,
-            gpo_count=len(gpo_rights),
-            gpo_names=tuple(
-                sorted(
-                    estate.gpo_names.get(gid_, gid_)
-                    for gid_ in gpo_rights
-                )
-            ),
-            rights=tuple(sorted(all_rights)),
-            trustee_name=rp.name,
-        ))
+        results.append(
+            ExcessiveWriter(
+                trustee_sid=sid,
+                gpo_count=len(gpo_rights),
+                gpo_names=tuple(sorted(estate.gpo_names.get(gid_, gid_) for gid_ in gpo_rights)),
+                rights=tuple(sorted(all_rights)),
+                trustee_name=rp.name,
+            )
+        )
 
     results.sort(key=lambda w: w.gpo_count, reverse=True)
     return results

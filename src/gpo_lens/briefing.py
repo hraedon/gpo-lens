@@ -242,14 +242,10 @@ def build_briefing(
         "AND resolved_in_snapshot IS NULL AND first_seen_run_id IS NOT NULL "
         "AND severity = 'critical'",
     )
-    gpo_count = _scalar(
-        conn, "SELECT COUNT(*) FROM gpo WHERE snapshot_id = ?", (snapshot_id,)
-    )
+    gpo_count = _scalar(conn, "SELECT COUNT(*) FROM gpo WHERE snapshot_id = ?", (snapshot_id,))
 
     register = accepted_risk_register(conn, as_of=now)
-    active_acceptances = [
-        r for r in register if r.revoked_at is None and not r.is_expired
-    ]
+    active_acceptances = [r for r in register if r.revoked_at is None and not r.is_expired]
     expiring = tuple(
         _to_expiring(r)
         for r in sorted(
@@ -319,9 +315,7 @@ def build_briefing(
 def _to_expiring(acceptance: RiskAcceptance) -> ExpiringAcceptance:
     expires = acceptance.expires_at
     if expires is None:  # pragma: no cover - filtered on before construction
-        raise ValueError(
-            f"acceptance {acceptance.occurrence_id} has no expiry to report"
-        )
+        raise ValueError(f"acceptance {acceptance.occurrence_id} has no expiry to report")
     return ExpiringAcceptance(
         occurrence_id=acceptance.occurrence_id,
         category=acceptance.category,
@@ -394,11 +388,7 @@ def briefing_lines(briefing: Briefing) -> tuple[str, ...]:
     if briefing.findings_resolved:
         changes.append(f"{briefing.findings_resolved} resolved")
 
-    lines.append(
-        f"Since snapshot #{briefing.prior_snapshot_id}: "
-        + _join_clauses(changes)
-        + "."
-    )
+    lines.append(f"Since snapshot #{briefing.prior_snapshot_id}: " + _join_clauses(changes) + ".")
 
     if briefing.expiring:
         overdue = [e for e in briefing.expiring if e.already_expired]

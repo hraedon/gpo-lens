@@ -39,8 +39,8 @@ if TYPE_CHECKING:
 class DoctorFinding:
     """One prioritized finding from the estate doctor."""
 
-    severity: str       # "critical", "high", "medium", "low", "info"
-    category: str       # "cpassword", "ms16_072", "version_skew", etc.
+    severity: str  # "critical", "high", "medium", "low", "info"
+    category: str  # "cpassword", "ms16_072", "version_skew", etc.
     gpo_id: str
     gpo_name: str
     summary: str
@@ -66,7 +66,9 @@ _SEVERITY_ORDER = SEVERITY_ORDER
 
 
 def estate_doctor(
-    estate: Estate, *, now: datetime | None = None,
+    estate: Estate,
+    *,
+    now: datetime | None = None,
     admx: AdmxResolver | None = None,
     danger: list[DangerFinding] | None = None,
 ) -> list[DoctorFinding]:
@@ -82,47 +84,51 @@ def estate_doctor(
 
     _COVERAGE_SUMMARY = {
         "inaccessible": "GPO could not be collected — estate analysis is incomplete",
-        "missing_sysvol": (
-            "No SYSVOL collected — GPP/cPassword detectors are BLIND, not clean"
-        ),
+        "missing_sysvol": ("No SYSVOL collected — GPP/cPassword detectors are BLIND, not clean"),
         "unreadable_sysvol": "GPP content unreadable — estate view is partial",
     }
     for cov in estate.coverage_gaps:
-        findings.append(DoctorFinding(
-            # A missing SYSVOL silently zeroes a critical detector (cPassword),
-            # so it outranks an ordinary per-GPO collection gap.
-            severity="critical" if cov.kind == "missing_sysvol" else "high",
-            category="coverage_gap",
-            gpo_id=cov.gpo_id,
-            gpo_name=cov.display_name or "(estate)",
-            summary=_COVERAGE_SUMMARY.get(
-                cov.kind,
-                "GPO collection failed — estate analysis may be incomplete",
-            ),
-            detail=cov.detail,
-            subject_key=(cov.kind, cov.gpo_id),
-            dimensions=(("kind", cov.kind),),
-        ))
+        findings.append(
+            DoctorFinding(
+                # A missing SYSVOL silently zeroes a critical detector (cPassword),
+                # so it outranks an ordinary per-GPO collection gap.
+                severity="critical" if cov.kind == "missing_sysvol" else "high",
+                category="coverage_gap",
+                gpo_id=cov.gpo_id,
+                gpo_name=cov.display_name or "(estate)",
+                summary=_COVERAGE_SUMMARY.get(
+                    cov.kind,
+                    "GPO collection failed — estate analysis may be incomplete",
+                ),
+                detail=cov.detail,
+                subject_key=(cov.kind, cov.gpo_id),
+                dimensions=(("kind", cov.kind),),
+            )
+        )
 
     for hit in cpassword_scan(estate):
-        findings.append(DoctorFinding(
-            severity="critical",
-            category="cpassword",
-            gpo_id=hit.gpo_id,
-            gpo_name=hit.gpo_name,
-            summary=f"cpassword in {hit.file} <{hit.tag}> (MS14-025)",
-            detail=f"Encrypted password found: {mask_cpassword(hit.cpassword)}",
-        ))
+        findings.append(
+            DoctorFinding(
+                severity="critical",
+                category="cpassword",
+                gpo_id=hit.gpo_id,
+                gpo_name=hit.gpo_name,
+                summary=f"cpassword in {hit.file} <{hit.tag}> (MS14-025)",
+                detail=f"Encrypted password found: {mask_cpassword(hit.cpassword)}",
+            )
+        )
 
     for g in ms16_072_vulnerable(estate):
-        findings.append(DoctorFinding(
-            severity="high",
-            category="ms16_072",
-            gpo_id=g.id,
-            gpo_name=g.name,
-            summary="Missing Authenticated Users / Domain Computers Read (MS16-072)",
-            detail="GPO may silently stop applying after MS16-072 patch",
-        ))
+        findings.append(
+            DoctorFinding(
+                severity="high",
+                category="ms16_072",
+                gpo_id=g.id,
+                gpo_name=g.name,
+                summary="Missing Authenticated Users / Domain Computers Read (MS16-072)",
+                detail="GPO may silently stop applying after MS16-072 patch",
+            )
+        )
 
     for g, side in version_skew(estate):
         if side == "Computer":
@@ -131,179 +137,212 @@ def estate_doctor(
         else:
             ds_ver = g.user_ver_ds
             sysvol_ver = g.user_ver_sysvol
-        findings.append(DoctorFinding(
-            severity="medium",
-            category="version_skew",
-            gpo_id=g.id,
-            gpo_name=g.name,
-            summary=f"{side} version skew (GPC != GPT)",
-            detail=f"DS={ds_ver}, SYSVOL={sysvol_ver}",
-            dimensions=(("side", side),),
-        ))
+        findings.append(
+            DoctorFinding(
+                severity="medium",
+                category="version_skew",
+                gpo_id=g.id,
+                gpo_name=g.name,
+                summary=f"{side} version skew (GPC != GPT)",
+                detail=f"DS={ds_ver}, SYSVOL={sysvol_ver}",
+                dimensions=(("side", side),),
+            )
+        )
 
     for som, link in dangling_links(estate):
-        findings.append(DoctorFinding(
-            severity="medium",
-            category="dangling_link",
-            gpo_id=link.gpo_id,
-            gpo_name="<missing>",
-            summary=f"Dangling link at {som.name}",
-            detail=f"SOM {som.path} links to missing GPO {link.gpo_id}",
-        ))
+        findings.append(
+            DoctorFinding(
+                severity="medium",
+                category="dangling_link",
+                gpo_id=link.gpo_id,
+                gpo_name="<missing>",
+                summary=f"Dangling link at {som.name}",
+                detail=f"SOM {som.path} links to missing GPO {link.gpo_id}",
+            )
+        )
 
     for d in topology_crosscheck(estate):
-        findings.append(DoctorFinding(
-            severity="medium",
-            category="topology_discrepancy",
-            gpo_id="",
-            gpo_name="",
-            summary=f"{d.kind}: {d.ou_dn}",
-            detail=d.detail,
-            subject_key=(d.kind, d.ou_dn),
-        ))
+        findings.append(
+            DoctorFinding(
+                severity="medium",
+                category="topology_discrepancy",
+                gpo_id="",
+                gpo_name="",
+                summary=f"{d.kind}: {d.ou_dn}",
+                detail=d.detail,
+                subject_key=(d.kind, d.ou_dn),
+            )
+        )
 
     for g, side in disabled_but_populated(estate):
-        findings.append(DoctorFinding(
-            severity="low",
-            category="disabled_but_populated",
-            gpo_id=g.id,
-            gpo_name=g.name,
-            summary=f"{side} side disabled but has settings",
-            detail=(
-                f"{sum(1 for s in g.settings if s.side == side)}"
-                f" settings on disabled {side} side"
-            ),
-            dimensions=(("side", side),),
-        ))
+        findings.append(
+            DoctorFinding(
+                severity="low",
+                category="disabled_but_populated",
+                gpo_id=g.id,
+                gpo_name=g.name,
+                summary=f"{side} side disabled but has settings",
+                detail=(
+                    f"{sum(1 for s in g.settings if s.side == side)}"
+                    f" settings on disabled {side} side"
+                ),
+                dimensions=(("side", side),),
+            )
+        )
 
     for ref in broken_refs(estate):
-        findings.append(DoctorFinding(
-            severity="low",
-            category=f"broken_ref:{ref.ref_type}",
-            gpo_id=ref.gpo_id,
-            gpo_name=ref.gpo_name,
-            summary=ref.detail,
-            detail=ref.ref_value,
-            dimensions=(("ref_value", ref.ref_value),),
-        ))
+        findings.append(
+            DoctorFinding(
+                severity="low",
+                category=f"broken_ref:{ref.ref_type}",
+                gpo_id=ref.gpo_id,
+                gpo_name=ref.gpo_name,
+                summary=ref.detail,
+                detail=ref.ref_value,
+                dimensions=(("ref_value", ref.ref_value),),
+            )
+        )
 
     for gap in admx_gaps(estate):
-        findings.append(DoctorFinding(
-            severity="low",
-            category="admx_gap",
-            gpo_id=gap.gpo_id,
-            gpo_name=gap.gpo_name,
-            summary=f"Raw registry key (no ADMX): {gap.key_path}",
-            detail=f"{gap.side}/{gap.identity}",
-        ))
+        findings.append(
+            DoctorFinding(
+                severity="low",
+                category="admx_gap",
+                gpo_id=gap.gpo_id,
+                gpo_name=gap.gpo_name,
+                summary=f"Raw registry key (no ADMX): {gap.key_path}",
+                detail=f"{gap.side}/{gap.identity}",
+            )
+        )
 
     for g in unlinked_gpos(estate):
-        findings.append(DoctorFinding(
-            severity="info",
-            category="unlinked",
-            gpo_id=g.id,
-            gpo_name=g.name,
-            summary="GPO has no links (applies nowhere)",
-            detail="",
-        ))
+        findings.append(
+            DoctorFinding(
+                severity="info",
+                category="unlinked",
+                gpo_id=g.id,
+                gpo_name=g.name,
+                summary="GPO has no links (applies nowhere)",
+                detail="",
+            )
+        )
 
     for g in empty_gpos(estate):
-        findings.append(DoctorFinding(
-            severity="info",
-            category="empty",
-            gpo_id=g.id,
-            gpo_name=g.name,
-            summary="GPO has no settings on either side",
-            detail="",
-        ))
+        findings.append(
+            DoctorFinding(
+                severity="info",
+                category="empty",
+                gpo_id=g.id,
+                gpo_name=g.name,
+                summary="GPO has no settings on either side",
+                detail="",
+            )
+        )
 
     for som, link in enforced_links(estate):
-        findings.append(DoctorFinding(
-            severity="info",
-            category="enforced_link",
-            gpo_id=link.gpo_id,
-            gpo_name="",
-            summary=f"Enforced link at {som.name} (order {link.order})",
-            detail=f"Target: {link.target}",
-        ))
+        findings.append(
+            DoctorFinding(
+                severity="info",
+                category="enforced_link",
+                gpo_id=link.gpo_id,
+                gpo_name="",
+                summary=f"Enforced link at {som.name} (order {link.order})",
+                detail=f"Target: {link.target}",
+            )
+        )
 
     for da in deny_aces(estate):
         trustee_display = da.trustee_name or da.trustee_sid
-        findings.append(DoctorFinding(
-            severity="medium",
-            category="deny_ace",
-            gpo_id=da.gpo_id,
-            gpo_name=da.gpo_name,
-            summary=f"Deny ACE: {trustee_display} ({da.rights})",
-            detail=f"Trustee SID: {da.trustee_sid}" + (f"; Flags: {da.flags}" if da.flags else ""),
-            dimensions=(("trustee_sid", da.trustee_sid),),
-        ))
+        findings.append(
+            DoctorFinding(
+                severity="medium",
+                category="deny_ace",
+                gpo_id=da.gpo_id,
+                gpo_name=da.gpo_name,
+                summary=f"Deny ACE: {trustee_display} ({da.rights})",
+                detail=f"Trustee SID: {da.trustee_sid}"
+                + (f"; Flags: {da.flags}" if da.flags else ""),
+                dimensions=(("trustee_sid", da.trustee_sid),),
+            )
+        )
 
     for w in excessive_writers(estate):
         trustee_display = w.trustee_name or w.trustee_sid
-        findings.append(DoctorFinding(
-            severity="medium",
-            category="excessive_writer",
-            gpo_id="",
-            gpo_name="",
-            summary=f"{trustee_display} has write access to {w.gpo_count} GPOs",
-            detail=f"Trustee SID: {w.trustee_sid}; Rights: {', '.join(w.rights)}; "
-                   f"GPOs: {', '.join(w.gpo_names[:10])}",
-            subject_key=(w.trustee_sid,),
-        ))
+        findings.append(
+            DoctorFinding(
+                severity="medium",
+                category="excessive_writer",
+                gpo_id="",
+                gpo_name="",
+                summary=f"{trustee_display} has write access to {w.gpo_count} GPOs",
+                detail=f"Trustee SID: {w.trustee_sid}; Rights: {', '.join(w.rights)}; "
+                f"GPOs: {', '.join(w.gpo_names[:10])}",
+                subject_key=(w.trustee_sid,),
+            )
+        )
 
     for wref in broken_wmi_refs(estate):
-        findings.append(DoctorFinding(
-            severity="medium",
-            category="broken_wmi_ref",
-            gpo_id=wref.gpo_id,
-            gpo_name=wref.gpo_name,
-            summary=f"WMI filter '{wref.filter_name}' not found in estate",
-            detail="GPO references a WMI filter absent from wmi-filters.json",
-        ))
+        findings.append(
+            DoctorFinding(
+                severity="medium",
+                category="broken_wmi_ref",
+                gpo_id=wref.gpo_id,
+                gpo_name=wref.gpo_name,
+                summary=f"WMI filter '{wref.filter_name}' not found in estate",
+                detail="GPO references a WMI filter absent from wmi-filters.json",
+            )
+        )
 
     for wf in orphaned_wmi_filters(estate):
-        findings.append(DoctorFinding(
-            severity="low",
-            category="orphaned_wmi_filter",
-            gpo_id="",
-            gpo_name="",
-            summary=f"Orphaned WMI filter: {wf.name}",
-            detail=f"Defined but referenced by zero GPOs. Query: {wf.query}",
-            subject_key=(wf.name,),
-        ))
+        findings.append(
+            DoctorFinding(
+                severity="low",
+                category="orphaned_wmi_filter",
+                gpo_id="",
+                gpo_name="",
+                summary=f"Orphaned WMI filter: {wf.name}",
+                detail=f"Defined but referenced by zero GPOs. Query: {wf.query}",
+                subject_key=(wf.name,),
+            )
+        )
 
     for ilt in scan_ilt(estate):
-        findings.append(DoctorFinding(
-            severity="low",
-            category="ilt_gpo",
-            gpo_id=ilt.gpo_id,
-            gpo_name=ilt.gpo_name,
-            summary=f"Item-level targeting in {', '.join(ilt.files)}",
-            detail=f"Filter types: {', '.join(ilt.filter_types)}",
-        ))
+        findings.append(
+            DoctorFinding(
+                severity="low",
+                category="ilt_gpo",
+                gpo_id=ilt.gpo_id,
+                gpo_name=ilt.gpo_name,
+                summary=f"Item-level targeting in {', '.join(ilt.files)}",
+                detail=f"Filter types: {', '.join(ilt.filter_types)}",
+            )
+        )
 
     for sg, years in stale_gpos(estate, now=now):
-        findings.append(DoctorFinding(
-            severity="info",
-            category="stale_gpo",
-            gpo_id=sg.id,
-            gpo_name=sg.name,
-            summary=f"Stale: modified {years}+ years ago and still linked",
-            detail=f"Last modified: {sg.modified.isoformat() if sg.modified else 'unknown'}",
-        ))
+        findings.append(
+            DoctorFinding(
+                severity="info",
+                category="stale_gpo",
+                gpo_id=sg.id,
+                gpo_name=sg.name,
+                summary=f"Stale: modified {years}+ years ago and still linked",
+                detail=f"Last modified: {sg.modified.isoformat() if sg.modified else 'unknown'}",
+            )
+        )
 
-    for df in (danger if danger is not None else danger_findings(estate, admx=admx)):
-        findings.append(DoctorFinding(
-            severity=df.severity,
-            category=f"danger:{df.check_id}",
-            gpo_id=df.gpo_id,
-            gpo_name=df.gpo_name,
-            summary=df.title,
-            detail=f"{df.detail} [ref: {df.reference}]",
-            compliance=df.compliance,
-            remediation=df.remediation,
-        ))
+    for df in danger if danger is not None else danger_findings(estate, admx=admx):
+        findings.append(
+            DoctorFinding(
+                severity=df.severity,
+                category=f"danger:{df.check_id}",
+                gpo_id=df.gpo_id,
+                gpo_name=df.gpo_name,
+                summary=df.title,
+                detail=f"{df.detail} [ref: {df.reference}]",
+                compliance=df.compliance,
+                remediation=df.remediation,
+            )
+        )
 
     findings.sort(key=lambda f: (_SEVERITY_ORDER.get(f.severity, 99), f.category, f.gpo_id))
     return findings

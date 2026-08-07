@@ -40,12 +40,12 @@ class AdmxPolicy:
     """One ADMX policy definition."""
 
     name: str
-    class_scope: str        # "Machine", "User", "Both"
-    key: str                # registry key path
-    value_name: str         # registry value name (may be empty)
-    display_name_ref: str   # raw $(string.xxx) reference
-    display_name: str       # resolved display name from ADML
-    explain_text: str       # resolved explain text from ADML
+    class_scope: str  # "Machine", "User", "Both"
+    key: str  # registry key path
+    value_name: str  # registry value name (may be empty)
+    display_name_ref: str  # raw $(string.xxx) reference
+    display_name: str  # resolved display name from ADML
+    explain_text: str  # resolved explain text from ADML
 
 
 @dataclass
@@ -54,7 +54,8 @@ class PolicyDefinitions:
 
     policies: list[AdmxPolicy] = field(default_factory=list)
     _by_registry_key: dict[str, list[AdmxPolicy]] = field(
-        default_factory=dict, repr=False,
+        default_factory=dict,
+        repr=False,
     )
 
     def lookup(self, key: str, value_name: str) -> list[AdmxPolicy]:
@@ -212,15 +213,17 @@ def parse_admx_dir(policy_defs_dir: str | Path) -> PolicyDefinitions:
             display_name = adml_strings.get(_ref_to_key(display_ref), display_ref)
             explain_text = adml_strings.get(_ref_to_key(explain_ref), "")
 
-            policies.append(AdmxPolicy(
-                name=name,
-                class_scope=class_scope,
-                key=key,
-                value_name=value_name,
-                display_name_ref=display_ref,
-                display_name=display_name,
-                explain_text=explain_text,
-            ))
+            policies.append(
+                AdmxPolicy(
+                    name=name,
+                    class_scope=class_scope,
+                    key=key,
+                    value_name=value_name,
+                    display_name_ref=display_ref,
+                    display_name=display_name,
+                    explain_text=explain_text,
+                )
+            )
 
     pd = PolicyDefinitions(policies=policies)
     return pd

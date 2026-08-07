@@ -54,6 +54,7 @@ class TestAppendEvent:
         assert rows[0][0] == eid
         assert rows[0][1] == "gpo.created"
         import json
+
         payload = json.loads(rows[0][2])
         assert payload["gpo_id"] == "abc"
 
@@ -77,19 +78,25 @@ class TestAppendEvent:
 
 class TestQueryEvents:
     def test_query_all(self, conn):
-        append_events(conn, [
-            ("gpo.created", {"gpo_id": "a"}),
-            ("gpo.modified", {"gpo_id": "b"}),
-        ])
+        append_events(
+            conn,
+            [
+                ("gpo.created", {"gpo_id": "a"}),
+                ("gpo.modified", {"gpo_id": "b"}),
+            ],
+        )
         results = query_events(conn)
         assert len(results) == 2
         assert results[0]["event_type"] == "gpo.created"
         assert results[1]["event_type"] == "gpo.modified"
 
     def test_query_since_filter(self, conn):
-        append_events(conn, [
-            ("gpo.created", {"gpo_id": "a"}),
-        ])
+        append_events(
+            conn,
+            [
+                ("gpo.created", {"gpo_id": "a"}),
+            ],
+        )
         conn.execute(
             "INSERT INTO events (timestamp, event_type, schema_version, payload) "
             "VALUES ('2020-01-01T00:00:00+00:00', 'old.event', 1, '{}')"
@@ -100,20 +107,26 @@ class TestQueryEvents:
         assert results[0]["event_type"] == "gpo.created"
 
     def test_query_event_type_filter(self, conn):
-        append_events(conn, [
-            ("gpo.created", {"gpo_id": "a"}),
-            ("gpo.modified", {"gpo_id": "b"}),
-            ("gpo.deleted", {"gpo_id": "c"}),
-        ])
+        append_events(
+            conn,
+            [
+                ("gpo.created", {"gpo_id": "a"}),
+                ("gpo.modified", {"gpo_id": "b"}),
+                ("gpo.deleted", {"gpo_id": "c"}),
+            ],
+        )
         results = query_events(conn, event_type="modified")
         assert len(results) == 1
         assert results[0]["event_type"] == "gpo.modified"
 
     def test_query_event_type_substring(self, conn):
-        append_events(conn, [
-            ("gpo.created", {"gpo_id": "a"}),
-            ("ingest.summary", {"snapshot_id": 1}),
-        ])
+        append_events(
+            conn,
+            [
+                ("gpo.created", {"gpo_id": "a"}),
+                ("ingest.summary", {"snapshot_id": 1}),
+            ],
+        )
         results = query_events(conn, event_type="gpo")
         assert len(results) == 1
         assert results[0]["event_type"] == "gpo.created"
@@ -137,18 +150,32 @@ class TestDoubleIngestEvents:
             domain="test.local",
             gpos=[
                 model.Gpo(
-                    id="gpo-1", name="GPO One", domain="test.local",
-                    created=None, modified=None, read=None,
-                    computer_enabled=True, user_enabled=True,
-                    computer_ver_ds=1, computer_ver_sysvol=1,
-                    user_ver_ds=0, user_ver_sysvol=0,
-                    sddl=None, owner=None, filter_data_available=False,
-                    wmi_filter=None, sysvol_path=None,
+                    id="gpo-1",
+                    name="GPO One",
+                    domain="test.local",
+                    created=None,
+                    modified=None,
+                    read=None,
+                    computer_enabled=True,
+                    user_enabled=True,
+                    computer_ver_ds=1,
+                    computer_ver_sysvol=1,
+                    user_ver_ds=0,
+                    user_ver_sysvol=0,
+                    sddl=None,
+                    owner=None,
+                    filter_data_available=False,
+                    wmi_filter=None,
+                    sysvol_path=None,
                     settings=[
                         model.Setting(
-                            gpo_id="gpo-1", side="Computer", cse="Security",
-                            identity="Key1", display_name="Key1",
-                            display_value="5", raw={},
+                            gpo_id="gpo-1",
+                            side="Computer",
+                            cse="Security",
+                            identity="Key1",
+                            display_name="Key1",
+                            display_value="5",
+                            raw={},
                             from_disabled_side=False,
                         ),
                     ],
@@ -157,6 +184,7 @@ class TestDoubleIngestEvents:
         )
         sid1 = store.save_estate(conn, estate)
         from gpo_lens.cli._estate import _emit_ingest_events
+
         _emit_ingest_events(conn, prev_sid, sid1, 1)
         events = query_events(conn)
         types = [e["event_type"] for e in events]
@@ -172,18 +200,32 @@ class TestDoubleIngestEvents:
             domain="test.local",
             gpos=[
                 model.Gpo(
-                    id="gpo-1", name="GPO One", domain="test.local",
-                    created=None, modified=None, read=None,
-                    computer_enabled=True, user_enabled=True,
-                    computer_ver_ds=1, computer_ver_sysvol=1,
-                    user_ver_ds=0, user_ver_sysvol=0,
-                    sddl=None, owner=None, filter_data_available=False,
-                    wmi_filter=None, sysvol_path=None,
+                    id="gpo-1",
+                    name="GPO One",
+                    domain="test.local",
+                    created=None,
+                    modified=None,
+                    read=None,
+                    computer_enabled=True,
+                    user_enabled=True,
+                    computer_ver_ds=1,
+                    computer_ver_sysvol=1,
+                    user_ver_ds=0,
+                    user_ver_sysvol=0,
+                    sddl=None,
+                    owner=None,
+                    filter_data_available=False,
+                    wmi_filter=None,
+                    sysvol_path=None,
                     settings=[
                         model.Setting(
-                            gpo_id="gpo-1", side="Computer", cse="Security",
-                            identity="Key1", display_name="Key1",
-                            display_value="5", raw={},
+                            gpo_id="gpo-1",
+                            side="Computer",
+                            cse="Security",
+                            identity="Key1",
+                            display_name="Key1",
+                            display_value="5",
+                            raw={},
                             from_disabled_side=False,
                         ),
                     ],
@@ -196,18 +238,32 @@ class TestDoubleIngestEvents:
             domain="test.local",
             gpos=[
                 model.Gpo(
-                    id="gpo-1", name="GPO One", domain="test.local",
-                    created=None, modified=None, read=None,
-                    computer_enabled=True, user_enabled=True,
-                    computer_ver_ds=2, computer_ver_sysvol=2,
-                    user_ver_ds=0, user_ver_sysvol=0,
-                    sddl=None, owner=None, filter_data_available=False,
-                    wmi_filter=None, sysvol_path=None,
+                    id="gpo-1",
+                    name="GPO One",
+                    domain="test.local",
+                    created=None,
+                    modified=None,
+                    read=None,
+                    computer_enabled=True,
+                    user_enabled=True,
+                    computer_ver_ds=2,
+                    computer_ver_sysvol=2,
+                    user_ver_ds=0,
+                    user_ver_sysvol=0,
+                    sddl=None,
+                    owner=None,
+                    filter_data_available=False,
+                    wmi_filter=None,
+                    sysvol_path=None,
                     settings=[
                         model.Setting(
-                            gpo_id="gpo-1", side="Computer", cse="Security",
-                            identity="Key1", display_name="Key1",
-                            display_value="10", raw={},
+                            gpo_id="gpo-1",
+                            side="Computer",
+                            cse="Security",
+                            identity="Key1",
+                            display_name="Key1",
+                            display_value="10",
+                            raw={},
                             from_disabled_side=False,
                         ),
                     ],
@@ -216,6 +272,7 @@ class TestDoubleIngestEvents:
         )
         sid2 = store.save_estate(conn, estate_v2)
         from gpo_lens.cli._estate import _emit_ingest_events
+
         _emit_ingest_events(conn, sid1, sid2, 1)
 
         events = query_events(conn)
@@ -235,22 +292,42 @@ class TestDoubleIngestEvents:
             domain="test.local",
             gpos=[
                 model.Gpo(
-                    id="gpo-1", name="GPO One", domain="test.local",
-                    created=None, modified=None, read=None,
-                    computer_enabled=True, user_enabled=True,
-                    computer_ver_ds=1, computer_ver_sysvol=1,
-                    user_ver_ds=0, user_ver_sysvol=0,
-                    sddl=None, owner=None, filter_data_available=False,
-                    wmi_filter=None, sysvol_path=None,
+                    id="gpo-1",
+                    name="GPO One",
+                    domain="test.local",
+                    created=None,
+                    modified=None,
+                    read=None,
+                    computer_enabled=True,
+                    user_enabled=True,
+                    computer_ver_ds=1,
+                    computer_ver_sysvol=1,
+                    user_ver_ds=0,
+                    user_ver_sysvol=0,
+                    sddl=None,
+                    owner=None,
+                    filter_data_available=False,
+                    wmi_filter=None,
+                    sysvol_path=None,
                 ),
                 model.Gpo(
-                    id="gpo-2", name="GPO Two", domain="test.local",
-                    created=None, modified=None, read=None,
-                    computer_enabled=True, user_enabled=True,
-                    computer_ver_ds=1, computer_ver_sysvol=1,
-                    user_ver_ds=0, user_ver_sysvol=0,
-                    sddl=None, owner=None, filter_data_available=False,
-                    wmi_filter=None, sysvol_path=None,
+                    id="gpo-2",
+                    name="GPO Two",
+                    domain="test.local",
+                    created=None,
+                    modified=None,
+                    read=None,
+                    computer_enabled=True,
+                    user_enabled=True,
+                    computer_ver_ds=1,
+                    computer_ver_sysvol=1,
+                    user_ver_ds=0,
+                    user_ver_sysvol=0,
+                    sddl=None,
+                    owner=None,
+                    filter_data_available=False,
+                    wmi_filter=None,
+                    sysvol_path=None,
                 ),
             ],
         )
@@ -260,18 +337,29 @@ class TestDoubleIngestEvents:
             domain="test.local",
             gpos=[
                 model.Gpo(
-                    id="gpo-1", name="GPO One", domain="test.local",
-                    created=None, modified=None, read=None,
-                    computer_enabled=True, user_enabled=True,
-                    computer_ver_ds=1, computer_ver_sysvol=1,
-                    user_ver_ds=0, user_ver_sysvol=0,
-                    sddl=None, owner=None, filter_data_available=False,
-                    wmi_filter=None, sysvol_path=None,
+                    id="gpo-1",
+                    name="GPO One",
+                    domain="test.local",
+                    created=None,
+                    modified=None,
+                    read=None,
+                    computer_enabled=True,
+                    user_enabled=True,
+                    computer_ver_ds=1,
+                    computer_ver_sysvol=1,
+                    user_ver_ds=0,
+                    user_ver_sysvol=0,
+                    sddl=None,
+                    owner=None,
+                    filter_data_available=False,
+                    wmi_filter=None,
+                    sysvol_path=None,
                 ),
             ],
         )
         sid2 = store.save_estate(conn, estate_v2)
         from gpo_lens.cli._estate import _emit_ingest_events
+
         _emit_ingest_events(conn, sid1, sid2, 1)
 
         events = query_events(conn)
@@ -288,9 +376,13 @@ class TestDoubleIngestEvents:
         # v1: GPO with 150 settings
         settings_v1 = [
             model.Setting(
-                gpo_id="gpo-1", side="Computer", cse="Registry",
-                identity=f"Key{i}", display_name=f"Key{i}",
-                display_value=str(i), raw={},
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Registry",
+                identity=f"Key{i}",
+                display_name=f"Key{i}",
+                display_value=str(i),
+                raw={},
                 from_disabled_side=False,
             )
             for i in range(150)
@@ -299,13 +391,23 @@ class TestDoubleIngestEvents:
             domain="test.local",
             gpos=[
                 model.Gpo(
-                    id="gpo-1", name="GPO Many", domain="test.local",
-                    created=None, modified=None, read=None,
-                    computer_enabled=True, user_enabled=True,
-                    computer_ver_ds=1, computer_ver_sysvol=1,
-                    user_ver_ds=0, user_ver_sysvol=0,
-                    sddl=None, owner=None, filter_data_available=False,
-                    wmi_filter=None, sysvol_path=None,
+                    id="gpo-1",
+                    name="GPO Many",
+                    domain="test.local",
+                    created=None,
+                    modified=None,
+                    read=None,
+                    computer_enabled=True,
+                    user_enabled=True,
+                    computer_ver_ds=1,
+                    computer_ver_sysvol=1,
+                    user_ver_ds=0,
+                    user_ver_sysvol=0,
+                    sddl=None,
+                    owner=None,
+                    filter_data_available=False,
+                    wmi_filter=None,
+                    sysvol_path=None,
                     settings=settings_v1,
                 ),
             ],
@@ -315,9 +417,13 @@ class TestDoubleIngestEvents:
         # v2: change all 150 setting values
         settings_v2 = [
             model.Setting(
-                gpo_id="gpo-1", side="Computer", cse="Registry",
-                identity=f"Key{i}", display_name=f"Key{i}",
-                display_value=str(i + 1000), raw={},
+                gpo_id="gpo-1",
+                side="Computer",
+                cse="Registry",
+                identity=f"Key{i}",
+                display_name=f"Key{i}",
+                display_value=str(i + 1000),
+                raw={},
                 from_disabled_side=False,
             )
             for i in range(150)
@@ -326,13 +432,23 @@ class TestDoubleIngestEvents:
             domain="test.local",
             gpos=[
                 model.Gpo(
-                    id="gpo-1", name="GPO Many", domain="test.local",
-                    created=None, modified=None, read=None,
-                    computer_enabled=True, user_enabled=True,
-                    computer_ver_ds=2, computer_ver_sysvol=2,
-                    user_ver_ds=0, user_ver_sysvol=0,
-                    sddl=None, owner=None, filter_data_available=False,
-                    wmi_filter=None, sysvol_path=None,
+                    id="gpo-1",
+                    name="GPO Many",
+                    domain="test.local",
+                    created=None,
+                    modified=None,
+                    read=None,
+                    computer_enabled=True,
+                    user_enabled=True,
+                    computer_ver_ds=2,
+                    computer_ver_sysvol=2,
+                    user_ver_ds=0,
+                    user_ver_sysvol=0,
+                    sddl=None,
+                    owner=None,
+                    filter_data_available=False,
+                    wmi_filter=None,
+                    sysvol_path=None,
                     settings=settings_v2,
                 ),
             ],
@@ -340,6 +456,7 @@ class TestDoubleIngestEvents:
         sid2 = store.save_estate(conn, estate_v2)
 
         from gpo_lens.cli._estate import _emit_ingest_events
+
         _emit_ingest_events(conn, sid1, sid2, 1)
 
         events = query_events(conn)
@@ -389,14 +506,18 @@ class TestEventsCLI:
         db = tmp_path / "test.db"
         conn = sqlite3.connect(str(db))
         store.init_db(conn)
-        append_events(conn, [
-            ("gpo.created", {"gpo_id": "aaa", "gpo_name": "Test GPO"}),
-        ])
+        append_events(
+            conn,
+            [
+                ("gpo.created", {"gpo_id": "aaa", "gpo_name": "Test GPO"}),
+            ],
+        )
         conn.close()
 
         r = subprocess.run(
             GPO_LENS + ["--db", str(db), "events"],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
         assert r.returncode == 0
         assert "gpo.created" in r.stdout
@@ -405,17 +526,22 @@ class TestEventsCLI:
         db = tmp_path / "test.db"
         conn = sqlite3.connect(str(db))
         store.init_db(conn)
-        append_events(conn, [
-            ("gpo.created", {"gpo_id": "aaa", "gpo_name": "Test GPO"}),
-        ])
+        append_events(
+            conn,
+            [
+                ("gpo.created", {"gpo_id": "aaa", "gpo_name": "Test GPO"}),
+            ],
+        )
         conn.close()
 
         r = subprocess.run(
             GPO_LENS + ["--json", "--db", str(db), "events"],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
         assert r.returncode == 0
         import json
+
         data = json.loads(r.stdout)["data"]
         assert isinstance(data, list)
         assert len(data) == 1
@@ -425,18 +551,23 @@ class TestEventsCLI:
         db = tmp_path / "test.db"
         conn = sqlite3.connect(str(db))
         store.init_db(conn)
-        append_events(conn, [
-            ("gpo.created", {"gpo_id": "aaa"}),
-            ("ingest.summary", {"snapshot_id": 1}),
-        ])
+        append_events(
+            conn,
+            [
+                ("gpo.created", {"gpo_id": "aaa"}),
+                ("ingest.summary", {"snapshot_id": 1}),
+            ],
+        )
         conn.close()
 
         r = subprocess.run(
             GPO_LENS + ["--json", "--db", str(db), "events", "--type", "ingest"],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
         assert r.returncode == 0
         import json
+
         data = json.loads(r.stdout)["data"]
         assert isinstance(data, list)
         assert len(data) == 1
@@ -450,17 +581,22 @@ class TestEventsCLI:
             "INSERT INTO events (timestamp, event_type, schema_version, payload) "
             "VALUES ('2020-01-01T00:00:00+00:00', 'old.event', 1, '{}')"
         )
-        append_events(conn, [
-            ("gpo.created", {"gpo_id": "aaa"}),
-        ])
+        append_events(
+            conn,
+            [
+                ("gpo.created", {"gpo_id": "aaa"}),
+            ],
+        )
         conn.close()
 
         r = subprocess.run(
             GPO_LENS + ["--json", "--db", str(db), "events", "--since", "2025-01-01"],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
         assert r.returncode == 0
         import json
+
         data = json.loads(r.stdout)["data"]
         assert isinstance(data, list)
         assert len(data) == 1
@@ -474,7 +610,8 @@ class TestEventsCLI:
 
         r = subprocess.run(
             GPO_LENS + ["--db", str(db), "events"],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
         assert r.returncode == 0
         assert "No events found" in r.stdout
@@ -488,9 +625,7 @@ class TestHashChain:
             (eid,),
         ).fetchone()
         ts, event_type, payload_str, prev_hash = row
-        expected = hashlib.sha256(
-            f"|{ts}|{event_type}|{payload_str}".encode()
-        ).hexdigest()
+        expected = hashlib.sha256(f"|{ts}|{event_type}|{payload_str}".encode()).hexdigest()
         assert prev_hash == expected
 
     def test_chain_of_three_events(self, conn):
@@ -498,8 +633,7 @@ class TestHashChain:
         for i in range(3):
             eid = append_event(conn, "test.event", {"index": i})
             row = conn.execute(
-                "SELECT timestamp, event_type, payload, prev_hash FROM events "
-                "WHERE id = ?",
+                "SELECT timestamp, event_type, payload, prev_hash FROM events WHERE id = ?",
                 (eid,),
             ).fetchone()
             ts, event_type, payload_str, stored_hash = row
@@ -510,11 +644,14 @@ class TestHashChain:
             prev_hash = stored_hash
 
     def test_verify_clean_chain(self, conn):
-        append_events(conn, [
-            ("gpo.created", {"gpo_id": "a"}),
-            ("gpo.modified", {"gpo_id": "b"}),
-            ("gpo.deleted", {"gpo_id": "c"}),
-        ])
+        append_events(
+            conn,
+            [
+                ("gpo.created", {"gpo_id": "a"}),
+                ("gpo.modified", {"gpo_id": "b"}),
+                ("gpo.deleted", {"gpo_id": "c"}),
+            ],
+        )
         ok, broken = verify_event_chain(conn)
         assert ok is True
         assert broken == []
@@ -554,13 +691,9 @@ class TestHashChain:
             "payload TEXT NOT NULL)"
         )
         conn.commit()
-        cols_before = {
-            r[1] for r in conn.execute("PRAGMA table_info(events)").fetchall()
-        }
+        cols_before = {r[1] for r in conn.execute("PRAGMA table_info(events)").fetchall()}
         assert "prev_hash" not in cols_before
         init_events_table(conn)
-        cols_after = {
-            r[1] for r in conn.execute("PRAGMA table_info(events)").fetchall()
-        }
+        cols_after = {r[1] for r in conn.execute("PRAGMA table_info(events)").fetchall()}
         assert "prev_hash" in cols_after
         conn.close()

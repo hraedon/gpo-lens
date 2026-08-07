@@ -81,25 +81,38 @@ def _gpo(
 
 def _user_setting(gpo_id: str, identity: str, value: str) -> Setting:
     return Setting(
-        gpo_id=gpo_id, side="User", cse="Registry",
-        identity=identity, display_name=identity,
-        display_value=value, raw={}, from_disabled_side=False,
+        gpo_id=gpo_id,
+        side="User",
+        cse="Registry",
+        identity=identity,
+        display_name=identity,
+        display_value=value,
+        raw={},
+        from_disabled_side=False,
     )
 
 
 def _computer_setting(gpo_id: str, identity: str, value: str) -> Setting:
     return Setting(
-        gpo_id=gpo_id, side="Computer", cse="Registry",
-        identity=identity, display_name=identity,
-        display_value=value, raw={}, from_disabled_side=False,
+        gpo_id=gpo_id,
+        side="Computer",
+        cse="Registry",
+        identity=identity,
+        display_name=identity,
+        display_value=value,
+        raw={},
+        from_disabled_side=False,
     )
 
 
 def _au_apply() -> list[DelegationEntry]:
     return [
         DelegationEntry(
-            gpo_id="", trustee="Authenticated Users", trustee_sid="S-1-5-11",
-            permission="Apply Group Policy", allowed=True,
+            gpo_id="",
+            trustee="Authenticated Users",
+            trustee_sid="S-1-5-11",
+            permission="Apply Group Policy",
+            allowed=True,
         ),
     ]
 
@@ -107,8 +120,11 @@ def _au_apply() -> list[DelegationEntry]:
 def _group_apply(group_name: str, group_sid: str) -> list[DelegationEntry]:
     return [
         DelegationEntry(
-            gpo_id="", trustee=group_name, trustee_sid=group_sid,
-            permission="Apply Group Policy", allowed=True,
+            gpo_id="",
+            trustee=group_name,
+            trustee_sid=group_sid,
+            permission="Apply Group Policy",
+            allowed=True,
         ),
     ]
 
@@ -120,65 +136,98 @@ _OTHER_GROUP_SID_FULL = "S-1-5-21-1000000000-2000000000-3000000000-2002"
 def _principal_estate() -> Estate:
     principals = {
         USER_SID: ResolvedPrincipal(
-            sid=USER_SID, name="TEST\\jdoe", sam="jdoe",
-            principal_type="User", domain="TEST", resolved=True,
+            sid=USER_SID,
+            name="TEST\\jdoe",
+            sam="jdoe",
+            principal_type="User",
+            domain="TEST",
+            resolved=True,
         ),
         GROUP_SID: ResolvedPrincipal(
-            sid=GROUP_SID, name="TEST\\Helpdesk Operators", sam="Helpdesk Operators",
-            principal_type="Group", domain="TEST", resolved=True,
+            sid=GROUP_SID,
+            name="TEST\\Helpdesk Operators",
+            sam="Helpdesk Operators",
+            principal_type="Group",
+            domain="TEST",
+            resolved=True,
         ),
         OTHER_GROUP_SID: ResolvedPrincipal(
-            sid=OTHER_GROUP_SID, name="TEST\\Server Admins", sam="Server Admins",
-            principal_type="Group", domain="TEST", resolved=True,
+            sid=OTHER_GROUP_SID,
+            name="TEST\\Server Admins",
+            sam="Server Admins",
+            principal_type="Group",
+            domain="TEST",
+            resolved=True,
         ),
     }
     group_members = {
         GROUP_SID: GroupMembership(
-            sid=GROUP_SID, name="TEST\\Helpdesk Operators",
-            members=(USER_SID,), member_count=1,
+            sid=GROUP_SID,
+            name="TEST\\Helpdesk Operators",
+            members=(USER_SID,),
+            member_count=1,
         ),
         OTHER_GROUP_SID: GroupMembership(
-            sid=OTHER_GROUP_SID, name="TEST\\Server Admins",
-            members=(), member_count=0,
+            sid=OTHER_GROUP_SID,
+            name="TEST\\Server Admins",
+            members=(),
+            member_count=0,
         ),
     }
     gpos = [
-        _gpo(GPO_BROAD, "gpo-broad",
-             settings=[_user_setting(GPO_BROAD, r"HKCU\Software\A", "1")],
-             delegation=_au_apply()),
-        _gpo(GPO_GROUP_APPLY, "gpo-group-apply",
-             settings=[_user_setting(GPO_GROUP_APPLY, r"HKCU\Software\B", "2")],
-             delegation=_group_apply("Helpdesk Operators", _DOMAIN_GROUP_SID)),
-        _gpo(GPO_OTHER_GROUP, "gpo-other-group",
-             settings=[_user_setting(GPO_OTHER_GROUP, r"HKCU\Software\C", "3")],
-             delegation=_group_apply("Server Admins", _OTHER_GROUP_SID_FULL)),
-        _gpo(GPO_WMI, "gpo-wmi",
-             settings=[_user_setting(GPO_WMI, r"HKCU\Software\D", "4")],
-             delegation=_au_apply(),
-             wmi_filter="Some WMI Filter"),
-        _gpo(GPO_NO_DELEGATION, "gpo-no-delegation",
-             settings=[_user_setting(GPO_NO_DELEGATION, r"HKCU\Software\E", "5")]),
+        _gpo(
+            GPO_BROAD,
+            "gpo-broad",
+            settings=[_user_setting(GPO_BROAD, r"HKCU\Software\A", "1")],
+            delegation=_au_apply(),
+        ),
+        _gpo(
+            GPO_GROUP_APPLY,
+            "gpo-group-apply",
+            settings=[_user_setting(GPO_GROUP_APPLY, r"HKCU\Software\B", "2")],
+            delegation=_group_apply("Helpdesk Operators", _DOMAIN_GROUP_SID),
+        ),
+        _gpo(
+            GPO_OTHER_GROUP,
+            "gpo-other-group",
+            settings=[_user_setting(GPO_OTHER_GROUP, r"HKCU\Software\C", "3")],
+            delegation=_group_apply("Server Admins", _OTHER_GROUP_SID_FULL),
+        ),
+        _gpo(
+            GPO_WMI,
+            "gpo-wmi",
+            settings=[_user_setting(GPO_WMI, r"HKCU\Software\D", "4")],
+            delegation=_au_apply(),
+            wmi_filter="Some WMI Filter",
+        ),
+        _gpo(
+            GPO_NO_DELEGATION,
+            "gpo-no-delegation",
+            settings=[_user_setting(GPO_NO_DELEGATION, r"HKCU\Software\E", "5")],
+        ),
     ]
     som = Som(
-        path=ROOT_DN, name="test", container_type="domain",
+        path=ROOT_DN,
+        name="test",
+        container_type="domain",
         inheritance_blocked=False,
         links=[
-            SomLink(gpo_id=GPO_BROAD, order=1, enabled=True,
-                    enforced=False, target=ROOT_DN),
-            SomLink(gpo_id=GPO_GROUP_APPLY, order=2, enabled=True,
-                    enforced=False, target=ROOT_DN),
-            SomLink(gpo_id=GPO_OTHER_GROUP, order=3, enabled=True,
-                    enforced=False, target=ROOT_DN),
-            SomLink(gpo_id=GPO_WMI, order=4, enabled=True,
-                    enforced=False, target=ROOT_DN),
-            SomLink(gpo_id=GPO_NO_DELEGATION, order=5, enabled=True,
-                    enforced=False, target=ROOT_DN),
+            SomLink(gpo_id=GPO_BROAD, order=1, enabled=True, enforced=False, target=ROOT_DN),
+            SomLink(gpo_id=GPO_GROUP_APPLY, order=2, enabled=True, enforced=False, target=ROOT_DN),
+            SomLink(gpo_id=GPO_OTHER_GROUP, order=3, enabled=True, enforced=False, target=ROOT_DN),
+            SomLink(gpo_id=GPO_WMI, order=4, enabled=True, enforced=False, target=ROOT_DN),
+            SomLink(
+                gpo_id=GPO_NO_DELEGATION, order=5, enabled=True, enforced=False, target=ROOT_DN
+            ),
         ],
     )
     wmi_filters = [WmiFilter(name="Some WMI Filter", query="SELECT * FROM Win32_OperatingSystem")]
     return Estate(
-        domain="test.local", gpos=gpos, soms=[som],
-        wmi_filters=wmi_filters, principals=principals,
+        domain="test.local",
+        gpos=gpos,
+        soms=[som],
+        wmi_filters=wmi_filters,
+        principals=principals,
         group_members=group_members,
     )
 
@@ -192,6 +241,7 @@ def estate():
 # A.1 — build_token
 # ---------------------------------------------------------------------------
 
+
 class TestBuildToken:
     def test_includes_principal_sid(self, estate):
         token = build_token(estate, USER_SID)
@@ -200,7 +250,7 @@ class TestBuildToken:
     def test_includes_well_known_groups(self, estate):
         token = build_token(estate, USER_SID)
         assert "s-1-5-11" in token.token_sids  # Authenticated Users
-        assert "s-1-1-0" in token.token_sids    # Everyone
+        assert "s-1-1-0" in token.token_sids  # Everyone
 
     def test_includes_domain_users_for_user(self, estate):
         token = build_token(estate, USER_SID)
@@ -213,15 +263,20 @@ class TestBuildToken:
     def test_computer_principal_gets_domain_computers(self, estate):
         comp_sid = f"{DOMAIN_SID}-5001"
         estate.principals[comp_sid] = ResolvedPrincipal(
-            sid=comp_sid, name="TEST\\WKS$", sam="WKS$",
-            principal_type="Computer", domain="TEST", resolved=True,
+            sid=comp_sid,
+            name="TEST\\WKS$",
+            sam="WKS$",
+            principal_type="Computer",
+            domain="TEST",
+            resolved=True,
         )
         token = build_token(estate, comp_sid)
         assert f"{DOMAIN_SID}-515" in token.token_sids  # Domain Computers
 
     def test_records_caveat_for_unresolved_foreign_sid(self, estate):
         estate.group_members[GROUP_SID] = GroupMembership(
-            sid=GROUP_SID, name="TEST\\Helpdesk Operators",
+            sid=GROUP_SID,
+            name="TEST\\Helpdesk Operators",
             members=(USER_SID, "s-1-5-21-9999999999-9999999999-9999999999-1234"),
             member_count=2,
         )
@@ -233,6 +288,7 @@ class TestBuildToken:
 # ---------------------------------------------------------------------------
 # A.3 — Security-filter gate evaluation
 # ---------------------------------------------------------------------------
+
 
 class TestSecurityFilterGate:
     def test_broad_gpo_contributes_to_resultant(self, estate):
@@ -269,6 +325,7 @@ class TestSecurityFilterGate:
 # A.3 — WMI filter exclusion (decision 2: flag, don't simulate)
 # ---------------------------------------------------------------------------
 
+
 class TestWmiExclusion:
     def test_wmi_gated_gpo_excluded_and_listed(self, estate):
         result = principal_resultant(estate, USER_SID)
@@ -289,6 +346,7 @@ class TestWmiExclusion:
 # A.5 — Output labeling (decision 4: "resultant given collected inputs")
 # ---------------------------------------------------------------------------
 
+
 class TestResultantLabeling:
     def test_caveat_summary_says_resultant_given_collected_inputs(self, estate):
         result = principal_resultant(estate, USER_SID)
@@ -306,8 +364,12 @@ class TestResultantLabeling:
     def test_user_with_computer_labeled(self, estate):
         comp_sid = f"{DOMAIN_SID}-5001"
         estate.principals[comp_sid] = ResolvedPrincipal(
-            sid=comp_sid, name="TEST\\WKS$", sam="WKS$",
-            principal_type="Computer", domain="TEST", resolved=True,
+            sid=comp_sid,
+            name="TEST\\WKS$",
+            sam="WKS$",
+            principal_type="Computer",
+            domain="TEST",
+            resolved=True,
         )
         result = principal_resultant(estate, USER_SID, computer_sid=comp_sid)
         assert "computer pair" in result.caveat_summary.lower()
@@ -315,8 +377,12 @@ class TestResultantLabeling:
     def test_computer_resultant_labeled(self, estate):
         comp_sid = f"{DOMAIN_SID}-5001"
         estate.principals[comp_sid] = ResolvedPrincipal(
-            sid=comp_sid, name="TEST\\WKS$", sam="WKS$",
-            principal_type="Computer", domain="TEST", resolved=True,
+            sid=comp_sid,
+            name="TEST\\WKS$",
+            sam="WKS$",
+            principal_type="Computer",
+            domain="TEST",
+            resolved=True,
         )
         result = principal_resultant(estate, comp_sid)
         assert "computer resultant" in result.caveat_summary.lower()
@@ -325,6 +391,7 @@ class TestResultantLabeling:
 # ---------------------------------------------------------------------------
 # A.5 — Provenance + structure
 # ---------------------------------------------------------------------------
+
 
 class TestResultantStructure:
     def test_every_setting_traceable_to_winning_gpo(self, estate):
@@ -362,15 +429,17 @@ class TestResultantStructure:
 # DN → SOM resolution
 # ---------------------------------------------------------------------------
 
+
 class TestSomResolution:
     def test_dn_walk_finds_most_specific_som(self, estate):
         child_dn = f"ou=workstations,{ROOT_DN}"
         child_som = Som(
-            path=child_dn, name="workstations", container_type="ou",
+            path=child_dn,
+            name="workstations",
+            container_type="ou",
             inheritance_blocked=False,
             links=[
-                SomLink(gpo_id=GPO_BROAD, order=1, enabled=True,
-                        enforced=False, target=child_dn),
+                SomLink(gpo_id=GPO_BROAD, order=1, enabled=True, enforced=False, target=child_dn),
             ],
         )
         estate.soms.append(child_som)
@@ -393,6 +462,7 @@ class TestSomResolution:
 # Bug 1 — Domain Users/Domain Computers RID-suffix resolution
 # ---------------------------------------------------------------------------
 
+
 class TestDomainUsersRidResolution:
     def test_gpo_delegated_to_domain_users_by_name_applies_to_user(self, estate):
         """A GPO whose delegation names 'Domain Users' (no SID) must match the
@@ -401,17 +471,31 @@ class TestDomainUsersRidResolution:
         the token's full Domain Users SID.
         """
         gpo_id = "11111111111111111111111111111111"
-        estate.gpos.append(_gpo(
-            gpo_id, "gpo-domain-users",
-            settings=[_user_setting(gpo_id, r"HKCU\Software\DU", "1")],
-            delegation=[DelegationEntry(
-                gpo_id="", trustee="Domain Users", trustee_sid=None,
-                permission="Apply Group Policy", allowed=True,
-            )],
-        ))
-        estate.soms[0].links.append(SomLink(
-            gpo_id=gpo_id, order=10, enabled=True, enforced=False, target=ROOT_DN,
-        ))
+        estate.gpos.append(
+            _gpo(
+                gpo_id,
+                "gpo-domain-users",
+                settings=[_user_setting(gpo_id, r"HKCU\Software\DU", "1")],
+                delegation=[
+                    DelegationEntry(
+                        gpo_id="",
+                        trustee="Domain Users",
+                        trustee_sid=None,
+                        permission="Apply Group Policy",
+                        allowed=True,
+                    )
+                ],
+            )
+        )
+        estate.soms[0].links.append(
+            SomLink(
+                gpo_id=gpo_id,
+                order=10,
+                enabled=True,
+                enforced=False,
+                target=ROOT_DN,
+            )
+        )
         result = principal_resultant(estate, USER_SID, dn=ROOT_DN)
         idents = {m.identity for m in result.settings}
         assert r"HKCU\Software\DU" in idents
@@ -422,17 +506,31 @@ class TestDomainUsersRidResolution:
         Domain Computers (-515).
         """
         gpo_id = "12121212121212121212121212121212"
-        estate.gpos.append(_gpo(
-            gpo_id, "gpo-domain-computers",
-            settings=[_user_setting(gpo_id, r"HKCU\Software\DC", "1")],
-            delegation=[DelegationEntry(
-                gpo_id="", trustee="Domain Computers", trustee_sid=None,
-                permission="Apply Group Policy", allowed=True,
-            )],
-        ))
-        estate.soms[0].links.append(SomLink(
-            gpo_id=gpo_id, order=10, enabled=True, enforced=False, target=ROOT_DN,
-        ))
+        estate.gpos.append(
+            _gpo(
+                gpo_id,
+                "gpo-domain-computers",
+                settings=[_user_setting(gpo_id, r"HKCU\Software\DC", "1")],
+                delegation=[
+                    DelegationEntry(
+                        gpo_id="",
+                        trustee="Domain Computers",
+                        trustee_sid=None,
+                        permission="Apply Group Policy",
+                        allowed=True,
+                    )
+                ],
+            )
+        )
+        estate.soms[0].links.append(
+            SomLink(
+                gpo_id=gpo_id,
+                order=10,
+                enabled=True,
+                enforced=False,
+                target=ROOT_DN,
+            )
+        )
         result = principal_resultant(estate, USER_SID, dn=ROOT_DN)
         idents = {m.identity for m in result.settings}
         assert r"HKCU\Software\DC" not in idents
@@ -443,20 +541,25 @@ class TestDomainUsersRidResolution:
 # Bug 2 — Token carries Domain Users XOR Domain Computers
 # ---------------------------------------------------------------------------
 
+
 class TestTokenDomainGroupExclusivity:
     def test_user_token_has_domain_users_not_domain_computers(self, estate):
         token = build_token(estate, USER_SID)
-        assert f"{DOMAIN_SID}-513" in token.token_sids   # Domain Users
+        assert f"{DOMAIN_SID}-513" in token.token_sids  # Domain Users
         assert f"{DOMAIN_SID}-515" not in token.token_sids  # NOT Domain Computers
 
     def test_computer_token_has_domain_computers_not_domain_users(self, estate):
         comp_sid = f"{DOMAIN_SID}-5001"
         estate.principals[comp_sid] = ResolvedPrincipal(
-            sid=comp_sid, name="TEST\\WKS$", sam="WKS$",
-            principal_type="Computer", domain="TEST", resolved=True,
+            sid=comp_sid,
+            name="TEST\\WKS$",
+            sam="WKS$",
+            principal_type="Computer",
+            domain="TEST",
+            resolved=True,
         )
         token = build_token(estate, comp_sid)
-        assert f"{DOMAIN_SID}-515" in token.token_sids   # Domain Computers
+        assert f"{DOMAIN_SID}-515" in token.token_sids  # Domain Computers
         assert f"{DOMAIN_SID}-513" not in token.token_sids  # NOT Domain Users
 
 
@@ -464,47 +567,71 @@ class TestTokenDomainGroupExclusivity:
 # Bug 3 — User+computer chain mode: separate DNs, both sides
 # ---------------------------------------------------------------------------
 
+
 class TestUserComputerPairChains:
     def _setup_pair_estate(self, estate):
         """User OU (User-side GPO) + Computer OU (Computer-side GPO)."""
         comp_sid = f"{DOMAIN_SID}-5001"
         estate.principals[comp_sid] = ResolvedPrincipal(
-            sid=comp_sid, name="TEST\\WKS$", sam="WKS$",
-            principal_type="Computer", domain="TEST", resolved=True,
+            sid=comp_sid,
+            name="TEST\\WKS$",
+            sam="WKS$",
+            principal_type="Computer",
+            domain="TEST",
+            resolved=True,
         )
         user_dn = f"ou=users,{ROOT_DN}"
         comp_dn = f"ou=computers,{ROOT_DN}"
         user_gpo = "21111111211121112111211111111111"
         comp_gpo = "32222222322232223222322222222222"
-        estate.gpos.append(_gpo(
-            user_gpo, "gpo-user-side",
-            settings=[_user_setting(user_gpo, r"HKCU\Software\UserOnly", "u")],
-            delegation=_au_apply(),
-        ))
-        estate.gpos.append(_gpo(
-            comp_gpo, "gpo-computer-side",
-            settings=[_computer_setting(comp_gpo, r"HKLM\Software\CompOnly", "c")],
-            delegation=_au_apply(),
-        ))
-        estate.soms.append(Som(
-            path=user_dn, name="users", container_type="ou",
-            inheritance_blocked=False,
-            links=[SomLink(gpo_id=user_gpo, order=1, enabled=True,
-                           enforced=False, target=user_dn)],
-        ))
-        estate.soms.append(Som(
-            path=comp_dn, name="computers", container_type="ou",
-            inheritance_blocked=False,
-            links=[SomLink(gpo_id=comp_gpo, order=1, enabled=True,
-                           enforced=False, target=comp_dn)],
-        ))
+        estate.gpos.append(
+            _gpo(
+                user_gpo,
+                "gpo-user-side",
+                settings=[_user_setting(user_gpo, r"HKCU\Software\UserOnly", "u")],
+                delegation=_au_apply(),
+            )
+        )
+        estate.gpos.append(
+            _gpo(
+                comp_gpo,
+                "gpo-computer-side",
+                settings=[_computer_setting(comp_gpo, r"HKLM\Software\CompOnly", "c")],
+                delegation=_au_apply(),
+            )
+        )
+        estate.soms.append(
+            Som(
+                path=user_dn,
+                name="users",
+                container_type="ou",
+                inheritance_blocked=False,
+                links=[
+                    SomLink(gpo_id=user_gpo, order=1, enabled=True, enforced=False, target=user_dn)
+                ],
+            )
+        )
+        estate.soms.append(
+            Som(
+                path=comp_dn,
+                name="computers",
+                container_type="ou",
+                inheritance_blocked=False,
+                links=[
+                    SomLink(gpo_id=comp_gpo, order=1, enabled=True, enforced=False, target=comp_dn)
+                ],
+            )
+        )
         return comp_sid, user_dn, comp_dn, user_gpo, comp_gpo
 
     def test_both_user_and_computer_side_settings_present(self, estate):
         comp_sid, user_dn, comp_dn, _, _ = self._setup_pair_estate(estate)
         result = principal_resultant(
-            estate, USER_SID, computer_sid=comp_sid,
-            dn=user_dn, computer_dn=comp_dn,
+            estate,
+            USER_SID,
+            computer_sid=comp_sid,
+            dn=user_dn,
+            computer_dn=comp_dn,
         )
         idents = {m.identity for m in result.settings}
         # User-side from the user's chain (user's OU), computer-side from the
@@ -521,8 +648,11 @@ class TestUserComputerPairChains:
         """
         comp_sid, user_dn, comp_dn, _, _ = self._setup_pair_estate(estate)
         result = principal_resultant(
-            estate, USER_SID, computer_sid=comp_sid,
-            dn=user_dn, computer_dn=comp_dn,
+            estate,
+            USER_SID,
+            computer_sid=comp_sid,
+            dn=user_dn,
+            computer_dn=comp_dn,
         )
         comp_settings = [m for m in result.settings if m.side == "Computer"]
         assert any(m.identity == r"HKLM\Software\CompOnly" for m in comp_settings)
@@ -534,8 +664,12 @@ class TestUserComputerPairChains:
         """
         comp_sid = f"{DOMAIN_SID}-5001"
         estate.principals[comp_sid] = ResolvedPrincipal(
-            sid=comp_sid, name="TEST\\WKS$", sam="WKS$",
-            principal_type="Computer", domain="TEST", resolved=True,
+            sid=comp_sid,
+            name="TEST\\WKS$",
+            sam="WKS$",
+            principal_type="Computer",
+            domain="TEST",
+            resolved=True,
         )
         # GPO_OTHER_GROUP is security-filtered for the user; it sits on the
         # domain-root SOM that both chains resolve to.
@@ -548,30 +682,46 @@ class TestUserComputerPairChains:
 # Bug 6 — Computer-chain security/WMI failures are recorded as excluded
 # ---------------------------------------------------------------------------
 
+
 class TestComputerChainExclusions:
     def test_computer_chain_wmi_gated_gpo_recorded_as_excluded(self, estate):
         comp_sid = f"{DOMAIN_SID}-5001"
         estate.principals[comp_sid] = ResolvedPrincipal(
-            sid=comp_sid, name="TEST\\WKS$", sam="WKS$",
-            principal_type="Computer", domain="TEST", resolved=True,
+            sid=comp_sid,
+            name="TEST\\WKS$",
+            sam="WKS$",
+            principal_type="Computer",
+            domain="TEST",
+            resolved=True,
         )
         comp_dn = f"ou=computers,{ROOT_DN}"
         wmi_gpo = "43333333433343334333433333333333"
-        estate.gpos.append(_gpo(
-            wmi_gpo, "gpo-comp-wmi",
-            settings=[_computer_setting(wmi_gpo, r"HKLM\Software\Wmi", "w")],
-            delegation=_au_apply(),
-            wmi_filter="Comp WMI Filter",
-        ))
-        estate.soms.append(Som(
-            path=comp_dn, name="computers", container_type="ou",
-            inheritance_blocked=False,
-            links=[SomLink(gpo_id=wmi_gpo, order=1, enabled=True,
-                           enforced=False, target=comp_dn)],
-        ))
+        estate.gpos.append(
+            _gpo(
+                wmi_gpo,
+                "gpo-comp-wmi",
+                settings=[_computer_setting(wmi_gpo, r"HKLM\Software\Wmi", "w")],
+                delegation=_au_apply(),
+                wmi_filter="Comp WMI Filter",
+            )
+        )
+        estate.soms.append(
+            Som(
+                path=comp_dn,
+                name="computers",
+                container_type="ou",
+                inheritance_blocked=False,
+                links=[
+                    SomLink(gpo_id=wmi_gpo, order=1, enabled=True, enforced=False, target=comp_dn)
+                ],
+            )
+        )
         result = principal_resultant(
-            estate, USER_SID, computer_sid=comp_sid,
-            dn=ROOT_DN, computer_dn=comp_dn,
+            estate,
+            USER_SID,
+            computer_sid=comp_sid,
+            dn=ROOT_DN,
+            computer_dn=comp_dn,
         )
         # The WMI-gated computer-chain GPO must be listed, not silently dropped.
         wmi_excluded = [e for e in result.excluded if e.gpo_id == wmi_gpo]
@@ -581,26 +731,41 @@ class TestComputerChainExclusions:
     def test_computer_chain_security_filtered_gpo_recorded(self, estate):
         comp_sid = f"{DOMAIN_SID}-5001"
         estate.principals[comp_sid] = ResolvedPrincipal(
-            sid=comp_sid, name="TEST\\WKS$", sam="WKS$",
-            principal_type="Computer", domain="TEST", resolved=True,
+            sid=comp_sid,
+            name="TEST\\WKS$",
+            sam="WKS$",
+            principal_type="Computer",
+            domain="TEST",
+            resolved=True,
         )
         comp_dn = f"ou=computers,{ROOT_DN}"
         # Delegated to a group the computer is NOT a member of.
         sec_gpo = "44444444444444444444444444444444"
-        estate.gpos.append(_gpo(
-            sec_gpo, "gpo-comp-secfiltered",
-            settings=[_computer_setting(sec_gpo, r"HKLM\Software\Sec", "s")],
-            delegation=_group_apply("Server Admins", _OTHER_GROUP_SID_FULL),
-        ))
-        estate.soms.append(Som(
-            path=comp_dn, name="computers", container_type="ou",
-            inheritance_blocked=False,
-            links=[SomLink(gpo_id=sec_gpo, order=1, enabled=True,
-                           enforced=False, target=comp_dn)],
-        ))
+        estate.gpos.append(
+            _gpo(
+                sec_gpo,
+                "gpo-comp-secfiltered",
+                settings=[_computer_setting(sec_gpo, r"HKLM\Software\Sec", "s")],
+                delegation=_group_apply("Server Admins", _OTHER_GROUP_SID_FULL),
+            )
+        )
+        estate.soms.append(
+            Som(
+                path=comp_dn,
+                name="computers",
+                container_type="ou",
+                inheritance_blocked=False,
+                links=[
+                    SomLink(gpo_id=sec_gpo, order=1, enabled=True, enforced=False, target=comp_dn)
+                ],
+            )
+        )
         result = principal_resultant(
-            estate, USER_SID, computer_sid=comp_sid,
-            dn=ROOT_DN, computer_dn=comp_dn,
+            estate,
+            USER_SID,
+            computer_sid=comp_sid,
+            dn=ROOT_DN,
+            computer_dn=comp_dn,
         )
         sec_excluded = [e for e in result.excluded if e.gpo_id == sec_gpo]
         assert len(sec_excluded) == 1
@@ -611,6 +776,7 @@ class TestComputerChainExclusions:
 # Issue 7 — Deny-ACE precedence in the security gate
 # ---------------------------------------------------------------------------
 
+
 class TestDenyAcePrecedence:
     def test_sddl_deny_cancels_allow_on_same_trustee(self, estate):
         """An SDDL that both allows and denies Apply to Authenticated Users
@@ -619,34 +785,51 @@ class TestDenyAcePrecedence:
         gpo_id = "55555555555555555555555555555555"
         # DACL: allow GA to S-1-5-11, then deny GA to S-1-5-11.
         sddl = "D:(A;;GA;;;S-1-5-11)(D;;GA;;;S-1-5-11)"
-        estate.gpos.append(_gpo(
-            gpo_id, "gpo-sddl-deny",
-            settings=[_user_setting(gpo_id, r"HKCU\Software\Deny", "1")],
-            delegation=[],
-            sddl=sddl,
-        ))
-        estate.soms[0].links.append(SomLink(
-            gpo_id=gpo_id, order=10, enabled=True, enforced=False, target=ROOT_DN,
-        ))
+        estate.gpos.append(
+            _gpo(
+                gpo_id,
+                "gpo-sddl-deny",
+                settings=[_user_setting(gpo_id, r"HKCU\Software\Deny", "1")],
+                delegation=[],
+                sddl=sddl,
+            )
+        )
+        estate.soms[0].links.append(
+            SomLink(
+                gpo_id=gpo_id,
+                order=10,
+                enabled=True,
+                enforced=False,
+                target=ROOT_DN,
+            )
+        )
         result = principal_resultant(estate, USER_SID, dn=ROOT_DN)
         idents = {m.identity for m in result.settings}
         assert r"HKCU\Software\Deny" not in idents
-        assert any(e.gpo_id == gpo_id and e.kind == "security_filter"
-                   for e in result.excluded)
+        assert any(e.gpo_id == gpo_id and e.kind == "security_filter" for e in result.excluded)
 
     def test_sddl_allow_only_still_applies(self, estate):
         """Same SDDL without the deny ACE must apply (regression guard)."""
         gpo_id = "56565656565656565656565656565656"
         sddl = "D:(A;;GA;;;S-1-5-11)"
-        estate.gpos.append(_gpo(
-            gpo_id, "gpo-sddl-allow",
-            settings=[_user_setting(gpo_id, r"HKCU\Software\Allow", "1")],
-            delegation=[],
-            sddl=sddl,
-        ))
-        estate.soms[0].links.append(SomLink(
-            gpo_id=gpo_id, order=10, enabled=True, enforced=False, target=ROOT_DN,
-        ))
+        estate.gpos.append(
+            _gpo(
+                gpo_id,
+                "gpo-sddl-allow",
+                settings=[_user_setting(gpo_id, r"HKCU\Software\Allow", "1")],
+                delegation=[],
+                sddl=sddl,
+            )
+        )
+        estate.soms[0].links.append(
+            SomLink(
+                gpo_id=gpo_id,
+                order=10,
+                enabled=True,
+                enforced=False,
+                target=ROOT_DN,
+            )
+        )
         result = principal_resultant(estate, USER_SID, dn=ROOT_DN)
         idents = {m.identity for m in result.settings}
         assert r"HKCU\Software\Allow" in idents
@@ -654,44 +837,65 @@ class TestDenyAcePrecedence:
     def test_delegation_deny_cancels_allow_on_same_trustee(self, estate):
         """Delegation entries: an allow + deny for Authenticated Users cancel."""
         gpo_id = "57575757575757575757575757575757"
-        estate.gpos.append(_gpo(
-            gpo_id, "gpo-delegation-deny",
-            settings=[_user_setting(gpo_id, r"HKCU\Software\DelDeny", "1")],
-            delegation=[
-                DelegationEntry(
-                    gpo_id="", trustee="Authenticated Users", trustee_sid="S-1-5-11",
-                    permission="Apply Group Policy", allowed=True,
-                ),
-                DelegationEntry(
-                    gpo_id="", trustee="Authenticated Users", trustee_sid="S-1-5-11",
-                    permission="Apply Group Policy", allowed=False,
-                ),
-            ],
-        ))
-        estate.soms[0].links.append(SomLink(
-            gpo_id=gpo_id, order=10, enabled=True, enforced=False, target=ROOT_DN,
-        ))
+        estate.gpos.append(
+            _gpo(
+                gpo_id,
+                "gpo-delegation-deny",
+                settings=[_user_setting(gpo_id, r"HKCU\Software\DelDeny", "1")],
+                delegation=[
+                    DelegationEntry(
+                        gpo_id="",
+                        trustee="Authenticated Users",
+                        trustee_sid="S-1-5-11",
+                        permission="Apply Group Policy",
+                        allowed=True,
+                    ),
+                    DelegationEntry(
+                        gpo_id="",
+                        trustee="Authenticated Users",
+                        trustee_sid="S-1-5-11",
+                        permission="Apply Group Policy",
+                        allowed=False,
+                    ),
+                ],
+            )
+        )
+        estate.soms[0].links.append(
+            SomLink(
+                gpo_id=gpo_id,
+                order=10,
+                enabled=True,
+                enforced=False,
+                target=ROOT_DN,
+            )
+        )
         result = principal_resultant(estate, USER_SID, dn=ROOT_DN)
         idents = {m.identity for m in result.settings}
         assert r"HKCU\Software\DelDeny" not in idents
-        assert any(e.gpo_id == gpo_id and e.kind == "security_filter"
-                   for e in result.excluded)
+        assert any(e.gpo_id == gpo_id and e.kind == "security_filter" for e in result.excluded)
 
 
 # ---------------------------------------------------------------------------
 # Issue 9 / Issue 12 / Bug 5 — conditional_dangers + danger param
 # ---------------------------------------------------------------------------
 
+
 class TestConditionalDangers:
     def test_wmi_gated_gpo_with_danger_appears_in_conditional_dangers(self, estate):
         """Issue 12: a GPO with both a WMI filter AND a danger must surface in
         conditional_dangers (decision 3: never hide a danger).
         """
-        danger = [DangerFinding(
-            check_id="TEST-001", severity="high", title="Test danger",
-            gpo_id=GPO_WMI, gpo_name="gpo-wmi",
-            detail="a test danger in a WMI-gated GPO", reference="test",
-        )]
+        danger = [
+            DangerFinding(
+                check_id="TEST-001",
+                severity="high",
+                title="Test danger",
+                gpo_id=GPO_WMI,
+                gpo_name="gpo-wmi",
+                detail="a test danger in a WMI-gated GPO",
+                reference="test",
+            )
+        ]
         result = principal_resultant(estate, USER_SID, danger=danger)
         cd = [c for c in result.conditional_dangers if c.gpo_id == GPO_WMI]
         assert len(cd) == 1
@@ -703,11 +907,17 @@ class TestConditionalDangers:
         for GPO_WMI (which ``danger_findings`` would not produce for this
         synthetic estate) appears only because the param is honored.
         """
-        danger = [DangerFinding(
-            check_id="SYNTHETIC", severity="medium", title="synthetic",
-            gpo_id=GPO_WMI, gpo_name="gpo-wmi",
-            detail="synthetic danger", reference="test",
-        )]
+        danger = [
+            DangerFinding(
+                check_id="SYNTHETIC",
+                severity="medium",
+                title="synthetic",
+                gpo_id=GPO_WMI,
+                gpo_name="gpo-wmi",
+                detail="synthetic danger",
+                reference="test",
+            )
+        ]
         result_with = principal_resultant(estate, USER_SID, danger=danger)
         assert any(c.gpo_id == GPO_WMI for c in result_with.conditional_dangers)
         # Passing an empty list must yield zero conditional dangers (param used,
@@ -716,7 +926,9 @@ class TestConditionalDangers:
         assert result_empty.conditional_dangers == []
 
     def test_ilt_gated_gpo_with_danger_appears_in_conditional_dangers(
-        self, estate, tmp_path,
+        self,
+        estate,
+        tmp_path,
     ):
         """Bug 5: an ILT-excluded GPP GPO with a danger must surface in
         conditional_dangers. Its GPP setting is excluded (excluded_settings)
@@ -730,30 +942,50 @@ class TestConditionalDangers:
         (sched / "ScheduledTasks.xml").write_text(
             '<?xml version="1.0" encoding="utf-8"?>'
             '<ScheduledTasks><Task name="t">'
-            '<Filters><Filter1/></Filters>'
-            '</Task></ScheduledTasks>',
+            "<Filters><Filter1/></Filters>"
+            "</Task></ScheduledTasks>",
             encoding="utf-8",
         )
-        estate.gpos.append(_gpo(
-            ilt_gpo_id, "gpo-ilt",
-            settings=[Setting(
-                gpo_id=ilt_gpo_id, side="User", cse="ScheduledTasks",
-                identity="Task:t", display_name="Task t",
-                display_value="t", raw={"@attr": {"action": "C"}},
-                from_disabled_side=False,
-            )],
-            delegation=_au_apply(),
-            sysvol_path=str(base),
-        ))
-        estate.soms[0].links.append(SomLink(
-            gpo_id=ilt_gpo_id, order=10, enabled=True, enforced=False,
-            target=ROOT_DN,
-        ))
-        danger = [DangerFinding(
-            check_id="ILT-DANGER", severity="high", title="ilt danger",
-            gpo_id=ilt_gpo_id, gpo_name="gpo-ilt",
-            detail="danger in an ILT-gated GPP GPO", reference="test",
-        )]
+        estate.gpos.append(
+            _gpo(
+                ilt_gpo_id,
+                "gpo-ilt",
+                settings=[
+                    Setting(
+                        gpo_id=ilt_gpo_id,
+                        side="User",
+                        cse="ScheduledTasks",
+                        identity="Task:t",
+                        display_name="Task t",
+                        display_value="t",
+                        raw={"@attr": {"action": "C"}},
+                        from_disabled_side=False,
+                    )
+                ],
+                delegation=_au_apply(),
+                sysvol_path=str(base),
+            )
+        )
+        estate.soms[0].links.append(
+            SomLink(
+                gpo_id=ilt_gpo_id,
+                order=10,
+                enabled=True,
+                enforced=False,
+                target=ROOT_DN,
+            )
+        )
+        danger = [
+            DangerFinding(
+                check_id="ILT-DANGER",
+                severity="high",
+                title="ilt danger",
+                gpo_id=ilt_gpo_id,
+                gpo_name="gpo-ilt",
+                detail="danger in an ILT-gated GPP GPO",
+                reference="test",
+            )
+        ]
         result = principal_resultant(estate, USER_SID, dn=ROOT_DN, danger=danger)
         # The GPP setting is excluded from the deterministic resultant...
         assert all(m.identity != "Task:t" for m in result.settings)
@@ -772,6 +1004,7 @@ class TestConditionalDangers:
 # Cross-trustee deny-ACE (token intersects deny set independently of allow)
 # ---------------------------------------------------------------------------
 
+
 class TestCrossTrusteeDeny:
     """The deny set must be checked against the token independently of the
     allow set. A GPO that allows Authenticated Users but denies a group the
@@ -782,25 +1015,38 @@ class TestCrossTrusteeDeny:
     def test_delegation_cross_trustee_deny_blocks_gpo(self, estate):
         """GPO allows AU, denies a group the user is in → GPO excluded."""
         gpo_id = "71111111711171117111711111111111"
-        estate.gpos.append(_gpo(
-            gpo_id, "gpo-cross-deny",
-            settings=[_user_setting(gpo_id, r"HKCU\Software\XDeny", "1")],
-            delegation=[
-                DelegationEntry(
-                    gpo_id="", trustee="Authenticated Users",
-                    trustee_sid="S-1-5-11",
-                    permission="Apply Group Policy", allowed=True,
-                ),
-                DelegationEntry(
-                    gpo_id="", trustee="Helpdesk Operators",
-                    trustee_sid=_DOMAIN_GROUP_SID,
-                    permission="Apply Group Policy", allowed=False,
-                ),
-            ],
-        ))
-        estate.soms[0].links.append(SomLink(
-            gpo_id=gpo_id, order=10, enabled=True, enforced=False, target=ROOT_DN,
-        ))
+        estate.gpos.append(
+            _gpo(
+                gpo_id,
+                "gpo-cross-deny",
+                settings=[_user_setting(gpo_id, r"HKCU\Software\XDeny", "1")],
+                delegation=[
+                    DelegationEntry(
+                        gpo_id="",
+                        trustee="Authenticated Users",
+                        trustee_sid="S-1-5-11",
+                        permission="Apply Group Policy",
+                        allowed=True,
+                    ),
+                    DelegationEntry(
+                        gpo_id="",
+                        trustee="Helpdesk Operators",
+                        trustee_sid=_DOMAIN_GROUP_SID,
+                        permission="Apply Group Policy",
+                        allowed=False,
+                    ),
+                ],
+            )
+        )
+        estate.soms[0].links.append(
+            SomLink(
+                gpo_id=gpo_id,
+                order=10,
+                enabled=True,
+                enforced=False,
+                target=ROOT_DN,
+            )
+        )
         result = principal_resultant(estate, USER_SID, dn=ROOT_DN)
         idents = {m.identity for m in result.settings}
         assert r"HKCU\Software\XDeny" not in idents
@@ -811,25 +1057,38 @@ class TestCrossTrusteeDeny:
     def test_delegation_cross_trustee_deny_unrelated_group_passes(self, estate):
         """GPO allows AU, denies a group the user is NOT in → GPO applies."""
         gpo_id = "72222222722272227222722222222222"
-        estate.gpos.append(_gpo(
-            gpo_id, "gpo-cross-deny-unrelated",
-            settings=[_user_setting(gpo_id, r"HKCU\Software\XOK", "1")],
-            delegation=[
-                DelegationEntry(
-                    gpo_id="", trustee="Authenticated Users",
-                    trustee_sid="S-1-5-11",
-                    permission="Apply Group Policy", allowed=True,
-                ),
-                DelegationEntry(
-                    gpo_id="", trustee="Server Admins",
-                    trustee_sid=_OTHER_GROUP_SID_FULL,
-                    permission="Apply Group Policy", allowed=False,
-                ),
-            ],
-        ))
-        estate.soms[0].links.append(SomLink(
-            gpo_id=gpo_id, order=10, enabled=True, enforced=False, target=ROOT_DN,
-        ))
+        estate.gpos.append(
+            _gpo(
+                gpo_id,
+                "gpo-cross-deny-unrelated",
+                settings=[_user_setting(gpo_id, r"HKCU\Software\XOK", "1")],
+                delegation=[
+                    DelegationEntry(
+                        gpo_id="",
+                        trustee="Authenticated Users",
+                        trustee_sid="S-1-5-11",
+                        permission="Apply Group Policy",
+                        allowed=True,
+                    ),
+                    DelegationEntry(
+                        gpo_id="",
+                        trustee="Server Admins",
+                        trustee_sid=_OTHER_GROUP_SID_FULL,
+                        permission="Apply Group Policy",
+                        allowed=False,
+                    ),
+                ],
+            )
+        )
+        estate.soms[0].links.append(
+            SomLink(
+                gpo_id=gpo_id,
+                order=10,
+                enabled=True,
+                enforced=False,
+                target=ROOT_DN,
+            )
+        )
         result = principal_resultant(estate, USER_SID, dn=ROOT_DN)
         idents = {m.identity for m in result.settings}
         assert r"HKCU\Software\XOK" in idents
@@ -837,19 +1096,25 @@ class TestCrossTrusteeDeny:
     def test_sddl_cross_trustee_deny_blocks_gpo(self, estate):
         """SDDL: allow AU, deny a group the user is in → GPO excluded."""
         gpo_id = "73333333733373337333733333333333"
-        sddl = (
-            "D:(A;;GA;;;S-1-5-11)"
-            f"(D;;GA;;;{_DOMAIN_GROUP_SID})"
+        sddl = f"D:(A;;GA;;;S-1-5-11)(D;;GA;;;{_DOMAIN_GROUP_SID})"
+        estate.gpos.append(
+            _gpo(
+                gpo_id,
+                "gpo-sddl-cross-deny",
+                settings=[_user_setting(gpo_id, r"HKCU\Software\SDdlDeny", "1")],
+                delegation=[],
+                sddl=sddl,
+            )
         )
-        estate.gpos.append(_gpo(
-            gpo_id, "gpo-sddl-cross-deny",
-            settings=[_user_setting(gpo_id, r"HKCU\Software\SDdlDeny", "1")],
-            delegation=[],
-            sddl=sddl,
-        ))
-        estate.soms[0].links.append(SomLink(
-            gpo_id=gpo_id, order=10, enabled=True, enforced=False, target=ROOT_DN,
-        ))
+        estate.soms[0].links.append(
+            SomLink(
+                gpo_id=gpo_id,
+                order=10,
+                enabled=True,
+                enforced=False,
+                target=ROOT_DN,
+            )
+        )
         result = principal_resultant(estate, USER_SID, dn=ROOT_DN)
         idents = {m.identity for m in result.settings}
         assert r"HKCU\Software\SDdlDeny" not in idents
@@ -866,24 +1131,29 @@ class TestCrossTrusteeDeny:
         ignored.
         """
         gpo_id = "74444444744474447444744444444444"
-        sddl = (
-            "D:(A;;GA;;;S-1-5-11)"
-            f"(D;;GR;;;{_DOMAIN_GROUP_SID})"
+        sddl = f"D:(A;;GA;;;S-1-5-11)(D;;GR;;;{_DOMAIN_GROUP_SID})"
+        estate.gpos.append(
+            _gpo(
+                gpo_id,
+                "gpo-sddl-deny-only",
+                settings=[_user_setting(gpo_id, r"HKCU\Software\DenyOnly", "1")],
+                delegation=[],
+                sddl=sddl,
+            )
         )
-        estate.gpos.append(_gpo(
-            gpo_id, "gpo-sddl-deny-only",
-            settings=[_user_setting(gpo_id, r"HKCU\Software\DenyOnly", "1")],
-            delegation=[],
-            sddl=sddl,
-        ))
-        estate.soms[0].links.append(SomLink(
-            gpo_id=gpo_id, order=10, enabled=True, enforced=False, target=ROOT_DN,
-        ))
+        estate.soms[0].links.append(
+            SomLink(
+                gpo_id=gpo_id,
+                order=10,
+                enabled=True,
+                enforced=False,
+                target=ROOT_DN,
+            )
+        )
         result = principal_resultant(estate, USER_SID, dn=ROOT_DN)
         idents = {m.identity for m in result.settings}
         assert r"HKCU\Software\DenyOnly" not in idents
-        assert any(e.gpo_id == gpo_id and "deny ACE" in e.reason
-                   for e in result.excluded)
+        assert any(e.gpo_id == gpo_id and "deny ACE" in e.reason for e in result.excluded)
 
     def test_sddl_deny_only_non_apply_right_does_not_block(self, estate):
         """SDDL: deny with a non-read/apply right (e.g. WD = write deny)
@@ -891,19 +1161,25 @@ class TestCrossTrusteeDeny:
         are tracked.
         """
         gpo_id = "75555555755575557555755555555555"
-        sddl = (
-            "D:(A;;GA;;;S-1-5-11)"
-            f"(D;;WD;;;{_DOMAIN_GROUP_SID})"
+        sddl = f"D:(A;;GA;;;S-1-5-11)(D;;WD;;;{_DOMAIN_GROUP_SID})"
+        estate.gpos.append(
+            _gpo(
+                gpo_id,
+                "gpo-sddl-wd-deny",
+                settings=[_user_setting(gpo_id, r"HKCU\Software\WdDenyOK", "1")],
+                delegation=[],
+                sddl=sddl,
+            )
         )
-        estate.gpos.append(_gpo(
-            gpo_id, "gpo-sddl-wd-deny",
-            settings=[_user_setting(gpo_id, r"HKCU\Software\WdDenyOK", "1")],
-            delegation=[],
-            sddl=sddl,
-        ))
-        estate.soms[0].links.append(SomLink(
-            gpo_id=gpo_id, order=10, enabled=True, enforced=False, target=ROOT_DN,
-        ))
+        estate.soms[0].links.append(
+            SomLink(
+                gpo_id=gpo_id,
+                order=10,
+                enabled=True,
+                enforced=False,
+                target=ROOT_DN,
+            )
+        )
         result = principal_resultant(estate, USER_SID, dn=ROOT_DN)
         idents = {m.identity for m in result.settings}
         assert r"HKCU\Software\WdDenyOK" in idents
@@ -918,9 +1194,14 @@ _LOOPBACK_IDENT = "Configure user group policy loopback processing mode"
 
 def _loopback_setting(gpo_id: str, mode: str) -> Setting:
     return Setting(
-        gpo_id=gpo_id, side="Computer", cse="Security",
-        identity=_LOOPBACK_IDENT, display_name="Loopback",
-        display_value=mode, raw={}, from_disabled_side=False,
+        gpo_id=gpo_id,
+        side="Computer",
+        cse="Security",
+        identity=_LOOPBACK_IDENT,
+        display_name="Loopback",
+        display_value=mode,
+        raw={},
+        from_disabled_side=False,
     )
 
 
@@ -930,8 +1211,12 @@ class TestLoopbackReplace:
     def _setup_replace_estate(self, estate):
         comp_sid = f"{DOMAIN_SID}-5001"
         estate.principals[comp_sid] = ResolvedPrincipal(
-            sid=comp_sid, name="TEST\\WKS$", sam="WKS$",
-            principal_type="Computer", domain="TEST", resolved=True,
+            sid=comp_sid,
+            name="TEST\\WKS$",
+            sam="WKS$",
+            principal_type="Computer",
+            domain="TEST",
+            resolved=True,
         )
         user_dn = f"ou=users,{ROOT_DN}"
         comp_dn = f"ou=computers,{ROOT_DN}"
@@ -939,38 +1224,57 @@ class TestLoopbackReplace:
         user_gpo = "81111111811181118111811111111111"
         comp_gpo = "82222222822282228222822222222222"
 
-        estate.gpos.append(_gpo(
-            user_gpo, "gpo-user-chain",
-            settings=[_user_setting(user_gpo, r"HKCU\Software\UserChain", "u")],
-            delegation=_au_apply(),
-        ))
-        estate.gpos.append(_gpo(
-            comp_gpo, "gpo-comp-loopback-replace",
-            settings=[
-                _loopback_setting(comp_gpo, "Replace"),
-                _user_setting(comp_gpo, r"HKCU\Software\CompChain", "c"),
-            ],
-            delegation=_au_apply(),
-        ))
-        estate.soms.append(Som(
-            path=user_dn, name="users", container_type="ou",
-            inheritance_blocked=False,
-            links=[SomLink(gpo_id=user_gpo, order=1, enabled=True,
-                           enforced=False, target=user_dn)],
-        ))
-        estate.soms.append(Som(
-            path=comp_dn, name="computers", container_type="ou",
-            inheritance_blocked=False,
-            links=[SomLink(gpo_id=comp_gpo, order=1, enabled=True,
-                           enforced=False, target=comp_dn)],
-        ))
+        estate.gpos.append(
+            _gpo(
+                user_gpo,
+                "gpo-user-chain",
+                settings=[_user_setting(user_gpo, r"HKCU\Software\UserChain", "u")],
+                delegation=_au_apply(),
+            )
+        )
+        estate.gpos.append(
+            _gpo(
+                comp_gpo,
+                "gpo-comp-loopback-replace",
+                settings=[
+                    _loopback_setting(comp_gpo, "Replace"),
+                    _user_setting(comp_gpo, r"HKCU\Software\CompChain", "c"),
+                ],
+                delegation=_au_apply(),
+            )
+        )
+        estate.soms.append(
+            Som(
+                path=user_dn,
+                name="users",
+                container_type="ou",
+                inheritance_blocked=False,
+                links=[
+                    SomLink(gpo_id=user_gpo, order=1, enabled=True, enforced=False, target=user_dn)
+                ],
+            )
+        )
+        estate.soms.append(
+            Som(
+                path=comp_dn,
+                name="computers",
+                container_type="ou",
+                inheritance_blocked=False,
+                links=[
+                    SomLink(gpo_id=comp_gpo, order=1, enabled=True, enforced=False, target=comp_dn)
+                ],
+            )
+        )
         return comp_sid, user_dn, comp_dn
 
     def test_replace_user_chain_setting_not_present(self, estate):
         comp_sid, user_dn, comp_dn = self._setup_replace_estate(estate)
         result = principal_resultant(
-            estate, USER_SID, computer_sid=comp_sid,
-            dn=user_dn, computer_dn=comp_dn,
+            estate,
+            USER_SID,
+            computer_sid=comp_sid,
+            dn=user_dn,
+            computer_dn=comp_dn,
         )
         idents = {m.identity for m in result.settings}
         assert r"HKCU\Software\UserChain" not in idents
@@ -979,8 +1283,11 @@ class TestLoopbackReplace:
     def test_replace_label_says_loopback_replace(self, estate):
         comp_sid, user_dn, comp_dn = self._setup_replace_estate(estate)
         result = principal_resultant(
-            estate, USER_SID, computer_sid=comp_sid,
-            dn=user_dn, computer_dn=comp_dn,
+            estate,
+            USER_SID,
+            computer_sid=comp_sid,
+            dn=user_dn,
+            computer_dn=comp_dn,
         )
         assert "loopback=replace" in result.caveat_summary.lower()
 
@@ -988,8 +1295,11 @@ class TestLoopbackReplace:
         """Computer-side settings from the computer chain are unaffected."""
         comp_sid, user_dn, comp_dn = self._setup_replace_estate(estate)
         result = principal_resultant(
-            estate, USER_SID, computer_sid=comp_sid,
-            dn=user_dn, computer_dn=comp_dn,
+            estate,
+            USER_SID,
+            computer_sid=comp_sid,
+            dn=user_dn,
+            computer_dn=comp_dn,
         )
         comp_settings = {m.identity for m in result.settings if m.side == "Computer"}
         assert _LOOPBACK_IDENT in comp_settings
@@ -1001,41 +1311,64 @@ class TestLoopbackReplace:
         """
         comp_sid = f"{DOMAIN_SID}-5001"
         estate.principals[comp_sid] = ResolvedPrincipal(
-            sid=comp_sid, name="TEST\\WKS$", sam="WKS$",
-            principal_type="Computer", domain="TEST", resolved=True,
+            sid=comp_sid,
+            name="TEST\\WKS$",
+            sam="WKS$",
+            principal_type="Computer",
+            domain="TEST",
+            resolved=True,
         )
         comp_dn = f"ou=computers,{ROOT_DN}"
         user_dn = f"ou=users,{ROOT_DN}"
 
         loopback_gpo = "83333333833383338333833333333333"
-        estate.gpos.append(_gpo(
-            loopback_gpo, "gpo-loopback-replace-filtered",
-            settings=[
-                _loopback_setting(loopback_gpo, "Replace"),
-                _user_setting(loopback_gpo, r"HKCU\Software\LoopFiltered", "1"),
-            ],
-            delegation=_group_apply("Helpdesk Operators", _DOMAIN_GROUP_SID),
-        ))
-        estate.soms.append(Som(
-            path=user_dn, name="users", container_type="ou",
-            inheritance_blocked=False, links=[],
-        ))
-        estate.soms.append(Som(
-            path=comp_dn, name="computers", container_type="ou",
-            inheritance_blocked=False,
-            links=[SomLink(gpo_id=loopback_gpo, order=1, enabled=True,
-                           enforced=False, target=comp_dn)],
-        ))
+        estate.gpos.append(
+            _gpo(
+                loopback_gpo,
+                "gpo-loopback-replace-filtered",
+                settings=[
+                    _loopback_setting(loopback_gpo, "Replace"),
+                    _user_setting(loopback_gpo, r"HKCU\Software\LoopFiltered", "1"),
+                ],
+                delegation=_group_apply("Helpdesk Operators", _DOMAIN_GROUP_SID),
+            )
+        )
+        estate.soms.append(
+            Som(
+                path=user_dn,
+                name="users",
+                container_type="ou",
+                inheritance_blocked=False,
+                links=[],
+            )
+        )
+        estate.soms.append(
+            Som(
+                path=comp_dn,
+                name="computers",
+                container_type="ou",
+                inheritance_blocked=False,
+                links=[
+                    SomLink(
+                        gpo_id=loopback_gpo, order=1, enabled=True, enforced=False, target=comp_dn
+                    )
+                ],
+            )
+        )
         result = principal_resultant(
-            estate, USER_SID, computer_sid=comp_sid,
-            dn=user_dn, computer_dn=comp_dn,
+            estate,
+            USER_SID,
+            computer_sid=comp_sid,
+            dn=user_dn,
+            computer_dn=comp_dn,
         )
         idents = {m.identity for m in result.settings}
         # The user is in Helpdesk Operators, but the computer is NOT.
         # In replace mode, the computer token is used → GPO excluded.
         assert r"HKCU\Software\LoopFiltered" not in idents
-        assert any(e.gpo_id == loopback_gpo and e.kind == "security_filter"
-                   for e in result.excluded)
+        assert any(
+            e.gpo_id == loopback_gpo and e.kind == "security_filter" for e in result.excluded
+        )
 
 
 class TestLoopbackMerge:
@@ -1045,8 +1378,12 @@ class TestLoopbackMerge:
     def _setup_merge_estate(self, estate):
         comp_sid = f"{DOMAIN_SID}-5001"
         estate.principals[comp_sid] = ResolvedPrincipal(
-            sid=comp_sid, name="TEST\\WKS$", sam="WKS$",
-            principal_type="Computer", domain="TEST", resolved=True,
+            sid=comp_sid,
+            name="TEST\\WKS$",
+            sam="WKS$",
+            principal_type="Computer",
+            domain="TEST",
+            resolved=True,
         )
         user_dn = f"ou=users,{ROOT_DN}"
         comp_dn = f"ou=computers,{ROOT_DN}"
@@ -1054,39 +1391,58 @@ class TestLoopbackMerge:
         user_gpo = "84444444844484448444844444444444"
         comp_gpo = "85555555855585558555855555555555"
 
-        estate.gpos.append(_gpo(
-            user_gpo, "gpo-user-chain-merge",
-            settings=[_user_setting(user_gpo, r"HKCU\Software\Shared", "from_user")],
-            delegation=_au_apply(),
-        ))
-        estate.gpos.append(_gpo(
-            comp_gpo, "gpo-comp-loopback-merge",
-            settings=[
-                _loopback_setting(comp_gpo, "Merge"),
-                _user_setting(comp_gpo, r"HKCU\Software\Shared", "from_comp"),
-                _user_setting(comp_gpo, r"HKCU\Software\CompOnly", "c"),
-            ],
-            delegation=_au_apply(),
-        ))
-        estate.soms.append(Som(
-            path=user_dn, name="users", container_type="ou",
-            inheritance_blocked=False,
-            links=[SomLink(gpo_id=user_gpo, order=1, enabled=True,
-                           enforced=False, target=user_dn)],
-        ))
-        estate.soms.append(Som(
-            path=comp_dn, name="computers", container_type="ou",
-            inheritance_blocked=False,
-            links=[SomLink(gpo_id=comp_gpo, order=1, enabled=True,
-                           enforced=False, target=comp_dn)],
-        ))
+        estate.gpos.append(
+            _gpo(
+                user_gpo,
+                "gpo-user-chain-merge",
+                settings=[_user_setting(user_gpo, r"HKCU\Software\Shared", "from_user")],
+                delegation=_au_apply(),
+            )
+        )
+        estate.gpos.append(
+            _gpo(
+                comp_gpo,
+                "gpo-comp-loopback-merge",
+                settings=[
+                    _loopback_setting(comp_gpo, "Merge"),
+                    _user_setting(comp_gpo, r"HKCU\Software\Shared", "from_comp"),
+                    _user_setting(comp_gpo, r"HKCU\Software\CompOnly", "c"),
+                ],
+                delegation=_au_apply(),
+            )
+        )
+        estate.soms.append(
+            Som(
+                path=user_dn,
+                name="users",
+                container_type="ou",
+                inheritance_blocked=False,
+                links=[
+                    SomLink(gpo_id=user_gpo, order=1, enabled=True, enforced=False, target=user_dn)
+                ],
+            )
+        )
+        estate.soms.append(
+            Som(
+                path=comp_dn,
+                name="computers",
+                container_type="ou",
+                inheritance_blocked=False,
+                links=[
+                    SomLink(gpo_id=comp_gpo, order=1, enabled=True, enforced=False, target=comp_dn)
+                ],
+            )
+        )
         return comp_sid, user_dn, comp_dn
 
     def test_merge_both_chains_contribute_user_side(self, estate):
         comp_sid, user_dn, comp_dn = self._setup_merge_estate(estate)
         result = principal_resultant(
-            estate, USER_SID, computer_sid=comp_sid,
-            dn=user_dn, computer_dn=comp_dn,
+            estate,
+            USER_SID,
+            computer_sid=comp_sid,
+            dn=user_dn,
+            computer_dn=comp_dn,
         )
         idents = {m.identity for m in result.settings if m.side == "User"}
         assert r"HKCU\Software\Shared" in idents
@@ -1098,8 +1454,11 @@ class TestLoopbackMerge:
         """
         comp_sid, user_dn, comp_dn = self._setup_merge_estate(estate)
         result = principal_resultant(
-            estate, USER_SID, computer_sid=comp_sid,
-            dn=user_dn, computer_dn=comp_dn,
+            estate,
+            USER_SID,
+            computer_sid=comp_sid,
+            dn=user_dn,
+            computer_dn=comp_dn,
         )
         shared = [m for m in result.settings if m.identity == r"HKCU\Software\Shared"]
         assert len(shared) == 1
@@ -1109,8 +1468,11 @@ class TestLoopbackMerge:
     def test_merge_label_says_loopback_merge(self, estate):
         comp_sid, user_dn, comp_dn = self._setup_merge_estate(estate)
         result = principal_resultant(
-            estate, USER_SID, computer_sid=comp_sid,
-            dn=user_dn, computer_dn=comp_dn,
+            estate,
+            USER_SID,
+            computer_sid=comp_sid,
+            dn=user_dn,
+            computer_dn=comp_dn,
         )
         assert "loopback=merge" in result.caveat_summary.lower()
 
@@ -1121,39 +1483,58 @@ class TestLoopbackMerge:
         """
         comp_sid = f"{DOMAIN_SID}-5001"
         estate.principals[comp_sid] = ResolvedPrincipal(
-            sid=comp_sid, name="TEST\\WKS$", sam="WKS$",
-            principal_type="Computer", domain="TEST", resolved=True,
+            sid=comp_sid,
+            name="TEST\\WKS$",
+            sam="WKS$",
+            principal_type="Computer",
+            domain="TEST",
+            resolved=True,
         )
         comp_dn = f"ou=computers,{ROOT_DN}"
         user_dn = f"ou=users,{ROOT_DN}"
 
         comp_gpo = "86666666866686668666866666666666"
-        estate.gpos.append(_gpo(
-            comp_gpo, "gpo-merge-filtered",
-            settings=[
-                _loopback_setting(comp_gpo, "Merge"),
-                _user_setting(comp_gpo, r"HKCU\Software\MergeFiltered", "1"),
-            ],
-            delegation=_group_apply("Helpdesk Operators", _DOMAIN_GROUP_SID),
-        ))
-        estate.soms.append(Som(
-            path=user_dn, name="users", container_type="ou",
-            inheritance_blocked=False, links=[],
-        ))
-        estate.soms.append(Som(
-            path=comp_dn, name="computers", container_type="ou",
-            inheritance_blocked=False,
-            links=[SomLink(gpo_id=comp_gpo, order=1, enabled=True,
-                           enforced=False, target=comp_dn)],
-        ))
+        estate.gpos.append(
+            _gpo(
+                comp_gpo,
+                "gpo-merge-filtered",
+                settings=[
+                    _loopback_setting(comp_gpo, "Merge"),
+                    _user_setting(comp_gpo, r"HKCU\Software\MergeFiltered", "1"),
+                ],
+                delegation=_group_apply("Helpdesk Operators", _DOMAIN_GROUP_SID),
+            )
+        )
+        estate.soms.append(
+            Som(
+                path=user_dn,
+                name="users",
+                container_type="ou",
+                inheritance_blocked=False,
+                links=[],
+            )
+        )
+        estate.soms.append(
+            Som(
+                path=comp_dn,
+                name="computers",
+                container_type="ou",
+                inheritance_blocked=False,
+                links=[
+                    SomLink(gpo_id=comp_gpo, order=1, enabled=True, enforced=False, target=comp_dn)
+                ],
+            )
+        )
         result = principal_resultant(
-            estate, USER_SID, computer_sid=comp_sid,
-            dn=user_dn, computer_dn=comp_dn,
+            estate,
+            USER_SID,
+            computer_sid=comp_sid,
+            dn=user_dn,
+            computer_dn=comp_dn,
         )
         idents = {m.identity for m in result.settings}
         assert r"HKCU\Software\MergeFiltered" not in idents
-        assert any(e.gpo_id == comp_gpo and e.kind == "security_filter"
-                   for e in result.excluded)
+        assert any(e.gpo_id == comp_gpo and e.kind == "security_filter" for e in result.excluded)
 
 
 class TestLoopbackNoLoopback:
@@ -1162,8 +1543,12 @@ class TestLoopbackNoLoopback:
     def test_no_loopback_label_unaffected(self, estate):
         comp_sid = f"{DOMAIN_SID}-5001"
         estate.principals[comp_sid] = ResolvedPrincipal(
-            sid=comp_sid, name="TEST\\WKS$", sam="WKS$",
-            principal_type="Computer", domain="TEST", resolved=True,
+            sid=comp_sid,
+            name="TEST\\WKS$",
+            sam="WKS$",
+            principal_type="Computer",
+            domain="TEST",
+            resolved=True,
         )
         result = principal_resultant(estate, USER_SID, computer_sid=comp_sid)
         assert "no loopback" in result.caveat_summary.lower()
@@ -1178,42 +1563,65 @@ class TestLoopbackEdgeCases:
         """
         comp_sid = f"{DOMAIN_SID}-5001"
         estate.principals[comp_sid] = ResolvedPrincipal(
-            sid=comp_sid, name="TEST\\WKS$", sam="WKS$",
-            principal_type="Computer", domain="TEST", resolved=True,
+            sid=comp_sid,
+            name="TEST\\WKS$",
+            sam="WKS$",
+            principal_type="Computer",
+            domain="TEST",
+            resolved=True,
         )
         user_dn = f"ou=users,{ROOT_DN}"
         comp_dn = f"ou=computers,{ROOT_DN}"
         user_gpo = "87111111871187118711871111111111"
         comp_gpo = "87222222872287228722872222222222"
 
-        estate.gpos.append(_gpo(
-            user_gpo, "gpo-user-only",
-            settings=[_user_setting(user_gpo, r"HKCU\Software\Survives", "1")],
-            delegation=_au_apply(),
-        ))
-        estate.gpos.append(_gpo(
-            comp_gpo, "gpo-loopback-disabled-link",
-            settings=[
-                _loopback_setting(comp_gpo, "Replace"),
-                _user_setting(comp_gpo, r"HKCU\Software\DisabledLink", "x"),
-            ],
-            delegation=_au_apply(),
-        ))
-        estate.soms.append(Som(
-            path=user_dn, name="users", container_type="ou",
-            inheritance_blocked=False,
-            links=[SomLink(gpo_id=user_gpo, order=1, enabled=True,
-                           enforced=False, target=user_dn)],
-        ))
-        estate.soms.append(Som(
-            path=comp_dn, name="computers", container_type="ou",
-            inheritance_blocked=False,
-            links=[SomLink(gpo_id=comp_gpo, order=1, enabled=False,
-                           enforced=False, target=comp_dn)],
-        ))
+        estate.gpos.append(
+            _gpo(
+                user_gpo,
+                "gpo-user-only",
+                settings=[_user_setting(user_gpo, r"HKCU\Software\Survives", "1")],
+                delegation=_au_apply(),
+            )
+        )
+        estate.gpos.append(
+            _gpo(
+                comp_gpo,
+                "gpo-loopback-disabled-link",
+                settings=[
+                    _loopback_setting(comp_gpo, "Replace"),
+                    _user_setting(comp_gpo, r"HKCU\Software\DisabledLink", "x"),
+                ],
+                delegation=_au_apply(),
+            )
+        )
+        estate.soms.append(
+            Som(
+                path=user_dn,
+                name="users",
+                container_type="ou",
+                inheritance_blocked=False,
+                links=[
+                    SomLink(gpo_id=user_gpo, order=1, enabled=True, enforced=False, target=user_dn)
+                ],
+            )
+        )
+        estate.soms.append(
+            Som(
+                path=comp_dn,
+                name="computers",
+                container_type="ou",
+                inheritance_blocked=False,
+                links=[
+                    SomLink(gpo_id=comp_gpo, order=1, enabled=False, enforced=False, target=comp_dn)
+                ],
+            )
+        )
         result = principal_resultant(
-            estate, USER_SID, computer_sid=comp_sid,
-            dn=user_dn, computer_dn=comp_dn,
+            estate,
+            USER_SID,
+            computer_sid=comp_sid,
+            dn=user_dn,
+            computer_dn=comp_dn,
         )
         idents = {m.identity for m in result.settings}
         assert r"HKCU\Software\Survives" in idents
@@ -1226,8 +1634,12 @@ class TestLoopbackEdgeCases:
         """
         comp_sid = f"{DOMAIN_SID}-5001"
         estate.principals[comp_sid] = ResolvedPrincipal(
-            sid=comp_sid, name="TEST\\WKS$", sam="WKS$",
-            principal_type="Computer", domain="TEST", resolved=True,
+            sid=comp_sid,
+            name="TEST\\WKS$",
+            sam="WKS$",
+            principal_type="Computer",
+            domain="TEST",
+            resolved=True,
         )
         user_dn = f"ou=users,{ROOT_DN}"
         comp_dn = f"ou=computers,{ROOT_DN}"
@@ -1235,46 +1647,69 @@ class TestLoopbackEdgeCases:
         comp_replace = "88222222882288228822882222222222"
         comp_merge = "88333333883388338833883333333333"
 
-        estate.gpos.append(_gpo(
-            user_gpo, "gpo-user-side",
-            settings=[_user_setting(user_gpo, r"HKCU\Software\UserSide", "u")],
-            delegation=_au_apply(),
-        ))
-        estate.gpos.append(_gpo(
-            comp_replace, "gpo-comp-replace",
-            settings=[
-                _loopback_setting(comp_replace, "Replace"),
-                _user_setting(comp_replace, r"HKCU\Software\CompReplace", "r"),
-            ],
-            delegation=_au_apply(),
-        ))
-        estate.gpos.append(_gpo(
-            comp_merge, "gpo-comp-merge",
-            settings=[
-                _loopback_setting(comp_merge, "Merge"),
-                _user_setting(comp_merge, r"HKCU\Software\CompMerge", "m"),
-            ],
-            delegation=_au_apply(),
-        ))
-        estate.soms.append(Som(
-            path=user_dn, name="users", container_type="ou",
-            inheritance_blocked=False,
-            links=[SomLink(gpo_id=user_gpo, order=1, enabled=True,
-                           enforced=False, target=user_dn)],
-        ))
-        estate.soms.append(Som(
-            path=comp_dn, name="computers", container_type="ou",
-            inheritance_blocked=False,
-            links=[
-                SomLink(gpo_id=comp_replace, order=1, enabled=True,
-                        enforced=False, target=comp_dn),
-                SomLink(gpo_id=comp_merge, order=2, enabled=True,
-                        enforced=False, target=comp_dn),
-            ],
-        ))
+        estate.gpos.append(
+            _gpo(
+                user_gpo,
+                "gpo-user-side",
+                settings=[_user_setting(user_gpo, r"HKCU\Software\UserSide", "u")],
+                delegation=_au_apply(),
+            )
+        )
+        estate.gpos.append(
+            _gpo(
+                comp_replace,
+                "gpo-comp-replace",
+                settings=[
+                    _loopback_setting(comp_replace, "Replace"),
+                    _user_setting(comp_replace, r"HKCU\Software\CompReplace", "r"),
+                ],
+                delegation=_au_apply(),
+            )
+        )
+        estate.gpos.append(
+            _gpo(
+                comp_merge,
+                "gpo-comp-merge",
+                settings=[
+                    _loopback_setting(comp_merge, "Merge"),
+                    _user_setting(comp_merge, r"HKCU\Software\CompMerge", "m"),
+                ],
+                delegation=_au_apply(),
+            )
+        )
+        estate.soms.append(
+            Som(
+                path=user_dn,
+                name="users",
+                container_type="ou",
+                inheritance_blocked=False,
+                links=[
+                    SomLink(gpo_id=user_gpo, order=1, enabled=True, enforced=False, target=user_dn)
+                ],
+            )
+        )
+        estate.soms.append(
+            Som(
+                path=comp_dn,
+                name="computers",
+                container_type="ou",
+                inheritance_blocked=False,
+                links=[
+                    SomLink(
+                        gpo_id=comp_replace, order=1, enabled=True, enforced=False, target=comp_dn
+                    ),
+                    SomLink(
+                        gpo_id=comp_merge, order=2, enabled=True, enforced=False, target=comp_dn
+                    ),
+                ],
+            )
+        )
         result = principal_resultant(
-            estate, USER_SID, computer_sid=comp_sid,
-            dn=user_dn, computer_dn=comp_dn,
+            estate,
+            USER_SID,
+            computer_sid=comp_sid,
+            dn=user_dn,
+            computer_dn=comp_dn,
         )
         assert "loopback=mixed" in result.caveat_summary.lower()
         assert "best-effort" in result.caveat_summary.lower()
@@ -1287,42 +1722,65 @@ class TestLoopbackEdgeCases:
         """
         comp_sid = f"{DOMAIN_SID}-5001"
         estate.principals[comp_sid] = ResolvedPrincipal(
-            sid=comp_sid, name="TEST\\WKS$", sam="WKS$",
-            principal_type="Computer", domain="TEST", resolved=True,
+            sid=comp_sid,
+            name="TEST\\WKS$",
+            sam="WKS$",
+            principal_type="Computer",
+            domain="TEST",
+            resolved=True,
         )
         user_dn = f"ou=users,{ROOT_DN}"
         comp_dn = f"ou=computers,{ROOT_DN}"
         user_gpo = "89111111891189118911891111111111"
         comp_gpo = "89222222892289228922892222222222"
 
-        estate.gpos.append(_gpo(
-            user_gpo, "gpo-user-shared",
-            settings=[_user_setting(user_gpo, r"HKCU\Software\Conflict", "user_val")],
-            delegation=_au_apply(),
-        ))
-        estate.gpos.append(_gpo(
-            comp_gpo, "gpo-comp-shared",
-            settings=[
-                _loopback_setting(comp_gpo, "Merge"),
-                _user_setting(comp_gpo, r"HKCU\Software\Conflict", "comp_val"),
-            ],
-            delegation=_au_apply(),
-        ))
-        estate.soms.append(Som(
-            path=user_dn, name="users", container_type="ou",
-            inheritance_blocked=False,
-            links=[SomLink(gpo_id=user_gpo, order=1, enabled=True,
-                           enforced=False, target=user_dn)],
-        ))
-        estate.soms.append(Som(
-            path=comp_dn, name="computers", container_type="ou",
-            inheritance_blocked=False,
-            links=[SomLink(gpo_id=comp_gpo, order=1, enabled=True,
-                           enforced=False, target=comp_dn)],
-        ))
+        estate.gpos.append(
+            _gpo(
+                user_gpo,
+                "gpo-user-shared",
+                settings=[_user_setting(user_gpo, r"HKCU\Software\Conflict", "user_val")],
+                delegation=_au_apply(),
+            )
+        )
+        estate.gpos.append(
+            _gpo(
+                comp_gpo,
+                "gpo-comp-shared",
+                settings=[
+                    _loopback_setting(comp_gpo, "Merge"),
+                    _user_setting(comp_gpo, r"HKCU\Software\Conflict", "comp_val"),
+                ],
+                delegation=_au_apply(),
+            )
+        )
+        estate.soms.append(
+            Som(
+                path=user_dn,
+                name="users",
+                container_type="ou",
+                inheritance_blocked=False,
+                links=[
+                    SomLink(gpo_id=user_gpo, order=1, enabled=True, enforced=False, target=user_dn)
+                ],
+            )
+        )
+        estate.soms.append(
+            Som(
+                path=comp_dn,
+                name="computers",
+                container_type="ou",
+                inheritance_blocked=False,
+                links=[
+                    SomLink(gpo_id=comp_gpo, order=1, enabled=True, enforced=False, target=comp_dn)
+                ],
+            )
+        )
         result = principal_resultant(
-            estate, USER_SID, computer_sid=comp_sid,
-            dn=user_dn, computer_dn=comp_dn,
+            estate,
+            USER_SID,
+            computer_sid=comp_sid,
+            dn=user_dn,
+            computer_dn=comp_dn,
         )
         shared = [m for m in result.settings if m.identity == r"HKCU\Software\Conflict"]
         assert len(shared) == 1

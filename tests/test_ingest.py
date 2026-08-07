@@ -69,43 +69,44 @@ class TestParseReport:
 
     def test_parse_multiple_gpos(self, tmp_path: Path) -> None:
         body_a = (
-            '    <GPO>\n'
-            '        <Identifier>\n'
-            '            <Identifier>{31B2F340-016D-11D2-945F-00C04FB984F9}</Identifier>\n'
-            '            <Domain>test.local</Domain>\n'
-            '        </Identifier>\n'
-            '        <Name>GPO A</Name>\n'
-            '        <CreatedTime>2026-01-01T00:00:00</CreatedTime>\n'
-            '        <ModifiedTime>2026-01-02T00:00:00</ModifiedTime>\n'
-            '        <ReadTime>2026-01-03T00:00:00</ReadTime>\n'
-            '        <Computer><VersionDirectory>1</VersionDirectory>'
-            '<VersionSysvol>2</VersionSysvol><Enabled>true</Enabled></Computer>\n'
-            '        <User><VersionDirectory>3</VersionDirectory>'
-            '<VersionSysvol>4</VersionSysvol><Enabled>true</Enabled></User>\n'
-            '        <FilterDataAvailable>true</FilterDataAvailable>\n'
-            '    </GPO>\n'
+            "    <GPO>\n"
+            "        <Identifier>\n"
+            "            <Identifier>{31B2F340-016D-11D2-945F-00C04FB984F9}</Identifier>\n"
+            "            <Domain>test.local</Domain>\n"
+            "        </Identifier>\n"
+            "        <Name>GPO A</Name>\n"
+            "        <CreatedTime>2026-01-01T00:00:00</CreatedTime>\n"
+            "        <ModifiedTime>2026-01-02T00:00:00</ModifiedTime>\n"
+            "        <ReadTime>2026-01-03T00:00:00</ReadTime>\n"
+            "        <Computer><VersionDirectory>1</VersionDirectory>"
+            "<VersionSysvol>2</VersionSysvol><Enabled>true</Enabled></Computer>\n"
+            "        <User><VersionDirectory>3</VersionDirectory>"
+            "<VersionSysvol>4</VersionSysvol><Enabled>true</Enabled></User>\n"
+            "        <FilterDataAvailable>true</FilterDataAvailable>\n"
+            "    </GPO>\n"
         )
         body_b = (
-            '    <GPO>\n'
-            '        <Identifier>\n'
-            '            <Identifier>{11111111-1111-1111-1111-111111111111}</Identifier>\n'
-            '            <Domain>test.local</Domain>\n'
-            '        </Identifier>\n'
-            '        <Name>GPO B</Name>\n'
-            '        <CreatedTime>2026-01-01T00:00:00</CreatedTime>\n'
-            '        <ModifiedTime>2026-01-02T00:00:00</ModifiedTime>\n'
-            '        <ReadTime>2026-01-03T00:00:00</ReadTime>\n'
-            '        <Computer><VersionDirectory>1</VersionDirectory>'
-            '<VersionSysvol>2</VersionSysvol><Enabled>true</Enabled></Computer>\n'
-            '        <User><VersionDirectory>3</VersionDirectory>'
-            '<VersionSysvol>4</VersionSysvol><Enabled>true</Enabled></User>\n'
-            '        <FilterDataAvailable>true</FilterDataAvailable>\n'
-            '    </GPO>\n'
+            "    <GPO>\n"
+            "        <Identifier>\n"
+            "            <Identifier>{11111111-1111-1111-1111-111111111111}</Identifier>\n"
+            "            <Domain>test.local</Domain>\n"
+            "        </Identifier>\n"
+            "        <Name>GPO B</Name>\n"
+            "        <CreatedTime>2026-01-01T00:00:00</CreatedTime>\n"
+            "        <ModifiedTime>2026-01-02T00:00:00</ModifiedTime>\n"
+            "        <ReadTime>2026-01-03T00:00:00</ReadTime>\n"
+            "        <Computer><VersionDirectory>1</VersionDirectory>"
+            "<VersionSysvol>2</VersionSysvol><Enabled>true</Enabled></Computer>\n"
+            "        <User><VersionDirectory>3</VersionDirectory>"
+            "<VersionSysvol>4</VersionSysvol><Enabled>true</Enabled></User>\n"
+            "        <FilterDataAvailable>true</FilterDataAvailable>\n"
+            "    </GPO>\n"
         )
         xml = (
             '<?xml version="1.0" encoding="utf-8"?>\n'
             '<GPO xmlns="http://www.microsoft.com/GroupPolicy/Settings">\n'
-            + body_a + body_b
+            + body_a
+            + body_b
             + "</GPO>\n"
         )
         xml_path = tmp_path / "report.xml"
@@ -139,20 +140,20 @@ class TestParseReport:
         xml = (
             '<?xml version="1.0" encoding="utf-8"?>\n'
             '<GPO xmlns="http://www.microsoft.com/GroupPolicy/Settings">\n'
-            '  <Identifier>\n'
-            f'    <Identifier>{gpo_id}</Identifier>\n'
-            '    <Domain>single.local</Domain>\n'
-            '  </Identifier>\n'
-            '  <Name>SoloGpo</Name>\n'
-            '  <CreatedTime>2026-01-01T00:00:00</CreatedTime>\n'
-            '  <ModifiedTime>2026-01-02T00:00:00</ModifiedTime>\n'
-            '  <ReadTime>2026-01-03T00:00:00</ReadTime>\n'
-            '  <Computer><VersionDirectory>1</VersionDirectory>'
-            '<VersionSysvol>1</VersionSysvol><Enabled>true</Enabled></Computer>\n'
-            '  <User><VersionDirectory>1</VersionDirectory>'
-            '<VersionSysvol>1</VersionSysvol><Enabled>true</Enabled></User>\n'
-            '  <FilterDataAvailable>true</FilterDataAvailable>\n'
-            '</GPO>\n'
+            "  <Identifier>\n"
+            f"    <Identifier>{gpo_id}</Identifier>\n"
+            "    <Domain>single.local</Domain>\n"
+            "  </Identifier>\n"
+            "  <Name>SoloGpo</Name>\n"
+            "  <CreatedTime>2026-01-01T00:00:00</CreatedTime>\n"
+            "  <ModifiedTime>2026-01-02T00:00:00</ModifiedTime>\n"
+            "  <ReadTime>2026-01-03T00:00:00</ReadTime>\n"
+            "  <Computer><VersionDirectory>1</VersionDirectory>"
+            "<VersionSysvol>1</VersionSysvol><Enabled>true</Enabled></Computer>\n"
+            "  <User><VersionDirectory>1</VersionDirectory>"
+            "<VersionSysvol>1</VersionSysvol><Enabled>true</Enabled></User>\n"
+            "  <FilterDataAvailable>true</FilterDataAvailable>\n"
+            "</GPO>\n"
         )
         xml_path = tmp_path / "solo.xml"
         xml_path.write_text(xml, encoding="utf-8")
@@ -172,10 +173,7 @@ class TestParseReport:
 
     def test_bom_tolerant(self, tmp_path: Path) -> None:
         xml_path = tmp_path / "bom.xml"
-        xml_path.write_bytes(
-            b"\xef\xbb\xbf"
-            + _min_gpo_xml().encode("utf-8")
-        )
+        xml_path.write_bytes(b"\xef\xbb\xbf" + _min_gpo_xml().encode("utf-8"))
         gpos = ingest.parse_report(xml_path)
         assert len(gpos) == 1
         assert gpos[0].name == "Test GPO"
@@ -186,12 +184,12 @@ class TestParseSingleGpoEdgeCases:
         xml = (
             '<?xml version="1.0" encoding="utf-8"?>\n'
             '<GPO xmlns="http://www.microsoft.com/GroupPolicy/Settings">\n'
-            '  <GPO>\n'
-            '    <Name>NoID</Name>\n'
-            '    <Computer><Enabled>false</Enabled></Computer>\n'
-            '    <User><Enabled>false</Enabled></User>\n'
-            '  </GPO>\n'
-            '</GPO>\n'
+            "  <GPO>\n"
+            "    <Name>NoID</Name>\n"
+            "    <Computer><Enabled>false</Enabled></Computer>\n"
+            "    <User><Enabled>false</Enabled></User>\n"
+            "  </GPO>\n"
+            "</GPO>\n"
         )
         xml_path = tmp_path / "report.xml"
         xml_path.write_text(xml, encoding="utf-8")
@@ -203,13 +201,13 @@ class TestParseSingleGpoEdgeCases:
         xml = (
             '<?xml version="1.0" encoding="utf-8"?>\n'
             '<GPO xmlns="http://www.microsoft.com/GroupPolicy/Settings">\n'
-            '  <GPO>\n'
-            '    <Identifier><Identifier>'
-            '{11111111-1111-1111-1111-111111111111}'
-            '</Identifier></Identifier>\n'
-            '    <Name>NoSides</Name>\n'
-            '  </GPO>\n'
-            '</GPO>\n'
+            "  <GPO>\n"
+            "    <Identifier><Identifier>"
+            "{11111111-1111-1111-1111-111111111111}"
+            "</Identifier></Identifier>\n"
+            "    <Name>NoSides</Name>\n"
+            "  </GPO>\n"
+            "</GPO>\n"
         )
         xml_path = tmp_path / "report.xml"
         xml_path.write_text(xml, encoding="utf-8")
@@ -282,25 +280,25 @@ class TestLoadEstate:
         xml = (
             '<?xml version="1.0" encoding="utf-8"?>\n'
             '<GPO xmlns="http://www.microsoft.com/GroupPolicy/Settings">\n'
-            '    <GPO>\n'
-            '        <Identifier>\n'
-            '            <Identifier>{31B2F340-016D-11D2-945F-00C04FB984F9}</Identifier>\n'
-            '            <Domain>test.local</Domain>\n'
-            '        </Identifier>\n'
-            '        <Name>Test GPO</Name>\n'
-            '        <Computer>\n'
-            '            <VersionDirectory />\n'
-            '            <VersionSysvol />\n'
-            '            <Enabled>true</Enabled>\n'
-            '        </Computer>\n'
-            '        <User>\n'
-            '            <VersionDirectory />\n'
-            '            <VersionSysvol />\n'
-            '            <Enabled>true</Enabled>\n'
-            '        </User>\n'
-            '        <FilterDataAvailable>true</FilterDataAvailable>\n'
-            '    </GPO>\n'
-            '</GPO>\n'
+            "    <GPO>\n"
+            "        <Identifier>\n"
+            "            <Identifier>{31B2F340-016D-11D2-945F-00C04FB984F9}</Identifier>\n"
+            "            <Domain>test.local</Domain>\n"
+            "        </Identifier>\n"
+            "        <Name>Test GPO</Name>\n"
+            "        <Computer>\n"
+            "            <VersionDirectory />\n"
+            "            <VersionSysvol />\n"
+            "            <Enabled>true</Enabled>\n"
+            "        </Computer>\n"
+            "        <User>\n"
+            "            <VersionDirectory />\n"
+            "            <VersionSysvol />\n"
+            "            <Enabled>true</Enabled>\n"
+            "        </User>\n"
+            "        <FilterDataAvailable>true</FilterDataAvailable>\n"
+            "    </GPO>\n"
+            "</GPO>\n"
         )
         xml_path = tmp_path / "AllGPOs.xml"
         xml_path.write_text(xml, encoding="utf-8")
@@ -337,9 +335,7 @@ class TestLoadEstate:
         estate = ingest.load_estate(tmp_path)
         assert estate.gpos[0].sysvol_path is not None
 
-    def test_scan_sysvol_gaps_corrupt_xml_surfaces_unparseable_files(
-        self, tmp_path: Path
-    ) -> None:
+    def test_scan_sysvol_gaps_corrupt_xml_surfaces_unparseable_files(self, tmp_path: Path) -> None:
         """A truncated Preferences XML is flagged as a coverage gap.
 
         Regression: the GPP scanners in detection.py catch ``ET.ParseError``
@@ -355,21 +351,29 @@ class TestLoadEstate:
         prefs = guid_dir / "Machine" / "Preferences" / "ScheduledTasks"
         prefs.mkdir(parents=True)
         # One good XML, one corrupt XML.
-        (prefs / "Good.xml").write_text(
-            '<?xml version="1.0"?><root></root>', encoding="utf-8"
-        )
-        (prefs / "Broken.xml").write_text(
-            "<<<not xml<<<", encoding="utf-8"
-        )
+        (prefs / "Good.xml").write_text('<?xml version="1.0"?><root></root>', encoding="utf-8")
+        (prefs / "Broken.xml").write_text("<<<not xml<<<", encoding="utf-8")
         gpo = Gpo(
-            id="31b2f340016d11d2945f00c04fb984f9", name="Test",
-            domain="test.local", created=None, modified=None, read=None,
-            computer_enabled=True, user_enabled=True,
-            computer_ver_ds=None, computer_ver_sysvol=None,
-            user_ver_ds=None, user_ver_sysvol=None,
-            sddl=None, owner=None, filter_data_available=False,
-            wmi_filter=None, sysvol_path=str(guid_dir),
-            links=[], delegation=[], settings=[],
+            id="31b2f340016d11d2945f00c04fb984f9",
+            name="Test",
+            domain="test.local",
+            created=None,
+            modified=None,
+            read=None,
+            computer_enabled=True,
+            user_enabled=True,
+            computer_ver_ds=None,
+            computer_ver_sysvol=None,
+            user_ver_ds=None,
+            user_ver_sysvol=None,
+            sddl=None,
+            owner=None,
+            filter_data_available=False,
+            wmi_filter=None,
+            sysvol_path=str(guid_dir),
+            links=[],
+            delegation=[],
+            settings=[],
         )
         gaps = [g for g in ingest._scan_sysvol_gaps([gpo]) if g.kind == "corrupt_gpp_xml"]
         assert len(gaps) == 1
@@ -381,13 +385,26 @@ class TestLoadEstate:
         from gpo_lens.model import Gpo
 
         gpo = Gpo(
-            id="x", name="X", domain="d", created=None, modified=None, read=None,
-            computer_enabled=True, user_enabled=True,
-            computer_ver_ds=None, computer_ver_sysvol=None,
-            user_ver_ds=None, user_ver_sysvol=None,
-            sddl=None, owner=None, filter_data_available=False,
-            wmi_filter=None, sysvol_path=None,
-            links=[], delegation=[], settings=[],
+            id="x",
+            name="X",
+            domain="d",
+            created=None,
+            modified=None,
+            read=None,
+            computer_enabled=True,
+            user_enabled=True,
+            computer_ver_ds=None,
+            computer_ver_sysvol=None,
+            user_ver_ds=None,
+            user_ver_sysvol=None,
+            sddl=None,
+            owner=None,
+            filter_data_available=False,
+            wmi_filter=None,
+            sysvol_path=None,
+            links=[],
+            delegation=[],
+            settings=[],
         )
         assert [g for g in ingest._scan_sysvol_gaps([gpo]) if g.kind == "corrupt_gpp_xml"] == []
 
@@ -405,18 +422,28 @@ class TestLoadEstate:
         (prefs / "Broken.xml").write_text("<<<not xml", encoding="utf-8")
         # Non-XML files must be ignored.
         (prefs / "notes.txt").write_text("ignore me", encoding="utf-8")
-        (prefs / "Good.xml").write_text(
-            '<?xml version="1.0"?><root></root>', encoding="utf-8"
-        )
+        (prefs / "Good.xml").write_text('<?xml version="1.0"?><root></root>', encoding="utf-8")
         gpo = Gpo(
-            id="31b2f340016d11d2945f00c04fb984f9", name="Test",
-            domain="test.local", created=None, modified=None, read=None,
-            computer_enabled=True, user_enabled=True,
-            computer_ver_ds=None, computer_ver_sysvol=None,
-            user_ver_ds=None, user_ver_sysvol=None,
-            sddl=None, owner=None, filter_data_available=False,
-            wmi_filter=None, sysvol_path=str(guid_dir),
-            links=[], delegation=[], settings=[],
+            id="31b2f340016d11d2945f00c04fb984f9",
+            name="Test",
+            domain="test.local",
+            created=None,
+            modified=None,
+            read=None,
+            computer_enabled=True,
+            user_enabled=True,
+            computer_ver_ds=None,
+            computer_ver_sysvol=None,
+            user_ver_ds=None,
+            user_ver_sysvol=None,
+            sddl=None,
+            owner=None,
+            filter_data_available=False,
+            wmi_filter=None,
+            sysvol_path=str(guid_dir),
+            links=[],
+            delegation=[],
+            settings=[],
         )
         gaps = [g for g in ingest._scan_sysvol_gaps([gpo]) if g.kind == "corrupt_gpp_xml"]
         assert len(gaps) == 1
@@ -446,18 +473,30 @@ class TestLoadEstate:
         (sched / "Broken.xml").write_text("<<<not xml", encoding="utf-8")
         groups = prefs / "Groups"
         groups.mkdir(parents=True)
-        (groups / "Groups.xml").write_text(
-            '<?xml version="1.0"?><root></root>', encoding="utf-8"
-        )
+        (groups / "Groups.xml").write_text('<?xml version="1.0"?><root></root>', encoding="utf-8")
         groups.chmod(0o000)
         try:
             gpo = Gpo(
-                id="guid", name="T", domain="d", created=None, modified=None,
-                read=None, computer_enabled=True, user_enabled=True,
-                computer_ver_ds=None, computer_ver_sysvol=None,
-                user_ver_ds=None, user_ver_sysvol=None, sddl=None, owner=None,
-                filter_data_available=False, wmi_filter=None,
-                sysvol_path=str(guid_dir), links=[], delegation=[], settings=[],
+                id="guid",
+                name="T",
+                domain="d",
+                created=None,
+                modified=None,
+                read=None,
+                computer_enabled=True,
+                user_enabled=True,
+                computer_ver_ds=None,
+                computer_ver_sysvol=None,
+                user_ver_ds=None,
+                user_ver_sysvol=None,
+                sddl=None,
+                owner=None,
+                filter_data_available=False,
+                wmi_filter=None,
+                sysvol_path=str(guid_dir),
+                links=[],
+                delegation=[],
+                settings=[],
             )
             gaps = ingest._scan_sysvol_gaps([gpo])
             kinds = {g.kind for g in gaps}
@@ -491,16 +530,28 @@ class TestLoadEstate:
         prefs = guid_dir / "Machine" / "Preferences"
         sched = prefs / "ScheduledTasks"
         sched.mkdir(parents=True)
-        (sched / "Good.xml").write_text(
-            '<?xml version="1.0"?><root></root>', encoding="utf-8"
-        )
+        (sched / "Good.xml").write_text('<?xml version="1.0"?><root></root>', encoding="utf-8")
         gpo = Gpo(
-            id="guid", name="T", domain="d", created=None, modified=None,
-            read=None, computer_enabled=True, user_enabled=True,
-            computer_ver_ds=None, computer_ver_sysvol=None,
-            user_ver_ds=None, user_ver_sysvol=None, sddl=None, owner=None,
-            filter_data_available=False, wmi_filter=None,
-            sysvol_path=str(guid_dir), links=[], delegation=[], settings=[],
+            id="guid",
+            name="T",
+            domain="d",
+            created=None,
+            modified=None,
+            read=None,
+            computer_enabled=True,
+            user_enabled=True,
+            computer_ver_ds=None,
+            computer_ver_sysvol=None,
+            user_ver_ds=None,
+            user_ver_sysvol=None,
+            sddl=None,
+            owner=None,
+            filter_data_available=False,
+            wmi_filter=None,
+            sysvol_path=str(guid_dir),
+            links=[],
+            delegation=[],
+            settings=[],
         )
 
         calls: list[Path] = []
@@ -565,7 +616,7 @@ class TestParseInheritanceEdgeCases:
             '"GpoInheritanceBlocked":false,"InheritedGpoLinks":['
             '{"GpoId":"not-a-guid","Order":1,"Enabled":true,"Enforced":false,"Target":""},'
             '{"GpoId":"{31B2F340-016D-11D2-945F-00C04FB984F9}","Order":2,"Enabled":true,"Enforced":false,"Target":""}'
-            ']}]',
+            "]}]",
             encoding="utf-8",
         )
         soms = ingest.parse_inheritance(json_path)
@@ -576,13 +627,23 @@ class TestParseInheritanceEdgeCases:
 class TestMergeMetadataEdgeCases:
     def test_gpo_not_found_is_skipped(self, tmp_path: Path) -> None:
         gpo = Gpo(
-            id="aaa-bbb", name="Test", domain="test.local",
-            created=None, modified=None, read=None,
-            computer_enabled=True, user_enabled=True,
-            computer_ver_ds=None, computer_ver_sysvol=None,
-            user_ver_ds=None, user_ver_sysvol=None,
-            sddl=None, owner=None, filter_data_available=False,
-            wmi_filter=None, sysvol_path=None,
+            id="aaa-bbb",
+            name="Test",
+            domain="test.local",
+            created=None,
+            modified=None,
+            read=None,
+            computer_enabled=True,
+            user_enabled=True,
+            computer_ver_ds=None,
+            computer_ver_sysvol=None,
+            user_ver_ds=None,
+            user_ver_sysvol=None,
+            sddl=None,
+            owner=None,
+            filter_data_available=False,
+            wmi_filter=None,
+            sysvol_path=None,
         )
         metadata = tmp_path / "meta.json"
         metadata.write_text(
@@ -595,13 +656,23 @@ class TestMergeMetadataEdgeCases:
 
     def test_wmi_filter_null(self, tmp_path: Path) -> None:
         gpo = Gpo(
-            id="aaa-bbb", name="Test", domain="test.local",
-            created=None, modified=None, read=None,
-            computer_enabled=True, user_enabled=True,
-            computer_ver_ds=None, computer_ver_sysvol=None,
-            user_ver_ds=None, user_ver_sysvol=None,
-            sddl=None, owner=None, filter_data_available=False,
-            wmi_filter=None, sysvol_path=None,
+            id="aaa-bbb",
+            name="Test",
+            domain="test.local",
+            created=None,
+            modified=None,
+            read=None,
+            computer_enabled=True,
+            user_enabled=True,
+            computer_ver_ds=None,
+            computer_ver_sysvol=None,
+            user_ver_ds=None,
+            user_ver_sysvol=None,
+            sddl=None,
+            owner=None,
+            filter_data_available=False,
+            wmi_filter=None,
+            sysvol_path=None,
         )
         metadata = tmp_path / "meta.json"
         metadata.write_text(
@@ -613,13 +684,23 @@ class TestMergeMetadataEdgeCases:
 
     def test_non_string_wmi_filter_coerces_to_none(self, tmp_path: Path) -> None:
         gpo = Gpo(
-            id="aaa-bbb", name="Test", domain="test.local",
-            created=None, modified=None, read=None,
-            computer_enabled=True, user_enabled=True,
-            computer_ver_ds=None, computer_ver_sysvol=None,
-            user_ver_ds=None, user_ver_sysvol=None,
-            sddl=None, owner=None, filter_data_available=False,
-            wmi_filter=None, sysvol_path=None,
+            id="aaa-bbb",
+            name="Test",
+            domain="test.local",
+            created=None,
+            modified=None,
+            read=None,
+            computer_enabled=True,
+            user_enabled=True,
+            computer_ver_ds=None,
+            computer_ver_sysvol=None,
+            user_ver_ds=None,
+            user_ver_sysvol=None,
+            sddl=None,
+            owner=None,
+            filter_data_available=False,
+            wmi_filter=None,
+            sysvol_path=None,
         )
         metadata = tmp_path / "meta.json"
         metadata.write_text(
@@ -725,12 +806,16 @@ class TestParsePrincipals:
             "domain": "ad.test",
             "principals": {
                 "S-1-5-21-100-200-300-1131": {
-                    "name": "TEST\\GPO-Admins", "sam": "GPO-Admins",
-                    "type": "Group", "domain": "TEST",
+                    "name": "TEST\\GPO-Admins",
+                    "sam": "GPO-Admins",
+                    "type": "Group",
+                    "domain": "TEST",
                 },
                 "S-1-5-11": {
-                    "name": "Authenticated Users", "sam": "Authenticated Users",
-                    "type": "WellKnown", "domain": "",
+                    "name": "Authenticated Users",
+                    "sam": "Authenticated Users",
+                    "type": "WellKnown",
+                    "domain": "",
                 },
             },
         }
@@ -752,8 +837,10 @@ class TestParsePrincipals:
         payload = {
             "principals": {
                 "S-1-5-21-1-2-3-1000": {
-                    "name": "X\\Admins", "sam": "Admins",
-                    "type": "Group", "domain": "X",
+                    "name": "X\\Admins",
+                    "sam": "Admins",
+                    "type": "Group",
+                    "domain": "X",
                 },
             },
         }
@@ -770,11 +857,16 @@ class TestParsePrincipals:
         payload = {
             "principals": {
                 "S-1-5-21-1-2-3-1000": {
-                    "name": "X\\Admins", "sam": "Admins",
-                    "type": "Group", "domain": "X",
+                    "name": "X\\Admins",
+                    "sam": "Admins",
+                    "type": "Group",
+                    "domain": "X",
                 },
                 "S-1-5-21-1-2-3-9999": {
-                    "name": "", "sam": "", "type": "Unresolved", "domain": "",
+                    "name": "",
+                    "sam": "",
+                    "type": "Unresolved",
+                    "domain": "",
                 },
             },
         }
@@ -806,7 +898,10 @@ class TestParsePrincipals:
             "principals": {
                 "S-1-5-11": "bad-string",
                 "S-1-5-21-1-2-3-1000": {
-                    "name": "X", "sam": "X", "type": "Group", "domain": "",
+                    "name": "X",
+                    "sam": "X",
+                    "type": "Group",
+                    "domain": "",
                 },
             },
         }
@@ -831,8 +926,10 @@ class TestParsePrincipals:
         payload = {
             "principals": {
                 "S-1-5-21-1-2-3-1131": {
-                    "name": "T\\Admins", "sam": "Admins",
-                    "type": "Group", "domain": "T",
+                    "name": "T\\Admins",
+                    "sam": "Admins",
+                    "type": "Group",
+                    "domain": "T",
                 },
             },
         }
@@ -866,7 +963,8 @@ class TestParseGroupMembers:
                     "member_count": 2,
                 },
                 "s-1-5-11": {
-                    "name": "Authenticated Users", "members": [],
+                    "name": "Authenticated Users",
+                    "members": [],
                     "member_count": 0,
                     "implicit": "All authenticated domain principals",
                 },
@@ -890,7 +988,8 @@ class TestParseGroupMembers:
         payload = {
             "groups": {
                 "S-1-5-21-1-2-3-1131": {
-                    "name": "X\\Admins", "members": ["S-1-5-21-1-2-3-1000"],
+                    "name": "X\\Admins",
+                    "members": ["S-1-5-21-1-2-3-1000"],
                     "member_count": 1,
                 },
             },
@@ -913,7 +1012,8 @@ class TestParseGroupMembers:
             "groups": {
                 "S-1-5-11": "bad-string",
                 "S-1-5-21-1-2-3-1131": {
-                    "name": "X", "members": ["S-1-5-21-1-2-3-1000"],
+                    "name": "X",
+                    "members": ["S-1-5-21-1-2-3-1000"],
                     "member_count": 1,
                 },
             },
@@ -938,7 +1038,8 @@ class TestParseGroupMembers:
         payload = {
             "groups": {
                 "S-1-5-21-1-2-3-1131": {
-                    "name": "T\\Admins", "members": ["S-1-5-21-1-2-3-1000"],
+                    "name": "T\\Admins",
+                    "members": ["S-1-5-21-1-2-3-1000"],
                     "member_count": 1,
                 },
             },
@@ -1250,16 +1351,16 @@ class TestStreamingBaselineZip:
 @pytest.mark.parametrize(
     "raw, expected",
     [
-        (1, "domain"),        # ConvertTo-Json serializes SomType.Domain as 1
-        (2, "ou"),            # SomType.OrganizationalUnit
+        (1, "domain"),  # ConvertTo-Json serializes SomType.Domain as 1
+        (2, "ou"),  # SomType.OrganizationalUnit
         (0, "site"),
-        ("1", "domain"),      # string-of-int form
+        ("1", "domain"),  # string-of-int form
         ("2", "ou"),
-        ("Domain", "domain"), # -EnumsAsStrings form
+        ("Domain", "domain"),  # -EnumsAsStrings form
         ("OU", "ou"),
         ("OrganizationalUnit", "ou"),
         ("site", "site"),
-        (True, ""),           # bool must not be read as int 1
+        (True, ""),  # bool must not be read as int 1
         (None, ""),
     ],
 )
@@ -1274,10 +1375,20 @@ def test_parse_inheritance_normalizes_integer_container_type(tmp_path: Path) -> 
     import json
 
     data = [
-        {"Path": "dc=test,dc=local", "Name": "test.local", "ContainerType": 1,
-         "GpoInheritanceBlocked": False, "InheritedGpoLinks": []},
-        {"Path": "ou=eng,dc=test,dc=local", "Name": "eng", "ContainerType": 2,
-         "GpoInheritanceBlocked": False, "InheritedGpoLinks": []},
+        {
+            "Path": "dc=test,dc=local",
+            "Name": "test.local",
+            "ContainerType": 1,
+            "GpoInheritanceBlocked": False,
+            "InheritedGpoLinks": [],
+        },
+        {
+            "Path": "ou=eng,dc=test,dc=local",
+            "Name": "eng",
+            "ContainerType": 2,
+            "GpoInheritanceBlocked": False,
+            "InheritedGpoLinks": [],
+        },
     ]
     p = tmp_path / "gp-inheritance.json"
     p.write_text(json.dumps(data))
@@ -1382,8 +1493,7 @@ class TestNonDictArrayGuards:
     def test_parse_ou_tree_skips_non_dict(self, tmp_path: Path) -> None:
         j = tmp_path / "ou.json"
         j.write_text(
-            '[{"DistinguishedName":"OU=x,DC=t","Name":"x","gPLink":null,"gPOptions":0},'
-            '"bad", 123]',
+            '[{"DistinguishedName":"OU=x,DC=t","Name":"x","gPLink":null,"gPOptions":0},"bad", 123]',
             encoding="utf-8",
         )
         with pytest.warns(UserWarning, match="non-dict"):
@@ -1394,8 +1504,7 @@ class TestNonDictArrayGuards:
     def test_parse_sites_skips_non_dict(self, tmp_path: Path) -> None:
         j = tmp_path / "sites.json"
         j.write_text(
-            '[{"DistinguishedName":"CN=Site1","Name":"Site1","gPLink":null},'
-            '"bad", null]',
+            '[{"DistinguishedName":"CN=Site1","Name":"Site1","gPLink":null},"bad", null]',
             encoding="utf-8",
         )
         with pytest.warns(UserWarning, match="non-dict"):
@@ -1406,8 +1515,7 @@ class TestNonDictArrayGuards:
     def test_parse_coverage_gaps_skips_non_dict_in_inventory(self, tmp_path: Path) -> None:
         inv = tmp_path / "gpo-inventory.json"
         inv.write_text(
-            '[{"Id":"{00000000-0000-0000-0000-000000000001}","DisplayName":"Gap1"},'
-            '"bad", null]',
+            '[{"Id":"{00000000-0000-0000-0000-000000000001}","DisplayName":"Gap1"},"bad", null]',
             encoding="utf-8",
         )
         errs = tmp_path / "collection-errors.json"
@@ -1485,7 +1593,7 @@ class TestRegistryIdentities:
             'action="C"/></Registry>'
             '<Registry name="b"><Properties hive="HKEY_CURRENT_USER" '
             'key="SOFTWARE\\B" name="" type="REG_DWORD" value="0"/></Registry>'
-            '</Collection></RegistrySettings>'
+            "</Collection></RegistrySettings>"
         )
         rows = ingest._parse_gpp_registry(block)
         assert len(rows) == 2
@@ -1501,8 +1609,7 @@ class TestRegistryIdentities:
 
     def test_gpp_ignores_properties_without_key_or_hive(self):
         block = ET.fromstring(
-            f'<RegistrySettings xmlns="{NS}"><Properties name="x"/>'
-            "</RegistrySettings>"
+            f'<RegistrySettings xmlns="{NS}"><Properties name="x"/></RegistrySettings>'
         )
         assert ingest._parse_gpp_registry(block) == []
 
@@ -1530,67 +1637,79 @@ class TestRegistryIdentities:
         )
 
     def test_admx_numeric_value(self):
-        block = ET.fromstring(self._admx(
-            "<Numeric><Name>Maximum Log Size (KB)</Name>"
-            "<State>Enabled</State><Value>2097120</Value></Numeric>"
-        ))
+        block = ET.fromstring(
+            self._admx(
+                "<Numeric><Name>Maximum Log Size (KB)</Name>"
+                "<State>Enabled</State><Value>2097120</Value></Numeric>"
+            )
+        )
         _i, _n, val = ingest._parse_admin_template_policy(block)
         assert val == "Enabled — Maximum Log Size (KB): 2097120"
 
     def test_admx_edittext_value(self):
-        block = ET.fromstring(self._admx(
-            "<EditText><Name>Application locale</Name>"
-            "<State>Enabled</State><Value>en-US</Value></EditText>"
-        ))
+        block = ET.fromstring(
+            self._admx(
+                "<EditText><Name>Application locale</Name>"
+                "<State>Enabled</State><Value>en-US</Value></EditText>"
+            )
+        )
         _i, _n, val = ingest._parse_admin_template_policy(block)
         assert val == "Enabled — Application locale: en-US"
 
     def test_admx_dropdownlist_value_text(self):
-        block = ET.fromstring(self._admx(
-            "<DropDownList><Name>Active Power Plan:</Name>"
-            "<State>Enabled</State><Value>High Performance</Value></DropDownList>"
-        ))
+        block = ET.fromstring(
+            self._admx(
+                "<DropDownList><Name>Active Power Plan:</Name>"
+                "<State>Enabled</State><Value>High Performance</Value></DropDownList>"
+            )
+        )
         _i, _n, val = ingest._parse_admin_template_policy(block)
         # trailing colon on the label is normalized away
         assert val == "Enabled — Active Power Plan: High Performance"
 
     def test_admx_dropdownlist_nested_name_value(self):
-        block = ET.fromstring(self._admx(
-            "<DropDownList><Name>Default for all apps:</Name><State>Enabled</State>"
-            "<Value><Name>Force Allow</Name></Value></DropDownList>"
-        ))
+        block = ET.fromstring(
+            self._admx(
+                "<DropDownList><Name>Default for all apps:</Name><State>Enabled</State>"
+                "<Value><Name>Force Allow</Name></Value></DropDownList>"
+            )
+        )
         _i, _n, val = ingest._parse_admin_template_policy(block)
         assert val == "Enabled — Default for all apps: Force Allow"
 
     def test_admx_checkboxes_use_per_box_state(self):
-        block = ET.fromstring(self._admx(
-            "<CheckBox><Name>Allow slow link</Name><State>Disabled</State></CheckBox>"
-            "<CheckBox><Name>Process always</Name><State>Enabled</State></CheckBox>"
-        ))
+        block = ET.fromstring(
+            self._admx(
+                "<CheckBox><Name>Allow slow link</Name><State>Disabled</State></CheckBox>"
+                "<CheckBox><Name>Process always</Name><State>Enabled</State></CheckBox>"
+            )
+        )
         _i, _n, val = ingest._parse_admin_template_policy(block)
         assert val == "Enabled — Allow slow link: Disabled; Process always: Enabled"
 
     def test_admx_listbox_counts_entries(self):
-        block = ET.fromstring(self._admx(
-            "<ListBox><Name>URLs to open</Name><State>Enabled</State>"
-            "<Value><Element/><Element/></Value></ListBox>"
-        ))
+        block = ET.fromstring(
+            self._admx(
+                "<ListBox><Name>URLs to open</Name><State>Enabled</State>"
+                "<Value><Element/><Element/></Value></ListBox>"
+            )
+        )
         _i, _n, val = ingest._parse_admin_template_policy(block)
         assert val == "Enabled — URLs to open: [2 entries]"
 
     def test_admx_multitext_counts_strings_singular(self):
-        block = ET.fromstring(self._admx(
-            "<MultiText><Name>Apps</Name><State>Enabled</State>"
-            "<Value><string/></Value></MultiText>"
-        ))
+        block = ET.fromstring(
+            self._admx(
+                "<MultiText><Name>Apps</Name><State>Enabled</State>"
+                "<Value><string/></Value></MultiText>"
+            )
+        )
         _i, _n, val = ingest._parse_admin_template_policy(block)
         assert val == "Enabled — Apps: [1 entry]"
 
     def test_admx_text_element_is_ignored(self):
         # <Text> is a display-only label, not a configured value.
-        block = ET.fromstring(self._admx(
-            "<Text><Name>Some explanatory label</Name></Text>"
-        ))
+        block = ET.fromstring(self._admx("<Text><Name>Some explanatory label</Name></Text>"))
         _i, _n, val = ingest._parse_admin_template_policy(block)
         assert val == "Enabled"
 
@@ -1609,10 +1728,12 @@ class TestRegistryIdentities:
 
     def test_admx_summary_is_length_capped(self):
         long_label = "X" * 400
-        block = ET.fromstring(self._admx(
-            f"<EditText><Name>{long_label}</Name>"
-            "<State>Enabled</State><Value>v</Value></EditText>"
-        ))
+        block = ET.fromstring(
+            self._admx(
+                f"<EditText><Name>{long_label}</Name>"
+                "<State>Enabled</State><Value>v</Value></EditText>"
+            )
+        )
         _i, _n, val = ingest._parse_admin_template_policy(block)
         assert len(val) <= len("Enabled — ") + ingest._ADMX_SUMMARY_MAX
         assert val.endswith("…")
@@ -1640,7 +1761,9 @@ class TestReadableIdentitiesNoHash:
             "<SettingBoolean>false</SettingBoolean><Type>Password</Type></Account>"
         )
         assert ingest._parse_security_setting(b) == (
-            "Account:ClearTextPassword", "ClearTextPassword", "false",
+            "Account:ClearTextPassword",
+            "ClearTextPassword",
+            "false",
         )
 
     def test_security_restricted_groups_uses_nested_group_name(self):
@@ -1664,7 +1787,8 @@ class TestReadableIdentitiesNoHash:
         )
         rows = ingest._parse_gpp_container(b)
         assert [r[0] for r in rows] == [
-            "PortPrinter:floor1-printer", "SharedPrinter:floor2-printer",
+            "PortPrinter:floor1-printer",
+            "SharedPrinter:floor2-printer",
         ]
         assert rows[0][2] == "[U] \\\\printsrv\\floor1"
 
@@ -1679,8 +1803,9 @@ class TestReadableIdentitiesNoHash:
         assert val == "3"
 
     def test_singleton_block_falls_back_to_block_type(self):
-        b = ET.fromstring(f'<PlaceFavoritesAtTop xmlns="{NS}"><Value>true</Value>'
-                          "</PlaceFavoritesAtTop>")
+        b = ET.fromstring(
+            f'<PlaceFavoritesAtTop xmlns="{NS}"><Value>true</Value></PlaceFavoritesAtTop>'
+        )
         ident, name, val = ingest._readable_identity("Internet Explorer Maintenance", b)
         assert ident == "PlaceFavoritesAtTop"
         assert val == "true"
@@ -1701,9 +1826,11 @@ class TestReadableIdentitiesNoHash:
         # where samples/ is absent. Picks the first zip that ingests with GPOs.
         import re
         import zipfile
+
         samples = sorted(Path("samples").glob("*.zip")) if Path("samples").is_dir() else []
         if not samples:
             import pytest
+
             pytest.skip("no sample export present")
         est = None
         for sample in samples:
@@ -1719,12 +1846,10 @@ class TestReadableIdentitiesNoHash:
                 break
         if est is None:
             import pytest
+
             pytest.skip("no ingestable GPO export in samples/")
         hexpat = re.compile(r":[0-9a-f]{16}(\s#\d+)?$")
-        hashed = [
-            s.identity for g in est.gpos for s in g.settings
-            if hexpat.search(s.identity)
-        ]
+        hashed = [s.identity for g in est.gpos for s in g.settings if hexpat.search(s.identity)]
         assert hashed == [], f"unexpected hashed identities: {hashed[:5]}"
 
 
@@ -2025,9 +2150,7 @@ def test_baseline_zip_exceeds_256mb_raises(tmp_path: Path) -> None:
     zip_path = tmp_path / "baseline.zip"
     zip_path.write_bytes(buf.getvalue())
 
-    with unittest.mock.patch(
-        "gpo_lens.ingest._MAX_BASELINE_UNCOMPRESSED_BYTES", 200
-    ):
+    with unittest.mock.patch("gpo_lens.ingest._MAX_BASELINE_UNCOMPRESSED_BYTES", 200):
         with pytest.warns(UserWarning, match="exceeds limit"):
             gpos = ingest.load_baseline_from_zip(zip_path)
     assert gpos == []
@@ -2050,7 +2173,7 @@ def test_parse_report_skips_malformed_guid(tmp_path: Path) -> None:
         "    <VersionSysvol>1</VersionSysvol><Enabled>true</Enabled></User>\n"
         "    <FilterDataAvailable>false</FilterDataAvailable>\n"
         "  </GPO>\n"
-        '  <GPO>\n'
+        "  <GPO>\n"
         "    <Identifier>\n"
         "      <Identifier>{31B2F340-016D-11D2-945F-00C04FB984F9}</Identifier>\n"
         "      <Domain>test.local</Domain>\n"

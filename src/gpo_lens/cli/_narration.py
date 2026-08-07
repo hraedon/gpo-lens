@@ -1,4 +1,5 @@
 """CLI subcommands for LLM-powered natural language queries and explanations."""
+
 from __future__ import annotations
 
 import argparse
@@ -25,11 +26,7 @@ def cmd_ask(args: argparse.Namespace) -> int:
         route_question,
     )
 
-    question: str = (
-        "--- USER QUESTION START ---\n"
-        f"{args.question}\n"
-        "--- USER QUESTION END ---"
-    )
+    question: str = f"--- USER QUESTION START ---\n{args.question}\n--- USER QUESTION END ---"
     raw_json: bool = args.no_narrate or getattr(args, "json", False)
 
     estate = _get_estate(args)
@@ -68,8 +65,7 @@ def cmd_ask(args: argparse.Namespace) -> int:
     if query_name == "cpassword_scan":
         hits: list[queries.CpasswordHit] = query_result  # type: ignore[assignment]
         query_result = [
-            dataclasses.replace(hit, cpassword=mask_cpassword(hit.cpassword))
-            for hit in hits
+            dataclasses.replace(hit, cpassword=mask_cpassword(hit.cpassword)) for hit in hits
         ]
 
     serialized_result = serialize_result(query_result)
@@ -84,8 +80,7 @@ def cmd_ask(args: argparse.Namespace) -> int:
             "You are a Group Policy analyst. The user asked a question about their "
             "GPO estate. Below are the raw query results as JSON. Answer the user's "
             "question clearly, referencing specific GPO names and values from the data.",
-            f"Question: {question}\n\nQuery results:\n"
-            + json.dumps(serialized_result, indent=2),
+            f"Question: {question}\n\nQuery results:\n" + json.dumps(serialized_result, indent=2),
         )
     except NarrationUnavailable:
         narration_text = None
@@ -129,9 +124,7 @@ def cmd_explain_setting(args: argparse.Namespace) -> int:
             return 0
 
     if not os.environ.get("GPO_LENS_API_KEY"):
-        print(
-            "No ADMX explanation available; set GPO_LENS_API_KEY for AI narration"
-        )
+        print("No ADMX explanation available; set GPO_LENS_API_KEY for AI narration")
         return 0
 
     # Narration fallback (explicitly marked as unverified).

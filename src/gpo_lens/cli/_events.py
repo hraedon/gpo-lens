@@ -1,4 +1,5 @@
 """CLI subcommands for event store inspection and export."""
+
 from __future__ import annotations
 
 import argparse
@@ -29,10 +30,7 @@ def cmd_events(args: argparse.Namespace) -> int:
             return 0
         _print_table(
             ["id", "timestamp", "event_type", "payload"],
-            [
-                [str(r["id"]), r["timestamp"], r["event_type"], str(r["payload"])]
-                for r in rows
-            ],
+            [[str(r["id"]), r["timestamp"], r["event_type"], str(r["payload"])] for r in rows],
         )
     return 0
 

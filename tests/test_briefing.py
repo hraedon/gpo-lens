@@ -30,7 +30,11 @@ _NOW = datetime(2026, 7, 30, 12, 0, tzinfo=UTC)
 
 
 def _vitals(
-    *, critical: int = 0, active: int = 0, gaps: int = 0, accepted: int = 0,
+    *,
+    critical: int = 0,
+    active: int = 0,
+    gaps: int = 0,
+    accepted: int = 0,
     gpos: int = 0,
 ) -> tuple[BriefingVital, ...]:
     return (
@@ -87,8 +91,7 @@ class TestBriefingGolden:
             findings_resolved=3,
         )
         assert briefing_lines(briefing) == (
-            "Since snapshot #1: 2 GPOs changed, 1 finding is new, and "
-            "3 resolved.",
+            "Since snapshot #1: 2 GPOs changed, 1 finding is new, and 3 resolved.",
         )
 
     def test_no_change(self) -> None:
@@ -115,8 +118,7 @@ class TestBriefingGolden:
             "The latest evaluation run finished with status 'failed' "
             "(detector crashed) — this is an incomplete analysis, not a clean "
             "delta.",
-            "Analysis of snapshot #2 is incomplete, so no delta against "
-            "snapshot #1 is reported.",
+            "Analysis of snapshot #2 is incomplete, so no delta against snapshot #1 is reported.",
         )
         assert not any("Since snapshot" in line for line in lines)
 
@@ -147,8 +149,12 @@ class TestBriefingProminence:
 
     def test_expired_acceptance_is_called_actionable_again(self) -> None:
         expired = ExpiringAcceptance(
-            occurrence_id=5, category="cpassword", summary="s", severity="high",
-            actor="alice", expires_at=_NOW - timedelta(days=1),
+            occurrence_id=5,
+            category="cpassword",
+            summary="s",
+            severity="high",
+            actor="alice",
+            expires_at=_NOW - timedelta(days=1),
             already_expired=True,
         )
         lines = briefing_lines(_briefing(gpos_changed=1, expiring=(expired,)))
@@ -176,12 +182,19 @@ def _snapshot(conn: sqlite3.Connection, snapshot_id: int) -> None:
 
 def _candidate(detector: str, gpo: str, severity: str = "high") -> FindingCandidate:
     return FindingCandidate(
-        detector_id=detector, detector_version="1", category=detector,
-        severity=severity, subject_type="gpo", subject_key=(gpo,),
+        detector_id=detector,
+        detector_version="1",
+        category=detector,
+        severity=severity,
+        subject_type="gpo",
+        subject_key=(gpo,),
         summary=f"{detector} on {gpo}",
         evidence_refs=(
             EvidenceRef(
-                snapshot_id=1, gpo_id=gpo, source="test", field_path="f",
+                snapshot_id=1,
+                gpo_id=gpo,
+                source="test",
+                field_path="f",
                 safe_projection="p",
             ),
         ),
@@ -218,15 +231,23 @@ class TestBuildBriefing:
             _snapshot(conn, 1)
             _snapshot(conn, 2)
             run1 = create_evaluation_run(conn, 1)
-            run_evaluation(conn, run1, [
-                _candidate("cpassword", "gpo1"),
-                _candidate("ms16_072", "gpo2"),
-            ])
+            run_evaluation(
+                conn,
+                run1,
+                [
+                    _candidate("cpassword", "gpo1"),
+                    _candidate("ms16_072", "gpo2"),
+                ],
+            )
             run2 = create_evaluation_run(conn, 2)
-            run_evaluation(conn, run2, [
-                _candidate("ms16_072", "gpo2"),
-                _candidate("broken_ref", "gpo3"),
-            ])
+            run_evaluation(
+                conn,
+                run2,
+                [
+                    _candidate("ms16_072", "gpo2"),
+                    _candidate("broken_ref", "gpo3"),
+                ],
+            )
 
             briefing = build_briefing(conn, now=_NOW)
             assert briefing is not None
@@ -258,9 +279,7 @@ class TestBuildBriefing:
             assert briefing is not None
             assert not briefing.analysis_complete
             assert any("failed" in p for p in briefing.problems)
-            assert not any(
-                "Since snapshot" in line for line in briefing_lines(briefing)
-            )
+            assert not any("Since snapshot" in line for line in briefing_lines(briefing))
         finally:
             conn.close()
 
@@ -317,20 +336,32 @@ class TestBuildBriefing:
         try:
             _snapshot(conn, 1)
             run = create_evaluation_run(conn, 1)
-            run_evaluation(conn, run, [
-                _candidate("cpassword", "gpo1"),
-                _candidate("ms16_072", "gpo2"),
-            ])
+            run_evaluation(
+                conn,
+                run,
+                [
+                    _candidate("cpassword", "gpo1"),
+                    _candidate("ms16_072", "gpo2"),
+                ],
+            )
             from gpo_lens.findings import finding_inbox
 
             occ = [v.occurrence_id for v in finding_inbox(conn)]
             # One already expired, one expiring inside the horizon.
             append_triage_event(
-                conn, occ[0], "accepted_risk", "alice", rationale="r",
+                conn,
+                occ[0],
+                "accepted_risk",
+                "alice",
+                rationale="r",
                 expires_at=now - timedelta(days=2),
             )
             append_triage_event(
-                conn, occ[1], "accepted_risk", "bob", rationale="r",
+                conn,
+                occ[1],
+                "accepted_risk",
+                "bob",
+                rationale="r",
                 expires_at=now + timedelta(days=3),
             )
 
@@ -342,9 +373,7 @@ class TestBuildBriefing:
             assert not briefing.expiring[1].already_expired
             # The still-valid acceptance counts as an active accepted risk; the
             # expired one does not.
-            accepted = next(
-                v for v in briefing.vitals if v.key == "accepted_risks"
-            )
+            accepted = next(v for v in briefing.vitals if v.key == "accepted_risks")
             assert accepted.value == 1
         finally:
             conn.close()
@@ -360,7 +389,11 @@ class TestBuildBriefing:
 
             occ = finding_inbox(conn)[0].occurrence_id
             append_triage_event(
-                conn, occ, "accepted_risk", "alice", rationale="r",
+                conn,
+                occ,
+                "accepted_risk",
+                "alice",
+                rationale="r",
                 expires_at=now + timedelta(days=365),
             )
 
@@ -369,9 +402,7 @@ class TestBuildBriefing:
             # Not expiring soon — but it must still be counted as accepted, or
             # this assertion would pass simply because the register was empty.
             assert briefing.expiring == ()
-            accepted = next(
-                v for v in briefing.vitals if v.key == "accepted_risks"
-            )
+            accepted = next(v for v in briefing.vitals if v.key == "accepted_risks")
             assert accepted.value == 1
         finally:
             conn.close()

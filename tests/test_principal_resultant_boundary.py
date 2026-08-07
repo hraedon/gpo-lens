@@ -3,6 +3,7 @@
 Each test class maps to one acceptance criterion. All fixtures are synthetic
 (no real domain identifiers).
 """
+
 from __future__ import annotations
 
 from gpo_lens.merge import build_token, principal_resultant
@@ -136,7 +137,10 @@ def _user_estate(
         soms = [_som(SOM_DOMAIN, "test.local")]
         soms[0].links = [
             SomLink(
-                gpo_id=g.id, order=i + 1, enabled=True, enforced=False,
+                gpo_id=g.id,
+                order=i + 1,
+                enabled=True,
+                enforced=False,
                 target=SOM_DOMAIN,
             )
             for i, g in enumerate(gpos)
@@ -145,8 +149,12 @@ def _user_estate(
     if principals is None:
         principals = {
             USER_SID_LOWER: ResolvedPrincipal(
-                sid=USER_SID_LOWER, name="TEST\\user1", sam="user1",
-                principal_type="User", domain="TEST", resolved=True,
+                sid=USER_SID_LOWER,
+                name="TEST\\user1",
+                sam="user1",
+                principal_type="User",
+                domain="TEST",
+                resolved=True,
             ),
         }
 
@@ -166,11 +174,13 @@ def _user_estate(
 # AC-1: Security-filtered GPO appears in settings when token matches
 # ---------------------------------------------------------------------------
 
+
 class TestAC1SecurityFilteredGpoInResultant:
     def test_user_in_group_gets_gpo_settings(self) -> None:
         gpos = [
             _gpo(
-                GPO_A, "Policy-A",
+                GPO_A,
+                "Policy-A",
                 settings=[_setting(GPO_A, "Registry", r"HKCU\Software\Foo:Bar", "1", side="User")],
                 delegation=_apply_delegation(GPO_A, GROUP_A_SID),
             ),
@@ -179,8 +189,10 @@ class TestAC1SecurityFilteredGpoInResultant:
             gpos=gpos,
             group_members={
                 GROUP_A_SID_LOWER: GroupMembership(
-                    sid=GROUP_A_SID_LOWER, name="Group A",
-                    members=(USER_SID_LOWER,), member_count=1,
+                    sid=GROUP_A_SID_LOWER,
+                    name="Group A",
+                    members=(USER_SID_LOWER,),
+                    member_count=1,
                 ),
             },
         )
@@ -193,11 +205,13 @@ class TestAC1SecurityFilteredGpoInResultant:
 # AC-2: Token does not intersect Apply trustees → GPO excluded
 # ---------------------------------------------------------------------------
 
+
 class TestAC2SecurityFilterExclusion:
     def test_user_not_in_group_excludes_gpo(self) -> None:
         gpos = [
             _gpo(
-                GPO_A, "Policy-A",
+                GPO_A,
+                "Policy-A",
                 settings=[_setting(GPO_A, "Registry", r"HKLM\Software\Foo:Bar", "1")],
                 delegation=_apply_delegation(GPO_A, GROUP_A_SID),
             ),
@@ -205,10 +219,7 @@ class TestAC2SecurityFilterExclusion:
         estate = _user_estate(gpos=gpos)
         result = principal_resultant(estate, USER_SID, dn=SOM_DOMAIN)
         assert not any(s.winning_gpo_id == GPO_A for s in result.settings)
-        assert any(
-            e.gpo_id == GPO_A and e.kind == "security_filter"
-            for e in result.excluded
-        )
+        assert any(e.gpo_id == GPO_A and e.kind == "security_filter" for e in result.excluded)
         assert any("security filter" in e.reason.lower() for e in result.excluded)
 
 
@@ -216,11 +227,13 @@ class TestAC2SecurityFilterExclusion:
 # AC-3: WMI-filtered GPO excluded with kind="wmi_filter"
 # ---------------------------------------------------------------------------
 
+
 class TestAC3WmiFilterExclusion:
     def test_wmi_filtered_gpo_excluded(self) -> None:
         gpos = [
             _gpo(
-                GPO_WMI, "Policy-WMI",
+                GPO_WMI,
+                "Policy-WMI",
                 settings=[_setting(GPO_WMI, "Registry", r"HKLM\Software\Wmi:Test", "1")],
                 wmi_filter="{guid-filter}",
             ),
@@ -228,15 +241,13 @@ class TestAC3WmiFilterExclusion:
         estate = _user_estate(gpos=gpos)
         result = principal_resultant(estate, USER_SID, dn=SOM_DOMAIN)
         assert not any(s.winning_gpo_id == GPO_WMI for s in result.settings)
-        assert any(
-            e.gpo_id == GPO_WMI and e.kind == "wmi_filter"
-            for e in result.excluded
-        )
+        assert any(e.gpo_id == GPO_WMI and e.kind == "wmi_filter" for e in result.excluded)
 
 
 # ---------------------------------------------------------------------------
 # AC-4: ILT-gated GPP item excluded from settings, appears in excluded_settings
 # ---------------------------------------------------------------------------
+
 
 class TestAC4IltExclusion:
     def test_ilt_gated_gpp_excluded(self, monkeypatch) -> None:
@@ -245,11 +256,16 @@ class TestAC4IltExclusion:
         raw_create = {"@attr": {"action": "C"}}
         gpos = [
             _gpo(
-                GPO_ILT, "Policy-ILT",
+                GPO_ILT,
+                "Policy-ILT",
                 settings=[
                     _setting(
-                        GPO_ILT, "GPP Drive Maps", "Drive:H:", r"H:\share",
-                        side="User", raw=raw_create,
+                        GPO_ILT,
+                        "GPP Drive Maps",
+                        "Drive:H:",
+                        r"H:\share",
+                        side="User",
+                        raw=raw_create,
                     ),
                 ],
             ),
@@ -257,29 +273,35 @@ class TestAC4IltExclusion:
         estate = _user_estate(gpos=gpos)
         monkeypatch.setattr(
             "gpo_lens.merge.scan_ilt",
-            lambda e: [IltHit(
-                gpo_id=GPO_ILT, gpo_name="Policy-ILT",
-                files=("DriveMaps.xml",), filter_types=("Group",),
-            )],
+            lambda e: [
+                IltHit(
+                    gpo_id=GPO_ILT,
+                    gpo_name="Policy-ILT",
+                    files=("DriveMaps.xml",),
+                    filter_types=("Group",),
+                )
+            ],
         )
         result = principal_resultant(estate, USER_SID, dn=SOM_DOMAIN)
         assert not any(s.winning_gpo_id == GPO_ILT for s in result.settings)
-        assert any(
-            es.gpo_id == GPO_ILT and es.kind == "ilt"
-            for es in result.excluded_settings
-        )
+        assert any(es.gpo_id == GPO_ILT and es.kind == "ilt" for es in result.excluded_settings)
 
 
 # ---------------------------------------------------------------------------
 # AC-5: caveat_summary is non-empty and contains "given collected inputs"
 # ---------------------------------------------------------------------------
 
+
 class TestAC5CaveatSummary:
     def test_caveat_summary_non_empty_with_qualifier(self) -> None:
         gpos = [
-            _gpo(GPO_A, "Policy-A", settings=[
-                _setting(GPO_A, "Registry", r"HKLM\Software\Foo:Bar", "1"),
-            ]),
+            _gpo(
+                GPO_A,
+                "Policy-A",
+                settings=[
+                    _setting(GPO_A, "Registry", r"HKLM\Software\Foo:Bar", "1"),
+                ],
+            ),
         ]
         estate = _user_estate(gpos=gpos)
         result = principal_resultant(estate, USER_SID, dn=SOM_DOMAIN)
@@ -291,31 +313,47 @@ class TestAC5CaveatSummary:
 # AC-6: Computer SID supplied → computer side merged, loopback in caveats
 # ---------------------------------------------------------------------------
 
+
 class TestAC6UserComputerPair:
     def test_computer_pair_surfaces_loopback(self) -> None:
         user_gpos = [
             _gpo(
-                GPO_A, "User-Policy",
+                GPO_A,
+                "User-Policy",
                 settings=[_setting(GPO_A, "Registry", r"HKCU\Software\Foo:Bar", "1", side="User")],
             ),
         ]
         comp_gpos = [
             _gpo(
-                GPO_B, "Computer-Policy",
-                settings=[_setting(
-                    GPO_B, "Registry", r"HKLM\Software\Comp:Set", "1",
-                    side="Computer",
-                )],
+                GPO_B,
+                "Computer-Policy",
+                settings=[
+                    _setting(
+                        GPO_B,
+                        "Registry",
+                        r"HKLM\Software\Comp:Set",
+                        "1",
+                        side="Computer",
+                    )
+                ],
             ),
         ]
         all_gpos = user_gpos + comp_gpos
         soms = [
-            _som(SOM_DOMAIN, "test.local", links=[
-                SomLink(gpo_id=GPO_A, order=1, enabled=True, enforced=False, target=SOM_DOMAIN),
-            ]),
-            _som(SOM_OU, "Workstations", links=[
-                SomLink(gpo_id=GPO_B, order=1, enabled=True, enforced=False, target=SOM_OU),
-            ]),
+            _som(
+                SOM_DOMAIN,
+                "test.local",
+                links=[
+                    SomLink(gpo_id=GPO_A, order=1, enabled=True, enforced=False, target=SOM_DOMAIN),
+                ],
+            ),
+            _som(
+                SOM_OU,
+                "Workstations",
+                links=[
+                    SomLink(gpo_id=GPO_B, order=1, enabled=True, enforced=False, target=SOM_OU),
+                ],
+            ),
         ]
         estate = Estate(
             domain="test.local",
@@ -323,17 +361,26 @@ class TestAC6UserComputerPair:
             soms=soms,
             principals={
                 USER_SID_LOWER: ResolvedPrincipal(
-                    sid=USER_SID_LOWER, name="TEST\\user1", sam="user1",
-                    principal_type="User", domain="TEST", resolved=True,
+                    sid=USER_SID_LOWER,
+                    name="TEST\\user1",
+                    sam="user1",
+                    principal_type="User",
+                    domain="TEST",
+                    resolved=True,
                 ),
                 COMPUTER_SID_LOWER: ResolvedPrincipal(
-                    sid=COMPUTER_SID_LOWER, name="TEST\\comp1$", sam="comp1$",
-                    principal_type="Computer", domain="TEST", resolved=True,
+                    sid=COMPUTER_SID_LOWER,
+                    name="TEST\\comp1$",
+                    sam="comp1$",
+                    principal_type="Computer",
+                    domain="TEST",
+                    resolved=True,
                 ),
             },
         )
         result = principal_resultant(
-            estate, USER_SID,
+            estate,
+            USER_SID,
             computer_sid=COMPUTER_SID,
             dn=SOM_DOMAIN,
             computer_dn=SOM_OU,
@@ -348,13 +395,15 @@ class TestAC6UserComputerPair:
 # AC-7: Dangerous config in gated GPO → conditional_dangers, not settings
 # ---------------------------------------------------------------------------
 
+
 class TestAC7DangerInGatedGpo:
     def test_danger_in_security_filtered_gpo_surfaces(self) -> None:
         from gpo_lens.danger import DangerFinding
 
         gpos = [
             _gpo(
-                GPO_DANGER, "Danger-Policy",
+                GPO_DANGER,
+                "Danger-Policy",
                 settings=[_setting(GPO_DANGER, "Registry", r"HKLM\Software\Danger:Key", "evil")],
                 delegation=_apply_delegation(GPO_DANGER, GROUP_A_SID),
             ),
@@ -373,18 +422,19 @@ class TestAC7DangerInGatedGpo:
         ]
         result = principal_resultant(estate, USER_SID, dn=SOM_DOMAIN, danger=danger)
         assert not any(s.winning_gpo_id == GPO_DANGER for s in result.settings)
-        assert any(
-            cd.gpo_id == GPO_DANGER for cd in result.conditional_dangers
-        )
+        assert any(cd.gpo_id == GPO_DANGER for cd in result.conditional_dangers)
 
 
 # ---------------------------------------------------------------------------
 # AC-8: CLI never renders "effective" without "given collected inputs"
 # ---------------------------------------------------------------------------
 
+
 class TestAC8CliEffectiveLabel:
     def test_cli_text_contains_given_collected_inputs(
-        self, tmp_path, capsys,
+        self,
+        tmp_path,
+        capsys,
     ) -> None:
         import sqlite3
 
@@ -395,35 +445,60 @@ class TestAC8CliEffectiveLabel:
         conn = sqlite3.connect(db_path)
         store.init_db(conn)
         gpos = [
-            _gpo(GPO_A, "Policy-A", settings=[
-                _setting(GPO_A, "Registry", r"HKLM\Software\Foo:Bar", "1"),
-            ]),
+            _gpo(
+                GPO_A,
+                "Policy-A",
+                settings=[
+                    _setting(GPO_A, "Registry", r"HKLM\Software\Foo:Bar", "1"),
+                ],
+            ),
         ]
         estate = Estate(
             domain="test.local",
             gpos=gpos,
-            soms=[_som(SOM_DOMAIN, "test.local", links=[
-                SomLink(gpo_id=GPO_A, order=1, enabled=True, enforced=False, target=SOM_DOMAIN),
-            ])],
+            soms=[
+                _som(
+                    SOM_DOMAIN,
+                    "test.local",
+                    links=[
+                        SomLink(
+                            gpo_id=GPO_A, order=1, enabled=True, enforced=False, target=SOM_DOMAIN
+                        ),
+                    ],
+                )
+            ],
             principals={
                 USER_SID_LOWER: ResolvedPrincipal(
-                    sid=USER_SID_LOWER, name="TEST\\user1", sam="user1",
-                    principal_type="User", domain="TEST", resolved=True,
+                    sid=USER_SID_LOWER,
+                    name="TEST\\user1",
+                    sam="user1",
+                    principal_type="User",
+                    domain="TEST",
+                    resolved=True,
                 ),
             },
         )
         store.save_estate(conn, estate)
         conn.close()
 
-        ret = main([
-            "--db", db_path, "resultant", USER_SID, "--dn", SOM_DOMAIN,
-        ])
+        ret = main(
+            [
+                "--db",
+                db_path,
+                "resultant",
+                USER_SID,
+                "--dn",
+                SOM_DOMAIN,
+            ]
+        )
         assert ret == 0
         captured = capsys.readouterr()
         assert "given collected inputs" in captured.out
 
     def test_cli_json_includes_caveat_mechanisms(
-        self, tmp_path, capsys,
+        self,
+        tmp_path,
+        capsys,
     ) -> None:
         import json
         import sqlite3
@@ -435,29 +510,53 @@ class TestAC8CliEffectiveLabel:
         conn = sqlite3.connect(db_path)
         store.init_db(conn)
         gpos = [
-            _gpo(GPO_A, "Policy-A", settings=[
-                _setting(GPO_A, "Registry", r"HKLM\Software\Foo:Bar", "1"),
-            ]),
+            _gpo(
+                GPO_A,
+                "Policy-A",
+                settings=[
+                    _setting(GPO_A, "Registry", r"HKLM\Software\Foo:Bar", "1"),
+                ],
+            ),
         ]
         estate = Estate(
             domain="test.local",
             gpos=gpos,
-            soms=[_som(SOM_DOMAIN, "test.local", links=[
-                SomLink(gpo_id=GPO_A, order=1, enabled=True, enforced=False, target=SOM_DOMAIN),
-            ])],
+            soms=[
+                _som(
+                    SOM_DOMAIN,
+                    "test.local",
+                    links=[
+                        SomLink(
+                            gpo_id=GPO_A, order=1, enabled=True, enforced=False, target=SOM_DOMAIN
+                        ),
+                    ],
+                )
+            ],
             principals={
                 USER_SID_LOWER: ResolvedPrincipal(
-                    sid=USER_SID_LOWER, name="TEST\\user1", sam="user1",
-                    principal_type="User", domain="TEST", resolved=True,
+                    sid=USER_SID_LOWER,
+                    name="TEST\\user1",
+                    sam="user1",
+                    principal_type="User",
+                    domain="TEST",
+                    resolved=True,
                 ),
             },
         )
         store.save_estate(conn, estate)
         conn.close()
 
-        ret = main([
-            "--json", "--db", db_path, "resultant", USER_SID, "--dn", SOM_DOMAIN,
-        ])
+        ret = main(
+            [
+                "--json",
+                "--db",
+                db_path,
+                "resultant",
+                USER_SID,
+                "--dn",
+                SOM_DOMAIN,
+            ]
+        )
         assert ret == 0
         captured = capsys.readouterr()
         data = json.loads(captured.out)
@@ -469,19 +568,26 @@ class TestAC8CliEffectiveLabel:
 # AC-9: Unresolved foreign SIDs in token_caveats
 # ---------------------------------------------------------------------------
 
+
 class TestAC9TokenCaveats:
     def test_foreign_sid_in_token_caveats(self) -> None:
         gpos = [
-            _gpo(GPO_A, "Policy-A", settings=[
-                _setting(GPO_A, "Registry", r"HKCU\Software\Foo:Bar", "1", side="User"),
-            ]),
+            _gpo(
+                GPO_A,
+                "Policy-A",
+                settings=[
+                    _setting(GPO_A, "Registry", r"HKCU\Software\Foo:Bar", "1", side="User"),
+                ],
+            ),
         ]
         estate = _user_estate(
             gpos=gpos,
             group_members={
                 GROUP_A_SID_LOWER: GroupMembership(
-                    sid=GROUP_A_SID_LOWER, name="Group A",
-                    members=(USER_SID_LOWER, FOREIGN_SID), member_count=2,
+                    sid=GROUP_A_SID_LOWER,
+                    name="Group A",
+                    members=(USER_SID_LOWER, FOREIGN_SID),
+                    member_count=2,
                 ),
             },
         )
@@ -494,12 +600,17 @@ class TestAC9TokenCaveats:
 # Caveat mechanisms list
 # ---------------------------------------------------------------------------
 
+
 class TestCaveatMechanisms:
     def test_user_resultant_includes_loopback(self) -> None:
         gpos = [
-            _gpo(GPO_A, "Policy-A", settings=[
-                _setting(GPO_A, "Registry", r"HKLM\Software\Foo:Bar", "1"),
-            ]),
+            _gpo(
+                GPO_A,
+                "Policy-A",
+                settings=[
+                    _setting(GPO_A, "Registry", r"HKLM\Software\Foo:Bar", "1"),
+                ],
+            ),
         ]
         estate = _user_estate(gpos=gpos)
         result = principal_resultant(estate, USER_SID, dn=SOM_DOMAIN)
@@ -509,7 +620,8 @@ class TestCaveatMechanisms:
     def test_wmi_exclusion_adds_wmi_mechanism(self) -> None:
         gpos = [
             _gpo(
-                GPO_WMI, "Policy-WMI",
+                GPO_WMI,
+                "Policy-WMI",
                 settings=[_setting(GPO_WMI, "Registry", r"HKLM\Software\Wmi:Test", "1")],
                 wmi_filter="{guid}",
             ),
@@ -520,24 +632,37 @@ class TestCaveatMechanisms:
 
     def test_site_soms_add_site_mechanism(self) -> None:
         gpos = [
-            _gpo(GPO_A, "Policy-A", settings=[
-                _setting(GPO_A, "Registry", r"HKLM\Software\Foo:Bar", "1"),
-            ]),
+            _gpo(
+                GPO_A,
+                "Policy-A",
+                settings=[
+                    _setting(GPO_A, "Registry", r"HKLM\Software\Foo:Bar", "1"),
+                ],
+            ),
         ]
         estate = _user_estate(gpos=gpos)
         estate.soms.append(
-            _som(SOM_SITE, "Default-First-Site", container_type="site", links=[
-                SomLink(gpo_id=GPO_A, order=1, enabled=True, enforced=False, target=SOM_SITE),
-            ]),
+            _som(
+                SOM_SITE,
+                "Default-First-Site",
+                container_type="site",
+                links=[
+                    SomLink(gpo_id=GPO_A, order=1, enabled=True, enforced=False, target=SOM_SITE),
+                ],
+            ),
         )
         result = principal_resultant(estate, USER_SID, dn=SOM_DOMAIN)
         assert "AD-site membership" in result.caveat_mechanisms
 
     def test_no_wmi_no_wmi_mechanism(self) -> None:
         gpos = [
-            _gpo(GPO_A, "Policy-A", settings=[
-                _setting(GPO_A, "Registry", r"HKLM\Software\Foo:Bar", "1"),
-            ]),
+            _gpo(
+                GPO_A,
+                "Policy-A",
+                settings=[
+                    _setting(GPO_A, "Registry", r"HKLM\Software\Foo:Bar", "1"),
+                ],
+            ),
         ]
         estate = _user_estate(gpos=gpos)
         result = principal_resultant(estate, USER_SID, dn=SOM_DOMAIN)

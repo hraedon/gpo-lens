@@ -1,4 +1,5 @@
 """CLI subcommands for OU topology analysis (effective-gpos, conflicts, settings-at)."""
+
 from __future__ import annotations
 
 import argparse
@@ -29,8 +30,7 @@ def cmd_som(args: argparse.Namespace) -> None:
         _print_table(
             ["order", "gpo_id", "gpo_name", "enabled", "enforced", "target"],
             [
-                [str(r.order), r.gpo_id, r.gpo_name,
-                 str(r.enabled), str(r.enforced), r.target]
+                [str(r.order), r.gpo_id, r.gpo_name, str(r.enabled), str(r.enforced), r.target]
                 for r in result
             ],
         )
@@ -54,8 +54,7 @@ def cmd_dangling(args: argparse.Namespace) -> None:
     else:
         _print_table(
             ["som_path", "som_name", "gpo_id", "order"],
-            [[som.path, som.name, link.gpo_id, str(link.order)]
-             for som, link in result],
+            [[som.path, som.name, link.gpo_id, str(link.order)] for som, link in result],
         )
 
 
@@ -105,10 +104,7 @@ def cmd_loopback(args: argparse.Namespace) -> None:
     else:
         _print_table(
             ["id", "name", "side", "cse", "identity", "display_value"],
-            [
-                [g.id, g.name, s.side, s.cse, s.identity, s.display_value]
-                for g, s in result
-            ],
+            [[g.id, g.name, s.side, s.cse, s.identity, s.display_value] for g, s in result],
         )
 
 
@@ -131,9 +127,7 @@ def cmd_wmi(args: argparse.Namespace) -> None:
 def cmd_wmi_filters(args: argparse.Namespace) -> None:
     estate = _get_estate(args)
     if args.json:
-        _render_json(
-            [{"name": wf.name, "query": wf.query} for wf in estate.wmi_filters]
-        )
+        _render_json([{"name": wf.name, "query": wf.query} for wf in estate.wmi_filters])
     else:
         _print_table(
             ["name", "query"],
@@ -145,9 +139,7 @@ def cmd_topology_check(args: argparse.Namespace) -> None:
     estate = _get_estate(args)
     result = queries.topology_crosscheck(estate)
     if args.json:
-        _render_json(
-            [{"kind": d.kind, "ou_dn": d.ou_dn, "detail": d.detail} for d in result]
-        )
+        _render_json([{"kind": d.kind, "ou_dn": d.ou_dn, "detail": d.detail} for d in result])
     else:
         if not result:
             print("No discrepancies found.")
@@ -167,35 +159,39 @@ def cmd_scope(args: argparse.Namespace) -> int:
         print(f"GPO not found: {args.gpo}", file=sys.stderr)
         return 1
     if args.json:
-        _render_json({
-            "gpo_id": result.gpo_id,
-            "gpo_name": result.gpo_name,
-            "domain": result.domain,
-            "computer_enabled": result.computer_enabled,
-            "user_enabled": result.user_enabled,
-            "links": [
-                {
-                    "som_name": lnk.som_name,
-                    "som_path": lnk.som_path,
-                    "enabled": lnk.link_enabled,
-                    "enforced": lnk.enforced,
+        _render_json(
+            {
+                "gpo_id": result.gpo_id,
+                "gpo_name": result.gpo_name,
+                "domain": result.domain,
+                "computer_enabled": result.computer_enabled,
+                "user_enabled": result.user_enabled,
+                "links": [
+                    {
+                        "som_name": lnk.som_name,
+                        "som_path": lnk.som_path,
+                        "enabled": lnk.link_enabled,
+                        "enforced": lnk.enforced,
+                    }
+                    for lnk in result.links
+                ],
+                "security_filtering": {
+                    "is_filtered": result.security_filtering.is_filtered,
+                    "apply_trustees": result.security_filtering.apply_trustees,
+                    "has_au_read": result.security_filtering.has_au_read,
+                    "has_dc_read": result.security_filtering.has_dc_read,
+                },
+                "wmi_filter": {
+                    "name": result.wmi_filter.name,
+                    "query": result.wmi_filter.query,
+                    "is_broken": result.wmi_filter.is_broken,
                 }
-                for lnk in result.links
-            ],
-            "security_filtering": {
-                "is_filtered": result.security_filtering.is_filtered,
-                "apply_trustees": result.security_filtering.apply_trustees,
-                "has_au_read": result.security_filtering.has_au_read,
-                "has_dc_read": result.security_filtering.has_dc_read,
-            },
-            "wmi_filter": {
-                "name": result.wmi_filter.name,
-                "query": result.wmi_filter.query,
-                "is_broken": result.wmi_filter.is_broken,
-            } if result.wmi_filter else None,
-            "loopback_mode": result.loopback_mode,
-            "caveats": result.caveats,
-        })
+                if result.wmi_filter
+                else None,
+                "loopback_mode": result.loopback_mode,
+                "caveats": result.caveats,
+            }
+        )
     else:
         print(f"\n  GPO: {result.gpo_name} ({result.gpo_id})")
         print(f"  Domain: {result.domain}")
@@ -235,23 +231,25 @@ def cmd_sites(args: argparse.Namespace) -> None:
     estate = _get_estate(args)
     scopes = queries.site_scopes(estate)
     if args.json:
-        _render_json([
-            {
-                "name": s.name,
-                "dn": s.dn,
-                "links": [
-                    {
-                        "gpo_id": lnk.gpo_id,
-                        "gpo_name": lnk.gpo_name,
-                        "enabled": lnk.enabled,
-                        "enforced": lnk.enforced,
-                        "order": lnk.order,
-                    }
-                    for lnk in s.links
-                ],
-            }
-            for s in scopes
-        ])
+        _render_json(
+            [
+                {
+                    "name": s.name,
+                    "dn": s.dn,
+                    "links": [
+                        {
+                            "gpo_id": lnk.gpo_id,
+                            "gpo_name": lnk.gpo_name,
+                            "enabled": lnk.enabled,
+                            "enforced": lnk.enforced,
+                            "order": lnk.order,
+                        }
+                        for lnk in s.links
+                    ],
+                }
+                for s in scopes
+            ]
+        )
         return
     if not scopes:
         print("No AD sites captured (no sites.json in the export).")

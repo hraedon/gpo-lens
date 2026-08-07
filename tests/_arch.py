@@ -130,18 +130,16 @@ def forbidden_imports_in(
     of ``gpo_lens.narration`` / ``gpo_lens.web``. Intra-core imports
     (e.g. ``queries`` importing ``model``) are allowed.
     """
-    return {
-        imp
-        for imp in imported_module_paths(module_name)
-        if _is_forbidden(imp, forbidden)
-    }
+    return {imp for imp in imported_module_paths(module_name) if _is_forbidden(imp, forbidden)}
 
 
 def test_no_dynamic_imports_of_forbidden_modules() -> None:
     """Verify no core module uses importlib or __import__ to load narration/web."""
     forbidden_substrings = (
-        "gpo_lens.narration", "gpo_lens.web",
-        ".narration", ".web",
+        "gpo_lens.narration",
+        "gpo_lens.web",
+        ".narration",
+        ".web",
     )
     for module_name in CORE_MODULES:
         for module_path in module_source_paths(module_name):

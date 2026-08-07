@@ -287,9 +287,7 @@ class TestApiQuerySmoke:
         params = self._FIXTURE_PARAMS.get(query_name, {})
         resp = _client.get(f"/api/v1/query/{query_name}", params=params)
         # The key assertion: no query should crash with a 500.
-        assert resp.status_code != 500, (
-            f"Query '{query_name}' returned 500 — see logged traceback"
-        )
+        assert resp.status_code != 500, f"Query '{query_name}' returned 500 — see logged traceback"
         # All responses should use the API envelope.
         body = resp.json()
         assert "status" in body

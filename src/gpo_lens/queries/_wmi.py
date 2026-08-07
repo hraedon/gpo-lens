@@ -21,9 +21,7 @@ class BrokenWmiRef:
 
 def orphaned_wmi_filters(estate: Estate) -> list[WmiFilter]:
     """WMI filters defined but referenced by zero GPOs."""
-    referenced = {
-        g.wmi_filter for g in estate.gpos if g.wmi_filter
-    }
+    referenced = {g.wmi_filter for g in estate.gpos if g.wmi_filter}
     return [f for f in estate.wmi_filters if f.name not in referenced]
 
 
@@ -33,11 +31,13 @@ def broken_wmi_refs(estate: Estate) -> list[BrokenWmiRef]:
     results: list[BrokenWmiRef] = []
     for g in estate.gpos:
         if g.wmi_filter and g.wmi_filter not in known:
-            results.append(BrokenWmiRef(
-                gpo_id=g.id,
-                gpo_name=g.name,
-                filter_name=g.wmi_filter,
-            ))
+            results.append(
+                BrokenWmiRef(
+                    gpo_id=g.id,
+                    gpo_name=g.name,
+                    filter_name=g.wmi_filter,
+                )
+            )
     return results
 
 

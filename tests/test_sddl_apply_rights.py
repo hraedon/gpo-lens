@@ -50,6 +50,7 @@ def _make_gpo(sddl: str) -> Gpo:
 # 1. iter_sddl_apply_aces (authz.py)
 # ---------------------------------------------------------------------------
 
+
 class TestIterSddlApplyAces:
     def test_gr_not_returned(self) -> None:
         aces = iter_sddl_apply_aces("D:(A;;GR;;;WD)")
@@ -78,6 +79,7 @@ class TestIterSddlApplyAces:
 # 2. Security gate (merge.py _gpo_apply_trustee_sids)
 # ---------------------------------------------------------------------------
 
+
 class TestSecurityGateApplyRights:
     def test_gr_not_in_allow_sids(self) -> None:
         gpo = _make_gpo("D:(A;;GR;;;S-1-5-11)")
@@ -104,36 +106,32 @@ class TestSecurityGateApplyRights:
 # 3. Danger overbroad-apply (danger.py danger_findings)
 # ---------------------------------------------------------------------------
 
+
 class TestDangerOverbroadApply:
     def test_gr_to_everyone_no_finding(self) -> None:
         gpo = _make_gpo("D:(A;;GR;;;WD)")
         estate = Estate(gpos=[gpo])
-        findings = [
-            f for f in danger_findings(estate) if f.check_id == "overbroad_apply_gp"
-        ]
+        findings = [f for f in danger_findings(estate) if f.check_id == "overbroad_apply_gp"]
         assert findings == []
 
     def test_cr_to_everyone_produces_finding(self) -> None:
         gpo = _make_gpo("D:(A;;CR;;;WD)")
         estate = Estate(gpos=[gpo])
-        findings = [
-            f for f in danger_findings(estate) if f.check_id == "overbroad_apply_gp"
-        ]
+        findings = [f for f in danger_findings(estate) if f.check_id == "overbroad_apply_gp"]
         assert len(findings) == 1
         assert findings[0].gpo_id == _GPO_ID
 
     def test_ga_to_everyone_produces_finding(self) -> None:
         gpo = _make_gpo("D:(A;;GA;;;WD)")
         estate = Estate(gpos=[gpo])
-        findings = [
-            f for f in danger_findings(estate) if f.check_id == "overbroad_apply_gp"
-        ]
+        findings = [f for f in danger_findings(estate) if f.check_id == "overbroad_apply_gp"]
         assert len(findings) == 1
 
 
 # ---------------------------------------------------------------------------
 # 4. Deny check still uses READ_OR_APPLY_RIGHTS (merge.py:653)
 # ---------------------------------------------------------------------------
+
 
 class TestDenyCheckReadOrApply:
     def test_deny_gr_blocks(self) -> None:

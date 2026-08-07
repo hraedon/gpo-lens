@@ -62,9 +62,9 @@ WELL_KNOWN_CPASSWORD = (
 # ---------------------------------------------------------------------------
 
 _PREG_HEADER = b"PReg\x01\x00\x00\x00"
-_OPEN  = "\x5b".encode("utf-16-le")   # '['
-_CLOSE = "\x5d".encode("utf-16-le")   # ']'
-_SEP   = "\x3b".encode("utf-16-le")   # ';'
+_OPEN = "\x5b".encode("utf-16-le")  # '['
+_CLOSE = "\x5d".encode("utf-16-le")  # ']'
+_SEP = "\x3b".encode("utf-16-le")  # ';'
 
 
 def _preg_null_term(s: str) -> bytes:
@@ -141,9 +141,7 @@ def _make_delegation_xml(entries: list[dict]) -> str:
             f"<GPOGroupedAccessEnum>{_xe(e['standard'])}</GPOGroupedAccessEnum>"
             "</Standard>"
         )
-        lines.append(
-            f"          <Type><PermissionType>{_xe(e['type'])}</PermissionType></Type>"
-        )
+        lines.append(f"          <Type><PermissionType>{_xe(e['type'])}</PermissionType></Type>")
         lines.append("        </TrusteePermissions>")
     lines.append("      </Permissions>")
     lines.append("    </SecurityDescriptor>")
@@ -182,24 +180,28 @@ def _make_gpo_xml(
     ]
     if description:
         lines.append(f"    <Description>{_xe(description)}</Description>")
-    lines.extend([
-        f"    <CreatedTime>{TS}</CreatedTime>",
-        f"    <ModifiedTime>{TS}</ModifiedTime>",
-        f"    <ReadTime>{TS}</ReadTime>",
-        "    <Computer>",
-        f"      <Enabled>{str(computer_enabled).lower()}</Enabled>",
-        f"      <VersionDirectory>{comp_ver_ds}</VersionDirectory>",
-        f"      <VersionSysvol>{comp_ver_sysvol}</VersionSysvol>",
-    ])
+    lines.extend(
+        [
+            f"    <CreatedTime>{TS}</CreatedTime>",
+            f"    <ModifiedTime>{TS}</ModifiedTime>",
+            f"    <ReadTime>{TS}</ReadTime>",
+            "    <Computer>",
+            f"      <Enabled>{str(computer_enabled).lower()}</Enabled>",
+            f"      <VersionDirectory>{comp_ver_ds}</VersionDirectory>",
+            f"      <VersionSysvol>{comp_ver_sysvol}</VersionSysvol>",
+        ]
+    )
     if computer_ext:
         lines.append(computer_ext)
-    lines.extend([
-        "    </Computer>",
-        "    <User>",
-        f"      <Enabled>{str(user_enabled).lower()}</Enabled>",
-        f"      <VersionDirectory>{user_ver_ds}</VersionDirectory>",
-        f"      <VersionSysvol>{user_ver_sysvol}</VersionSysvol>",
-    ])
+    lines.extend(
+        [
+            "    </Computer>",
+            "    <User>",
+            f"      <Enabled>{str(user_enabled).lower()}</Enabled>",
+            f"      <VersionDirectory>{user_ver_ds}</VersionDirectory>",
+            f"      <VersionSysvol>{user_ver_sysvol}</VersionSysvol>",
+        ]
+    )
     if user_ext:
         lines.append(user_ext)
     lines.append("    </User>")
@@ -221,6 +223,7 @@ def _make_gpo_xml(
 # ---------------------------------------------------------------------------
 # GPO definitions
 # ---------------------------------------------------------------------------
+
 
 def _build_v2task_gpo() -> str:
     """GPO 1: V2 scheduled task with nested <Exec> command + a V1 task."""
@@ -358,21 +361,25 @@ def _build_drives_gpo() -> str:
 # AllGPOs.xml
 # ---------------------------------------------------------------------------
 
+
 def build_all_gpos_xml() -> str:
-    body = "\n\n".join([
-        _build_v2task_gpo(),
-        _build_cpassword_gpo(),
-        _build_blocked_reg_gpo(),
-        _build_secfilt_gpo(),
-        _build_wmifilt_gpo(),
-        _build_drives_gpo(),
-    ])
+    body = "\n\n".join(
+        [
+            _build_v2task_gpo(),
+            _build_cpassword_gpo(),
+            _build_blocked_reg_gpo(),
+            _build_secfilt_gpo(),
+            _build_wmifilt_gpo(),
+            _build_drives_gpo(),
+        ]
+    )
     return '<?xml version="1.0" encoding="utf-8"?>\n<AllGPOs>\n' + body + "\n</AllGPOs>\n"
 
 
 # ---------------------------------------------------------------------------
 # gpo-metadata.json
 # ---------------------------------------------------------------------------
+
 
 def build_metadata() -> list[dict]:
     return [
@@ -431,6 +438,7 @@ def build_metadata() -> list[dict]:
 # ou-tree.json
 # ---------------------------------------------------------------------------
 
+
 def build_ou_tree() -> list[dict]:
     gplink = (
         f"[LDAP://CN={GUID_V2TASK},CN=Policies,CN=System,{ROOT_DN.upper()};0]"
@@ -454,19 +462,22 @@ def build_ou_tree() -> list[dict]:
 # gp-inheritance.json
 # ---------------------------------------------------------------------------
 
+
 def build_gp_inheritance() -> list[dict]:
     links = []
     for order, guid in enumerate(
         [GUID_V2TASK, GUID_CPASSWORD, GUID_BLOCKED, GUID_SECFILT, GUID_WMIFILT, GUID_DRIVES],
         start=1,
     ):
-        links.append({
-            "GpoId": guid,
-            "Order": order,
-            "Enabled": True,
-            "Enforced": False,
-            "Target": ROOT_DN,
-        })
+        links.append(
+            {
+                "GpoId": guid,
+                "Order": order,
+                "Enabled": True,
+                "Enforced": False,
+                "Target": ROOT_DN,
+            }
+        )
     return [
         {
             "Path": ROOT_DN,
@@ -482,6 +493,7 @@ def build_gp_inheritance() -> list[dict]:
 # wmi-filters.json
 # ---------------------------------------------------------------------------
 
+
 def build_wmi_filters() -> list[dict]:
     return [
         {
@@ -494,6 +506,7 @@ def build_wmi_filters() -> list[dict]:
 # ---------------------------------------------------------------------------
 # gpo-inventory.json — includes the inaccessible GPO for coverage-gap testing
 # ---------------------------------------------------------------------------
+
 
 def build_gpo_inventory() -> list[dict]:
     return [
@@ -523,6 +536,7 @@ def build_collection_errors() -> list[dict]:
 # ---------------------------------------------------------------------------
 # SYSVOL file generation — REAL nested layout with UPPERCASE side dirs
 # ---------------------------------------------------------------------------
+
 
 def _sysvol_dir(guid: str, *parts: str) -> Path:
     """Return the path ``SYSVOL-Policies/{GUID}/{parts}`` creating as needed."""
@@ -558,30 +572,32 @@ def _build_v2task_sysvol() -> None:
         '    <Properties action="CREATE"'
         ' appName="%SystemRoot%\\System32\\legacy.exe"'
         ' arguments="--install" runAs="NT AUTHORITY\\SYSTEM"/>\n'
-        '  </Task>\n'
+        "  </Task>\n"
         '  <ImmediateTaskV2 clsid="{00000000-0000-0000-0000-000000000002}"'
         ' name="Set Timezone" changed="2025-01-01">\n'
         '    <Properties action="UPDATE">\n'
-        '      <Task>\n'
+        "      <Task>\n"
         '        <Actions Context="Author">\n'
-        '          <Exec>\n'
-        '            <Command>tzutil.exe</Command>\n'
+        "          <Exec>\n"
+        "            <Command>tzutil.exe</Command>\n"
         '            <Arguments>/s "UTC"</Arguments>\n'
-        '          </Exec>\n'
-        '        </Actions>\n'
-        '        <Principals>\n'
+        "          </Exec>\n"
+        "        </Actions>\n"
+        "        <Principals>\n"
         '          <Principal id="Author">\n'
-        '            <UserId>NT AUTHORITY\\SYSTEM</UserId>\n'
-        '          </Principal>\n'
-        '        </Principals>\n'
-        '      </Task>\n'
-        '    </Properties>\n'
-        '  </ImmediateTaskV2>\n'
-        '</ScheduledTasks>\n'
+        "            <UserId>NT AUTHORITY\\SYSTEM</UserId>\n"
+        "          </Principal>\n"
+        "        </Principals>\n"
+        "      </Task>\n"
+        "    </Properties>\n"
+        "  </ImmediateTaskV2>\n"
+        "</ScheduledTasks>\n"
     )
     _write_sysvol_file(
         GUID_V2TASK,
-        "MACHINE", "Preferences", "ScheduledTasks",
+        "MACHINE",
+        "Preferences",
+        "ScheduledTasks",
         "ScheduledTasks.xml",
         content=xml,
     )
@@ -597,12 +613,14 @@ def _build_cpassword_sysvol() -> None:
         '    <Properties cpassword="' + WELL_KNOWN_CPASSWORD + '"'
         ' fullName="Local Admin" description="" changeLogon="0" noChange="0"'
         ' neverExpires="0" acctDisabled="0" userName="Administrator" />\n'
-        '  </User>\n'
-        '</Groups>\n'
+        "  </User>\n"
+        "</Groups>\n"
     )
     _write_sysvol_file(
         GUID_CPASSWORD,
-        "MACHINE", "Preferences", "Groups",
+        "MACHINE",
+        "Preferences",
+        "Groups",
         "Groups.xml",
         content=groups_xml,
     )
@@ -614,19 +632,21 @@ def _build_cpassword_sysvol() -> None:
         ' name="Administrators (local)" changed="2025-01-01">\n'
         '    <Properties action="UPDATE" groupName="Administrators"'
         ' groupSid="S-1-5-32-544" removePolicy="0">\n'
-        '      <Members>\n'
+        "      <Members>\n"
         '        <Member name="GOLDEN\\ServerAdmins" action="ADD"'
         ' sid="S-1-5-21-999999999-999999999-999999999-1101"/>\n'
         '        <Member name="GOLDEN\\LegacyAdmin" action="REMOVE"'
         ' sid="S-1-5-21-999999999-999999999-999999999-1102"/>\n'
-        '      </Members>\n'
-        '    </Properties>\n'
-        '  </Group>\n'
-        '</Groups>\n'
+        "      </Members>\n"
+        "    </Properties>\n"
+        "  </Group>\n"
+        "</Groups>\n"
     )
     _write_sysvol_file(
         GUID_CPASSWORD,
-        "MACHINE", "Preferences", "LocalUsersAndGroups",
+        "MACHINE",
+        "Preferences",
+        "LocalUsersAndGroups",
         "LocalUsersAndGroups.xml",
         content=lug_xml,
     )
@@ -692,28 +712,30 @@ def _build_drives_sysvol() -> None:
         '    <Properties action="CREATE" driveLetter="P:"'
         ' path="\\\\GOLDEN.local\\shares\\public" label="Public"'
         ' persistent="1" useLetter="1">\n'
-        '      <Filters>\n'
+        "      <Filters>\n"
         '        <FilterOrgUnit name="OU=Workstations,DC=GOLDEN,DC=local" not="0"/>\n'
-        '      </Filters>\n'
-        '    </Properties>\n'
-        '  </Drive>\n'
+        "      </Filters>\n"
+        "    </Properties>\n"
+        "  </Drive>\n"
         '  <Drive clsid="{AAAAAAAA-0008-0008-0008-AAAAAAAA0002}"'
         ' name="Q: -> \\\\oldserver.golden.local\\deprecated\\share" changed="2025-01-01">\n'
         '    <Properties action="CREATE" driveLetter="Q:"'
         ' path="\\\\oldserver.golden.local\\deprecated\\share" label="Deprecated"'
         ' persistent="1" useLetter="1"/>\n'
-        '  </Drive>\n'
+        "  </Drive>\n"
         '  <Drive clsid="{AAAAAAAA-0008-0008-0008-AAAAAAAA0003}"'
         ' name="Z: -> \\\\missing-server\\share" changed="2025-01-01">\n'
         '    <Properties action="CREATE" driveLetter="Z:"'
         ' path="\\\\missing-server\\share" label="Missing"'
         ' persistent="1" useLetter="1"/>\n'
-        '  </Drive>\n'
-        '</Drives>\n'
+        "  </Drive>\n"
+        "</Drives>\n"
     )
     _write_sysvol_file(
         GUID_DRIVES,
-        "USER", "Preferences", "Drives",
+        "USER",
+        "Preferences",
+        "Drives",
         "Drives.xml",
         content=drives_xml,
     )
@@ -725,12 +747,14 @@ def _build_drives_sysvol() -> None:
         ' name="\\\\printserver\\lab-printer" changed="2025-01-01">\n'
         '    <Properties action="UPDATE" path="\\\\printserver\\lab-printer"'
         ' default="1" port="\\\\printserver\\lab-printer"/>\n'
-        '  </SharedPrinter>\n'
-        '</Printers>\n'
+        "  </SharedPrinter>\n"
+        "</Printers>\n"
     )
     _write_sysvol_file(
         GUID_DRIVES,
-        "USER", "Preferences", "Printers",
+        "USER",
+        "Preferences",
+        "Printers",
         "Printers.xml",
         content=printers_xml,
     )
@@ -750,6 +774,7 @@ def _build_inaccessible_sysvol() -> None:
 # Top-level build
 # ---------------------------------------------------------------------------
 
+
 def write_all(target: Path = GOLDEN_DIR) -> None:
     """Generate the entire golden estate fixture (idempotent)."""
     target.mkdir(parents=True, exist_ok=True)
@@ -759,15 +784,11 @@ def write_all(target: Path = GOLDEN_DIR) -> None:
 
     # --- gpo-metadata.json (with BOM to exercise BOM-tolerant loading) ---
     meta = json.dumps(build_metadata(), indent=2) + "\n"
-    (target / "gpo-metadata.json").write_bytes(
-        b"\xef\xbb\xbf" + meta.encode("utf-8")
-    )
+    (target / "gpo-metadata.json").write_bytes(b"\xef\xbb\xbf" + meta.encode("utf-8"))
 
     # --- ou-tree.json (with BOM) ---
     ou_tree = json.dumps(build_ou_tree(), indent=2) + "\n"
-    (target / "ou-tree.json").write_bytes(
-        b"\xef\xbb\xbf" + ou_tree.encode("utf-8")
-    )
+    (target / "ou-tree.json").write_bytes(b"\xef\xbb\xbf" + ou_tree.encode("utf-8"))
 
     # --- gp-inheritance.json ---
     (target / "gp-inheritance.json").write_text(

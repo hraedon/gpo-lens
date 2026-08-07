@@ -124,8 +124,7 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         conn = get_ro_conn(app.state.db_path)
         try:
             row = conn.execute(
-                "SELECT COUNT(*) FROM finding "
-                "WHERE resolved_in_snapshot IS NULL AND gpo_id = ?",
+                "SELECT COUNT(*) FROM finding WHERE resolved_in_snapshot IS NULL AND gpo_id = ?",
                 (gpo_id,),
             ).fetchone()
             open_finding_count = int(row[0]) if row is not None else 0
@@ -156,32 +155,41 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
                         b = idx_b.get(key)
                         if a and b:
                             if a.display_value != b.display_value:
-                                diff_rows.append({
-                                    "side": a.side, "cse": a.cse,
+                                diff_rows.append(
+                                    {
+                                        "side": a.side,
+                                        "cse": a.cse,
+                                        "identity": a.identity,
+                                        "display_name": a.admx_name or a.display_name,
+                                        "change": "modified",
+                                        "val_a": a.display_value,
+                                        "val_b": b.display_value,
+                                    }
+                                )
+                        elif a and not b:
+                            diff_rows.append(
+                                {
+                                    "side": a.side,
+                                    "cse": a.cse,
                                     "identity": a.identity,
                                     "display_name": a.admx_name or a.display_name,
-                                    "change": "modified",
+                                    "change": "only_in_a",
                                     "val_a": a.display_value,
-                                    "val_b": b.display_value,
-                                })
-                        elif a and not b:
-                            diff_rows.append({
-                                "side": a.side, "cse": a.cse,
-                                "identity": a.identity,
-                                "display_name": a.admx_name or a.display_name,
-                                "change": "only_in_a",
-                                "val_a": a.display_value,
-                                "val_b": "",
-                            })
+                                    "val_b": "",
+                                }
+                            )
                         elif b and not a:
-                            diff_rows.append({
-                                "side": b.side, "cse": b.cse,
-                                "identity": b.identity,
-                                "display_name": b.admx_name or b.display_name,
-                                "change": "only_in_b",
-                                "val_a": "",
-                                "val_b": b.display_value,
-                            })
+                            diff_rows.append(
+                                {
+                                    "side": b.side,
+                                    "cse": b.cse,
+                                    "identity": b.identity,
+                                    "display_name": b.admx_name or b.display_name,
+                                    "change": "only_in_b",
+                                    "val_a": "",
+                                    "val_b": b.display_value,
+                                }
+                            )
             except ValueError:
                 pass
 
@@ -240,7 +248,8 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         if q:
             needle = q.lower()
             filtered = [
-                f for f in filtered
+                f
+                for f in filtered
                 if needle in (f.gpo_name or "").lower()
                 or needle in (f.title or "").lower()
                 or needle in (f.check_id or "").lower()

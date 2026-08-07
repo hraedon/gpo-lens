@@ -71,6 +71,7 @@ _PAGES = [
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 def _make_fixture_db() -> str:
     from gpo_lens.ingest import load_estate as ingest_load_estate
     from gpo_lens.store import init_db, save_estate
@@ -148,31 +149,33 @@ def _empty_client(_empty_db, monkeypatch):
 # A. Page availability
 # ---------------------------------------------------------------------------
 
+
 class TestPageAvailability:
     """Every page returns 200 and has the expected title."""
 
-    @pytest.mark.parametrize("path,expected_title", [
-        ("/", "gpo-lens —"),
-        ("/danger", "gpo-lens — Dangerous configurations"),
-        ("/findings", "gpo-lens — Findings"),
-        ("/changelog", "Changelog"),
-        ("/baseline", "Baseline"),
-        ("/conflicts", "Conflicts"),
-        ("/ask", "Ask"),
-        ("/ou", "Directory"),
-        ("/ingest", "Ingest"),
-        ("/resultant", "Principal Resultant"),
-        ("/inventory", "Inventory"),
-        ("/trends", "Trends"),
-    ])
+    @pytest.mark.parametrize(
+        "path,expected_title",
+        [
+            ("/", "gpo-lens —"),
+            ("/danger", "gpo-lens — Dangerous configurations"),
+            ("/findings", "gpo-lens — Findings"),
+            ("/changelog", "Changelog"),
+            ("/baseline", "Baseline"),
+            ("/conflicts", "Conflicts"),
+            ("/ask", "Ask"),
+            ("/ou", "Directory"),
+            ("/ingest", "Ingest"),
+            ("/resultant", "Principal Resultant"),
+            ("/inventory", "Inventory"),
+            ("/trends", "Trends"),
+        ],
+    )
     def test_page_returns_200_and_title(self, _client, path, expected_title) -> None:
         resp = _client.get(path)
         assert resp.status_code == 200, f"{path} returned {resp.status_code}"
         html = resp.text
         assert "<title>" in html
-        assert expected_title in html, (
-            f"{path}: expected title containing '{expected_title}'"
-        )
+        assert expected_title in html, f"{path}: expected title containing '{expected_title}'"
 
     def test_dashboard_title_has_domain(self, _client) -> None:
         # The fixture estate has domain "fakefixture.local".
@@ -195,6 +198,7 @@ class TestPageAvailability:
 # ---------------------------------------------------------------------------
 # B. Navigation structure
 # ---------------------------------------------------------------------------
+
 
 class TestNavigationStructure:
     """The base template renders the same nav scaffold on every page."""
@@ -245,9 +249,7 @@ class TestNavigationStructure:
     def test_nav_contains_all_section_links(self, _client, path) -> None:
         html = _client.get(path).text
         for label, href in self._NAV_LINKS:
-            assert f">{label}<" in html, (
-                f"{path}: nav missing link text '{label}'"
-            )
+            assert f">{label}<" in html, f"{path}: nav missing link text '{label}'"
 
     @pytest.mark.parametrize("path", _PAGES)
     def test_no_traceback_in_output(self, _client, path) -> None:
@@ -263,9 +265,7 @@ class TestNavigationStructure:
         resp = _client.get(path)
         assert resp.status_code != 500, f"{path} returned 500"
         html = resp.text
-        assert "Internal Server Error" not in html, (
-            f"{path}: 'Internal Server Error' text present"
-        )
+        assert "Internal Server Error" not in html, f"{path}: 'Internal Server Error' text present"
 
     @pytest.mark.parametrize("path", _PAGES)
     def test_favicon_link_present(self, _client, path) -> None:
@@ -337,8 +337,12 @@ class TestFindingsInboxIntegration:
         self, _client, _fixture_db, monkeypatch
     ) -> None:
         finding = SimpleNamespace(
-            category="stored-rule", gpo_id=_GPO_A, gpo_name="gpo-cpassword",
-            severity="high", summary="Stored lifecycle finding", detail="evidence",
+            category="stored-rule",
+            gpo_id=_GPO_A,
+            gpo_name="gpo-cpassword",
+            severity="high",
+            summary="Stored lifecycle finding",
+            detail="evidence",
         )
         self._store_findings(_fixture_db, [finding])
 
@@ -353,13 +357,15 @@ class TestFindingsInboxIntegration:
         assert "Review" in response.text
         assert 'name="note"' in response.text
 
-    def test_inbox_pagination_uses_filters_and_valid_macro(
-        self, _client, _fixture_db
-    ) -> None:
+    def test_inbox_pagination_uses_filters_and_valid_macro(self, _client, _fixture_db) -> None:
         findings = [
             SimpleNamespace(
-                category="page-rule", gpo_id=_GPO_A, gpo_name="gpo-cpassword",
-                severity="medium", summary=f"Finding {index}", detail=f"evidence-{index}",
+                category="page-rule",
+                gpo_id=_GPO_A,
+                gpo_name="gpo-cpassword",
+                severity="medium",
+                summary=f"Finding {index}",
+                detail=f"evidence-{index}",
             )
             for index in range(12)
         ]
@@ -369,12 +375,14 @@ class TestFindingsInboxIntegration:
         assert 'aria-label="Pagination"' in response.text
         assert "severity=medium" in response.text
 
-    def test_triage_note_and_filter_context_survive_round_trip(
-        self, _client, _fixture_db
-    ) -> None:
+    def test_triage_note_and_filter_context_survive_round_trip(self, _client, _fixture_db) -> None:
         finding = SimpleNamespace(
-            category="review-rule", gpo_id=_GPO_A, gpo_name="gpo-cpassword",
-            severity="high", summary="Needs a decision", detail="decision-evidence",
+            category="review-rule",
+            gpo_id=_GPO_A,
+            gpo_name="gpo-cpassword",
+            severity="high",
+            summary="Needs a decision",
+            detail="decision-evidence",
         )
         finding_id = self._store_findings(_fixture_db, [finding])[0]
         response = _client.post(
@@ -399,9 +407,7 @@ class TestFindingsInboxIntegration:
         assert "Tracked in ticket 42" in rendered.text
         assert "local-analyst" in rendered.text
         assert "Needs a decision" not in _client.get("/findings").text
-        assert "Needs a decision" in _client.get(
-            "/findings?lifecycle=all&triage=all"
-        ).text
+        assert "Needs a decision" in _client.get("/findings?lifecycle=all&triage=all").text
 
     # -- Plan 025 WI-1: the page consumes the Plan 024 core queries ----------
 
@@ -413,14 +419,21 @@ class TestFindingsInboxIntegration:
 
         def candidate(spec):
             return FindingCandidate(
-                detector_id=spec.category, detector_version="1",
-                category=spec.category, severity=spec.severity,
-                subject_type="gpo", subject_key=(spec.gpo_id,),
-                summary=spec.summary, detail=spec.detail,
+                detector_id=spec.category,
+                detector_version="1",
+                category=spec.category,
+                severity=spec.severity,
+                subject_type="gpo",
+                subject_key=(spec.gpo_id,),
+                summary=spec.summary,
+                detail=spec.detail,
                 evidence_refs=(
                     EvidenceRef(
-                        snapshot_id=1, gpo_id=spec.gpo_id, source="test",
-                        field_path="test", safe_projection="safe text",
+                        snapshot_id=1,
+                        gpo_id=spec.gpo_id,
+                        source="test",
+                        field_path="test",
+                        safe_projection="safe text",
                     ),
                 ),
                 gpo_name=spec.gpo_name,
@@ -438,18 +451,24 @@ class TestFindingsInboxIntegration:
         finally:
             conn.close()
 
-    def test_default_filter_is_new_or_regressed_open(
-        self, _client, _fixture_db
-    ) -> None:
+    def test_default_filter_is_new_or_regressed_open(self, _client, _fixture_db) -> None:
         # Plan 025 WI-1 AC: the default inbox holds exactly the actionable
         # items. A merely-persisting finding is not one; a regression is.
         persisting = SimpleNamespace(
-            category="persist-rule", gpo_id=_GPO_A, gpo_name="gpo-cpassword",
-            severity="high", summary="Merely persisting", detail="persist-evidence",
+            category="persist-rule",
+            gpo_id=_GPO_A,
+            gpo_name="gpo-cpassword",
+            severity="high",
+            summary="Merely persisting",
+            detail="persist-evidence",
         )
         regressing = SimpleNamespace(
-            category="regress-rule", gpo_id=_GPO_B, gpo_name="gpo-b",
-            severity="high", summary="Came back again", detail="regress-evidence",
+            category="regress-rule",
+            gpo_id=_GPO_B,
+            gpo_name="gpo-b",
+            severity="high",
+            summary="Came back again",
+            detail="regress-evidence",
         )
         self._store_multi_run_findings(_fixture_db, persisting, regressing)
 
@@ -463,14 +482,15 @@ class TestFindingsInboxIntegration:
         assert "Merely persisting" in widened.text
         assert "Came back again" in widened.text
 
-    def test_filters_are_url_addressable_and_bounded(
-        self, _client, _fixture_db
-    ) -> None:
+    def test_filters_are_url_addressable_and_bounded(self, _client, _fixture_db) -> None:
         findings = [
             SimpleNamespace(
-                category="page-rule", gpo_id=_GPO_A, gpo_name="gpo-cpassword",
+                category="page-rule",
+                gpo_id=_GPO_A,
+                gpo_name="gpo-cpassword",
                 severity="medium" if index % 2 else "critical",
-                summary=f"Bounded finding {index}", detail=f"evidence-{index}",
+                summary=f"Bounded finding {index}",
+                detail=f"evidence-{index}",
             )
             for index in range(12)
         ]
@@ -501,8 +521,12 @@ class TestFindingsInboxIntegration:
     def test_search_filter_reaches_sql(self, _client, _fixture_db) -> None:
         findings = [
             SimpleNamespace(
-                category="search-rule", gpo_id=_GPO_A, gpo_name="gpo-cpassword",
-                severity="high", summary=summary, detail="search-evidence",
+                category="search-rule",
+                gpo_id=_GPO_A,
+                gpo_name="gpo-cpassword",
+                severity="high",
+                summary=summary,
+                detail="search-evidence",
             )
             for summary in ("Distinctive needle here", "Unrelated haystack")
         ]
@@ -512,12 +536,14 @@ class TestFindingsInboxIntegration:
         assert "Distinctive needle here" in hit.text
         assert "Unrelated haystack" not in hit.text
 
-    def test_occurrence_view_shows_observations_and_provenance(
-        self, _client, _fixture_db
-    ) -> None:
+    def test_occurrence_view_shows_observations_and_provenance(self, _client, _fixture_db) -> None:
         finding = SimpleNamespace(
-            category="occurrence-rule", gpo_id=_GPO_A, gpo_name="gpo-cpassword",
-            severity="high", summary="Traceable finding", detail="trace-evidence",
+            category="occurrence-rule",
+            gpo_id=_GPO_A,
+            gpo_name="gpo-cpassword",
+            severity="high",
+            summary="Traceable finding",
+            detail="trace-evidence",
         )
         occurrence_id = self._store_findings(_fixture_db, [finding])[0]
 
@@ -533,12 +559,14 @@ class TestFindingsInboxIntegration:
         # The inbox links here, so the page must be reachable by a click.
         assert f"/findings/{occurrence_id}" in _client.get("/findings").text
 
-    def test_occurrence_view_shows_triage_log_append_only(
-        self, _client, _fixture_db
-    ) -> None:
+    def test_occurrence_view_shows_triage_log_append_only(self, _client, _fixture_db) -> None:
         finding = SimpleNamespace(
-            category="triaged-rule", gpo_id=_GPO_A, gpo_name="gpo-cpassword",
-            severity="high", summary="Decided finding", detail="decision-evidence",
+            category="triaged-rule",
+            gpo_id=_GPO_A,
+            gpo_name="gpo-cpassword",
+            severity="high",
+            summary="Decided finding",
+            detail="decision-evidence",
         )
         occurrence_id = self._store_findings(_fixture_db, [finding])[0]
         _client.post(
@@ -558,16 +586,22 @@ class TestFindingsInboxIntegration:
         assert "acknowledged" in html
         assert "accepted_risk" in html
 
-    def test_occurrence_view_reports_regression_predecessor(
-        self, _client, _fixture_db
-    ) -> None:
+    def test_occurrence_view_reports_regression_predecessor(self, _client, _fixture_db) -> None:
         persisting = SimpleNamespace(
-            category="persist-rule", gpo_id=_GPO_A, gpo_name="gpo-cpassword",
-            severity="high", summary="Steady finding", detail="steady-evidence",
+            category="persist-rule",
+            gpo_id=_GPO_A,
+            gpo_name="gpo-cpassword",
+            severity="high",
+            summary="Steady finding",
+            detail="steady-evidence",
         )
         regressing = SimpleNamespace(
-            category="regress-rule", gpo_id=_GPO_B, gpo_name="gpo-b",
-            severity="high", summary="Returned finding", detail="return-evidence",
+            category="regress-rule",
+            gpo_id=_GPO_B,
+            gpo_name="gpo-b",
+            severity="high",
+            summary="Returned finding",
+            detail="return-evidence",
         )
         self._store_multi_run_findings(_fixture_db, persisting, regressing)
 
@@ -592,8 +626,12 @@ class TestFindingsInboxIntegration:
 
     def test_dossier_count_uses_lifecycle_inbox(self, _client, _fixture_db) -> None:
         finding = SimpleNamespace(
-            category="dossier-rule", gpo_id=_GPO_A, gpo_name="gpo-cpassword",
-            severity="critical", summary="Dossier finding", detail="dossier-evidence",
+            category="dossier-rule",
+            gpo_id=_GPO_A,
+            gpo_name="gpo-cpassword",
+            severity="critical",
+            summary="Dossier finding",
+            detail="dossier-evidence",
         )
         self._store_findings(_fixture_db, [finding])
         response = _client.get(f"/gpo/{_GPO_A}")
@@ -685,6 +723,7 @@ class TestFindingsInboxIntegration:
 # C. Dashboard rendering
 # ---------------------------------------------------------------------------
 
+
 class TestDashboardRendering:
     def test_dashboard_has_estate_summary_stats(self, _client) -> None:
         html = _client.get("/").text
@@ -735,6 +774,7 @@ class TestDashboardRendering:
 # D. Danger page rendering
 # ---------------------------------------------------------------------------
 
+
 class TestDangerPageRendering:
     def test_danger_page_has_findings_cards(self, _client) -> None:
         html = _client.get("/danger").text
@@ -762,7 +802,7 @@ class TestDangerPageRendering:
     def test_danger_page_has_search_input(self, _client) -> None:
         html = _client.get("/danger").text
         assert 'name="q"' in html
-        assert "type=\"search\"" in html
+        assert 'type="search"' in html
 
     def test_danger_findings_have_severity_pills(self, _client) -> None:
         html = _client.get("/danger").text
@@ -780,7 +820,7 @@ class TestDangerPageRendering:
     def test_danger_page_has_citation_links(self, _client) -> None:
         html = _client.get("/danger").text
         assert "citation" in html
-        assert "target=\"_blank\"" in html
+        assert 'target="_blank"' in html
 
     def test_danger_page_has_page_head(self, _client) -> None:
         html = _client.get("/danger").text
@@ -795,6 +835,7 @@ class TestDangerPageRendering:
 # ---------------------------------------------------------------------------
 # E. Changelog page rendering
 # ---------------------------------------------------------------------------
+
 
 class TestChangelogPageRendering:
     def test_changelog_has_snapshot_selectors(self, _client) -> None:
@@ -828,6 +869,7 @@ class TestChangelogPageRendering:
 # ---------------------------------------------------------------------------
 # F. GPO detail page rendering
 # ---------------------------------------------------------------------------
+
 
 class TestGpoDetailRendering:
     def test_gpo_detail_shows_gpo_name_in_header(self, _client) -> None:
@@ -895,6 +937,7 @@ class TestGpoDetailRendering:
 # G. Empty state tests
 # ---------------------------------------------------------------------------
 
+
 class TestEmptyStates:
     """An empty database (no snapshots) must not crash any page."""
 
@@ -922,7 +965,7 @@ class TestEmptyStates:
 
     @pytest.mark.xfail(
         reason="OU list route does not catch ValueError on empty DB "
-               "(pre-existing gap, not introduced by WI-060)",
+        "(pre-existing gap, not introduced by WI-060)",
         strict=True,
     )
     def test_empty_db_ou_list_known_gap(self, _empty_client) -> None:
@@ -981,6 +1024,7 @@ class TestEmptyStates:
 # H. Error page tests
 # ---------------------------------------------------------------------------
 
+
 class TestErrorPages:
     def test_unknown_gpo_id_returns_404(self, _client) -> None:
         resp = _client.get("/gpo/00000000000000000000000000000000")
@@ -1034,6 +1078,7 @@ class TestErrorPages:
 # ---------------------------------------------------------------------------
 # I. API response structure tests
 # ---------------------------------------------------------------------------
+
 
 class TestApiResponseStructure:
     _API_ENDPOINTS = [
@@ -1098,6 +1143,7 @@ class TestApiResponseStructure:
 # ---------------------------------------------------------------------------
 # CSS class regression tests
 # ---------------------------------------------------------------------------
+
 
 class TestCssClassRegression:
     """Verify that key CSS classes used by JavaScript or layout are present."""
@@ -1210,6 +1256,7 @@ class TestCssClassRegression:
 # Template content assertions
 # ---------------------------------------------------------------------------
 
+
 class TestTemplateContent:
     """Assert that key content is present on each page."""
 
@@ -1254,7 +1301,7 @@ class TestTemplateContent:
     def test_ask_page_has_question_input(self, _client) -> None:
         html = _client.get("/ask").text
         assert 'name="question"' in html
-        assert "maxlength=\"500\"" in html
+        assert 'maxlength="500"' in html
 
     def test_resultant_has_form_fields(self, _client) -> None:
         html = _client.get("/resultant").text
@@ -1271,6 +1318,7 @@ class TestTemplateContent:
 # ---------------------------------------------------------------------------
 # Inventory page (nav link, not in original spec but worth covering)
 # ---------------------------------------------------------------------------
+
 
 class TestInventoryRendering:
     def test_inventory_returns_200(self, _client) -> None:
@@ -1298,6 +1346,7 @@ class TestInventoryRendering:
 # J. Trends page rendering
 # ---------------------------------------------------------------------------
 
+
 class TestTrendsRendering:
     def test_trends_page_returns_200(self, _client) -> None:
         resp = _client.get("/trends")
@@ -1316,6 +1365,7 @@ class TestTrendsRendering:
 # ---------------------------------------------------------------------------
 # K. OU detail page rendering
 # ---------------------------------------------------------------------------
+
 
 class TestOuDetailRendering:
     def test_ou_detail_returns_200_and_title(self, _client) -> None:

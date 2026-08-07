@@ -25,6 +25,7 @@ _WDIGEST_ID = r"HKLM\SYSTEM\CurrentControlSet\Control\Lsa:UseLogonCredential"
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_db_with_snapshots(n: int = 3) -> str:
     """Create a temp DB with *n* snapshots of the fixture estate.
 
@@ -71,7 +72,8 @@ def _make_db_with_snapshots(n: int = 3) -> str:
         # Extra identical snapshots if requested.
         for i in range(4, n + 1):
             save_estate(
-                conn, estate,
+                conn,
+                estate,
                 taken_at=datetime(2025, 1, i, tzinfo=UTC),
             )
     finally:
@@ -82,6 +84,7 @@ def _make_db_with_snapshots(n: int = 3) -> str:
 # ---------------------------------------------------------------------------
 # Core: compute_trend
 # ---------------------------------------------------------------------------
+
 
 class TestComputeTrend:
     def test_returns_correct_number_of_points(self) -> None:
@@ -218,6 +221,7 @@ class TestComputeTrend:
 # changes_only
 # ---------------------------------------------------------------------------
 
+
 class TestChangesOnly:
     def test_first_point_always_included(self) -> None:
         path = _make_db_with_snapshots(3)
@@ -268,6 +272,7 @@ class TestChangesOnly:
 # sparkline
 # ---------------------------------------------------------------------------
 
+
 class TestSparkline:
     def test_empty(self) -> None:
         assert sparkline([]) == ""
@@ -306,6 +311,7 @@ class TestSparkline:
 # CLI parity
 # ---------------------------------------------------------------------------
 
+
 class TestTrendsCli:
     def test_trends_cli_table(self, capsys) -> None:
         from gpo_lens.cli import main
@@ -337,11 +343,18 @@ class TestTrendsCli:
             assert isinstance(data, list)
             assert len(data) == 3
             expected_fields = {
-                "snapshot_id", "taken_at", "gpo_count",
-                "danger_finding_count", "cpassword_hit_count",
-                "ms16_072_vulnerable_count", "version_skew_count",
-                "broken_ref_count", "unlinked_count", "empty_count",
-                "total_settings", "coverage_gap_count",
+                "snapshot_id",
+                "taken_at",
+                "gpo_count",
+                "danger_finding_count",
+                "cpassword_hit_count",
+                "ms16_072_vulnerable_count",
+                "version_skew_count",
+                "broken_ref_count",
+                "unlinked_count",
+                "empty_count",
+                "total_settings",
+                "coverage_gap_count",
             }
             assert expected_fields <= set(data[0])
         finally:
@@ -465,11 +478,18 @@ class TestTrendsApi:
         body = resp.json()
         point = body["data"][0]
         expected = {
-            "snapshot_id", "taken_at", "gpo_count",
-            "danger_finding_count", "cpassword_hit_count",
-            "ms16_072_vulnerable_count", "version_skew_count",
-            "broken_ref_count", "unlinked_count", "empty_count",
-            "total_settings", "coverage_gap_count",
+            "snapshot_id",
+            "taken_at",
+            "gpo_count",
+            "danger_finding_count",
+            "cpassword_hit_count",
+            "ms16_072_vulnerable_count",
+            "version_skew_count",
+            "broken_ref_count",
+            "unlinked_count",
+            "empty_count",
+            "total_settings",
+            "coverage_gap_count",
         }
         assert expected <= set(point)
 

@@ -69,20 +69,20 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         if briefing is not None:
             missing = [v.key for v in briefing.vitals if v.key not in _VITAL_TARGETS]
             if missing:  # pragma: no cover - guarded by test_vital_keys_all_linked
-                raise RuntimeError(
-                    f"briefing vitals with no link target: {sorted(missing)}"
-                )
+                raise RuntimeError(f"briefing vitals with no link target: {sorted(missing)}")
             for vital in briefing.vitals:
                 name, params = _VITAL_TARGETS[vital.key]
                 href = str(request.url_for(name))
                 if params:
                     href += "?" + "&".join(f"{k}={v}" for k, v in params.items())
-                tiles.append({
-                    "label": vital.label,
-                    "value": vital.value,
-                    "tone": vital.tone,
-                    "href": href,
-                })
+                tiles.append(
+                    {
+                        "label": vital.label,
+                        "value": vital.value,
+                        "tone": vital.tone,
+                        "href": href,
+                    }
+                )
 
         return templates.TemplateResponse(
             request,

@@ -4,6 +4,7 @@ argparse subparsers with their own ``--json`` flag overwrote the value set by
 the global ``--json`` flag, so ``gpo-lens --json danger`` produced non-JSON
 output. These tests verify both flag positions produce identical JSON contracts.
 """
+
 from __future__ import annotations
 
 import json
@@ -60,37 +61,73 @@ def principal_db(tmp_path):
 
     estate = Estate(
         domain="test.local",
-        gpos=[Gpo(
-            id=gpo_id, name="gpo-test", domain="test.local",
-            created=None, modified=None, read=None,
-            computer_enabled=True, user_enabled=True,
-            computer_ver_ds=None, computer_ver_sysvol=None,
-            user_ver_ds=None, user_ver_sysvol=None,
-            sddl=None, owner=None, filter_data_available=False,
-            wmi_filter=None, sysvol_path=None,
-            settings=[Setting(
-                gpo_id=gpo_id, side="User", cse="Registry",
-                identity=r"HKCU\Software\A", display_name="A",
-                display_value="1", raw={}, from_disabled_side=False,
-            )],
-            delegation=[DelegationEntry(
-                gpo_id=gpo_id, trustee="Authenticated Users",
-                trustee_sid="S-1-5-11", permission="Apply Group Policy",
-                allowed=True,
-            )],
-        )],
-        soms=[Som(
-            path=root_dn, name="test", container_type="domain",
-            inheritance_blocked=False,
-            links=[SomLink(
-                gpo_id=gpo_id, order=1, enabled=True, enforced=False,
-                target=root_dn,
-            )],
-        )],
+        gpos=[
+            Gpo(
+                id=gpo_id,
+                name="gpo-test",
+                domain="test.local",
+                created=None,
+                modified=None,
+                read=None,
+                computer_enabled=True,
+                user_enabled=True,
+                computer_ver_ds=None,
+                computer_ver_sysvol=None,
+                user_ver_ds=None,
+                user_ver_sysvol=None,
+                sddl=None,
+                owner=None,
+                filter_data_available=False,
+                wmi_filter=None,
+                sysvol_path=None,
+                settings=[
+                    Setting(
+                        gpo_id=gpo_id,
+                        side="User",
+                        cse="Registry",
+                        identity=r"HKCU\Software\A",
+                        display_name="A",
+                        display_value="1",
+                        raw={},
+                        from_disabled_side=False,
+                    )
+                ],
+                delegation=[
+                    DelegationEntry(
+                        gpo_id=gpo_id,
+                        trustee="Authenticated Users",
+                        trustee_sid="S-1-5-11",
+                        permission="Apply Group Policy",
+                        allowed=True,
+                    )
+                ],
+            )
+        ],
+        soms=[
+            Som(
+                path=root_dn,
+                name="test",
+                container_type="domain",
+                inheritance_blocked=False,
+                links=[
+                    SomLink(
+                        gpo_id=gpo_id,
+                        order=1,
+                        enabled=True,
+                        enforced=False,
+                        target=root_dn,
+                    )
+                ],
+            )
+        ],
         principals={
             user_sid: ResolvedPrincipal(
-                sid=user_sid, name="TEST\\jdoe", sam="jdoe",
-                principal_type="User", domain="TEST", resolved=True,
+                sid=user_sid,
+                name="TEST\\jdoe",
+                sam="jdoe",
+                principal_type="User",
+                domain="TEST",
+                resolved=True,
             ),
         },
         group_members={},

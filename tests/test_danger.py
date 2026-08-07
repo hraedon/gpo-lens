@@ -74,6 +74,7 @@ def _reg_setting(
 # Bucket 2 — structural / attack-path
 # ---------------------------------------------------------------------------
 
+
 class TestGpoWritableByNonadmin:
     def test_detects_writable_gpo(self) -> None:
         # GA (Generic All) includes write rights; S-1-5-21-...-1000 is a
@@ -145,11 +146,11 @@ class TestGpoWritableByNonadmin:
         produced a finding on *every* GPO and buried the real signal."""
         sddl = (
             "O:DAG:DAD:PAI"
-            "(A;CI;CCDCLCSWRPWPDTLOSDRCWDWO;;;DA)"   # Domain Admins full control
-            "(A;CI;CCDCLCSWRPWPDTLOSDRCWDWO;;;EA)"   # Enterprise Admins full control
-            "(A;CI;CCDCLCSWRPWPDTLOSDRCWDWO;;;CO)"   # Creator Owner full control
-            "(A;CI;CCDCLCSWRPWPDTLOSDRCWDWO;;;SY)"   # SYSTEM full control
-            "(A;CI;RPLCRC;;;AU)"                     # Authenticated Users read+apply
+            "(A;CI;CCDCLCSWRPWPDTLOSDRCWDWO;;;DA)"  # Domain Admins full control
+            "(A;CI;CCDCLCSWRPWPDTLOSDRCWDWO;;;EA)"  # Enterprise Admins full control
+            "(A;CI;CCDCLCSWRPWPDTLOSDRCWDWO;;;CO)"  # Creator Owner full control
+            "(A;CI;CCDCLCSWRPWPDTLOSDRCWDWO;;;SY)"  # SYSTEM full control
+            "(A;CI;RPLCRC;;;AU)"  # Authenticated Users read+apply
         )
         gpo = _make_gpo(sddl=sddl)
         findings = gpo_writable_by_nonadmin(Estate(gpos=[gpo]))
@@ -162,12 +163,19 @@ class TestGpoWritableByNonadmin:
         sid = "S-1-5-21-1-2-3-1000"
         sddl = f"D:(A;;GA;;;{sid})"
         gpo = _make_gpo(sddl=sddl, name="writable-gpo")
-        estate = Estate(gpos=[gpo], principals={
-            sid.lower(): ResolvedPrincipal(
-                sid=sid.lower(), name="TEST\\GPO-Admins", sam="GPO-Admins",
-                principal_type="Group", domain="TEST", resolved=True,
-            ),
-        })
+        estate = Estate(
+            gpos=[gpo],
+            principals={
+                sid.lower(): ResolvedPrincipal(
+                    sid=sid.lower(),
+                    name="TEST\\GPO-Admins",
+                    sam="GPO-Admins",
+                    principal_type="Group",
+                    domain="TEST",
+                    resolved=True,
+                ),
+            },
+        )
         findings = gpo_writable_by_nonadmin(estate)
         assert len(findings) == 1
         assert "TEST\\GPO-Admins" in findings[0].detail
@@ -190,12 +198,19 @@ class TestGpoWritableByNonadmin:
         sid = "S-1-5-21-1-2-3-1000"
         sddl = f"O:{sid}D:(A;;GA;;;BA)"
         gpo = _make_gpo(sddl=sddl, name="owned-gpo")
-        estate = Estate(gpos=[gpo], principals={
-            sid.lower(): ResolvedPrincipal(
-                sid=sid.lower(), name="TEST\\Owner", sam="Owner",
-                principal_type="User", domain="TEST", resolved=True,
-            ),
-        })
+        estate = Estate(
+            gpos=[gpo],
+            principals={
+                sid.lower(): ResolvedPrincipal(
+                    sid=sid.lower(),
+                    name="TEST\\Owner",
+                    sam="Owner",
+                    principal_type="User",
+                    domain="TEST",
+                    resolved=True,
+                ),
+            },
+        )
         findings = gpo_writable_by_nonadmin(estate)
         owner = [f for f in findings if f.check_id == "gpo_owner_nonadmin"]
         assert len(owner) == 1
@@ -215,13 +230,13 @@ class TestLocalAdminPush:
             '  <Group name="Administrators (local)" changed="2025-06-01">\n'
             '    <Properties action="UPDATE" groupName="Administrators"\n'
             '      groupSid="S-1-5-32-544" removePolicy="0">\n'
-            '      <Members>\n'
+            "      <Members>\n"
             '        <Member name="HELPDESK\\Tier1Admins" action="ADD"\n'
             '          sid="S-1-5-21-1-2-3-1101"/>\n'
-            '      </Members>\n'
-            '    </Properties>\n'
-            '  </Group>\n'
-            '</Groups>\n',
+            "      </Members>\n"
+            "    </Properties>\n"
+            "  </Group>\n"
+            "</Groups>\n",
             encoding="utf-8",
         )
         return str(sysvol)
@@ -252,12 +267,12 @@ class TestLocalAdminPush:
             '  <Group name="Remote Desktop Users" changed="2025-06-01">\n'
             '    <Properties action="UPDATE" groupName="Remote Desktop Users"\n'
             '      groupSid="S-1-5-32-555" removePolicy="0">\n'
-            '      <Members>\n'
+            "      <Members>\n"
             '        <Member name="HELPDESK\\Users" action="ADD" sid="S-1-5-21-1-2-3-9"/>\n'
-            '      </Members>\n'
-            '    </Properties>\n'
-            '  </Group>\n'
-            '</Groups>\n',
+            "      </Members>\n"
+            "    </Properties>\n"
+            "  </Group>\n"
+            "</Groups>\n",
             encoding="utf-8",
         )
         gpo = _make_gpo(sysvol_path=str(sysvol))
@@ -274,13 +289,13 @@ class TestLocalAdminPush:
             '  <Group name="Administrators (local)" changed="2025-06-01">\n'
             '    <Properties action="UPDATE" groupName="Administrators"\n'
             '      groupSid="S-1-5-32-544" removePolicy="0">\n'
-            '      <Members>\n'
+            "      <Members>\n"
             '        <Member name="HELPDESK\\OldAdmin" action="REMOVE"\n'
             '         sid="S-1-5-21-1-2-3-1102"/>\n'
-            '      </Members>\n'
-            '    </Properties>\n'
-            '  </Group>\n'
-            '</Groups>\n',
+            "      </Members>\n"
+            "    </Properties>\n"
+            "  </Group>\n"
+            "</Groups>\n",
             encoding="utf-8",
         )
         gpo = _make_gpo(sysvol_path=str(sysvol))
@@ -293,8 +308,11 @@ class TestOverbroadApplyGroupPolicy:
         gpo = _make_gpo(
             delegation=[
                 DelegationEntry(
-                    gpo_id="g1", trustee="Everyone", trustee_sid="S-1-1-0",
-                    permission="Apply Group Policy", allowed=True,
+                    gpo_id="g1",
+                    trustee="Everyone",
+                    trustee_sid="S-1-1-0",
+                    permission="Apply Group Policy",
+                    allowed=True,
                 ),
             ],
         )
@@ -311,8 +329,11 @@ class TestOverbroadApplyGroupPolicy:
         gpo = _make_gpo(
             delegation=[
                 DelegationEntry(
-                    gpo_id="g1", trustee="Anonymous", trustee_sid="S-1-5-7",
-                    permission="Apply Group Policy", allowed=True,
+                    gpo_id="g1",
+                    trustee="Anonymous",
+                    trustee_sid="S-1-5-7",
+                    permission="Apply Group Policy",
+                    allowed=True,
                 ),
             ],
         )
@@ -323,8 +344,11 @@ class TestOverbroadApplyGroupPolicy:
         gpo = _make_gpo(
             delegation=[
                 DelegationEntry(
-                    gpo_id="g1", trustee="Helpdesk", trustee_sid="S-1-5-21-1-2-3-1000",
-                    permission="Apply Group Policy", allowed=True,
+                    gpo_id="g1",
+                    trustee="Helpdesk",
+                    trustee_sid="S-1-5-21-1-2-3-1000",
+                    permission="Apply Group Policy",
+                    allowed=True,
                 ),
             ],
         )
@@ -335,8 +359,11 @@ class TestOverbroadApplyGroupPolicy:
         gpo = _make_gpo(
             delegation=[
                 DelegationEntry(
-                    gpo_id="g1", trustee="Everyone", trustee_sid="S-1-1-0",
-                    permission="Apply Group Policy", allowed=False,
+                    gpo_id="g1",
+                    trustee="Everyone",
+                    trustee_sid="S-1-1-0",
+                    permission="Apply Group Policy",
+                    allowed=False,
                 ),
             ],
         )
@@ -358,9 +385,11 @@ class TestOverbroadApplyGroupPolicy:
             sddl="D:(A;;GA;;;WD)",
             delegation=[
                 DelegationEntry(
-                    gpo_id="g1", trustee="Helpdesk",
+                    gpo_id="g1",
+                    trustee="Helpdesk",
                     trustee_sid="S-1-5-21-1-2-3-1000",
-                    permission="Apply Group Policy", allowed=True,
+                    permission="Apply Group Policy",
+                    allowed=True,
                 ),
             ],
         )
@@ -372,8 +401,11 @@ class TestOverbroadApplyGroupPolicy:
         gpo = _make_gpo(
             delegation=[
                 DelegationEntry(
-                    gpo_id="g1", trustee="Everyone", trustee_sid="S-1-1-0",
-                    permission="Apply Group Policy", allowed=True,
+                    gpo_id="g1",
+                    trustee="Everyone",
+                    trustee_sid="S-1-1-0",
+                    permission="Apply Group Policy",
+                    allowed=True,
                 ),
             ],
         )
@@ -403,18 +435,28 @@ class TestOverbroadApplyGroupPolicy:
         gpo = _make_gpo(
             delegation=[
                 DelegationEntry(
-                    gpo_id="g1", trustee="Everyone", trustee_sid=sid,
-                    permission="Apply Group Policy", allowed=True,
+                    gpo_id="g1",
+                    trustee="Everyone",
+                    trustee_sid=sid,
+                    permission="Apply Group Policy",
+                    allowed=True,
                 ),
             ],
         )
         estate_bare = Estate(gpos=[gpo])
-        estate_resolved = Estate(gpos=[gpo], principals={
-            sid.lower(): ResolvedPrincipal(
-                sid=sid.lower(), name="Everyone", sam="Everyone",
-                principal_type="WellKnown", domain="", resolved=True,
-            ),
-        })
+        estate_resolved = Estate(
+            gpos=[gpo],
+            principals={
+                sid.lower(): ResolvedPrincipal(
+                    sid=sid.lower(),
+                    name="Everyone",
+                    sam="Everyone",
+                    principal_type="WellKnown",
+                    domain="",
+                    resolved=True,
+                ),
+            },
+        )
         bare = overbroad_apply_group_policy(estate_bare)
         resolved = overbroad_apply_group_policy(estate_resolved)
         assert len(bare) == len(resolved) == 1
@@ -427,12 +469,18 @@ class TestOverbroadApplyGroupPolicy:
         gpo = _make_gpo(
             delegation=[
                 DelegationEntry(
-                    gpo_id="g1", trustee="Everyone", trustee_sid="S-1-1-0",
-                    permission="Apply Group Policy", allowed=True,
+                    gpo_id="g1",
+                    trustee="Everyone",
+                    trustee_sid="S-1-1-0",
+                    permission="Apply Group Policy",
+                    allowed=True,
                 ),
                 DelegationEntry(
-                    gpo_id="g1", trustee="Everyone", trustee_sid="S-1-1-0",
-                    permission="Apply Group Policy", allowed=False,
+                    gpo_id="g1",
+                    trustee="Everyone",
+                    trustee_sid="S-1-1-0",
+                    permission="Apply Group Policy",
+                    allowed=False,
                 ),
             ],
         )
@@ -453,27 +501,38 @@ class TestOverbroadApplyGroupPolicy:
 # Bucket 1 — setting-value dangers
 # ---------------------------------------------------------------------------
 
+
 class TestDangerRules:
     def test_load_danger_rules_ships_cited_set(self) -> None:
         rules = load_danger_rules()
         ids = {r.id for r in rules}
-        assert {"wdigest_creds", "smb_signing_disabled", "lm_hash_enabled",
-                "autoadmin_logon", "ntlmv1_allowed"} <= ids
+        assert {
+            "wdigest_creds",
+            "smb_signing_disabled",
+            "lm_hash_enabled",
+            "autoadmin_logon",
+            "ntlmv1_allowed",
+        } <= ids
         for r in rules:
             assert r.reference, f"rule {r.id} has no citation"
             assert r.severity in ("critical", "high", "medium", "low")
 
     def test_wdigest_creds(self) -> None:
         rule = DangerRule(
-            id="wdigest_creds", title="WDigest", severity="critical",
+            id="wdigest_creds",
+            title="WDigest",
+            severity="critical",
             applies="Machine",
             identity=r"HKLM\SYSTEM\CurrentControlSet\Control\Lsa:UseLogonCredential",
-            predicate="equals", value="1",
+            predicate="equals",
+            value="1",
             reference="https://attack.mitre.org/techniques/T1003/001/",
         )
-        gpo = _make_gpo(settings=[
-            _reg_setting(DEFAULT_GID, _WDIGEST_ID, "1"),
-        ])
+        gpo = _make_gpo(
+            settings=[
+                _reg_setting(DEFAULT_GID, _WDIGEST_ID, "1"),
+            ]
+        )
         findings = evaluate_danger_rules(Estate(gpos=[gpo]), [rule])
         assert len(findings) == 1
         assert findings[0].severity == "critical"
@@ -481,113 +540,168 @@ class TestDangerRules:
 
     def test_smb_signing_disabled(self) -> None:
         rule = DangerRule(
-            id="smb_signing_disabled", title="SMB signing", severity="high",
+            id="smb_signing_disabled",
+            title="SMB signing",
+            severity="high",
             applies="Machine",
             identity=r"HKLM\SYSTEM\CurrentControlSet\Services\LanmanWorkstation\Parameters:RequireSecuritySignature",
-            predicate="equals", value="0",
+            predicate="equals",
+            value="0",
             reference="https://attack.mitre.org/techniques/T1557/001/",
         )
-        gpo = _make_gpo(settings=[
-            _reg_setting(
-                DEFAULT_GID,
-                r"HKLM\SYSTEM\CurrentControlSet\Services\LanmanWorkstation\Parameters:RequireSecuritySignature",
-                "0",
-            ),
-        ])
+        gpo = _make_gpo(
+            settings=[
+                _reg_setting(
+                    DEFAULT_GID,
+                    r"HKLM\SYSTEM\CurrentControlSet\Services\LanmanWorkstation\Parameters:RequireSecuritySignature",
+                    "0",
+                ),
+            ]
+        )
         findings = evaluate_danger_rules(Estate(gpos=[gpo]), [rule])
         assert len(findings) == 1
         assert findings[0].severity == "high"
 
     def test_no_match_when_value_safe(self) -> None:
         rule = DangerRule(
-            id="wdigest_creds", title="WDigest", severity="critical",
+            id="wdigest_creds",
+            title="WDigest",
+            severity="critical",
             applies="Machine",
             identity=r"HKLM\SYSTEM\CurrentControlSet\Control\Lsa:UseLogonCredential",
-            predicate="equals", value="1",
+            predicate="equals",
+            value="1",
             reference="ref",
         )
-        gpo = _make_gpo(settings=[
-            _reg_setting(DEFAULT_GID, _WDIGEST_ID, "0"),
-        ])
+        gpo = _make_gpo(
+            settings=[
+                _reg_setting(DEFAULT_GID, _WDIGEST_ID, "0"),
+            ]
+        )
         assert evaluate_danger_rules(Estate(gpos=[gpo]), [rule]) == []
 
     def test_case_insensitive_identity(self) -> None:
         rule = DangerRule(
-            id="x", title="x", severity="high", applies="Machine",
+            id="x",
+            title="x",
+            severity="high",
+            applies="Machine",
             identity=r"hklm\system\currentcontrolset\control\lsa:uselogoncredential",
-            predicate="equals", value="1", reference="ref",
+            predicate="equals",
+            value="1",
+            reference="ref",
         )
-        gpo = _make_gpo(settings=[
-            _reg_setting(DEFAULT_GID, _WDIGEST_ID, "1"),
-        ])
+        gpo = _make_gpo(
+            settings=[
+                _reg_setting(DEFAULT_GID, _WDIGEST_ID, "1"),
+            ]
+        )
         assert len(evaluate_danger_rules(Estate(gpos=[gpo]), [rule])) == 1
 
     def test_side_filter_machine_excludes_user(self) -> None:
         rule = DangerRule(
-            id="x", title="x", severity="high", applies="Machine",
-            identity=r"HKLM\Key:Val", predicate="equals", value="1", reference="ref",
+            id="x",
+            title="x",
+            severity="high",
+            applies="Machine",
+            identity=r"HKLM\Key:Val",
+            predicate="equals",
+            value="1",
+            reference="ref",
         )
-        gpo = _make_gpo(settings=[
-            _reg_setting(DEFAULT_GID, r"HKLM\Key:Val", "1", side="User"),
-        ])
+        gpo = _make_gpo(
+            settings=[
+                _reg_setting(DEFAULT_GID, r"HKLM\Key:Val", "1", side="User"),
+            ]
+        )
         assert evaluate_danger_rules(Estate(gpos=[gpo]), [rule]) == []
 
     def test_in_predicate(self) -> None:
         rule = DangerRule(
-            id="ntlmv1", title="NTLMv1", severity="high", applies="Machine",
+            id="ntlmv1",
+            title="NTLMv1",
+            severity="high",
+            applies="Machine",
             identity=r"HKLM\SYSTEM\CurrentControlSet\Control\Lsa:LmCompatibilityLevel",
-            predicate="in", value="0,1", reference="ref",
+            predicate="in",
+            value="0,1",
+            reference="ref",
         )
         for bad in ("0", "1"):
-            gpo = _make_gpo(settings=[
-                _reg_setting(DEFAULT_GID, _LMCOMP_ID, bad),
-            ])
+            gpo = _make_gpo(
+                settings=[
+                    _reg_setting(DEFAULT_GID, _LMCOMP_ID, bad),
+                ]
+            )
             assert len(evaluate_danger_rules(Estate(gpos=[gpo]), [rule])) == 1, bad
-        gpo_safe = _make_gpo(settings=[
-            _reg_setting(DEFAULT_GID, _LMCOMP_ID, "3"),
-        ])
+        gpo_safe = _make_gpo(
+            settings=[
+                _reg_setting(DEFAULT_GID, _LMCOMP_ID, "3"),
+            ]
+        )
         assert evaluate_danger_rules(Estate(gpos=[gpo_safe]), [rule]) == []
 
     def test_admx_name_keyed_resolves(self) -> None:
         from gpo_lens.admx_parser import AdmxPolicy, PolicyDefinitions
 
-        admx = PolicyDefinitions(policies=[
-            AdmxPolicy(
-                name="WDigestCreds", class_scope="Machine",
-                key=r"HKLM\SYSTEM\CurrentControlSet\Control\Lsa",
-                value_name="UseLogonCredential",
-                display_name_ref="$(string.WDigestCreds)",
-                display_name="WDigest plaintext credential caching",
-                explain_text="",
-            )
-        ])
+        admx = PolicyDefinitions(
+            policies=[
+                AdmxPolicy(
+                    name="WDigestCreds",
+                    class_scope="Machine",
+                    key=r"HKLM\SYSTEM\CurrentControlSet\Control\Lsa",
+                    value_name="UseLogonCredential",
+                    display_name_ref="$(string.WDigestCreds)",
+                    display_name="WDigest plaintext credential caching",
+                    explain_text="",
+                )
+            ]
+        )
         rule = DangerRule(
-            id="wdigest", title="WDigest", severity="critical", applies="Machine",
+            id="wdigest",
+            title="WDigest",
+            severity="critical",
+            applies="Machine",
             identity="WDigest plaintext credential caching",
-            predicate="equals", value="1",
+            predicate="equals",
+            value="1",
             reference="https://attack.mitre.org/techniques/T1003/001/",
         )
-        gpo = _make_gpo(settings=[
-            _reg_setting(DEFAULT_GID, _WDIGEST_ID, "1"),
-        ])
+        gpo = _make_gpo(
+            settings=[
+                _reg_setting(DEFAULT_GID, _WDIGEST_ID, "1"),
+            ]
+        )
         findings = evaluate_danger_rules(Estate(gpos=[gpo]), [rule], admx=admx)
         assert len(findings) == 1
         assert findings[0].check_id == "wdigest"
 
     def test_admx_none_degrades_gracefully(self) -> None:
         name_keyed = DangerRule(
-            id="name_keyed", title="x", severity="high", applies="Machine",
+            id="name_keyed",
+            title="x",
+            severity="high",
+            applies="Machine",
             identity="Some Policy Display Name",
-            predicate="equals", value="1", reference="ref",
+            predicate="equals",
+            value="1",
+            reference="ref",
         )
         identity_keyed = DangerRule(
-            id="identity_keyed", title="y", severity="high", applies="Machine",
+            id="identity_keyed",
+            title="y",
+            severity="high",
+            applies="Machine",
             identity=r"HKLM\SYSTEM\CurrentControlSet\Control\Lsa:UseLogonCredential",
-            predicate="equals", value="1", reference="ref2",
+            predicate="equals",
+            value="1",
+            reference="ref2",
         )
-        gpo = _make_gpo(settings=[
-            _reg_setting(DEFAULT_GID, _WDIGEST_ID, "1"),
-        ])
+        gpo = _make_gpo(
+            settings=[
+                _reg_setting(DEFAULT_GID, _WDIGEST_ID, "1"),
+            ]
+        )
         estate = Estate(gpos=[gpo])
         # No crash; name-keyed produces nothing, identity-keyed still fires.
         findings = evaluate_danger_rules(estate, [name_keyed, identity_keyed], admx=None)
@@ -596,16 +710,30 @@ class TestDangerRules:
 
     def test_blocked_settings_skipped(self) -> None:
         rule = DangerRule(
-            id="x", title="x", severity="critical", applies="Machine",
-            identity=r"HKLM\Key:Val", predicate="equals", value="1", reference="ref",
+            id="x",
+            title="x",
+            severity="critical",
+            applies="Machine",
+            identity=r"HKLM\Key:Val",
+            predicate="equals",
+            value="1",
+            reference="ref",
         )
-        gpo = _make_gpo(settings=[
-            Setting(
-                gpo_id=DEFAULT_GID, side="Computer", cse="Registry",
-                identity=r"HKLM\Key:Val", display_name="Val", display_value="1",
-                raw={}, from_disabled_side=False, source_state="blocked",
-            ),
-        ])
+        gpo = _make_gpo(
+            settings=[
+                Setting(
+                    gpo_id=DEFAULT_GID,
+                    side="Computer",
+                    cse="Registry",
+                    identity=r"HKLM\Key:Val",
+                    display_name="Val",
+                    display_value="1",
+                    raw={},
+                    from_disabled_side=False,
+                    source_state="blocked",
+                ),
+            ]
+        )
         estate = Estate(gpos=[gpo])
         assert evaluate_danger_rules(estate, [rule]) == []
 
@@ -613,16 +741,29 @@ class TestDangerRules:
         """M-2: CSE name comparison must be case-insensitive so a lowercase
         ``"registry"`` is still recognized."""
         rule = DangerRule(
-            id="x", title="x", severity="high", applies="Machine",
-            identity=r"HKLM\Key:Val", predicate="equals", value="1", reference="ref",
+            id="x",
+            title="x",
+            severity="high",
+            applies="Machine",
+            identity=r"HKLM\Key:Val",
+            predicate="equals",
+            value="1",
+            reference="ref",
         )
-        gpo = _make_gpo(settings=[
-            Setting(
-                gpo_id=DEFAULT_GID, side="Computer", cse="registry",
-                identity=r"HKLM\Key:Val", display_name="Val", display_value="1",
-                raw={}, from_disabled_side=False,
-            ),
-        ])
+        gpo = _make_gpo(
+            settings=[
+                Setting(
+                    gpo_id=DEFAULT_GID,
+                    side="Computer",
+                    cse="registry",
+                    identity=r"HKLM\Key:Val",
+                    display_name="Val",
+                    display_value="1",
+                    raw={},
+                    from_disabled_side=False,
+                ),
+            ]
+        )
         estate = Estate(gpos=[gpo])
         assert len(evaluate_danger_rules(estate, [rule])) == 1
 
@@ -633,12 +774,13 @@ class TestDangerRules:
         bad = tmp_path / "bad.toml"
         bad.write_text("not valid toml {{{{", encoding="utf-8")
         from gpo_lens.danger import _load_rules_file
+
         with _warnings.catch_warnings(record=True) as caught:
             _warnings.simplefilter("always")
             assert _load_rules_file(bad) == []
-        assert any(
-            "Failed to load danger rules" in str(w.message) for w in caught
-        ), "malformed TOML must warn loudly, not silently"
+        assert any("Failed to load danger rules" in str(w.message) for w in caught), (
+            "malformed TOML must warn loudly, not silently"
+        )
 
     def test_load_danger_rules_raises_when_shipped_file_yields_zero_rules(
         self, tmp_path: Path, monkeypatch
@@ -652,9 +794,7 @@ class TestDangerRules:
         from gpo_lens import danger as danger_mod
 
         # Force the shipped-path lookup to return [].
-        monkeypatch.setattr(
-            danger_mod, "_load_rules_file", lambda _path: []
-        )
+        monkeypatch.setattr(danger_mod, "_load_rules_file", lambda _path: [])
         monkeypatch.delenv("GPO_LENS_DANGER_RULES_DIR", raising=False)
         with pytest.raises(RuntimeError, match="failed to load or contains no rules"):
             danger_mod.load_danger_rules()
@@ -669,22 +809,18 @@ class TestDangerRules:
 
         override_dir = tmp_path / "overrides"
         override_dir.mkdir()
-        (override_dir / "broken.toml").write_text(
-            "not valid toml {{{{", encoding="utf-8"
-        )
+        (override_dir / "broken.toml").write_text("not valid toml {{{{", encoding="utf-8")
         monkeypatch.setenv("GPO_LENS_DANGER_RULES_DIR", str(override_dir))
         with _warnings.catch_warnings(record=True) as caught:
             _warnings.simplefilter("always")
             rules = danger_mod.load_danger_rules()
         assert rules, "shipped rules must still load despite bad override"
-        assert any(
-            "broken.toml" in str(w.message) for w in caught
-        ), "malformed override must warn"
+        assert any("broken.toml" in str(w.message) for w in caught), "malformed override must warn"
 
     def test_invalid_predicate_skipped_at_load(self, tmp_path: Path) -> None:
         toml_file = tmp_path / "rules.toml"
         toml_file.write_text(
-            '[[rules]]\n'
+            "[[rules]]\n"
             'id = "bad"\n'
             'title = "Bad"\n'
             'severity = "high"\n'
@@ -696,6 +832,7 @@ class TestDangerRules:
             encoding="utf-8",
         )
         from gpo_lens.danger import _load_rules_file
+
         rules = _load_rules_file(toml_file)
         assert rules == []
 
@@ -704,12 +841,12 @@ class TestDangerRules:
 
         toml_file = tmp_path / "rules.toml"
         toml_file.write_text(
-            '[[rules]]\n'
+            "[[rules]]\n"
             'id = "missing_fields"\n'
             'title = "Has most fields"\n'
             'predicate = "equals"\n'
             'value = "1"\n'
-            '[[rules]]\n'
+            "[[rules]]\n"
             'id = "complete"\n'
             'title = "Complete"\n'
             'severity = "high"\n'
@@ -721,6 +858,7 @@ class TestDangerRules:
             encoding="utf-8",
         )
         from gpo_lens.danger import _load_rules_file
+
         with _warnings.catch_warnings(record=True) as caught:
             _warnings.simplefilter("always")
             rules = _load_rules_file(toml_file)
@@ -737,7 +875,7 @@ class TestDangerRules:
 
         toml_file = tmp_path / "rules.toml"
         toml_file.write_text(
-            '[[rules]]\n'
+            "[[rules]]\n"
             'id = "no_severity"\n'
             'title = "No severity"\n'
             'applies = "Machine"\n'
@@ -748,6 +886,7 @@ class TestDangerRules:
             encoding="utf-8",
         )
         from gpo_lens.danger import _load_rules_file
+
         with _warnings.catch_warnings(record=True) as caught:
             _warnings.simplefilter("always")
             rules = _load_rules_file(toml_file)
@@ -758,7 +897,7 @@ class TestDangerRules:
         """Unknown fields must not break the loader (forward-compatible)."""
         toml_file = tmp_path / "rules.toml"
         toml_file.write_text(
-            '[[rules]]\n'
+            "[[rules]]\n"
             'id = "with_extra"\n'
             'title = "Extra fields"\n'
             'severity = "high"\n'
@@ -771,6 +910,7 @@ class TestDangerRules:
             encoding="utf-8",
         )
         from gpo_lens.danger import _load_rules_file
+
         rules = _load_rules_file(toml_file)
         assert len(rules) == 1
         assert rules[0].id == "with_extra"
@@ -782,6 +922,7 @@ class TestDangerRules:
         toml_file = tmp_path / "rules.toml"
         toml_file.write_text("rules = 42\n", encoding="utf-8")
         from gpo_lens.danger import _load_rules_file
+
         with _warnings.catch_warnings(record=True) as caught:
             _warnings.simplefilter("always")
             rules = _load_rules_file(toml_file)
@@ -794,14 +935,15 @@ class TestDangerRules:
 
         toml_file = tmp_path / "rules.toml"
         toml_file.write_text(
-            'rules = ['
+            "rules = ["
             '{id = "ok", title = "Ok", severity = "high", '
             'applies = "Machine", identity = "HKLM\\\\K:V", '
             'predicate = "equals", value = "1", reference = "ref"}, 42'
-            ']\n',
+            "]\n",
             encoding="utf-8",
         )
         from gpo_lens.danger import _load_rules_file
+
         with _warnings.catch_warnings(record=True) as caught:
             _warnings.simplefilter("always")
             rules = _load_rules_file(toml_file)
@@ -814,11 +956,12 @@ class TestDangerRules:
 # Compliance framework mapping
 # ---------------------------------------------------------------------------
 
+
 class TestComplianceMapping:
     def test_compliance_parsed_from_toml(self, tmp_path: Path) -> None:
         toml_file = tmp_path / "rules.toml"
         toml_file.write_text(
-            '[[rules]]\n'
+            "[[rules]]\n"
             'id = "with_compliance"\n'
             'title = "Test"\n'
             'severity = "high"\n'
@@ -827,22 +970,21 @@ class TestComplianceMapping:
             'predicate = "equals"\n'
             'value = "1"\n'
             'reference = "ref"\n'
-            '[[rules.compliance]]\n'
+            "[[rules.compliance]]\n"
             'framework = "CIS"\n'
             'control_id = "2.3.11.1"\n'
-            '[[rules.compliance]]\n'
+            "[[rules.compliance]]\n"
             'framework = "STIG"\n'
             'control_id = "WN10-CC-000001"\n',
             encoding="utf-8",
         )
         from gpo_lens.danger import _load_rules_file
+
         rules = _load_rules_file(toml_file)
         assert len(rules) == 1
         rule = rules[0]
         assert len(rule.compliance) == 2
-        assert rule.compliance[0] == ComplianceMapping(
-            framework="CIS", control_id="2.3.11.1"
-        )
+        assert rule.compliance[0] == ComplianceMapping(framework="CIS", control_id="2.3.11.1")
         assert rule.compliance[1] == ComplianceMapping(
             framework="STIG", control_id="WN10-CC-000001"
         )
@@ -850,7 +992,7 @@ class TestComplianceMapping:
     def test_rules_without_compliance_default_empty(self, tmp_path: Path) -> None:
         toml_file = tmp_path / "rules.toml"
         toml_file.write_text(
-            '[[rules]]\n'
+            "[[rules]]\n"
             'id = "no_compliance"\n'
             'title = "Test"\n'
             'severity = "high"\n'
@@ -862,37 +1004,51 @@ class TestComplianceMapping:
             encoding="utf-8",
         )
         from gpo_lens.danger import _load_rules_file
+
         rules = _load_rules_file(toml_file)
         assert len(rules) == 1
         assert rules[0].compliance == ()
 
     def test_compliance_propagated_to_finding(self) -> None:
         rule = DangerRule(
-            id="wdigest_creds", title="WDigest", severity="critical",
+            id="wdigest_creds",
+            title="WDigest",
+            severity="critical",
             applies="Machine",
             identity=r"HKLM\SYSTEM\CurrentControlSet\Control\Lsa:UseLogonCredential",
-            predicate="equals", value="1",
+            predicate="equals",
+            value="1",
             reference="https://attack.mitre.org/techniques/T1003/001/",
             compliance=(
                 ComplianceMapping(framework="CIS", control_id="2.3.11.1"),
                 ComplianceMapping(framework="STIG", control_id="WN10-CC-000001"),
             ),
         )
-        gpo = _make_gpo(settings=[
-            _reg_setting(DEFAULT_GID, _WDIGEST_ID, "1"),
-        ])
+        gpo = _make_gpo(
+            settings=[
+                _reg_setting(DEFAULT_GID, _WDIGEST_ID, "1"),
+            ]
+        )
         findings = evaluate_danger_rules(Estate(gpos=[gpo]), [rule])
         assert len(findings) == 1
         assert findings[0].compliance == rule.compliance
 
     def test_compliance_empty_when_not_set_on_rule(self) -> None:
         rule = DangerRule(
-            id="x", title="x", severity="high", applies="Machine",
-            identity=r"HKLM\Key:Val", predicate="equals", value="1", reference="ref",
+            id="x",
+            title="x",
+            severity="high",
+            applies="Machine",
+            identity=r"HKLM\Key:Val",
+            predicate="equals",
+            value="1",
+            reference="ref",
         )
-        gpo = _make_gpo(settings=[
-            _reg_setting(DEFAULT_GID, r"HKLM\Key:Val", "1"),
-        ])
+        gpo = _make_gpo(
+            settings=[
+                _reg_setting(DEFAULT_GID, r"HKLM\Key:Val", "1"),
+            ]
+        )
         findings = evaluate_danger_rules(Estate(gpos=[gpo]), [rule])
         assert len(findings) == 1
         assert findings[0].compliance == ()
@@ -900,7 +1056,7 @@ class TestComplianceMapping:
     def test_invalid_compliance_entry_skipped(self, tmp_path: Path) -> None:
         toml_file = tmp_path / "rules.toml"
         toml_file.write_text(
-            '[[rules]]\n'
+            "[[rules]]\n"
             'id = "mixed_compliance"\n'
             'title = "Test"\n'
             'severity = "high"\n'
@@ -909,16 +1065,17 @@ class TestComplianceMapping:
             'predicate = "equals"\n'
             'value = "1"\n'
             'reference = "ref"\n'
-            '[[rules.compliance]]\n'
+            "[[rules.compliance]]\n"
             'framework = "CIS"\n'
             'control_id = "2.3.11.1"\n'
-            '[[rules.compliance]]\n'
+            "[[rules.compliance]]\n"
             'framework = "STIG"\n',
             encoding="utf-8",
         )
         import warnings as _warnings
 
         from gpo_lens.danger import _load_rules_file
+
         with _warnings.catch_warnings(record=True) as caught:
             _warnings.simplefilter("always")
             rules = _load_rules_file(toml_file)
@@ -930,7 +1087,7 @@ class TestComplianceMapping:
     def test_compliance_not_a_list_defaults_empty(self, tmp_path: Path) -> None:
         toml_file = tmp_path / "rules.toml"
         toml_file.write_text(
-            '[[rules]]\n'
+            "[[rules]]\n"
             'id = "scalar_compliance"\n'
             'title = "Test"\n'
             'severity = "high"\n'
@@ -943,6 +1100,7 @@ class TestComplianceMapping:
             encoding="utf-8",
         )
         from gpo_lens.danger import _load_rules_file
+
         rules = _load_rules_file(toml_file)
         assert len(rules) == 1
         assert rules[0].compliance == ()
@@ -953,7 +1111,7 @@ class TestComplianceMapping:
 
         toml_file = tmp_path / "rules.toml"
         toml_file.write_text(
-            '[[rules]]\n'
+            "[[rules]]\n"
             'id = "empty_fw"\n'
             'title = "Test"\n'
             'severity = "high"\n'
@@ -962,15 +1120,16 @@ class TestComplianceMapping:
             'predicate = "equals"\n'
             'value = "1"\n'
             'reference = "ref"\n'
-            '[[rules.compliance]]\n'
+            "[[rules.compliance]]\n"
             'framework = ""\n'
             'control_id = "WN10-CC-000038"\n'
-            '[[rules.compliance]]\n'
+            "[[rules.compliance]]\n"
             'framework = "CIS"\n'
             'control_id = "18.6.2"\n',
             encoding="utf-8",
         )
         from gpo_lens.danger import _load_rules_file
+
         with _warnings.catch_warnings(record=True) as caught:
             _warnings.simplefilter("always")
             rules = _load_rules_file(toml_file)
@@ -986,7 +1145,7 @@ class TestComplianceMapping:
 
         toml_file = tmp_path / "rules.toml"
         toml_file.write_text(
-            '[[rules]]\n'
+            "[[rules]]\n"
             'id = "ws_cid"\n'
             'title = "Test"\n'
             'severity = "high"\n'
@@ -995,12 +1154,13 @@ class TestComplianceMapping:
             'predicate = "equals"\n'
             'value = "1"\n'
             'reference = "ref"\n'
-            '[[rules.compliance]]\n'
+            "[[rules.compliance]]\n"
             'framework = "STIG"\n'
             'control_id = "   "\n',
             encoding="utf-8",
         )
         from gpo_lens.danger import _load_rules_file
+
         with _warnings.catch_warnings(record=True) as caught:
             _warnings.simplefilter("always")
             rules = _load_rules_file(toml_file)
@@ -1012,10 +1172,13 @@ class TestComplianceMapping:
         """An ``absent`` predicate rule that fires (setting not found estate-wide)
         must propagate its compliance mappings to the finding."""
         rule = DangerRule(
-            id="missing_setting", title="Required setting is absent",
-            severity="high", applies="Machine",
+            id="missing_setting",
+            title="Required setting is absent",
+            severity="high",
+            applies="Machine",
             identity=r"HKLM\SYSTEM\SomeKey:MissingValue",
-            predicate="absent", value="",
+            predicate="absent",
+            value="",
             reference="https://example.com/ref",
             compliance=(
                 ComplianceMapping(framework="CIS", control_id="18.6.2"),
@@ -1068,13 +1231,13 @@ class TestBucket2Compliance:
             '  <Group name="Administrators (local)" changed="2025-06-01">\n'
             '    <Properties action="UPDATE" groupName="Administrators"\n'
             '      groupSid="S-1-5-32-544" removePolicy="0">\n'
-            '      <Members>\n'
+            "      <Members>\n"
             '        <Member name="HELPDESK\\Tier1Admins" action="ADD"\n'
             '          sid="S-1-5-21-1-2-3-1101"/>\n'
-            '      </Members>\n'
-            '    </Properties>\n'
-            '  </Group>\n'
-            '</Groups>\n',
+            "      </Members>\n"
+            "    </Properties>\n"
+            "  </Group>\n"
+            "</Groups>\n",
             encoding="utf-8",
         )
         gpo = _make_gpo(
@@ -1096,8 +1259,11 @@ class TestBucket2Compliance:
         gpo = _make_gpo(
             delegation=[
                 DelegationEntry(
-                    gpo_id="g1", trustee="Everyone", trustee_sid="S-1-1-0",
-                    permission="Apply Group Policy", allowed=True,
+                    gpo_id="g1",
+                    trustee="Everyone",
+                    trustee_sid="S-1-1-0",
+                    permission="Apply Group Policy",
+                    allowed=True,
                 ),
             ],
         )
@@ -1124,12 +1290,15 @@ class TestShippedRulesCompliance:
     def test_shipped_rules_have_compliance(self) -> None:
         rules = load_danger_rules()
         rule_map = {r.id: r for r in rules}
-        for rid in ("wdigest_creds", "smb_signing_disabled",
-                    "lm_hash_enabled", "autoadmin_logon", "ntlmv1_allowed"):
+        for rid in (
+            "wdigest_creds",
+            "smb_signing_disabled",
+            "lm_hash_enabled",
+            "autoadmin_logon",
+            "ntlmv1_allowed",
+        ):
             assert rid in rule_map, f"Missing shipped rule: {rid}"
-            assert len(rule_map[rid].compliance) >= 1, (
-                f"Rule {rid} has no compliance mappings"
-            )
+            assert len(rule_map[rid].compliance) >= 1, f"Rule {rid} has no compliance mappings"
 
     def test_shipped_compliance_entries_well_formed(self) -> None:
         rules = load_danger_rules()
@@ -1151,12 +1320,9 @@ class TestShippedRulesCompliance:
         }
         for rid, expected_stig_id in expected_stig.items():
             assert rid in rule_map, f"Missing shipped rule: {rid}"
-            stig_mappings = [
-                c for c in rule_map[rid].compliance if c.framework == "STIG"
-            ]
+            stig_mappings = [c for c in rule_map[rid].compliance if c.framework == "STIG"]
             assert len(stig_mappings) == 1, (
-                f"Rule {rid}: expected exactly one STIG mapping, "
-                f"got {len(stig_mappings)}"
+                f"Rule {rid}: expected exactly one STIG mapping, got {len(stig_mappings)}"
             )
             assert stig_mappings[0].control_id == expected_stig_id, (
                 f"Rule {rid}: STIG control_id should be {expected_stig_id}, "
@@ -1168,9 +1334,7 @@ class TestShippedRulesCompliance:
         rules = load_danger_rules()
         rule_map = {r.id: r for r in rules}
         assert "wdigest_creds" in rule_map
-        cis_mappings = [
-            c for c in rule_map["wdigest_creds"].compliance if c.framework == "CIS"
-        ]
+        cis_mappings = [c for c in rule_map["wdigest_creds"].compliance if c.framework == "CIS"]
         assert len(cis_mappings) == 1
         assert cis_mappings[0].control_id == "18.6.2"
 
@@ -1179,12 +1343,18 @@ class TestShippedRulesCompliance:
 # Aggregate
 # ---------------------------------------------------------------------------
 
+
 class TestDangerFindings:
     def test_aggregate_sorted_by_severity(self) -> None:
         critical_rule = DangerRule(
-            id="wdigest_creds", title="WDigest", severity="critical", applies="Machine",
+            id="wdigest_creds",
+            title="WDigest",
+            severity="critical",
+            applies="Machine",
             identity=r"HKLM\SYSTEM\CurrentControlSet\Control\Lsa:UseLogonCredential",
-            predicate="equals", value="1", reference="ref",
+            predicate="equals",
+            value="1",
+            reference="ref",
         )
         writable_gpo = _make_gpo(
             id="11111111111111111111111111111111",
@@ -1197,7 +1367,8 @@ class TestDangerFindings:
             settings=[
                 _reg_setting(
                     "22222222222222222222222222222222",
-                    r"HKLM\SYSTEM\CurrentControlSet\Control\Lsa:UseLogonCredential", "1",
+                    r"HKLM\SYSTEM\CurrentControlSet\Control\Lsa:UseLogonCredential",
+                    "1",
                 ),
             ],
         )
@@ -1212,6 +1383,7 @@ class TestDangerFindings:
 # ---------------------------------------------------------------------------
 # Integration: estate_doctor + estate_summary
 # ---------------------------------------------------------------------------
+
 
 class TestIntegration:
     def test_danger_findings_in_estate_doctor(self) -> None:
@@ -1360,9 +1532,7 @@ class TestDangerWebRoute:
         assert "gp-danger-group" in resp.text
         # Strengthened: actual framework names and control_ids must appear inside
         # <span class="gp-badge"> elements.
-        badges = re.findall(
-            r'<span class="gp-badge">(.*?)</span>', resp.text
-        )
+        badges = re.findall(r'<span class="gp-badge">(.*?)</span>', resp.text)
         assert len(badges) >= 1, "Expected at least one compliance badge in HTML"
         framework_names = {"CIS", "STIG", "NIST-800-171"}
         # At least one badge contains a known framework name.
@@ -1375,6 +1545,7 @@ class TestDangerWebRoute:
 # ---------------------------------------------------------------------------
 # CLI parity
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.skipif(not _HAS_WEB, reason="needs fixture estate + web stack")
 class TestDangerCli:
@@ -1391,8 +1562,13 @@ class TestDangerCli:
         assert isinstance(data, list)
         assert len(data) >= 1
         expected = {
-            "check_id", "severity", "title", "gpo_id",
-            "gpo_name", "detail", "reference",
+            "check_id",
+            "severity",
+            "title",
+            "gpo_id",
+            "gpo_name",
+            "detail",
+            "reference",
         }
         assert expected <= set(data[0])
 
@@ -1409,9 +1585,7 @@ class TestDangerCli:
         for entry in data:
             assert "compliance" in entry, "Missing compliance key in JSON output"
             assert isinstance(entry["compliance"], list)
-        local_admin = [
-            e for e in data if e["check_id"] == "local_admin_push"
-        ]
+        local_admin = [e for e in data if e["check_id"] == "local_admin_push"]
         if local_admin:
             assert len(local_admin[0]["compliance"]) >= 1
             for c in local_admin[0]["compliance"]:
@@ -1431,9 +1605,7 @@ class TestDangerCli:
         for entry in data:
             assert "remediation" in entry, "Missing remediation key in JSON output"
             assert isinstance(entry["remediation"], str)
-        local_admin = [
-            e for e in data if e["check_id"] == "local_admin_push"
-        ]
+        local_admin = [e for e in data if e["check_id"] == "local_admin_push"]
         if local_admin:
             assert local_admin[0]["remediation"], (
                 "local_admin_push finding should carry non-empty remediation"
@@ -1444,16 +1616,20 @@ class TestDangerCli:
 # Remediation guidance (WI-055)
 # ---------------------------------------------------------------------------
 
+
 class TestRemediationBucket1:
     def test_shipped_toml_has_remediation_for_all_rules(self) -> None:
         rules = load_danger_rules()
         rule_map = {r.id: r for r in rules}
-        for rid in ("wdigest_creds", "smb_signing_disabled",
-                    "lm_hash_enabled", "autoadmin_logon", "ntlmv1_allowed"):
+        for rid in (
+            "wdigest_creds",
+            "smb_signing_disabled",
+            "lm_hash_enabled",
+            "autoadmin_logon",
+            "ntlmv1_allowed",
+        ):
             assert rid in rule_map, f"Missing shipped rule: {rid}"
-            assert rule_map[rid].remediation, (
-                f"Rule {rid} has no remediation text"
-            )
+            assert rule_map[rid].remediation, f"Rule {rid} has no remediation text"
 
     def test_shipped_remediation_mentions_key_setting(self) -> None:
         rules = load_danger_rules()
@@ -1466,26 +1642,34 @@ class TestRemediationBucket1:
 
     def test_remediation_propagated_to_present_finding(self) -> None:
         rule = DangerRule(
-            id="wdigest_creds", title="WDigest", severity="critical",
+            id="wdigest_creds",
+            title="WDigest",
+            severity="critical",
             applies="Machine",
             identity=r"HKLM\SYSTEM\CurrentControlSet\Control\Lsa:UseLogonCredential",
-            predicate="equals", value="1",
+            predicate="equals",
+            value="1",
             reference="https://attack.mitre.org/techniques/T1003/001/",
             remediation="Set UseLogonCredential to 0.",
         )
-        gpo = _make_gpo(settings=[
-            _reg_setting(DEFAULT_GID, _WDIGEST_ID, "1"),
-        ])
+        gpo = _make_gpo(
+            settings=[
+                _reg_setting(DEFAULT_GID, _WDIGEST_ID, "1"),
+            ]
+        )
         findings = evaluate_danger_rules(Estate(gpos=[gpo]), [rule])
         assert len(findings) == 1
         assert findings[0].remediation == "Set UseLogonCredential to 0."
 
     def test_remediation_propagated_to_absent_finding(self) -> None:
         rule = DangerRule(
-            id="missing_setting", title="Required setting is absent",
-            severity="high", applies="Machine",
+            id="missing_setting",
+            title="Required setting is absent",
+            severity="high",
+            applies="Machine",
             identity=r"HKLM\SYSTEM\SomeKey:MissingValue",
-            predicate="absent", value="",
+            predicate="absent",
+            value="",
             reference="https://example.com/ref",
             remediation="Configure the missing setting.",
         )
@@ -1496,13 +1680,20 @@ class TestRemediationBucket1:
 
     def test_remediation_defaults_empty_when_not_set(self) -> None:
         rule = DangerRule(
-            id="x", title="x", severity="high", applies="Machine",
-            identity=r"HKLM\Key:Val", predicate="equals", value="1",
+            id="x",
+            title="x",
+            severity="high",
+            applies="Machine",
+            identity=r"HKLM\Key:Val",
+            predicate="equals",
+            value="1",
             reference="ref",
         )
-        gpo = _make_gpo(settings=[
-            _reg_setting(DEFAULT_GID, r"HKLM\Key:Val", "1"),
-        ])
+        gpo = _make_gpo(
+            settings=[
+                _reg_setting(DEFAULT_GID, r"HKLM\Key:Val", "1"),
+            ]
+        )
         findings = evaluate_danger_rules(Estate(gpos=[gpo]), [rule])
         assert len(findings) == 1
         assert findings[0].remediation == ""
@@ -1510,7 +1701,7 @@ class TestRemediationBucket1:
     def test_remediation_loaded_from_toml(self, tmp_path: Path) -> None:
         toml_file = tmp_path / "rules.toml"
         toml_file.write_text(
-            '[[rules]]\n'
+            "[[rules]]\n"
             'id = "with_remediation"\n'
             'title = "Test"\n'
             'severity = "high"\n'
@@ -1523,6 +1714,7 @@ class TestRemediationBucket1:
             encoding="utf-8",
         )
         from gpo_lens.danger import _load_rules_file
+
         rules = _load_rules_file(toml_file)
         assert len(rules) == 1
         assert rules[0].remediation == "Fix it like this."
@@ -1530,7 +1722,7 @@ class TestRemediationBucket1:
     def test_remediation_defaults_empty_in_toml_when_absent(self, tmp_path: Path) -> None:
         toml_file = tmp_path / "rules.toml"
         toml_file.write_text(
-            '[[rules]]\n'
+            "[[rules]]\n"
             'id = "no_remediation"\n'
             'title = "Test"\n'
             'severity = "high"\n'
@@ -1542,6 +1734,7 @@ class TestRemediationBucket1:
             encoding="utf-8",
         )
         from gpo_lens.danger import _load_rules_file
+
         rules = _load_rules_file(toml_file)
         assert len(rules) == 1
         assert rules[0].remediation == ""
@@ -1552,7 +1745,7 @@ class TestRemediationBucket1:
         override_dir = tmp_path / "overrides"
         override_dir.mkdir()
         (override_dir / "custom.toml").write_text(
-            '[[rules]]\n'
+            "[[rules]]\n"
             'id = "wdigest_creds"\n'
             'title = "WDigest override"\n'
             'severity = "critical"\n'
@@ -1605,13 +1798,13 @@ class TestRemediationBucket2:
             '  <Group name="Administrators (local)" changed="2025-06-01">\n'
             '    <Properties action="UPDATE" groupName="Administrators"\n'
             '      groupSid="S-1-5-32-544" removePolicy="0">\n'
-            '      <Members>\n'
+            "      <Members>\n"
             '        <Member name="HELPDESK\\Tier1Admins" action="ADD"\n'
             '          sid="S-1-5-21-1-2-3-1101"/>\n'
-            '      </Members>\n'
-            '    </Properties>\n'
-            '  </Group>\n'
-            '</Groups>\n',
+            "      </Members>\n"
+            "    </Properties>\n"
+            "  </Group>\n"
+            "</Groups>\n",
             encoding="utf-8",
         )
         gpo = _make_gpo(
@@ -1629,8 +1822,11 @@ class TestRemediationBucket2:
         gpo = _make_gpo(
             delegation=[
                 DelegationEntry(
-                    gpo_id="g1", trustee="Everyone", trustee_sid="S-1-1-0",
-                    permission="Apply Group Policy", allowed=True,
+                    gpo_id="g1",
+                    trustee="Everyone",
+                    trustee_sid="S-1-1-0",
+                    permission="Apply Group Policy",
+                    allowed=True,
                 ),
             ],
         )
@@ -1663,9 +1859,7 @@ class TestRemediationBucket2:
         assert set(_BUCKET2_REMEDIATION.keys()) == expected
         for check_id, text in _BUCKET2_REMEDIATION.items():
             assert text, f"Empty remediation for {check_id}"
-            assert len(text) <= 300, (
-                f"Remediation for {check_id} exceeds 300 chars: {len(text)}"
-            )
+            assert len(text) <= 300, f"Remediation for {check_id} exceeds 300 chars: {len(text)}"
 
 
 class TestRemediationDangerFindingDefault:
@@ -1673,8 +1867,13 @@ class TestRemediationDangerFindingDefault:
         from gpo_lens.danger import DangerFinding
 
         f = DangerFinding(
-            check_id="x", severity="high", title="t",
-            gpo_id="", gpo_name="", detail="d", reference="ref",
+            check_id="x",
+            severity="high",
+            title="t",
+            gpo_id="",
+            gpo_name="",
+            detail="d",
+            reference="ref",
         )
         assert f.remediation == ""
 
@@ -1682,8 +1881,14 @@ class TestRemediationDangerFindingDefault:
         from gpo_lens.danger import DangerRule
 
         r = DangerRule(
-            id="x", title="t", severity="high", applies="Machine",
-            identity="HKLM\\K:V", predicate="equals", value="1", reference="ref",
+            id="x",
+            title="t",
+            severity="high",
+            applies="Machine",
+            identity="HKLM\\K:V",
+            predicate="equals",
+            value="1",
+            reference="ref",
         )
         assert r.remediation == ""
 
@@ -1738,6 +1943,7 @@ class TestRemediationWebRoute:
 # Shipped TOML validation
 # ---------------------------------------------------------------------------
 
+
 class TestDangerRulesToml:
     def test_shipped_rules_parse(self) -> None:
         """The shipped danger_rules.toml must parse to a non-empty, valid rule set."""
@@ -1752,7 +1958,12 @@ class TestDangerRulesToml:
                 f"Rule {r.id}: invalid applies {r.applies!r}"
             )
             assert r.predicate in (
-                "equals", "in", "min", "max", "present", "absent",
+                "equals",
+                "in",
+                "min",
+                "max",
+                "present",
+                "absent",
             ), f"Rule {r.id}: invalid predicate {r.predicate!r}"
             assert r.reference.startswith("http"), (
                 f"Rule {r.id}: reference must be a URL, got {r.reference!r}"
@@ -1769,6 +1980,7 @@ class TestDangerRulesToml:
 # ---------------------------------------------------------------------------
 # AdmxResolver Protocol conformance
 # ---------------------------------------------------------------------------
+
 
 class TestAdmxResolverProtocol:
     def test_policy_definitions_satisfies_protocol(self) -> None:
@@ -1814,52 +2026,62 @@ def _rule(predicate: str, value: str, **kwargs: object) -> DangerRule:
 class TestPredicateMatches:
     def test_in_predicate_matches(self) -> None:
         from gpo_lens.danger import _predicate_matches
+
         rule = _rule("in", "1, 2, 3")
         assert _predicate_matches(rule, "2") is True
 
     def test_in_predicate_no_match(self) -> None:
         from gpo_lens.danger import _predicate_matches
+
         rule = _rule("in", "1, 2, 3")
         assert _predicate_matches(rule, "4") is False
 
     def test_present_predicate_always_true(self) -> None:
         from gpo_lens.danger import _predicate_matches
+
         rule = _rule("present", "")
         assert _predicate_matches(rule, "anything") is True
         assert _predicate_matches(rule, "") is True
 
     def test_min_predicate_above(self) -> None:
         from gpo_lens.danger import _predicate_matches
+
         rule = _rule("min", "5")
         assert _predicate_matches(rule, "10") is True
 
     def test_min_predicate_below(self) -> None:
         from gpo_lens.danger import _predicate_matches
+
         rule = _rule("min", "5")
         assert _predicate_matches(rule, "3") is False
 
     def test_min_predicate_non_numeric(self) -> None:
         from gpo_lens.danger import _predicate_matches
+
         rule = _rule("min", "5")
         assert _predicate_matches(rule, "abc") is False
 
     def test_max_predicate_below(self) -> None:
         from gpo_lens.danger import _predicate_matches
+
         rule = _rule("max", "5")
         assert _predicate_matches(rule, "3") is True
 
     def test_max_predicate_above(self) -> None:
         from gpo_lens.danger import _predicate_matches
+
         rule = _rule("max", "5")
         assert _predicate_matches(rule, "10") is False
 
     def test_max_predicate_non_numeric(self) -> None:
         from gpo_lens.danger import _predicate_matches
+
         rule = _rule("max", "5")
         assert _predicate_matches(rule, "abc") is False
 
     def test_unknown_predicate_returns_false(self) -> None:
         from gpo_lens.danger import _predicate_matches
+
         rule = _rule("bogus", "x")
         assert _predicate_matches(rule, "x") is False
 
@@ -1880,9 +2102,7 @@ class TestAbsentPredicate:
 
     def test_absent_no_finding_when_setting_present(self) -> None:
         gpo = _make_gpo()
-        gpo.settings.append(
-            _reg_setting(gpo.id, r"HKLM\Software\Present:Key", "1")
-        )
+        gpo.settings.append(_reg_setting(gpo.id, r"HKLM\Software\Present:Key", "1"))
         estate = Estate(gpos=[gpo])
         rule = _rule("absent", "", identity=r"HKLM\Software\Present:Key")
         findings = evaluate_danger_rules(estate, [rule])
@@ -1891,9 +2111,7 @@ class TestAbsentPredicate:
     def test_absent_mixed_with_present_rule(self) -> None:
         """An absent rule and a present (equals) rule in the same batch."""
         gpo = _make_gpo()
-        gpo.settings.append(
-            _reg_setting(gpo.id, r"HKLM\Software\Present:Key", "1")
-        )
+        gpo.settings.append(_reg_setting(gpo.id, r"HKLM\Software\Present:Key", "1"))
         estate = Estate(gpos=[gpo])
         rules = [
             _rule("absent", "", identity=r"HKLM\Software\Missing:Key"),
@@ -1910,9 +2128,7 @@ class TestAbsentPredicate:
         matching setting on the User side only.  The absent loop must call
         _side_matches(), just like the present path does."""
         gpo = _make_gpo()
-        gpo.settings.append(
-            _reg_setting(gpo.id, r"HKLM\Software\Target:Key", "1", side="User")
-        )
+        gpo.settings.append(_reg_setting(gpo.id, r"HKLM\Software\Target:Key", "1", side="User"))
         estate = Estate(gpos=[gpo])
         rule = _rule("absent", "", identity=r"HKLM\Software\Target:Key")
         findings = evaluate_danger_rules(estate, [rule])
@@ -1924,9 +2140,7 @@ class TestAbsentPredicate:
         """C-1: A Machine-scoped absent rule is suppressed when a matching
         setting exists on the Computer side."""
         gpo = _make_gpo()
-        gpo.settings.append(
-            _reg_setting(gpo.id, r"HKLM\Software\Target:Key", "1", side="Computer")
-        )
+        gpo.settings.append(_reg_setting(gpo.id, r"HKLM\Software\Target:Key", "1", side="Computer"))
         estate = Estate(gpos=[gpo])
         rule = _rule("absent", "", identity=r"HKLM\Software\Target:Key")
         findings = evaluate_danger_rules(estate, [rule])
@@ -1947,7 +2161,7 @@ class TestParseComplianceMalformed:
         raw = [
             {"framework": "CIS", "control_id": "1.1"},
             "not-a-table",  # should warn + skip
-            123,            # should warn + skip
+            123,  # should warn + skip
             {"framework": "STIG", "control_id": "SV-1"},
         ]
         with warnings.catch_warnings(record=True) as caught:
@@ -1970,11 +2184,11 @@ class TestParseComplianceMalformed:
         from gpo_lens.danger import _parse_compliance
 
         raw = [
-            {"framework": "", "control_id": "1.1"},       # empty framework
-            {"framework": "CIS", "control_id": ""},        # empty control_id
-            {"framework": "CIS"},                           # missing control_id
-            {"control_id": "SV-1"},                         # missing framework
-            {"framework": 123, "control_id": "SV-1"},       # non-string framework
+            {"framework": "", "control_id": "1.1"},  # empty framework
+            {"framework": "CIS", "control_id": ""},  # empty control_id
+            {"framework": "CIS"},  # missing control_id
+            {"control_id": "SV-1"},  # missing framework
+            {"framework": 123, "control_id": "SV-1"},  # non-string framework
         ]
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
@@ -1995,9 +2209,7 @@ class TestAdmxIdentityResolution:
 
     def test_admx_resolves_policy_name_to_identity(self) -> None:
         gpo = _make_gpo()
-        gpo.settings.append(
-            _reg_setting(gpo.id, r"HKLM\Software\Real:Key", "1")
-        )
+        gpo.settings.append(_reg_setting(gpo.id, r"HKLM\Software\Real:Key", "1"))
         estate = Estate(gpos=[gpo])
 
         # Rule targets a policy display name, not the raw registry path.
@@ -2017,9 +2229,7 @@ class TestAdmxIdentityResolution:
     def test_admx_returns_none_no_match(self) -> None:
         """When the ADMX resolver returns None, no match via display name."""
         gpo = _make_gpo()
-        gpo.settings.append(
-            _reg_setting(gpo.id, r"HKLM\Software\Other:Key", "1")
-        )
+        gpo.settings.append(_reg_setting(gpo.id, r"HKLM\Software\Other:Key", "1"))
         estate = Estate(gpos=[gpo])
         rule = _rule("equals", "1", identity="Nonexistent Policy")
 

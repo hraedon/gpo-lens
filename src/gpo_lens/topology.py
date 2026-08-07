@@ -58,6 +58,7 @@ __all__ = [
 # Topology / SOM-aware queries (Tier 2.5)
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class EffectiveGpo:
     """One GPO in the resolved chain at a SOM."""
@@ -67,7 +68,7 @@ class EffectiveGpo:
     order: int
     enabled: bool
     enforced: bool
-    target: str            # DN the link originates from
+    target: str  # DN the link originates from
 
 
 def _split_dn(dn: str) -> list[str]:
@@ -114,11 +115,7 @@ def _find_parent_som(estate: Estate, dn: str) -> Som | None:
     """
     if not dn:
         return None
-    som_by_path = {
-        som.path.lower(): som
-        for som in estate.soms
-        if som.container_type != "site"
-    }
+    som_by_path = {som.path.lower(): som for som in estate.soms if som.container_type != "site"}
     parts = [p.strip() for p in _split_dn(dn)]
     for i in range(1, len(parts)):
         candidate = ",".join(parts[i:]).lower()
@@ -128,7 +125,10 @@ def _find_parent_som(estate: Estate, dn: str) -> Som | None:
 
 
 def som_effective_gpos(
-    estate: Estate, som_path: str, *, _som: Som | None = None,
+    estate: Estate,
+    som_path: str,
+    *,
+    _som: Som | None = None,
 ) -> list[EffectiveGpo]:
     """Return the resolved, ordered GPO chain at a given SOM path.
 
@@ -298,6 +298,7 @@ def wmi_filtered_gpos(estate: Estate) -> list[Gpo]:
 # Tier 2.5 — Chain-aware conflict detection
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class SomConflict:
     """One setting identity that fights in the resolved SOM chain."""
@@ -308,7 +309,7 @@ class SomConflict:
     identity: str
     display_name: str
     entries: list[tuple[str, str, str]]  # (gpo_name, display_value, status)
-    winner: str                          # gpo_name of the last in chain
+    winner: str  # gpo_name of the last in chain
 
 
 def _find_som(estate: Estate, som_path: str) -> Som | None:
@@ -350,7 +351,8 @@ class _BucketEntry:
 
 
 def _fold_chain_to_buckets(
-    estate: Estate, som_path: str,
+    estate: Estate,
+    som_path: str,
 ) -> dict[tuple[str, Side, str], list[_BucketEntry]] | None:
     """Resolve the SOM chain and build per-setting-identity buckets.
 
@@ -373,14 +375,16 @@ def _fold_chain_to_buckets(
             if s.from_disabled_side:
                 continue
             key = (s.cse, s.side, s.identity)
-            buckets[key].append(_BucketEntry(
-                gpo_id=link.gpo_id,
-                gpo_name=gpo_name,
-                value=s.display_value,
-                display_name=s.display_name,
-                link_order=link.order,
-                enforced=link.enforced,
-            ))
+            buckets[key].append(
+                _BucketEntry(
+                    gpo_id=link.gpo_id,
+                    gpo_name=gpo_name,
+                    value=s.display_value,
+                    display_name=s.display_name,
+                    link_order=link.order,
+                    enforced=link.enforced,
+                )
+            )
     return dict(buckets)
 
 
@@ -403,9 +407,7 @@ def som_conflicts(estate: Estate, som_path: str) -> list[SomConflict]:
             status = "winner" if e.gpo_name == winner else "overridden"
             conflict_entries.append((e.gpo_name, e.value, status))
         conflict_entries.sort()
-        display_name = next(
-            (e.display_name for e in entries if e.display_name), ""
-        )
+        display_name = next((e.display_name for e in entries if e.display_name), "")
 
         results.append(
             SomConflict(
@@ -455,7 +457,7 @@ class ConflictRollup:
     display_name: str
     winner: str
     entries: tuple[tuple[str, str, str], ...]  # (gpo_name, value, status)
-    scopes: tuple[str, ...]                     # som_paths resolving identically
+    scopes: tuple[str, ...]  # som_paths resolving identically
 
 
 def _enabled_chain_signature(som: Som) -> tuple[tuple[str, int, bool], ...]:
@@ -467,11 +469,9 @@ def _enabled_chain_signature(som: Som) -> tuple[tuple[str, int, bool], ...]:
     field is ``SomConflict.som_path``, which the rollup does not key on. Sorting
     makes the signature independent of link iteration order.
     """
-    return tuple(sorted(
-        (link.gpo_id, link.order, link.enforced)
-        for link in som.links
-        if link.enabled
-    ))
+    return tuple(
+        sorted((link.gpo_id, link.order, link.enforced) for link in som.links if link.enabled)
+    )
 
 
 def precedence_conflict_rollup(estate: Estate) -> list[ConflictRollup]:
@@ -512,11 +512,17 @@ def precedence_conflict_rollup(estate: Estate) -> list[ConflictRollup]:
     out: list[ConflictRollup] = []
     for key, scopes in groups.items():
         sc = meta[key]
-        out.append(ConflictRollup(
-            cse=sc.cse, side=sc.side, identity=sc.identity,
-            display_name=sc.display_name, winner=sc.winner,
-            entries=tuple(sc.entries), scopes=tuple(sorted(scopes)),
-        ))
+        out.append(
+            ConflictRollup(
+                cse=sc.cse,
+                side=sc.side,
+                identity=sc.identity,
+                display_name=sc.display_name,
+                winner=sc.winner,
+                entries=tuple(sc.entries),
+                scopes=tuple(sorted(scopes)),
+            )
+        )
     out.sort(key=lambda r: (-len(r.scopes), r.cse, r.identity.lower()))
     return out
 
@@ -524,6 +530,7 @@ def precedence_conflict_rollup(estate: Estate) -> list[ConflictRollup]:
 # ---------------------------------------------------------------------------
 # AD site links (parallel scoping axis — flagged, not resolved per-machine)
 # ---------------------------------------------------------------------------
+
 
 @dataclass(frozen=True)
 class SiteGpoLink:
@@ -569,16 +576,14 @@ def site_scopes(estate: Estate) -> list[SiteScope]:
 def has_site_links(estate: Estate) -> bool:
     """True if any AD site carries at least one *enabled* GPO link."""
     return any(
-        link.enabled
-        for som in estate.soms
-        if som.container_type == "site"
-        for link in som.links
+        link.enabled for som in estate.soms if som.container_type == "site" for link in som.links
     )
 
 
 # ---------------------------------------------------------------------------
 # SOM Resolution Deep View
 # ---------------------------------------------------------------------------
+
 
 @dataclass(frozen=True)
 class EffectiveSetting:
@@ -737,7 +742,8 @@ def is_security_filtered(gpo: Gpo) -> bool:
 
 
 def security_filtering_detail(
-    gpo: Gpo, estate: Estate | None = None,
+    gpo: Gpo,
+    estate: Estate | None = None,
 ) -> SecurityFiltering:
     """Detailed security-filtering breakdown for a GPO.
 
@@ -762,9 +768,7 @@ def security_filtering_detail(
             if entry.trustee not in apply_trustees:
                 apply_trustees.append(entry.trustee)
     if not gpo.delegation and gpo.sddl:
-        for sddl_entry in iter_sddl_apply_aces(
-            gpo.sddl, rights_filter=READ_OR_APPLY_RIGHTS
-        ):
+        for sddl_entry in iter_sddl_apply_aces(gpo.sddl, rights_filter=READ_OR_APPLY_RIGHTS):
             if sddl_entry.broad_key == "authenticated_users":
                 has_au_read = True
             if sddl_entry.broad_key == "domain_computers":
@@ -803,9 +807,7 @@ def scope_caveats(estate: Estate, som_path: str) -> list[str]:
         # link disabled is a real (and easily-missed) state worth flagging —
         # not silence.
         som = _find_som(estate, som_path)
-        if som is not None and som.links and not any(
-            link.enabled for link in som.links
-        ):
+        if som is not None and som.links and not any(link.enabled for link in som.links):
             return [
                 f"  {som_path}: all {len(som.links)} GPO link(s) at this SOM are "
                 f"disabled — no GPO settings apply here"
@@ -836,9 +838,7 @@ def scope_caveats(estate: Estate, som_path: str) -> list[str]:
             )
         mode = loopback_map.get(gid)
         if mode:
-            caveats.append(
-                f"  {gpo.name}: loopback={mode} (user settings may be replaced/merged)"
-            )
+            caveats.append(f"  {gpo.name}: loopback={mode} (user settings may be replaced/merged)")
 
     if has_site_links(estate):
         n_links = sum(
@@ -923,6 +923,7 @@ def effective_scope(estate: Estate, gpo_id_or_name: str) -> EffectiveScope | Non
 # Per-candidate gate attribution (Plan 019 Phase A)
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class GateSummary:
     """Per-GPO scoping gate facts, shown (never evaluated) on a chain row.
@@ -935,17 +936,20 @@ class GateSummary:
     """
 
     is_security_filtered: bool
-    apply_trustees: tuple[str, ...]      # explicit Apply-Group-Policy trustee names
-    wmi_filter_name: str | None          # None = no WMI filter attached
-    wmi_filter_broken: bool              # True if filter name not found in estate
-    loopback_mode: str | None            # 'merge'|'replace'|'mixed'|'unknown'|None
-    has_ilt: bool                        # item-level targeting present
-    side_disabled: str | None            # 'computer'|'user'|'both'|None
-    link_enabled: bool                   # whether this chain row's link is enabled
+    apply_trustees: tuple[str, ...]  # explicit Apply-Group-Policy trustee names
+    wmi_filter_name: str | None  # None = no WMI filter attached
+    wmi_filter_broken: bool  # True if filter name not found in estate
+    loopback_mode: str | None  # 'merge'|'replace'|'mixed'|'unknown'|None
+    has_ilt: bool  # item-level targeting present
+    side_disabled: str | None  # 'computer'|'user'|'both'|None
+    link_enabled: bool  # whether this chain row's link is enabled
 
 
 def gate_summaries(
-    estate: Estate, som_path: str, *, _som: Som | None = None,
+    estate: Estate,
+    som_path: str,
+    *,
+    _som: Som | None = None,
 ) -> list[tuple[EffectiveGpo, GateSummary]]:
     """Ordered chain with a per-GPO :class:`GateSummary`.
 
@@ -967,16 +971,21 @@ def gate_summaries(
     for eg in chain:
         gpo = gpo_by_id.get(eg.gpo_id)
         if gpo is None:
-            out.append((eg, GateSummary(
-                is_security_filtered=False,
-                apply_trustees=(),
-                wmi_filter_name=None,
-                wmi_filter_broken=False,
-                loopback_mode=None,
-                has_ilt=False,
-                side_disabled=None,
-                link_enabled=eg.enabled,
-            )))
+            out.append(
+                (
+                    eg,
+                    GateSummary(
+                        is_security_filtered=False,
+                        apply_trustees=(),
+                        wmi_filter_name=None,
+                        wmi_filter_broken=False,
+                        loopback_mode=None,
+                        has_ilt=False,
+                        side_disabled=None,
+                        link_enabled=eg.enabled,
+                    ),
+                )
+            )
             continue
         sec = security_filtering_detail(gpo, estate)
         wmi = _wmi_filter_scope(gpo, estate)
@@ -988,14 +997,19 @@ def gate_summaries(
             side_disabled = "user"
         else:
             side_disabled = None
-        out.append((eg, GateSummary(
-            is_security_filtered=sec.is_filtered,
-            apply_trustees=tuple(sec.apply_trustees),
-            wmi_filter_name=wmi.name if wmi else None,
-            wmi_filter_broken=wmi.is_broken if wmi else False,
-            loopback_mode=loopback_map.get(gpo.id),
-            has_ilt=gpo.id in ilt_gpos,
-            side_disabled=side_disabled,
-            link_enabled=eg.enabled,
-        )))
+        out.append(
+            (
+                eg,
+                GateSummary(
+                    is_security_filtered=sec.is_filtered,
+                    apply_trustees=tuple(sec.apply_trustees),
+                    wmi_filter_name=wmi.name if wmi else None,
+                    wmi_filter_broken=wmi.is_broken if wmi else False,
+                    loopback_mode=loopback_map.get(gpo.id),
+                    has_ilt=gpo.id in ilt_gpos,
+                    side_disabled=side_disabled,
+                    link_enabled=eg.enabled,
+                ),
+            )
+        )
     return out

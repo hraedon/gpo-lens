@@ -58,9 +58,15 @@ def test_render_settings_diff_added() -> None:
     from gpo_lens.queries import SettingsDiffRow
 
     row = SettingsDiffRow(
-        gpo_id="aaa", gpo_name="Test", side="Computer", cse="Security",
-        identity="X", display_name="X", change_type="added",
-        old_value=None, new_value="1",
+        gpo_id="aaa",
+        gpo_name="Test",
+        side="Computer",
+        cse="Security",
+        identity="X",
+        display_name="X",
+        change_type="added",
+        old_value=None,
+        new_value="1",
     )
     out = render_settings_diff([row], [], [])
     assert "Added (1):" in out
@@ -72,9 +78,15 @@ def test_render_settings_diff_modified() -> None:
     from gpo_lens.queries import SettingsDiffRow
 
     row = SettingsDiffRow(
-        gpo_id="aaa", gpo_name="Test", side="Computer", cse="Security",
-        identity="X", display_name="X", change_type="modified",
-        old_value="1", new_value="2",
+        gpo_id="aaa",
+        gpo_name="Test",
+        side="Computer",
+        cse="Security",
+        identity="X",
+        display_name="X",
+        change_type="modified",
+        old_value="1",
+        new_value="2",
     )
     out = render_settings_diff([], [], [row])
     assert "Modified (1):" in out
@@ -86,20 +98,33 @@ def test_render_settings_diff_none_values() -> None:
     from gpo_lens.queries import SettingsDiffRow
 
     added_row = SettingsDiffRow(
-        gpo_id="aaa", gpo_name="Test", side="Computer", cse="Security",
-        identity="X", display_name="X", change_type="added",
-        old_value=None, new_value=None,
+        gpo_id="aaa",
+        gpo_name="Test",
+        side="Computer",
+        cse="Security",
+        identity="X",
+        display_name="X",
+        change_type="added",
+        old_value=None,
+        new_value=None,
     )
     removed_row = SettingsDiffRow(
-        gpo_id="bbb", gpo_name="Test", side="User", cse="Registry",
-        identity="Y", display_name="Y", change_type="removed",
-        old_value=None, new_value=None,
+        gpo_id="bbb",
+        gpo_name="Test",
+        side="User",
+        cse="Registry",
+        identity="Y",
+        display_name="Y",
+        change_type="removed",
+        old_value=None,
+        new_value=None,
     )
     out = render_settings_diff([added_row], [removed_row], [])
     assert "None" not in out
 
 
 # --- serialize_result -------------------------------------------------------
+
 
 def test_serialize_result_primitives_passthrough() -> None:
     assert serialize_result(None) is None
@@ -162,6 +187,7 @@ def test_serialize_result_bytes_become_hex() -> None:
 
 def test_serialize_result_set_of_dataclasses() -> None:
     """Nested dataclasses inside a set must also serialize."""
+
     @dataclasses.dataclass(frozen=True)
     class Item:
         label: str
@@ -219,13 +245,20 @@ def test_serialize_result_is_json_serialisable() -> None:
         raw: bytes
         when: datetime.datetime
         level: enum.IntEnum
+
     # Use a concrete IntEnum instance.
     class Level(enum.IntEnum):
         LOW = 1
 
     payload: Any = {
-        "tokens": [Token(sids=frozenset({"s-1", "s-2"}), raw=b"\x01\x02",
-                          when=datetime.datetime(2026, 6, 25), level=Level.LOW)],
+        "tokens": [
+            Token(
+                sids=frozenset({"s-1", "s-2"}),
+                raw=b"\x01\x02",
+                when=datetime.datetime(2026, 6, 25),
+                level=Level.LOW,
+            )
+        ],
     }
     # Must not raise.
     dumped = json.dumps(serialize_result(payload))

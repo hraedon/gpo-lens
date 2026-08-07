@@ -87,38 +87,26 @@ def _parse_response(provider: str, body: dict[str, object]) -> str:
     if provider == "anthropic":
         content = body.get("content")
         if not isinstance(content, list) or not content:
-            raise NarrationUnavailable(
-                "Unexpected response: missing or empty content"
-            )
+            raise NarrationUnavailable("Unexpected response: missing or empty content")
         first = content[0]
         if not isinstance(first, dict) or "text" not in first:
-            raise NarrationUnavailable(
-                "Unexpected response: first content block has no text"
-            )
+            raise NarrationUnavailable("Unexpected response: first content block has no text")
         text = first["text"]
         if not isinstance(text, str):
-            raise NarrationUnavailable(
-                "Unexpected response: content text is not a string"
-            )
+            raise NarrationUnavailable("Unexpected response: content text is not a string")
         return text
     choices = body.get("choices")
     if not isinstance(choices, list) or not choices:
-        raise NarrationUnavailable(
-            "Unexpected response: missing or empty choices"
-        )
+        raise NarrationUnavailable("Unexpected response: missing or empty choices")
     first_choice = choices[0]
     if not isinstance(first_choice, dict):
         raise NarrationUnavailable("Unexpected response: first choice is not an object")
     message = first_choice.get("message")
     if not isinstance(message, dict) or "content" not in message:
-        raise NarrationUnavailable(
-            "Unexpected response: choice has no message.content"
-        )
+        raise NarrationUnavailable("Unexpected response: choice has no message.content")
     msg_content = message["content"]
     if not isinstance(msg_content, str):
-        raise NarrationUnavailable(
-            "Unexpected response: message.content is not a string"
-        )
+        raise NarrationUnavailable("Unexpected response: message.content is not a string")
     return msg_content
 
 
@@ -154,13 +142,9 @@ def call_llm(
     )
     parsed = urllib.parse.urlparse(url)
     if not parsed.scheme:
-        raise NarrationUnavailable(
-            "LLM endpoint URL must include http:// or https:// scheme"
-        )
+        raise NarrationUnavailable("LLM endpoint URL must include http:// or https:// scheme")
     if parsed.scheme not in ("https", "http"):
-        raise NarrationUnavailable(
-            f"LLM endpoint must be http(s)://, got {parsed.scheme}://"
-        )
+        raise NarrationUnavailable(f"LLM endpoint must be http(s)://, got {parsed.scheme}://")
     provider_env = os.environ.get("GPO_LENS_LLM_PROVIDER", "auto").strip().lower()
     if provider_env == "anthropic":
         provider = "anthropic"
@@ -186,9 +170,7 @@ def call_llm(
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             body: dict[str, object] = json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
-        raise NarrationUnavailable(
-            f"LLM API returned HTTP {exc.code}: {exc.reason}"
-        ) from exc
+        raise NarrationUnavailable(f"LLM API returned HTTP {exc.code}: {exc.reason}") from exc
     except urllib.error.URLError as exc:
         raise NarrationUnavailable(f"LLM transport error: {exc.reason}") from exc
     except json.JSONDecodeError as exc:
@@ -222,9 +204,7 @@ def _build_routing_prompt_body() -> str:
         description = _QUERY_DESCRIPTIONS.get(query_name, "No description")
         required = _QUERY_REQUIRED_PARAMS.get(query_name, [])
         if required:
-            params = " (requires params: " + ", ".join(
-                f"{p!r}" for p in required
-            ) + ")"
+            params = " (requires params: " + ", ".join(f"{p!r}" for p in required) + ")"
         else:
             params = ""
         lines.append(f"- {query_name}: {description}{params}")
@@ -237,10 +217,7 @@ def _build_routing_prompt(tag: str = "question") -> str:
 
 def _sanitize_routing_question(raw: str) -> str:
     """Strip nulls/control chars (except newlines) and neutralize delimiter escape."""
-    cleaned = "".join(
-        ch for ch in raw
-        if (ord(ch) >= 32 and ch not in ("\r",)) or ch == "\n"
-    )
+    cleaned = "".join(ch for ch in raw if (ord(ch) >= 32 and ch not in ("\r",)) or ch == "\n")
     cleaned = re.sub(r"</?\s*q-[a-f0-9]+\s*>", "", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"</?\s*question\s*>", "", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(
@@ -261,9 +238,7 @@ def route_question(question: str) -> dict[str, object]:
     try:
         parsed: dict[str, object] = json.loads(result)
     except json.JSONDecodeError as exc:
-        raise NarrationUnavailable(
-            f"Routing LLM returned non-JSON: {exc}"
-        ) from exc
+        raise NarrationUnavailable(f"Routing LLM returned non-JSON: {exc}") from exc
     if not isinstance(parsed, dict):
         raise NarrationUnavailable("Routing LLM returned non-object")
     if "error" in parsed:
@@ -273,9 +248,7 @@ def route_question(question: str) -> dict[str, object]:
         }
     query_name = parsed.get("query")
     if not isinstance(query_name, str) or query_name not in _VALID_QUERIES:
-        raise NarrationUnavailable(
-            f"Unknown query function: {query_name!r}"
-        )
+        raise NarrationUnavailable(f"Unknown query function: {query_name!r}")
     params = parsed.get("params")
     if params is None:
         params = {}

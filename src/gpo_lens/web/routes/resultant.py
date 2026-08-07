@@ -61,8 +61,11 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
             return templates.TemplateResponse(
                 request,
                 "resultant.html",
-                {"request": request, "result": None,
-                 "error": "A principal SID or name is required."},
+                {
+                    "request": request,
+                    "result": None,
+                    "error": "A principal SID or name is required.",
+                },
             )
 
         resolved_sid = resolve_principal_input(estate, principal_input)
@@ -70,9 +73,12 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
             return templates.TemplateResponse(
                 request,
                 "resultant.html",
-                {"request": request, "result": None,
-                 "error": f"Could not resolve '{principal_input}' to a principal. "
-                          "Enter a SID (S-1-...) or a known principal/group name."},
+                {
+                    "request": request,
+                    "result": None,
+                    "error": f"Could not resolve '{principal_input}' to a principal. "
+                    "Enter a SID (S-1-...) or a known principal/group name.",
+                },
             )
 
         resolved_computer_sid: str | None = None
@@ -83,9 +89,12 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
                 return templates.TemplateResponse(
                     request,
                     "resultant.html",
-                    {"request": request, "result": None,
-                     "error": f"Could not resolve '{comp_input}' to a computer principal. "
-                              "Enter a SID (S-1-...) or a known principal/group name."},
+                    {
+                        "request": request,
+                        "result": None,
+                        "error": f"Could not resolve '{comp_input}' to a computer principal. "
+                        "Enter a SID (S-1-...) or a known principal/group name.",
+                    },
                 )
 
         try:
@@ -101,8 +110,11 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
             return templates.TemplateResponse(
                 request,
                 "resultant.html",
-                {"request": request, "result": None,
-                 "error": "Computation failed. Check the server log for details."},
+                {
+                    "request": request,
+                    "result": None,
+                    "error": "Computation failed. Check the server log for details.",
+                },
             )
         return templates.TemplateResponse(
             request,

@@ -5,6 +5,7 @@ cmd_baseline_diff via main() so coverage is measured. The underlying
 snapshot_diff logic is covered by test_snapshot_diff; this file tests the
 CLI argparse wiring and output rendering (text + JSON).
 """
+
 from __future__ import annotations
 
 import json
@@ -38,14 +39,26 @@ def _make_gpo(
     from gpo_lens.model import Gpo
 
     return Gpo(
-        id=gpo_id, name=name, domain="test.local",
-        created=None, modified=None, read=None,
-        computer_enabled=computer_enabled, user_enabled=user_enabled,
-        computer_ver_ds=computer_ver_ds, computer_ver_sysvol=computer_ver_sysvol,
-        user_ver_ds=user_ver_ds, user_ver_sysvol=user_ver_sysvol,
-        sddl=None, owner=owner, filter_data_available=False,
-        wmi_filter=wmi_filter, sysvol_path=None,
-        settings=settings or [], delegation=delegation or [], links=links or [],
+        id=gpo_id,
+        name=name,
+        domain="test.local",
+        created=None,
+        modified=None,
+        read=None,
+        computer_enabled=computer_enabled,
+        user_enabled=user_enabled,
+        computer_ver_ds=computer_ver_ds,
+        computer_ver_sysvol=computer_ver_sysvol,
+        user_ver_ds=user_ver_ds,
+        user_ver_sysvol=user_ver_sysvol,
+        sddl=None,
+        owner=owner,
+        filter_data_available=False,
+        wmi_filter=wmi_filter,
+        sysvol_path=None,
+        settings=settings or [],
+        delegation=delegation or [],
+        links=links or [],
     )
 
 
@@ -53,9 +66,14 @@ def _setting(gpo_id, side, cse, identity, value):
     from gpo_lens.model import Setting
 
     return Setting(
-        gpo_id=gpo_id, side=side, cse=cse, identity=identity,
-        display_name=identity, display_value=value,
-        raw={}, from_disabled_side=False,
+        gpo_id=gpo_id,
+        side=side,
+        cse=cse,
+        identity=identity,
+        display_name=identity,
+        display_value=value,
+        raw={},
+        from_disabled_side=False,
     )
 
 
@@ -63,8 +81,11 @@ def _delegation(gpo_id, trustee, sid, permission, allowed=True):
     from gpo_lens.model import DelegationEntry
 
     return DelegationEntry(
-        gpo_id=gpo_id, trustee=trustee, trustee_sid=sid,
-        permission=permission, allowed=allowed,
+        gpo_id=gpo_id,
+        trustee=trustee,
+        trustee_sid=sid,
+        permission=permission,
+        allowed=allowed,
     )
 
 
@@ -72,8 +93,11 @@ def _link(gpo_id, som_path, enabled=True, enforced=False):
     from gpo_lens.model import GpoLink
 
     return GpoLink(
-        gpo_id=gpo_id, som_name="som", som_path=som_path,
-        link_enabled=enabled, enforced=enforced,
+        gpo_id=gpo_id,
+        som_name="som",
+        som_path=som_path,
+        link_enabled=enabled,
+        enforced=enforced,
     )
 
 
@@ -88,18 +112,21 @@ def _make_diff_db(tmp_path: Path):
         domain="test.local",
         gpos=[
             _make_gpo(
-                GPO_ALPHA, "GPO Alpha",
+                GPO_ALPHA,
+                "GPO Alpha",
                 owner="Admin",
                 settings=[_setting(GPO_ALPHA, "Computer", "Registry", "Alpha:Setting1", "old")],
                 delegation=[_delegation(GPO_ALPHA, "Authenticated Users", "S-1-5-11", "Read")],
                 links=[_link(GPO_ALPHA, "ou=a,dc=test,dc=local")],
             ),
             _make_gpo(
-                GPO_BETA, "GPO Beta",
+                GPO_BETA,
+                "GPO Beta",
                 settings=[_setting(GPO_BETA, "User", "Registry", "Beta:Setting2", "val2")],
             ),
             _make_gpo(
-                GPO_DELTA, "GPO Delta",
+                GPO_DELTA,
+                "GPO Delta",
                 settings=[_setting(GPO_DELTA, "User", "Registry", "Delta:Setting4", "val4")],
             ),
         ],
@@ -110,25 +137,36 @@ def _make_diff_db(tmp_path: Path):
         domain="test.local",
         gpos=[
             _make_gpo(
-                GPO_ALPHA, "GPO Alpha Renamed",
-                computer_ver_ds=2, computer_ver_sysvol=3,
-                user_ver_ds=2, user_ver_sysvol=2,
+                GPO_ALPHA,
+                "GPO Alpha Renamed",
+                computer_ver_ds=2,
+                computer_ver_sysvol=3,
+                user_ver_ds=2,
+                user_ver_sysvol=2,
                 computer_enabled=False,
                 owner="NewOwner",
                 wmi_filter="MyFilter",
                 settings=[_setting(GPO_ALPHA, "Computer", "Registry", "Alpha:Setting1", "new")],
-                delegation=[_delegation(
-                    GPO_ALPHA, "Authenticated Users", "S-1-5-11", "Apply Group Policy",
-                )],
+                delegation=[
+                    _delegation(
+                        GPO_ALPHA,
+                        "Authenticated Users",
+                        "S-1-5-11",
+                        "Apply Group Policy",
+                    )
+                ],
                 links=[_link(GPO_ALPHA, "ou=b,dc=test,dc=local", enforced=True)],
             ),
             _make_gpo(
-                GPO_BETA, "GPO Beta",
-                computer_ver_ds=2, computer_ver_sysvol=2,
+                GPO_BETA,
+                "GPO Beta",
+                computer_ver_ds=2,
+                computer_ver_sysvol=2,
                 settings=[_setting(GPO_BETA, "User", "Registry", "Beta:Setting2", "val2")],
             ),
             _make_gpo(
-                GPO_GAMMA, "GPO Gamma",
+                GPO_GAMMA,
+                "GPO Gamma",
                 settings=[_setting(GPO_GAMMA, "Computer", "Registry", "Gamma:Setting3", "val3")],
             ),
         ],
@@ -148,7 +186,8 @@ def _make_identical_db(tmp_path: Path):
         domain="test.local",
         gpos=[
             _make_gpo(
-                GPO_ALPHA, "GPO Alpha",
+                GPO_ALPHA,
+                "GPO Alpha",
                 settings=[_setting(GPO_ALPHA, "Computer", "Registry", "Alpha:Setting1", "val")],
             ),
         ],
@@ -186,32 +225,52 @@ def _make_rich_db(tmp_path: Path):
         domain="test.local",
         gpos=[
             model.Gpo(
-                id="aaa-bbb", name="GPO Alpha", domain="test.local",
-                created=None, modified=None, read=None,
-                computer_enabled=True, user_enabled=False,
-                computer_ver_ds=1, computer_ver_sysvol=2,
-                user_ver_ds=0, user_ver_sysvol=0,
-                sddl=None, owner="BUILTIN\\Admins",
+                id="aaa-bbb",
+                name="GPO Alpha",
+                domain="test.local",
+                created=None,
+                modified=None,
+                read=None,
+                computer_enabled=True,
+                user_enabled=False,
+                computer_ver_ds=1,
+                computer_ver_sysvol=2,
+                user_ver_ds=0,
+                user_ver_sysvol=0,
+                sddl=None,
+                owner="BUILTIN\\Admins",
                 filter_data_available=False,
-                wmi_filter="MyFilter", sysvol_path=None,
+                wmi_filter="MyFilter",
+                sysvol_path=None,
                 settings=[
                     model.Setting(
-                        gpo_id="aaa-bbb", side="Computer", cse="Security",
+                        gpo_id="aaa-bbb",
+                        side="Computer",
+                        cse="Security",
                         identity="Account:LockoutBadCount",
-                        display_name="LockoutBadCount", display_value="5",
-                        raw={}, from_disabled_side=False,
+                        display_name="LockoutBadCount",
+                        display_value="5",
+                        raw={},
+                        from_disabled_side=False,
                     ),
                     model.Setting(
-                        gpo_id="aaa-bbb", side="Computer", cse="Registry",
+                        gpo_id="aaa-bbb",
+                        side="Computer",
+                        cse="Registry",
                         identity=r"Software\MyApp:Setting1",
-                        display_name=r"Software\MyApp", display_value="1",
-                        raw={}, from_disabled_side=False,
+                        display_name=r"Software\MyApp",
+                        display_value="1",
+                        raw={},
+                        from_disabled_side=False,
                     ),
                 ],
                 delegation=[
                     model.DelegationEntry(
-                        gpo_id="aaa-bbb", trustee="Authenticated Users",
-                        trustee_sid="S-1-5-11", permission="Read", allowed=True,
+                        gpo_id="aaa-bbb",
+                        trustee="Authenticated Users",
+                        trustee_sid="S-1-5-11",
+                        permission="Read",
+                        allowed=True,
                     ),
                 ],
                 links=[
@@ -219,31 +278,49 @@ def _make_rich_db(tmp_path: Path):
                         gpo_id="aaa-bbb",
                         som_name="Workstations",
                         som_path="ou=workstations,dc=test,dc=local",
-                        link_enabled=True, enforced=False,
+                        link_enabled=True,
+                        enforced=False,
                     ),
                 ],
             ),
             model.Gpo(
-                id="ccc-ddd", name="GPO Beta", domain="test.local",
-                created=None, modified=None, read=None,
-                computer_enabled=False, user_enabled=True,
-                computer_ver_ds=0, computer_ver_sysvol=0,
-                user_ver_ds=0, user_ver_sysvol=0,
-                sddl=None, owner=None,
+                id="ccc-ddd",
+                name="GPO Beta",
+                domain="test.local",
+                created=None,
+                modified=None,
+                read=None,
+                computer_enabled=False,
+                user_enabled=True,
+                computer_ver_ds=0,
+                computer_ver_sysvol=0,
+                user_ver_ds=0,
+                user_ver_sysvol=0,
+                sddl=None,
+                owner=None,
                 filter_data_available=False,
-                wmi_filter=None, sysvol_path=None,
+                wmi_filter=None,
+                sysvol_path=None,
                 settings=[
                     model.Setting(
-                        gpo_id="ccc-ddd", side="User", cse="Registry",
-                        identity="SomePolicy", display_name="SomePolicy",
-                        display_value="Enabled", raw={},
+                        gpo_id="ccc-ddd",
+                        side="User",
+                        cse="Registry",
+                        identity="SomePolicy",
+                        display_name="SomePolicy",
+                        display_value="Enabled",
+                        raw={},
                         from_disabled_side=False,
                     ),
                     model.Setting(
-                        gpo_id="ccc-ddd", side="Computer", cse="Security",
+                        gpo_id="ccc-ddd",
+                        side="Computer",
+                        cse="Security",
                         identity="Account:LockoutBadCount",
-                        display_name="LockoutBadCount", display_value="10",
-                        raw={}, from_disabled_side=True,
+                        display_name="LockoutBadCount",
+                        display_value="10",
+                        raw={},
+                        from_disabled_side=True,
                     ),
                 ],
             ),
@@ -421,10 +498,17 @@ class TestDiffSettingsDirect:
         db, sid_a, sid_b = diff_db
         from gpo_lens.cli import main
 
-        ret = main([
-            "--db", str(db), "diff-settings", str(sid_a), str(sid_b),
-            "--gpo-id", GPO_ALPHA,
-        ])
+        ret = main(
+            [
+                "--db",
+                str(db),
+                "diff-settings",
+                str(sid_a),
+                str(sid_b),
+                "--gpo-id",
+                GPO_ALPHA,
+            ]
+        )
         assert ret == 0
         captured = capsys.readouterr()
         assert "Alpha:Setting1" in captured.out
@@ -435,10 +519,17 @@ class TestDiffSettingsDirect:
         db, sid_a, sid_b = diff_db
         from gpo_lens.cli import main
 
-        ret = main([
-            "--db", str(db), "diff-settings", str(sid_a), str(sid_b),
-            "--side", "User",
-        ])
+        ret = main(
+            [
+                "--db",
+                str(db),
+                "diff-settings",
+                str(sid_a),
+                str(sid_b),
+                "--side",
+                "User",
+            ]
+        )
         assert ret == 0
         captured = capsys.readouterr()
         assert "Delta:Setting4" in captured.out
@@ -448,10 +539,17 @@ class TestDiffSettingsDirect:
         db, sid_a, sid_b = diff_db
         from gpo_lens.cli import main
 
-        ret = main([
-            "--db", str(db), "diff-settings", str(sid_a), str(sid_b),
-            "--cse", "Registry",
-        ])
+        ret = main(
+            [
+                "--db",
+                str(db),
+                "diff-settings",
+                str(sid_a),
+                str(sid_b),
+                "--cse",
+                "Registry",
+            ]
+        )
         assert ret == 0
         captured = capsys.readouterr()
         assert "Alpha:Setting1" in captured.out
@@ -513,10 +611,17 @@ class TestChangelogDirect:
         db, sid_a, sid_b = diff_db
         from gpo_lens.cli import main
 
-        ret = main([
-            "--db", str(db), "changelog", str(sid_a), str(sid_b),
-            "--gpo-id", GPO_ALPHA,
-        ])
+        ret = main(
+            [
+                "--db",
+                str(db),
+                "changelog",
+                str(sid_a),
+                str(sid_b),
+                "--gpo-id",
+                GPO_ALPHA,
+            ]
+        )
         assert ret == 0
         captured = capsys.readouterr()
         assert "GPO Alpha" in captured.out
@@ -526,10 +631,17 @@ class TestChangelogDirect:
         db, sid_a, sid_b = diff_db
         from gpo_lens.cli import main
 
-        ret = main([
-            "--db", str(db), "changelog", str(sid_a), str(sid_b),
-            "--gpo-id", "99999999999999999999999999999999",
-        ])
+        ret = main(
+            [
+                "--db",
+                str(db),
+                "changelog",
+                str(sid_a),
+                str(sid_b),
+                "--gpo-id",
+                "99999999999999999999999999999999",
+            ]
+        )
         assert ret == 0
         captured = capsys.readouterr()
         assert "No changes found between snapshots." in captured.out
@@ -538,10 +650,17 @@ class TestChangelogDirect:
         db, sid_a, sid_b = diff_db
         from gpo_lens.cli import main
 
-        ret = main([
-            "--db", str(db), "changelog", str(sid_a), str(sid_b),
-            "--side", "Computer",
-        ])
+        ret = main(
+            [
+                "--db",
+                str(db),
+                "changelog",
+                str(sid_a),
+                str(sid_b),
+                "--side",
+                "Computer",
+            ]
+        )
         assert ret == 0
         captured = capsys.readouterr()
         assert "GPO Alpha" in captured.out
@@ -551,10 +670,17 @@ class TestChangelogDirect:
         db, sid_a, sid_b = diff_db
         from gpo_lens.cli import main
 
-        ret = main([
-            "--db", str(db), "changelog", str(sid_a), str(sid_b),
-            "--side", "User",
-        ])
+        ret = main(
+            [
+                "--db",
+                str(db),
+                "changelog",
+                str(sid_a),
+                str(sid_b),
+                "--side",
+                "User",
+            ]
+        )
         assert ret == 0
         captured = capsys.readouterr()
         assert "GPO Alpha" in captured.out
@@ -643,10 +769,16 @@ class TestBaselineDiffDirect:
         baseline_dir = _write_baseline_dir(tmp_path, DRIFT_BASELINE_XML)
         from gpo_lens.cli import main
 
-        ret = main([
-            "--db", str(rich_db), "baseline-diff", str(baseline_dir),
-            "--admx-dir", "/nonexistent",
-        ])
+        ret = main(
+            [
+                "--db",
+                str(rich_db),
+                "baseline-diff",
+                str(baseline_dir),
+                "--admx-dir",
+                "/nonexistent",
+            ]
+        )
         assert ret == 0
         captured = capsys.readouterr()
         assert "not found or not a directory" in captured.err
@@ -693,9 +825,12 @@ def test_snapshot_diff_none_version_not_treated_as_skew(tmp_path):
         domain="test.local",
         gpos=[
             _make_gpo(
-                GPO_ALPHA, "Alpha",
-                computer_ver_ds=None, computer_ver_sysvol=None,
-                user_ver_ds=1, user_ver_sysvol=1,
+                GPO_ALPHA,
+                "Alpha",
+                computer_ver_ds=None,
+                computer_ver_sysvol=None,
+                user_ver_ds=1,
+                user_ver_sysvol=1,
             ),
         ],
     )
@@ -705,9 +840,12 @@ def test_snapshot_diff_none_version_not_treated_as_skew(tmp_path):
         domain="test.local",
         gpos=[
             _make_gpo(
-                GPO_ALPHA, "Alpha",
-                computer_ver_ds=5, computer_ver_sysvol=5,
-                user_ver_ds=1, user_ver_sysvol=1,
+                GPO_ALPHA,
+                "Alpha",
+                computer_ver_ds=5,
+                computer_ver_sysvol=5,
+                user_ver_ds=1,
+                user_ver_sysvol=1,
             ),
         ],
     )
@@ -734,7 +872,8 @@ def test_snapshot_changelog_gpo_removed(tmp_path):
         domain="test.local",
         gpos=[
             _make_gpo(
-                GPO_DELTA, "GPO Delta",
+                GPO_DELTA,
+                "GPO Delta",
                 settings=[_setting(GPO_DELTA, "User", "Registry", "Delta:Setting", "val")],
             ),
         ],

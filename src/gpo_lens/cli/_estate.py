@@ -75,13 +75,15 @@ def _emit_ingest_events(
     settings_changes = snapshot_diff.snapshot_settings_diff(conn, prev, sid)
     settings_by_gpo: dict[str, list[dict[str, str | None]]] = {}
     for sc in settings_changes:
-        settings_by_gpo.setdefault(sc.gpo_id, []).append({
-            "cse": sc.cse,
-            "identity": sc.identity,
-            "gpo_name": sc.gpo_name,
-            "old": sc.old_value,
-            "new": sc.new_value,
-        })
+        settings_by_gpo.setdefault(sc.gpo_id, []).append(
+            {
+                "cse": sc.cse,
+                "identity": sc.identity,
+                "gpo_name": sc.gpo_name,
+                "old": sc.old_value,
+                "new": sc.new_value,
+            }
+        )
 
     evs: list[tuple[str, dict[str, object]]] = []
 
@@ -111,14 +113,19 @@ def _emit_ingest_events(
             payload["total_count"] = total
         evs.append(("gpo.modified", payload))
 
-    evs.append(("ingest.summary", {
-        "old_snapshot_id": prev,
-        "new_snapshot_id": sid,
-        "gpos_added": len(diff.gpos_added),
-        "gpos_removed": len(diff.gpos_removed),
-        "gpos_modified": len(diff.settings_changed),
-        "gpo_count": gpo_count,
-    }))
+    evs.append(
+        (
+            "ingest.summary",
+            {
+                "old_snapshot_id": prev,
+                "new_snapshot_id": sid,
+                "gpos_added": len(diff.gpos_added),
+                "gpos_removed": len(diff.gpos_removed),
+                "gpos_modified": len(diff.settings_changed),
+                "gpo_count": gpo_count,
+            },
+        )
+    )
 
     _append_events(conn, evs)
 

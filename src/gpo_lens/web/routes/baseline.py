@@ -66,9 +66,7 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
                         },
                         status_code=413,
                     )
-                baseline_gpos = await asyncio.to_thread(
-                    _ingest.load_baseline_from_zip, zip_path
-                )
+                baseline_gpos = await asyncio.to_thread(_ingest.load_baseline_from_zip, zip_path)
 
             def _compute_diff():  # type: ignore[no-untyped-def]
                 baseline_estate = _Estate(domain="baseline", gpos=baseline_gpos)
@@ -78,19 +76,20 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
                     estate = _store.load_estate(conn)
                 finally:
                     conn.close()
-                diff = queries.baseline_diff(
-                    estate, baseline_settings, admx=app.state.admx
-                )
+                diff = queries.baseline_diff(estate, baseline_settings, admx=app.state.admx)
                 unresolved = sum(1 for e in diff if not e.admx_name)
                 return diff, len(diff), unresolved
 
-            diff_entries, total_count, unresolved_count = (
-                await asyncio.to_thread(_compute_diff)
-            )
+            diff_entries, total_count, unresolved_count = await asyncio.to_thread(_compute_diff)
             _audit("baseline_diff", _principal, "success", f"{total_count} entries", request)
         except (
-            ValueError, zipfile.BadZipFile, FileNotFoundError,
-            OSError, NotImplementedError, RuntimeError, MemoryError,
+            ValueError,
+            zipfile.BadZipFile,
+            FileNotFoundError,
+            OSError,
+            NotImplementedError,
+            RuntimeError,
+            MemoryError,
         ) as exc:
             _logger.warning("Invalid baseline zip: %s", exc)
             _audit("baseline_diff", _principal, "failure", type(exc).__name__, request)

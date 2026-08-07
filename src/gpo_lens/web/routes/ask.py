@@ -82,9 +82,7 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
 
             try:
                 routing = route_question(
-                    "--- USER QUESTION START ---\n"
-                    f"{sanitized}\n"
-                    "--- USER QUESTION END ---"
+                    f"--- USER QUESTION START ---\n{sanitized}\n--- USER QUESTION END ---"
                 )
             except NarrationUnavailable as exc:
                 error = str(exc)
@@ -97,15 +95,11 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
             if routing is not None:
                 query_name = str(routing["query"])
                 raw_params = routing.get("params", {})
-                params: dict[str, object] = (
-                    dict(raw_params) if isinstance(raw_params, dict) else {}
-                )
+                params: dict[str, object] = dict(raw_params) if isinstance(raw_params, dict) else {}
                 params = {k: v for k, v in params.items() if k != "estate"}
                 if query_name in VALID_QUERIES:
                     try:
-                        call_kw = validate_params(
-                            query_name, {"estate": estate, **params}
-                        )
+                        call_kw = validate_params(query_name, {"estate": estate, **params})
                     except ValueError as exc:
                         error = str(exc)
                     if error is None:
@@ -116,7 +110,8 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
                             hits: list[queries.CpasswordHit] = query_result  # type: ignore[assignment]
                             query_result = [
                                 dataclasses.replace(
-                                    hit, cpassword=mask_cpassword(hit.cpassword),
+                                    hit,
+                                    cpassword=mask_cpassword(hit.cpassword),
                                 )
                                 for hit in hits
                             ]
@@ -135,8 +130,7 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
                             "--- USER QUESTION START ---\n"
                             f"{sanitized}\n"
                             "--- USER QUESTION END ---\n\n"
-                            "Query results:\n"
-                            + json.dumps(serialized, indent=2)
+                            "Query results:\n" + json.dumps(serialized, indent=2)
                         )
                         try:
                             answer = call_llm(system, user)
@@ -151,13 +145,13 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
                     error = f"Query '{query_name}' not implemented"
 
         outcome = (
-            "success" if answer
-            else ("not_configured" if not narration_available else "error")
+            "success" if answer else ("not_configured" if not narration_available else "error")
         )
         rw_conn = get_rw_conn(app.state.db_path)
         try:
             _events.append_event(
-                rw_conn, "audit.narrate",
+                rw_conn,
+                "audit.narrate",
                 {"principal": principal.name, "question": sanitized, "outcome": outcome},
             )
         finally:

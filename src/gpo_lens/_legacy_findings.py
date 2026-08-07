@@ -4,6 +4,7 @@ These functions are the original Plan 023 lifecycle writer, retained for
 test compatibility.  Production code uses the Plan 024 ``run_evaluation``
 path in :mod:`gpo_lens.findings`.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -59,11 +60,13 @@ def finding_key(rule_id: str, subject_identity: str, detail: str = "") -> str:
     silent deduplication when a single GPO has multiple findings from the
     same rule (e.g. two dangerous registry values under the same check_id).
     """
-    raw = "\x00".join([
-        rule_id.strip().lower(),
-        subject_identity.strip().lower(),
-        detail.strip().lower(),
-    ])
+    raw = "\x00".join(
+        [
+            rule_id.strip().lower(),
+            subject_identity.strip().lower(),
+            detail.strip().lower(),
+        ]
+    )
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
@@ -133,9 +136,7 @@ def update_finding_lifecycle(
             raw_detail = getattr(finding, "detail", "")
             raw_remediation = getattr(finding, "remediation", "")
             finding_detail = raw_detail[:16_000] if isinstance(raw_detail, str) else ""
-            remediation = (
-                raw_remediation[:8_000] if isinstance(raw_remediation, str) else ""
-            )
+            remediation = raw_remediation[:8_000] if isinstance(raw_remediation, str) else ""
             gpo_id = getattr(finding, "gpo_id", "")
             gpo_name = getattr(finding, "gpo_name", "")
 
@@ -146,8 +147,12 @@ def update_finding_lifecycle(
                     "detail = ?, remediation = ? "
                     "WHERE id = ?",
                     (
-                        snapshot_id, severity, summary, finding_detail,
-                        remediation, existing["id"],
+                        snapshot_id,
+                        severity,
+                        summary,
+                        finding_detail,
+                        remediation,
+                        existing["id"],
                     ),
                 )
                 persisting_count += 1
@@ -170,8 +175,20 @@ def update_finding_lifecycle(
                     "first_seen_snapshot, last_seen_snapshot, "
                     "resolved_in_snapshot, predecessor_id) "
                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)",
-                    (key, rule_id, subject, severity, summary, finding_detail, remediation,
-                     gpo_id, gpo_name, snapshot_id, snapshot_id, predecessor_id),
+                    (
+                        key,
+                        rule_id,
+                        subject,
+                        severity,
+                        summary,
+                        finding_detail,
+                        remediation,
+                        gpo_id,
+                        gpo_name,
+                        snapshot_id,
+                        snapshot_id,
+                        predecessor_id,
+                    ),
                 )
                 new_count += 1
 

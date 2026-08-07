@@ -77,11 +77,7 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         # arrive from bookmarked URLs, and a stale filter should widen the view,
         # not break it.
         severities = sorted(
-            {
-                part.strip()
-                for part in severity.split(",")
-                if part.strip() in _VALID_SEVERITIES
-            }
+            {part.strip() for part in severity.split(",") if part.strip() in _VALID_SEVERITIES}
         )
         lifecycle_state = lifecycle if lifecycle in _VALID_LIFECYCLE else None
         triage_status = triage if triage in _VALID_TRIAGE else None
@@ -107,9 +103,7 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
 
             # Clamp the page against the real total before querying, so an
             # out-of-range ``page=`` returns the last page instead of nothing.
-            page, offset, pag = paginate_total(
-                filtered_count, page, per_page_int, per_page_raw
-            )
+            page, offset, pag = paginate_total(filtered_count, page, per_page_int, per_page_raw)
             # per_page=all means no window; the query's own limit still caps it.
             views = finding_inbox(
                 conn,
@@ -130,25 +124,27 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         rows: list[dict[str, Any]] = []
         for view in views:
             ts = status_map.get(view.occurrence_id)
-            rows.append({
-                "id": view.occurrence_id,
-                "rule_id": view.category,
-                "severity": view.severity,
-                "summary": view.summary,
-                "detail": view.detail,
-                "remediation": view.remediation,
-                "gpo_id": view.gpo_id,
-                "gpo_name": view.gpo_name,
-                "first_seen_run": view.first_seen_run_id,
-                "last_seen_run": view.last_seen_run_id,
-                "predecessor_id": view.predecessor_id,
-                "claim_level": view.claim_level,
-                "triage_state": view.triage_status,
-                "triage_note": view.triage_note,
-                "triage_actor": view.triage_actor,
-                "triage_timestamp": ts.updated_at.isoformat() if ts else "",
-                "is_new": view.lifecycle_state == "new",
-            })
+            rows.append(
+                {
+                    "id": view.occurrence_id,
+                    "rule_id": view.category,
+                    "severity": view.severity,
+                    "summary": view.summary,
+                    "detail": view.detail,
+                    "remediation": view.remediation,
+                    "gpo_id": view.gpo_id,
+                    "gpo_name": view.gpo_name,
+                    "first_seen_run": view.first_seen_run_id,
+                    "last_seen_run": view.last_seen_run_id,
+                    "predecessor_id": view.predecessor_id,
+                    "claim_level": view.claim_level,
+                    "triage_state": view.triage_status,
+                    "triage_note": view.triage_note,
+                    "triage_actor": view.triage_actor,
+                    "triage_timestamp": ts.updated_at.isoformat() if ts else "",
+                    "is_new": view.lifecycle_state == "new",
+                }
+            )
 
         findings_qs = base_qs(request, "page", "per_page")
 
@@ -209,9 +205,7 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
             predecessor = None
             if history.occurrence.predecessor_id is not None:
                 try:
-                    prior = finding_history(
-                        conn, history.occurrence.predecessor_id
-                    )
+                    prior = finding_history(conn, history.occurrence.predecessor_id)
                 except ValueError:
                     prior = None
                 if prior is not None:
@@ -247,12 +241,14 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         for prev, curr in zip(observations, observations[1:], strict=False):
             for field in ("severity", "claim_level", "detector_set_digest"):
                 if prev[field] != curr[field]:
-                    changes.append({
-                        "run_id": curr["run_id"],
-                        "field": field,
-                        "before": prev[field],
-                        "after": curr[field],
-                    })
+                    changes.append(
+                        {
+                            "run_id": curr["run_id"],
+                            "field": field,
+                            "before": prev[field],
+                            "after": curr[field],
+                        }
+                    )
 
         return templates.TemplateResponse(
             request,
@@ -289,9 +285,7 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         from gpo_lens.findings import triage_finding
 
         if status not in _VALID_TRIAGE:
-            return HTMLResponse(
-                "Invalid triage status", status_code=400
-            )
+            return HTMLResponse("Invalid triage status", status_code=400)
 
         conn = get_rw_conn(app.state.db_path)
         try:

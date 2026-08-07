@@ -22,34 +22,57 @@ def _preg_str(s: str) -> bytes:
 def _preg_record(key: str, value_name: str, type_code: int, data: bytes) -> bytes:
     # Real PReg format: UTF-16LE delimiters; type/size are 4-byte LE DWORDs;
     # data is immediately followed by the closing ']' (no separator).
-    return b"".join([
-        b"\x5b\x00",                       # '['
-        _preg_str(key), b"\x3b\x00",       # key ';'
-        _preg_str(value_name), b"\x3b\x00",  # value ';'
-        struct.pack("<I", type_code), b"\x3b\x00",  # type ';'
-        struct.pack("<I", len(data)), b"\x3b\x00",  # size ';'
-        data,
-        b"\x5d\x00",                       # ']'
-    ])
+    return b"".join(
+        [
+            b"\x5b\x00",  # '['
+            _preg_str(key),
+            b"\x3b\x00",  # key ';'
+            _preg_str(value_name),
+            b"\x3b\x00",  # value ';'
+            struct.pack("<I", type_code),
+            b"\x3b\x00",  # type ';'
+            struct.pack("<I", len(data)),
+            b"\x3b\x00",  # size ';'
+            data,
+            b"\x5d\x00",  # ']'
+        ]
+    )
 
 
 def _make_gpo(sysvol_path: str | None, *, blocked_sides: tuple[str, ...] = ()) -> Gpo:
     settings: list[Setting] = []
     for side in blocked_sides:
-        settings.append(Setting(
-            gpo_id="gpo-1", side=side, cse="Registry",
-            identity="Registry:blocked", display_name="(blocked extension)",
-            display_value="", raw={"blocked": True},
-            from_disabled_side=False, source_state="blocked",
-        ))
+        settings.append(
+            Setting(
+                gpo_id="gpo-1",
+                side=side,
+                cse="Registry",
+                identity="Registry:blocked",
+                display_name="(blocked extension)",
+                display_value="",
+                raw={"blocked": True},
+                from_disabled_side=False,
+                source_state="blocked",
+            )
+        )
     return Gpo(
-        id="gpo-1", name="Blocked GPO", domain="test.local",
-        created=None, modified=None, read=None,
-        computer_enabled=True, user_enabled=True,
-        computer_ver_ds=None, computer_ver_sysvol=None,
-        user_ver_ds=None, user_ver_sysvol=None,
-        sddl=None, owner=None, filter_data_available=False,
-        wmi_filter=None, sysvol_path=sysvol_path,
+        id="gpo-1",
+        name="Blocked GPO",
+        domain="test.local",
+        created=None,
+        modified=None,
+        read=None,
+        computer_enabled=True,
+        user_enabled=True,
+        computer_ver_ds=None,
+        computer_ver_sysvol=None,
+        user_ver_ds=None,
+        user_ver_sysvol=None,
+        sddl=None,
+        owner=None,
+        filter_data_available=False,
+        wmi_filter=None,
+        sysvol_path=sysvol_path,
         settings=settings,
     )
 
@@ -58,11 +81,20 @@ def test_blocked_registry_resolved_from_pol(tmp_path):
     base = tmp_path / "gpo-1"
     machine = base / "Machine"
     machine.mkdir(parents=True)
-    pol = _HEADER + _preg_record(
-        r"Software\Policies\Acme", "EnableTelemetry", 4, struct.pack("<I", 0),
-    ) + _preg_record(
-        r"Software\Policies\Acme", "Mode", 1,
-        "Strict".encode("utf-16-le") + b"\x00\x00",
+    pol = (
+        _HEADER
+        + _preg_record(
+            r"Software\Policies\Acme",
+            "EnableTelemetry",
+            4,
+            struct.pack("<I", 0),
+        )
+        + _preg_record(
+            r"Software\Policies\Acme",
+            "Mode",
+            1,
+            "Strict".encode("utf-16-le") + b"\x00\x00",
+        )
     )
     (machine / "Registry.pol").write_bytes(pol)
 
@@ -116,7 +148,10 @@ def test_user_side_blocked_resolved_from_user_pol(tmp_path):
     user = base / "User"
     user.mkdir(parents=True)
     pol = _HEADER + _preg_record(
-        r"Software\Policies\Acme", "UserSetting", 4, struct.pack("<I", 1),
+        r"Software\Policies\Acme",
+        "UserSetting",
+        4,
+        struct.pack("<I", 1),
     )
     (user / "Registry.pol").write_bytes(pol)
     gpo = _make_gpo(str(base), blocked_sides=("User",))
@@ -136,7 +171,10 @@ def test_partial_resolution_keeps_unresolved_side(tmp_path):
     machine = base / "Machine"
     machine.mkdir(parents=True)
     pol = _HEADER + _preg_record(
-        r"Software\Policies\Acme", "Enable", 4, struct.pack("<I", 0),
+        r"Software\Policies\Acme",
+        "Enable",
+        4,
+        struct.pack("<I", 0),
     )
     (machine / "Registry.pol").write_bytes(pol)
 
@@ -145,13 +183,9 @@ def test_partial_resolution_keeps_unresolved_side(tmp_path):
 
     # Computer side resolved → placeholder removed, real settings added.
     comp_resolved = [
-        s for s in gpo.settings
-        if s.source_state == "registry_pol" and s.side == "Computer"
+        s for s in gpo.settings if s.source_state == "registry_pol" and s.side == "Computer"
     ]
     assert len(comp_resolved) == 1
     # User side NOT resolved → placeholder KEPT.
-    user_blocked = [
-        s for s in gpo.settings
-        if s.source_state == "blocked" and s.side == "User"
-    ]
+    user_blocked = [s for s in gpo.settings if s.source_state == "blocked" and s.side == "User"]
     assert len(user_blocked) == 1

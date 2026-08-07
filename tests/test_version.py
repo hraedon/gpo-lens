@@ -11,9 +11,7 @@ from gpo_lens import __version__
 
 def test_version_sync() -> None:
     pyproject = Path(__file__).resolve().parent.parent / "pyproject.toml"
-    pyproject_version = tomllib.loads(pyproject.read_text(encoding="utf-8"))[
-        "project"
-    ]["version"]
+    pyproject_version = tomllib.loads(pyproject.read_text(encoding="utf-8"))["project"]["version"]
     assert __version__ == pyproject_version, (
         f"__init__.__version__={__version__!r} != pyproject.toml version={pyproject_version!r}"
     )

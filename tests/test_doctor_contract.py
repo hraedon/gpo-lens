@@ -19,10 +19,7 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-DOCTOR_SRC = (
-    Path(__file__).resolve().parent.parent
-    / "src" / "gpo_lens" / "queries" / "_doctor.py"
-)
+DOCTOR_SRC = Path(__file__).resolve().parent.parent / "src" / "gpo_lens" / "queries" / "_doctor.py"
 
 
 def _literal_empty_gpo_id(call: ast.Call) -> bool:
@@ -75,8 +72,7 @@ def test_contract_detects_a_missing_subject_key() -> None:
     """
     tree = ast.parse('DoctorFinding(severity="low", gpo_id="", summary="x")')
     call = next(
-        n for n in ast.walk(tree)
-        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+        n for n in ast.walk(tree) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
     )
     assert _literal_empty_gpo_id(call)
     assert not _declares_subject_key(call)

@@ -50,11 +50,7 @@ class RateLimiter:
             return True, 0
 
     def _evict_stale(self, cutoff: float) -> None:
-        stale = [
-            ip
-            for ip, times in self._requests.items()
-            if not times or times[-1] <= cutoff
-        ]
+        stale = [ip for ip, times in self._requests.items() if not times or times[-1] <= cutoff]
         for ip in stale:
             del self._requests[ip]
 

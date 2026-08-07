@@ -76,6 +76,7 @@ __all__ = [
 # B.1 — Per-CSE resolution mode
 # ---------------------------------------------------------------------------
 
+
 class CseMergeMode(Enum):
     LAST_WRITER_WINS = "last_writer_wins"
     UNION = "union"
@@ -88,26 +89,55 @@ class CseMergeMode(Enum):
 
 
 _SCRIPTS_CSES = frozenset({"scripts", "group policy scripts"})
-_SEC_RESTRICTED_GROUPS_TYPES = frozenset({
-    "restrictedgroups", "restricted groups",
-})
-_GPP_CSES = frozenset({
-    "group policy preferences", "gpp",
-    "gpp drive maps", "gpp registry", "gpp files",
-    "gpp local users and groups", "gpp scheduled tasks",
-    "drives", "files", "groups", "scheduledtasks",
-    "localusersandgroups", "datasources", "printers",
-    "folders", "services", "environment", "shortcuts",
-    "internetsettings", "regional", "poweroptions",
-    "networkshares", "eventlogs",
-})
-_IPSEC_WIRELESS_CSES = frozenset({
-    "ipsec", "ip security", "wireless", "wired",
-    "wireless network (ieee 802.11) policy", "wired network policy",
-})
-_FOLDER_REDIRECTION_CSES = frozenset({
-    "folder redirection", "folders redirection",
-})
+_SEC_RESTRICTED_GROUPS_TYPES = frozenset(
+    {
+        "restrictedgroups",
+        "restricted groups",
+    }
+)
+_GPP_CSES = frozenset(
+    {
+        "group policy preferences",
+        "gpp",
+        "gpp drive maps",
+        "gpp registry",
+        "gpp files",
+        "gpp local users and groups",
+        "gpp scheduled tasks",
+        "drives",
+        "files",
+        "groups",
+        "scheduledtasks",
+        "localusersandgroups",
+        "datasources",
+        "printers",
+        "folders",
+        "services",
+        "environment",
+        "shortcuts",
+        "internetsettings",
+        "regional",
+        "poweroptions",
+        "networkshares",
+        "eventlogs",
+    }
+)
+_IPSEC_WIRELESS_CSES = frozenset(
+    {
+        "ipsec",
+        "ip security",
+        "wireless",
+        "wired",
+        "wireless network (ieee 802.11) policy",
+        "wired network policy",
+    }
+)
+_FOLDER_REDIRECTION_CSES = frozenset(
+    {
+        "folder redirection",
+        "folders redirection",
+    }
+)
 
 _DOMAIN_RID_DOMAIN_USERS = "-513"
 _DOMAIN_RID_DOMAIN_COMPUTERS = "-515"
@@ -133,11 +163,7 @@ def _restricted_groups_mode(setting: Setting) -> CseMergeMode:
         return CseMergeMode.AUTHORITATIVE_REPLACE
     children = raw.get("children")
     if isinstance(children, list):
-        tags = {
-            str(child.get("tag", "")).lower()
-            for child in children
-            if isinstance(child, dict)
-        }
+        tags = {str(child.get("tag", "")).lower() for child in children if isinstance(child, dict)}
         if "members" in tags:
             return CseMergeMode.AUTHORITATIVE_REPLACE
         if "memberof" in tags:
@@ -195,6 +221,7 @@ def _is_gpp_cse(cse: str) -> bool:
 # B.2 — GPP item action state machine
 # ---------------------------------------------------------------------------
 
+
 def _extract_gpp_action(setting: Setting) -> str:
     """Extract the GPP action (C/R/U/D or CREATE/REPLACE/UPDATE/DELETE)."""
     raw = setting.raw
@@ -226,6 +253,7 @@ _ACTION_DELETE = frozenset({"D", "DELETE"})
 # ---------------------------------------------------------------------------
 # Chain entry + merged setting
 # ---------------------------------------------------------------------------
+
 
 @dataclass(frozen=True)
 class ChainEntry:
@@ -320,19 +348,15 @@ def _merge_bucket(
         winner = max(items, key=lambda it: it.order)
 
     overridden: list[tuple[str, str]] = []
-    if mode in (CseMergeMode.LAST_WRITER_WINS, CseMergeMode.AUTHORITATIVE_REPLACE,
-                CseMergeMode.SINGLE_WINNER, CseMergeMode.APPROXIMATE):
-        overridden = [
-            (it.gpo_name, it.value)
-            for it in items
-            if it.order < winner.order
-        ]
+    if mode in (
+        CseMergeMode.LAST_WRITER_WINS,
+        CseMergeMode.AUTHORITATIVE_REPLACE,
+        CseMergeMode.SINGLE_WINNER,
+        CseMergeMode.APPROXIMATE,
+    ):
+        overridden = [(it.gpo_name, it.value) for it in items if it.order < winner.order]
     else:
-        overridden = [
-            (it.gpo_name, it.value)
-            for it in items
-            if it.order != winner.order
-        ]
+        overridden = [(it.gpo_name, it.value) for it in items if it.order != winner.order]
 
     return MergedSetting(
         cse=cse,
@@ -394,7 +418,8 @@ def merge_settings(
     retrieve the excluded items.
     """
     return merge_settings_with_exclusions(
-        chain_entries, ilt_gpo_ids=ilt_gpo_ids,
+        chain_entries,
+        ilt_gpo_ids=ilt_gpo_ids,
     ).settings
 
 
@@ -419,16 +444,18 @@ def merge_settings_with_exclusions(
                 continue
             key = (s.cse, s.side, s.identity)
             action = _extract_gpp_action(s) if _is_gpp_cse(s.cse) else ""
-            buckets[key].append(_BucketItem(
-                gpo_id=entry.gpo_id,
-                gpo_name=entry.gpo_name,
-                value=s.display_value,
-                display_name=s.display_name,
-                order=entry.order,
-                enforced=entry.enforced,
-                action=action,
-                setting=s,
-            ))
+            buckets[key].append(
+                _BucketItem(
+                    gpo_id=entry.gpo_id,
+                    gpo_name=entry.gpo_name,
+                    value=s.display_value,
+                    display_name=s.display_name,
+                    order=entry.order,
+                    enforced=entry.enforced,
+                    action=action,
+                    setting=s,
+                )
+            )
 
     results: list[MergedSetting] = []
     excluded: list[ExcludedSetting] = []
@@ -439,31 +466,32 @@ def merge_settings_with_exclusions(
         if _is_gpp_cse(cse) and any(it.gpo_id in ilt for it in items):
             for it in items:
                 if it.gpo_id in ilt:
-                    excluded.append(ExcludedSetting(
-                        cse=cse,
-                        side=side,
-                        identity=identity,
-                        display_name=it.display_name,
-                        value=it.value,
-                        gpo_id=it.gpo_id,
-                        gpo_name=it.gpo_name,
-                        kind="ilt",
-                    ))
+                    excluded.append(
+                        ExcludedSetting(
+                            cse=cse,
+                            side=side,
+                            identity=identity,
+                            display_name=it.display_name,
+                            value=it.value,
+                            gpo_id=it.gpo_id,
+                            gpo_name=it.gpo_name,
+                            kind="ilt",
+                        )
+                    )
             continue
         merged = _merge_bucket(cse, side, identity, items)
         if merged is not None:
             results.append(merged)
 
     results.sort(key=lambda m: (m.cse, m.side, m.identity.lower()))
-    excluded.sort(
-        key=lambda e: (e.cse, e.side, e.identity.lower(), e.gpo_id)
-    )
+    excluded.sort(key=lambda e: (e.cse, e.side, e.identity.lower(), e.gpo_id))
     return MergeResult(settings=results, excluded_settings=excluded)
 
 
 # ---------------------------------------------------------------------------
 # Phase A — Principal token
 # ---------------------------------------------------------------------------
+
 
 @dataclass(frozen=True)
 class PrincipalToken:
@@ -548,11 +576,13 @@ def build_token(estate: Estate, principal_sid: str) -> PrincipalToken:
             if group_sid not in token:
                 token.add(group_sid)
                 queue.append(group_sid)
-        if (current.startswith(DOMAIN_SID_PREFIX)
-                and not resolve_well_known(current)
-                and current != sid
-                and gm is None
-                and current not in estate.principals):
+        if (
+            current.startswith(DOMAIN_SID_PREFIX)
+            and not resolve_well_known(current)
+            and current != sid
+            and gm is None
+            and current not in estate.principals
+        ):
             caveats.append(f"unresolved group SID: {current}")
 
     return PrincipalToken(
@@ -566,6 +596,7 @@ def build_token(estate: Estate, principal_sid: str) -> PrincipalToken:
 # ---------------------------------------------------------------------------
 # Phase A — Security-filter gate evaluation
 # ---------------------------------------------------------------------------
+
 
 def _build_name_to_sid_map(estate: Estate) -> dict[str, str]:
     """Reverse name→SID map from collected principals and group memberships."""
@@ -699,6 +730,7 @@ def _gpo_apply_trustee_sids(
 # Phase A — Principal resultant
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class ExcludedGpo:
     """A GPO excluded from the deterministic resultant, with reason."""
@@ -802,8 +834,8 @@ def _build_conditional_dangers(
     WMI) or had settings excluded at the item level (ILT-gated GPP). Any danger
     in such a GPO surfaces here rather than being silently dropped.
     """
-    gated: dict[str, str] = {}          # gpo_id -> reason
-    gpo_names: dict[str, str] = {}      # gpo_id -> gpo_name
+    gated: dict[str, str] = {}  # gpo_id -> reason
+    gpo_names: dict[str, str] = {}  # gpo_id -> gpo_name
     for exc in excluded:
         gated[exc.gpo_id] = exc.reason
         gpo_names[exc.gpo_id] = exc.gpo_name
@@ -821,12 +853,14 @@ def _build_conditional_dangers(
     for gpo_id, reason in gated.items():
         findings = by_gpo.get(gpo_id, [])
         if findings:
-            out.append(ConditionalDanger(
-                gpo_id=gpo_id,
-                gpo_name=gpo_names.get(gpo_id, gpo_id),
-                reason=reason,
-                finding_count=len(findings),
-            ))
+            out.append(
+                ConditionalDanger(
+                    gpo_id=gpo_id,
+                    gpo_name=gpo_names.get(gpo_id, gpo_id),
+                    reason=reason,
+                    finding_count=len(findings),
+                )
+            )
     out.sort(key=lambda c: (c.gpo_name.lower(), c.gpo_id))
     return out
 
@@ -925,40 +959,51 @@ def _collect_chain_entries(
         if _already_excluded is not None and gpo.id in _already_excluded:
             continue
         passes, reason = _evaluate_security_gate(
-            gpo, token_sids, name_to_sid, domain_sid,
+            gpo,
+            token_sids,
+            name_to_sid,
+            domain_sid,
         )
         if not passes:
             if _already_excluded is not None:
                 _already_excluded.add(gpo.id)
-            excluded.append(ExcludedGpo(
-                gpo_id=gpo.id, gpo_name=gpo.name,
-                reason=reason, kind="security_filter",
-                side=target_side,
-            ))
+            excluded.append(
+                ExcludedGpo(
+                    gpo_id=gpo.id,
+                    gpo_name=gpo.name,
+                    reason=reason,
+                    kind="security_filter",
+                    side=target_side,
+                )
+            )
             continue
         if gpo.wmi_filter:
             if _already_excluded is not None:
                 _already_excluded.add(gpo.id)
-            excluded.append(ExcludedGpo(
-                gpo_id=gpo.id, gpo_name=gpo.name,
-                reason=f"WMI filter attached: {gpo.wmi_filter}",
-                kind="wmi_filter",
-                side=target_side,
-            ))
+            excluded.append(
+                ExcludedGpo(
+                    gpo_id=gpo.id,
+                    gpo_name=gpo.name,
+                    reason=f"WMI filter attached: {gpo.wmi_filter}",
+                    kind="wmi_filter",
+                    side=target_side,
+                )
+            )
             continue
         side_settings = [
-            s for s in gpo.settings
-            if s.side == target_side and not s.from_disabled_side
+            s for s in gpo.settings if s.side == target_side and not s.from_disabled_side
         ]
         if not side_settings:
             continue
-        entries.append(ChainEntry(
-            gpo_id=gpo.id,
-            gpo_name=gpo.name,
-            order=eg.order,
-            enforced=eg.enforced,
-            settings=side_settings,
-        ))
+        entries.append(
+            ChainEntry(
+                gpo_id=gpo.id,
+                gpo_name=gpo.name,
+                order=eg.order,
+                enforced=eg.enforced,
+                settings=side_settings,
+            )
+        )
     return entries
 
 
@@ -1040,14 +1085,13 @@ def principal_resultant(
     if is_user_computer_pair:
         comp_token_sids = comp_token.token_sids
         comp_som = _resolve_som_path_for_principal(
-            estate, computer_dn if computer_dn is not None else dn,
+            estate,
+            computer_dn if computer_dn is not None else dn,
         )
         comp_chain = som_effective_gpos(estate, comp_som) if comp_som else []
         comp_dn_resolved = computer_dn if computer_dn is not None else dn
         if comp_dn_resolved and comp_som and comp_chain:
-            comp_dn_norm = ",".join(
-                p.strip() for p in _split_dn(comp_dn_resolved)
-            ).lower()
+            comp_dn_norm = ",".join(p.strip() for p in _split_dn(comp_dn_resolved)).lower()
             if comp_dn_norm != comp_som.lower():
                 approx_msgs.append(
                     "Computer's OU is not in the collected estate; its chain "
@@ -1056,9 +1100,7 @@ def principal_resultant(
 
         loopback_map = loopback_awareness(estate)
         comp_chain_ids = {eg.gpo_id for eg in comp_chain if eg.enabled}
-        loopback_modes = {
-            loopback_map[gid] for gid in comp_chain_ids if gid in loopback_map
-        }
+        loopback_modes = {loopback_map[gid] for gid in comp_chain_ids if gid in loopback_map}
         if not loopback_modes:
             active_loopback = None
         elif len(loopback_modes) == 1:
@@ -1069,53 +1111,96 @@ def principal_resultant(
         excluded_ids: set[str] = set()
         if active_loopback == "replace":
             chain_entries = _collect_chain_entries(
-                comp_chain, "User", gpo_by_id, comp_token_sids,
-                name_to_sid, domain_sid, excluded,
+                comp_chain,
+                "User",
+                gpo_by_id,
+                comp_token_sids,
+                name_to_sid,
+                domain_sid,
+                excluded,
             )
             chain_entries += _collect_chain_entries(
-                comp_chain, "Computer", gpo_by_id, token_sids,
-                name_to_sid, domain_sid, excluded,
+                comp_chain,
+                "Computer",
+                gpo_by_id,
+                token_sids,
+                name_to_sid,
+                domain_sid,
+                excluded,
                 _already_excluded=excluded_ids,
             )
         elif active_loopback == "merge":
             user_entries = _collect_chain_entries(
-                chain, "User", gpo_by_id, token_sids,
-                name_to_sid, domain_sid, excluded,
+                chain,
+                "User",
+                gpo_by_id,
+                token_sids,
+                name_to_sid,
+                domain_sid,
+                excluded,
                 _already_excluded=excluded_ids,
             )
             comp_user_entries = _collect_chain_entries(
-                comp_chain, "User", gpo_by_id, comp_token_sids,
-                name_to_sid, domain_sid, excluded,
+                comp_chain,
+                "User",
+                gpo_by_id,
+                comp_token_sids,
+                name_to_sid,
+                domain_sid,
+                excluded,
             )
             max_user_order = max((e.order for e in user_entries), default=0)
             offset = max_user_order + 1 if user_entries else 0
             offset_comp_user = [
                 ChainEntry(
-                    gpo_id=e.gpo_id, gpo_name=e.gpo_name,
-                    order=e.order + offset, enforced=e.enforced,
+                    gpo_id=e.gpo_id,
+                    gpo_name=e.gpo_name,
+                    order=e.order + offset,
+                    enforced=e.enforced,
                     settings=e.settings,
                 )
                 for e in comp_user_entries
             ]
             chain_entries = user_entries + offset_comp_user
             chain_entries += _collect_chain_entries(
-                comp_chain, "Computer", gpo_by_id, token_sids,
-                name_to_sid, domain_sid, excluded,
+                comp_chain,
+                "Computer",
+                gpo_by_id,
+                token_sids,
+                name_to_sid,
+                domain_sid,
+                excluded,
                 _already_excluded=excluded_ids,
             )
         else:
             chain_entries = _collect_chain_entries(
-                chain, "User", gpo_by_id, token_sids, name_to_sid,
-                domain_sid, excluded, _already_excluded=excluded_ids,
+                chain,
+                "User",
+                gpo_by_id,
+                token_sids,
+                name_to_sid,
+                domain_sid,
+                excluded,
+                _already_excluded=excluded_ids,
             )
             chain_entries += _collect_chain_entries(
-                comp_chain, "Computer", gpo_by_id, token_sids,
-                name_to_sid, domain_sid, excluded,
+                comp_chain,
+                "Computer",
+                gpo_by_id,
+                token_sids,
+                name_to_sid,
+                domain_sid,
+                excluded,
                 _already_excluded=excluded_ids,
             )
     else:
         chain_entries = _collect_chain_entries(
-            chain, side, gpo_by_id, token_sids, name_to_sid, domain_sid,
+            chain,
+            side,
+            gpo_by_id,
+            token_sids,
+            name_to_sid,
+            domain_sid,
             excluded,
         )
 
@@ -1130,7 +1215,8 @@ def principal_resultant(
         excluded = deduped
 
     merge = merge_settings_with_exclusions(
-        chain_entries, ilt_gpo_ids=ilt_gpo_ids,
+        chain_entries,
+        ilt_gpo_ids=ilt_gpo_ids,
     )
     settings = merge.settings
     excluded_settings = merge.excluded_settings
@@ -1147,7 +1233,9 @@ def principal_resultant(
 
         dangers = _danger_findings(estate)
     conditional_dangers = _build_conditional_dangers(
-        excluded, excluded_settings, dangers,
+        excluded,
+        excluded_settings,
+        dangers,
     )
 
     if is_user_computer_pair:
@@ -1168,17 +1256,20 @@ def principal_resultant(
         label = "computer resultant"
 
     caveat_summary = _build_caveat_summary(
-        settings, excluded, excluded_settings, conditional_dangers,
+        settings,
+        excluded,
+        excluded_settings,
+        conditional_dangers,
         token.token_caveats,
-        has_computer=computer_sid is not None, label=label,
+        has_computer=computer_sid is not None,
+        label=label,
     )
 
-    has_site_soms = any(
-        som.container_type == "site" and som.links
-        for som in estate.soms
-    )
+    has_site_soms = any(som.container_type == "site" and som.links for som in estate.soms)
     caveat_mechanisms = _build_caveat_mechanisms(
-        excluded, excluded_settings, token.token_caveats,
+        excluded,
+        excluded_settings,
+        token.token_caveats,
         is_user_side=side == "User",
         has_site_soms=has_site_soms,
     )
