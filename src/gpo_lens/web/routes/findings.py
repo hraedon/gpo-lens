@@ -41,7 +41,16 @@ _VALID_SEVERITIES = {"critical", "high", "medium", "low", "info"}
 # finding_inbox's lifecycle_state. The default is Plan 025 WI-1's actionable
 # set: first appearances plus regressions.
 _DEFAULT_LIFECYCLE = "new_or_regressed"
-_VALID_LIFECYCLE = {"new", "persisting", "regressed", "new_or_regressed"}
+_VALID_LIFECYCLE = {
+    "new",
+    "persisting",
+    "regressed",
+    "new_or_regressed",
+    # Occurrences with no stable subject. Reachable only if a detector omits
+    # its subject_key, so this is normally an empty view — it exists so the
+    # rows are findable rather than silently absent from every other filter.
+    "snapshot_scoped",
+}
 
 
 def register(app: FastAPI, templates: Jinja2Templates) -> None:

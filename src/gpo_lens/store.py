@@ -51,7 +51,7 @@ from gpo_lens.normalize import parse_dt
 #      log; the legacy table remains (unused) for audit. Writes to
 #      ``finding_triage`` stop entirely — v1 triage APIs become shims over
 #      the event log.
-CURRENT_SCHEMA_VERSION: int = 8
+CURRENT_SCHEMA_VERSION: int = 9
 
 
 def _safe_json_loads(raw: str | None, default: Any) -> Any:
@@ -594,6 +594,22 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
             ORDER BY t.id
             """
         )
+
+        # v8 -> v9 (Plan 024 §4): record whether an occurrence's subject can be
+        # identified stably across snapshots. A detector that emits no GPO and
+        # declares no ``subject_key`` leaves the adapter nothing to key on but
+        # the prose summary, so the occurrence's identity churns whenever the
+        # wording changes. Plan 024 says such findings are ``snapshot_scoped``
+        # and cannot be tracked across runs; this column is what lets the
+        # queries say so instead of silently presenting them as new/persisting.
+        # Defaulting to 1 is correct for existing rows: every deployed detector
+        # declares a subject today (locked by a contract test), so no stored
+        # occurrence is retroactively unstable.
+        if not _column_exists(conn, "finding", "subject_stable"):
+            conn.execute(
+                "ALTER TABLE finding ADD COLUMN "
+                "subject_stable INTEGER NOT NULL DEFAULT 1"
+            )
 
     conn.execute(f"PRAGMA user_version = {CURRENT_SCHEMA_VERSION}")
 

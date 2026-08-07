@@ -52,6 +52,7 @@ from gpo_lens.finding_model import (
     FindingObservation,
     FindingOccurrence,
     FindingView,
+    OccurrenceState,
     RiskAcceptance,
     TriageAction,
     TriageEvent,
@@ -534,9 +535,10 @@ def run_evaluation(
                     "resolved_in_snapshot, predecessor_id, "
                     "fingerprint_version, series_key, detector_id, "
                     "detector_version, subject_type, subject_key_json, "
-                    "first_seen_run_id, last_seen_run_id, resolved_run_id) "
+                    "first_seen_run_id, last_seen_run_id, resolved_run_id, "
+                    "subject_stable) "
                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, "
-                    "?, ?, ?, ?, ?, ?, ?, ?, NULL)",
+                    "?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)",
                     (fp, cand.detector_id, gpo_id, cand.severity,
                      cand.summary, cand_detail, cand.remediation,
                      gpo_id,
@@ -544,7 +546,8 @@ def run_evaluation(
                      snapshot_id, snapshot_id, predecessor_id,
                      FINGERPRINT_VERSION, sk, cand.detector_id,
                      cand.detector_version, cand.subject_type,
-                     subject_key_json, run_id, run_id),
+                     subject_key_json, run_id, run_id,
+                     int(cand.subject_stable)),
                 )
                 occ_id = cursor.lastrowid
                 conn.execute(
@@ -919,18 +922,30 @@ def _inbox_predicate(
     if subject_type is not None:
         clauses.append("f.subject_type = ?")
         params.append(subject_type)
+    # Every run-relative state below is qualified by ``subject_stable = 1``.
+    # An occurrence with no stable subject renders as ``snapshot_scoped``, so
+    # letting it match ``new`` here would put a row on the page whose displayed
+    # state contradicts the filter that selected it — the same page/filter
+    # divergence this predicate exists to prevent.
     if lifecycle_state == "new":
-        clauses.append("f.first_seen_run_id = f.last_seen_run_id")
+        clauses.append(
+            "f.subject_stable = 1 AND f.first_seen_run_id = f.last_seen_run_id"
+        )
     elif lifecycle_state == "persisting":
-        clauses.append("f.first_seen_run_id < f.last_seen_run_id")
+        clauses.append(
+            "f.subject_stable = 1 AND f.first_seen_run_id < f.last_seen_run_id"
+        )
     elif lifecycle_state == "regressed":
-        clauses.append("f.predecessor_id IS NOT NULL")
+        clauses.append("f.subject_stable = 1 AND f.predecessor_id IS NOT NULL")
+    elif lifecycle_state == "snapshot_scoped":
+        clauses.append("f.subject_stable = 0")
     elif lifecycle_state == "new_or_regressed":
         # Plan 025 WI-1's actionable default: first appearance, or a
         # reappearance after being resolved. A regression is actionable even
         # when it has been observed across several runs since returning.
         clauses.append(
-            "(f.first_seen_run_id = f.last_seen_run_id "
+            "f.subject_stable = 1 "
+            "AND (f.first_seen_run_id = f.last_seen_run_id "
             "OR f.predecessor_id IS NOT NULL)"
         )
     if claim_level is not None:
@@ -1049,8 +1064,10 @@ def finding_inbox(
 
     *as_of_run* limits to findings observed in the given evaluation run.
 
-    *lifecycle_state* accepts ``new``, ``persisting``, ``regressed``, and
-    ``new_or_regressed`` (Plan 025 WI-1's actionable default).
+    *lifecycle_state* accepts ``new``, ``persisting``, ``regressed``,
+    ``new_or_regressed`` (Plan 025 WI-1's actionable default), and
+    ``snapshot_scoped`` (occurrences with no stable subject, which the
+    run-relative states deliberately exclude).
 
     *category* matches a rule id exactly; *category_prefix* also matches its
     ``parent:child`` descendants. *severity* matches one severity;
@@ -1087,7 +1104,8 @@ def finding_inbox(
         "f.gpo_id, f.gpo_name, f.subject_type, f.subject_key_json, "
         "f.first_seen_run_id, f.last_seen_run_id, f.resolved_run_id, "
         "f.predecessor_id, "
-        f"COALESCE({_LATEST_CLAIM_SQ}, 'confirmed') AS claim_level "
+        f"COALESCE({_LATEST_CLAIM_SQ}, 'confirmed') AS claim_level, "
+        "f.subject_stable "
         "FROM finding f" + where
     )
     # ``f.id`` is the tiebreaker so the order is total, not merely sorted —
@@ -1116,7 +1134,13 @@ def finding_inbox(
 
         first_run = r[12] or 0
         last_run = r[13] or 0
-        if first_run == last_run:
+        lc_state: OccurrenceState
+        if not r[17]:
+            # No stable subject to key on, so "new" and "persisting" would both
+            # be assertions the data cannot support — the fingerprint moves
+            # with the wording. Report the honest state instead (Plan 024 §4).
+            lc_state = "snapshot_scoped"
+        elif first_run == last_run:
             lc_state = "new"
         else:
             lc_state = "persisting"
@@ -1135,7 +1159,7 @@ def finding_inbox(
             subject_type=r[10] or "",
             subject_key=subject_key,
             claim_level=c_level,  # type: ignore[arg-type]
-            lifecycle_state=lc_state,  # type: ignore[arg-type]
+            lifecycle_state=lc_state,
             triage_status=t_status,
             triage_actor=t_actor,
             triage_note=t_note,
@@ -1469,6 +1493,16 @@ def _doctor_finding_to_candidate(
     # (a coverage gap's kind, etc.) rides in ``dimensions`` so ``gpo_id`` can
     # be recovered from ``subject_key[0]`` downstream. Estate-scoped findings
     # (no GPO) carry their full identity in the declared ``subject_key``.
+    # A GPO-less finding that declares no subject_key leaves the prose summary
+    # as the only thing to key on, so its fingerprint moves whenever the
+    # wording does — the WI-1.1 failure class, one layer up in ``subject_key``
+    # rather than in ``dimensions``. Every deployed detector declares a subject
+    # (locked by test_doctor_contract.py), so this is a guard against a future
+    # one forgetting, not a live path. Keep the prose key so the finding is
+    # still reported, but mark it unstable: Plan 024 §4 says such findings are
+    # ``snapshot_scoped`` and cannot be tracked across snapshots, and saying so
+    # beats presenting a churning identity as a genuine new/persisting finding.
+    subject_stable = True
     if gpo_id:
         subject_type = "gpo"
         subject_key: tuple[str, ...] = (gpo_id,)
@@ -1478,6 +1512,7 @@ def _doctor_finding_to_candidate(
     else:
         subject_type = "estate"
         subject_key = (getattr(f, "summary", ""),)
+        subject_stable = False
 
     # Identity-bearing dimensions are declared by the detector as typed
     # key/value pairs (WI-1.1) — never parsed out of the prose summary/detail,
@@ -1538,6 +1573,7 @@ def _doctor_finding_to_candidate(
         remediation=getattr(f, "remediation", "") or "",
         compliance=compliance_tuples,
         gpo_name=getattr(f, "gpo_name", "") or "",
+        subject_stable=subject_stable,
     )
 
 

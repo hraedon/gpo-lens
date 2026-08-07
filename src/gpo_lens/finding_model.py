@@ -157,6 +157,19 @@ class FindingCandidate:
     (e.g. baseline digest + version). Different comparator = different series.
     """
 
+    subject_stable: bool = True
+    """False when the candidate has no stable subject to key identity on.
+
+    The adapter sets this when a finding carries neither a ``gpo_id`` nor a
+    declared ``subject_key``, leaving the prose summary as the only available
+    subject. Such a finding's fingerprint changes whenever the wording does,
+    so it cannot be tracked — or acknowledged — across snapshots. Plan 024 §4
+    calls this ``snapshot_scoped``; the queries surface that state rather than
+    presenting a churning identity as a genuine new/persisting finding.
+
+    Defaults True: a detector that declares a subject is the normal case.
+    """
+
 
 # ---------------------------------------------------------------------------
 # Fingerprint computation

@@ -250,6 +250,87 @@ class TestAdapterIdentityFromTypedFields:
         assert FINGERPRINT_VERSION >= 1
 
 
+class TestSnapshotScopedSubjects:
+    """Plan 024 §4: a finding whose subject cannot be identified stably across
+    snapshots is ``snapshot_scoped`` and is not tracked run-to-run.
+
+    Reachable only when a GPO-less detector omits its ``subject_key`` — which
+    ``test_doctor_contract.py`` forbids — so these tests drive the adapter
+    directly rather than waiting for a detector to regress.
+    """
+
+    def _doctor(self, **over: object) -> DoctorFinding:
+        base: dict[str, object] = {
+            "severity": "medium",
+            "category": "estate_hygiene",
+            "gpo_id": "",
+            "gpo_name": "",
+            "summary": "Some estate-level issue",
+            "detail": "evidence",
+        }
+        base.update(over)
+        return DoctorFinding(**base)  # type: ignore[arg-type]
+
+    def test_declared_subject_key_is_stable(self) -> None:
+        cand = _doctor_finding_to_candidate(
+            self._doctor(subject_key=("orphaned-wmi-filter-1",)), snapshot_id=1
+        )
+        assert cand.subject_stable is True
+
+    def test_gpo_scoped_finding_is_stable(self) -> None:
+        cand = _doctor_finding_to_candidate(
+            self._doctor(gpo_id="gpo-1", gpo_name="GPO One"), snapshot_id=1
+        )
+        assert cand.subject_stable is True
+
+    def test_missing_subject_key_is_marked_unstable(self) -> None:
+        cand = _doctor_finding_to_candidate(self._doctor(), snapshot_id=1)
+        assert cand.subject_stable is False
+
+    def test_unstable_subject_fingerprint_moves_with_prose(self) -> None:
+        """Why the mark exists: identity really is prose-dependent here.
+
+        This is the behaviour ``snapshot_scoped`` reports honestly rather than
+        the behaviour it prevents — the adapter cannot invent a stable subject
+        that the detector never supplied.
+        """
+        a = _doctor_finding_to_candidate(self._doctor(), snapshot_id=1)
+        b = _doctor_finding_to_candidate(
+            self._doctor(summary="Reworded estate-level issue"), snapshot_id=2
+        )
+        assert compute_fingerprint(a) != compute_fingerprint(b)
+
+    def test_inbox_reports_snapshot_scoped_and_excludes_it_from_new(
+        self,
+    ) -> None:
+        conn = _make_db()
+        try:
+            _make_snapshot(conn, 1)
+            run_id = _make_run(conn, 1)
+            run_evaluation(
+                conn,
+                run_id,
+                [
+                    _doctor_finding_to_candidate(self._doctor(), snapshot_id=1),
+                    _make_candidate("cpassword", subject_key=("gpo1",)),
+                ],
+            )
+
+            states = {v.lifecycle_state for v in finding_inbox(conn)}
+            assert states == {"snapshot_scoped", "new"}
+
+            # The run-relative filters must not surface it: a row displayed as
+            # snapshot_scoped appearing under "new" would contradict the filter
+            # that selected it.
+            new_only = finding_inbox(conn, lifecycle_state="new")
+            assert [v.lifecycle_state for v in new_only] == ["new"]
+
+            scoped = finding_inbox(conn, lifecycle_state="snapshot_scoped")
+            assert [v.lifecycle_state for v in scoped] == ["snapshot_scoped"]
+        finally:
+            conn.close()
+
+
 class TestSeriesKey:
     def test_intrinsic_same_series(self) -> None:
         assert series_key("cpassword") == series_key("cpassword")
@@ -1331,6 +1412,41 @@ class TestEvidenceSafety:
 
 
 class TestSchemaMigration:
+    def test_v8_db_gains_subject_stable(self, tmp_path: Path) -> None:
+        """A database written before v9 must gain ``subject_stable``.
+
+        Regressing a live schema and re-opening it is the only way to prove
+        the migration runs; asserting on a freshly created database would
+        exercise the CREATE path and report success either way.
+        """
+        db_path = str(tmp_path / "test-v8.sqlite3")
+        conn = sqlite3.connect(db_path)
+        try:
+            init_db(conn)
+            conn.execute("ALTER TABLE finding DROP COLUMN subject_stable")
+            conn.execute("PRAGMA user_version = 8")
+            conn.commit()
+            cols = {r[1] for r in conn.execute("PRAGMA table_info(finding)")}
+            assert "subject_stable" not in cols, "setup failed to regress"
+
+            init_db(conn)
+
+            cols = {r[1] for r in conn.execute("PRAGMA table_info(finding)")}
+            assert "subject_stable" in cols
+            # Pre-existing rows are stable by default: every deployed detector
+            # declares a subject, so nothing is retroactively snapshot_scoped.
+            default = conn.execute(
+                "SELECT dflt_value FROM pragma_table_info('finding') "
+                "WHERE name = 'subject_stable'"
+            ).fetchone()[0]
+            assert str(default) == "1"
+            assert (
+                conn.execute("PRAGMA user_version").fetchone()[0]
+                == CURRENT_SCHEMA_VERSION
+            )
+        finally:
+            conn.close()
+
     def test_v5_db_migrates_to_v6(self, tmp_path: Path) -> None:
         db_path = str(tmp_path / "test-v5.sqlite3")
         conn = sqlite3.connect(db_path)
@@ -1468,7 +1584,10 @@ class TestSchemaMigration:
 
             init_db(conn)
 
-            assert conn.execute("PRAGMA user_version").fetchone()[0] == 8
+            assert (
+                conn.execute("PRAGMA user_version").fetchone()[0]
+                == CURRENT_SCHEMA_VERSION
+            )
 
             events = load_triage_events(conn, 1)
             assert [e.action for e in events] == [
