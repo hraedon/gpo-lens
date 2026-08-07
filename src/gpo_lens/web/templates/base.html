@@ -28,6 +28,7 @@
         </a>
         <nav class="gp-nav" aria-label="Primary">
             <span class="gp-nav-group" aria-label="Estate">
+                <a href="{{ url_for('briefing') }}" {% if path.startswith('/briefing') %}class="active" aria-current="page"{% endif %}>Briefing</a>
                 <a href="{{ url_for('home') }}" {% if path == '/' %}class="active"{% endif %}>Dashboard</a>
                 <a href="{{ url_for('gpo_list') }}" {% if path.startswith('/inventory') %}class="active"{% endif %}>Inventory</a>
                 <a href="{{ url_for('ou_list') }}" {% if path.startswith('/ou') %}class="active"{% endif %}>Directory</a>

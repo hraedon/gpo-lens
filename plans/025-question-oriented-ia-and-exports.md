@@ -1,6 +1,14 @@
 # Plan 025 — Question-oriented information architecture, briefing, and exports
 
-**Status:** Proposed
+**Status:** In Progress — WI-1 (findings inbox + occurrence view) and WI-2
+(deterministic briefing) implemented 2026-07-30 on
+`plan/025-wi1-findings-inbox-core`. WI-3 implemented 2026-07-30: `/explore` and
+`/tools` organize every specialist destination from a resolved-at-request
+registry (dead links fail tests), shipped as opt-in destinations per
+sequencing gate 3 — primary navigation is untouched until WI-4. The
+"primary pages link to filtered workbenches" half of WI-3 is partially
+satisfied (briefing vitals → filtered inbox, occurrence → dossier); the
+category→workbench deep links ride with WI-4's route inventory.
 
 **Depends on:** Plan 023 reading primitives and Plan 024 durable finding queries
 

@@ -559,10 +559,12 @@ def create_app(
         api,
         ask,
         baseline,
+        briefing,
         changelog,
         conflicts,
         dashboard,
         delegation,
+        explore,
         export,
         findings,
         golden,
@@ -575,6 +577,7 @@ def create_app(
     )
 
     dashboard.register(app, templates)
+    briefing.register(app, templates)
     gpo.register(app, templates)
     conflicts.register(app, templates)
     search.register(app, templates)
@@ -590,6 +593,7 @@ def create_app(
     admx_cov.register(app, templates)
     golden.register(app, templates)
     findings.register(app, templates)
+    explore.register(app, templates)
     api.register(app, templates)
 
     return app

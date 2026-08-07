@@ -1,0 +1,200 @@
+{% extends "base.html" %}
+
+{% block title %}gpo-lens — Finding #{{ occ.id }}{% endblock %}
+
+{% block breadcrumb %}
+<nav class="gp-breadcrumb" aria-label="Breadcrumb">
+  <a href="{{ url_for('home') }}">Dashboard</a>
+  <span class="sep">/</span>
+  <a href="{{ url_for('findings_inbox') }}">Findings</a>
+  <span class="sep">/</span>
+  <span class="current" aria-current="page">#{{ occ.id }}</span>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="gp-page-head">
+  <div>
+    <div class="gp-eyebrow">Occurrence history</div>
+    <h1 class="mono">{{ occ.category }}</h1>
+  </div>
+  <div>
+    {% if occ.resolved_run_id %}
+    <span class="gp-pill"><span class="dot"></span>resolved in run #{{ occ.resolved_run_id }}</span>
+    {% else %}
+    <span class="gp-pill medium"><span class="dot"></span>active</span>
+    {% endif %}
+    {% if predecessor %}
+    <span class="gp-chip warn">regression</span>
+    {% endif %}
+  </div>
+</div>
+
+<h2>Identity</h2>
+<table class="gp-kv">
+  <tbody>
+    <tr><th>Rule</th><td class="mono">{{ occ.category }}</td></tr>
+    <tr><th>Detector</th><td class="mono">{{ occ.detector_id }} v{{ occ.detector_version }}</td></tr>
+    <tr><th>Subject</th><td>
+      {% if gpo_id %}
+        {% if gpo_resolvable %}
+        <a href="{{ url_for('gpo_detail', gpo_id=gpo_id) }}">{{ gpo_name }}</a>
+        {% else %}
+        {{ gpo_name }}
+        {% endif %}
+      {% else %}
+      <span class="muted">{{ occ.subject_type or '—' }}</span>
+      {% endif %}
+    </td></tr>
+    <tr><th>Subject key</th><td class="mono">{{ occ.subject_key | join(' / ') or '—' }}</td></tr>
+    <tr><th>Fingerprint</th><td class="mono">{{ occ.fingerprint }}</td></tr>
+    <tr><th>Series</th><td class="mono">{{ occ.series_key }}</td></tr>
+    <tr><th>Observed</th><td>run #{{ occ.first_seen_run_id }} &rarr; run #{{ occ.last_seen_run_id }}</td></tr>
+  </tbody>
+</table>
+
+{% if predecessor %}
+<h2>Regression</h2>
+<p>
+  This finding was previously open as
+  <a href="{{ url_for('finding_occurrence', occurrence_id=predecessor.id) }}">occurrence #{{ predecessor.id }}</a>
+  (first seen run #{{ predecessor.first_seen_run }}{% if predecessor.resolved_run %}, resolved in run #{{ predecessor.resolved_run }}{% endif %})
+  and has reappeared. Accepted risk is not inherited from the predecessor — this
+  occurrence must be triaged on its own.
+</p>
+{% endif %}
+
+{% if changes %}
+<h2>What changed between runs</h2>
+<div class="gp-table-wrap">
+  <table class="gp-table">
+    <thead>
+      <tr><th>Run</th><th>Field</th><th>Before</th><th>After</th></tr>
+    </thead>
+    <tbody>
+      {% for c in changes %}
+      <tr>
+        <td>#{{ c.run_id }}</td>
+        <td class="mono">{{ c.field }}</td>
+        <td class="mono">{{ c.before or '—' }}</td>
+        <td class="mono">{{ c.after or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<p class="muted">
+  A change to <span class="mono">detector_set_digest</span> means the rules moved,
+  not the estate.
+</p>
+{% endif %}
+
+<h2>Observations</h2>
+{% if observations %}
+<div class="gp-table-wrap">
+  <table class="gp-table">
+    <thead>
+      <tr>
+        <th style="width:70px">Run</th>
+        <th style="width:90px">Severity</th>
+        <th style="width:90px">Claim</th>
+        <th>Summary</th>
+        <th style="width:110px">Run status</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for obs in observations %}
+      <tr>
+        <td>#{{ obs.run_id }}</td>
+        <td>{% set sev_class = {'critical':'crit','high':'crit','medium':'warn','low':'muted','info':'info'}.get(obs.severity, 'muted') %}<span class="gp-chip {{ sev_class }}">{{ obs.severity }}</span></td>
+        <td>{{ obs.claim_level }}</td>
+        <td>
+          {{ obs.summary }}
+          <details class="gp-ledger-detail">
+            <summary class="mono">evidence &amp; provenance</summary>
+            <div class="gp-ledger-evidence">
+              {% if obs.remediation %}<p><strong>Remediation:</strong> {{ obs.remediation }}</p>{% endif %}
+              <table class="gp-kv">
+                <tbody>
+                  <tr><th>Snapshot</th><td>#{{ obs.snapshot_id }}</td></tr>
+                  <tr><th>Evaluation</th><td>{{ obs.evaluation_kind }}</td></tr>
+                  <tr><th>Detector set</th><td class="mono">{{ obs.detector_set_digest or '—' }}</td></tr>
+                  {% if obs.comparator_input_id %}<tr><th>Comparator input</th><td class="mono">#{{ obs.comparator_input_id }}</td></tr>{% endif %}
+                  <tr><th>Application</th><td class="mono">{{ obs.application_version or '—' }}</td></tr>
+                  <tr><th>Run started</th><td>{{ obs.started_at or '—' }}</td></tr>
+                  {% if obs.error_summary %}<tr><th>Run error</th><td>{{ obs.error_summary }}</td></tr>{% endif %}
+                </tbody>
+              </table>
+              {% if obs.evidence %}
+              <table class="gp-kv">
+                <tbody>
+                  {% for ref in obs.evidence %}
+                  <tr>
+                    <th class="mono">{{ ref.field_path or ref.source or 'evidence' }}</th>
+                    <td class="mono">{{ ref.safe_projection }}</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+              {% else %}
+              <p class="muted">No bounded evidence recorded for this run.</p>
+              {% endif %}
+            </div>
+          </details>
+        </td>
+        <td>
+          {% if obs.status == 'completed' %}<span class="muted">{{ obs.status }}</span>
+          {% else %}<span class="gp-chip warn">{{ obs.status or 'unknown' }}</span>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<p class="muted">No observations recorded.</p>
+{% endif %}
+
+<h2>Triage history</h2>
+{% if triage_status %}
+<p>
+  Current state:
+  {% if triage_status.status == 'acknowledged' %}<span class="gp-chip info">acknowledged</span>
+  {% elif triage_status.status == 'accepted_risk' %}<span class="gp-chip warn">accepted risk</span>
+  {% else %}<span class="muted">open</span>{% endif %}
+  {% if triage_status.expires_at %}
+  <span class="muted">&mdash; acceptance expires {{ triage_status.expires_at }}</span>
+  {% endif %}
+</p>
+{% endif %}
+{% if triage_events %}
+<div class="gp-table-wrap">
+  <table class="gp-table">
+    <thead>
+      <tr><th style="width:180px">When</th><th style="width:150px">Action</th><th style="width:130px">Actor</th><th>Note</th></tr>
+    </thead>
+    <tbody>
+      {% for ev in triage_events %}
+      <tr>
+        <td>{{ ev.occurred_at }}</td>
+        <td class="mono">{{ ev.action }}</td>
+        <td>{{ ev.actor }}</td>
+        <td>
+          {{ ev.note }}
+          {% if ev.rationale and ev.rationale != ev.note %}
+          <div class="gp-triage-note"><strong>Rationale:</strong> {{ ev.rationale }}</div>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<p class="muted">
+  The triage log is append-only &mdash; nothing here is edited or deleted, so an
+  acceptance that was later revoked stays visible above its revocation.
+</p>
+{% else %}
+<p class="muted">No triage decisions recorded for this occurrence.</p>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+
+{% block title %}gpo-lens — Briefing{% endblock %}
+
+{% block breadcrumb %}
+<nav class="gp-breadcrumb" aria-label="Breadcrumb">
+  <a href="{{ url_for('home') }}">Dashboard</a>
+  <span class="sep">/</span>
+  <span class="current" aria-current="page">Briefing</span>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="gp-page-head">
+  <div>
+    <div class="gp-eyebrow">Do I need to care today?</div>
+    <h1>Briefing</h1>
+  </div>
+  <div>
+    {% if briefing %}
+    <span class="gp-pill medium"><span class="dot"></span>snapshot #{{ briefing.snapshot_id }}</span>
+    {% if briefing.snapshot_taken_at %}
+    <span class="muted">{{ briefing.snapshot_taken_at }}</span>
+    {% endif %}
+    {% endif %}
+  </div>
+</div>
+
+{% if not briefing %}
+<div class="gp-empty">
+  <div class="title">No snapshot ingested yet</div>
+  <p class="muted">
+    <a href="{{ url_for('ingest_get') }}">Ingest an estate export</a> to get a briefing.
+  </p>
+</div>
+{% else %}
+
+{% if snapshots | length > 1 %}
+<form method="get" class="gp-filter-bar">
+  <div class="gp-field">
+    <label class="gp-label" for="briefing-snapshot">As of snapshot</label>
+    <select id="briefing-snapshot" name="snapshot" class="gp-select">
+      {% for sid, domain, taken in snapshots %}
+      <option value="{{ sid }}" {% if sid == briefing.snapshot_id %}selected{% endif %}>#{{ sid }}{% if taken %} — {{ taken }}{% endif %}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <button type="submit" class="gp-btn primary">View</button>
+</form>
+{% endif %}
+
+<div class="gp-briefing">
+  {% for line in lines %}
+  <p class="gp-briefing-line{% if loop.index0 < briefing.problems | length %} gp-briefing-problem{% endif %}">{{ line }}</p>
+  {% endfor %}
+</div>
+
+{% if not briefing.analysis_complete %}
+<p class="muted">
+  Counts below describe stored state, not a verified comparison. Re-run analysis
+  from <a href="{{ url_for('ingest_get') }}">Ingest</a> before acting on them.
+</p>
+{% endif %}
+
+<h2>Estate vitals</h2>
+<div class="gp-posture-grid">
+  {% for tile in tiles %}
+  <a class="gp-posture-tile {{ tile.tone }}" href="{{ tile.href }}">
+    <span class="gp-posture-value">{{ tile.value }}</span>
+    <span class="gp-posture-label">{{ tile.label }}</span>
+  </a>
+  {% endfor %}
+</div>
+
+{% if briefing.expiring %}
+<h2>Accepted risks needing attention</h2>
+<div class="gp-table-wrap">
+  <table class="gp-table">
+    <thead>
+      <tr>
+        <th style="width:110px">Expires</th>
+        <th style="width:90px">Severity</th>
+        <th>Finding</th>
+        <th style="width:120px">Accepted by</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in briefing.expiring %}
+      <tr class="{% if item.already_expired %}flag{% endif %}">
+        <td>
+          {{ item.expires_at }}
+          {% if item.already_expired %}<span class="gp-chip crit">expired</span>{% endif %}
+        </td>
+        <td>{% set sev_class = {'critical':'crit','high':'crit','medium':'warn','low':'muted','info':'info'}.get(item.severity, 'muted') %}<span class="gp-chip {{ sev_class }}">{{ item.severity }}</span></td>
+        <td>
+          <a href="{{ url_for('finding_occurrence', occurrence_id=item.occurrence_id) }}">{{ item.summary }}</a>
+          <div class="muted mono">{{ item.category }}</div>
+        </td>
+        <td>{{ item.actor }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<p class="muted">
+  An expired acceptance does not delete the finding &mdash; it returns to the
+  actionable inbox and must be decided again.
+</p>
+{% endif %}
+
+<h2>Where to look next</h2>
+<ul>
+  <li><a href="{{ url_for('findings_inbox') }}">Findings</a> &mdash; the actionable inbox (new or regressed, open).</li>
+  {% if not briefing.is_first_snapshot %}
+  <li><a href="{{ url_for('changelog') }}">Changelog</a> &mdash; what changed between snapshots, setting by setting.</li>
+  {% endif %}
+  <li><a href="{{ url_for('trends') }}">Trends</a> &mdash; posture over time.</li>
+</ul>
+
+{% endif %}
+{% endblock %}

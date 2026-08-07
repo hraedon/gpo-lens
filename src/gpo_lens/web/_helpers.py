@@ -189,6 +189,35 @@ def paginate(
     }
 
 
+def paginate_total(
+    total: int, page: int, per_page: int, per_page_raw: str
+) -> tuple[int, int, dict[str, Any] | None]:
+    """Pagination metadata for a page fetched by SQL ``LIMIT``/``OFFSET``.
+
+    The list-slicing sibling ``paginate`` needs every row in memory to know the
+    total. Callers that count in SQL already know it, so this takes the *total*
+    and returns ``(clamped_page, offset, pag)`` — the offset to query with and
+    the same metadata dict the pagination macro consumes.
+
+    *per_page* of ``0`` means "all": offset ``0`` and no controls.
+    """
+    if per_page <= 0:
+        return 1, 0, None
+    total_pages = max(1, (total + per_page - 1) // per_page)
+    page = max(1, min(page, total_pages))
+    offset = (page - 1) * per_page
+    if total_pages <= 1:
+        return page, offset, None
+    return page, offset, {
+        "page": page,
+        "per_page_raw": per_page_raw,
+        "total": total,
+        "total_pages": total_pages,
+        "has_prev": page > 1,
+        "has_next": page < total_pages,
+    }
+
+
 def base_qs(request: Request, *strip: str) -> str:
     """Build a URL-encoded query string from current params, excluding *strip*."""
     params = dict(request.query_params)

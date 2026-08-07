@@ -2,6 +2,121 @@
 
 ## Unreleased
 
+### Explore and Tools directories (Plan 025 WI-3)
+
+Two question-oriented landing pages organize every specialist destination
+without removing or renaming a route:
+
+- **`/explore` — "why is this setting what it is here?"** Groups the estate
+  surfaces (inventory, directory, search) and the analytical workbenches
+  (resultant, conflicts, dangerous settings, delegation).
+- **`/tools` — "what specialist operation do I need?"** Groups snapshots
+  (ingest), comparisons (baseline, golden diff, ADMX coverage), and output
+  (findings export, narration) — each entry stating what it reads or writes.
+- **No dead links by construction.** Both pages render from one destination
+  registry resolved through `url_path_for` at request time; a renamed route
+  fails the request and the tests, instead of shipping a stale href.
+- Directory pages read nothing from the estate database and render
+  identically with or without a snapshot. Shipped as opt-in destinations per
+  the Plan 025 sequencing gates; primary navigation is unchanged until WI-4.
+
+### Findings inbox on the Plan 024 core queries (Plan 025 WI-1)
+
+The Findings page now consumes the Plan 024 query layer instead of loading
+every active finding and filtering in Python. Previously `/findings` ran an
+unbounded `SELECT` over the whole `finding` table on every page view and
+applied severity, category, lifecycle, triage, and search filters row by row —
+the hardened `finding_inbox` query built for exactly this had no consumer.
+
+- **Every filter and the page window run in SQL.** `finding_inbox` gained
+  `severities` (multi-select), `category_prefix` (a category now also selects
+  its `parent:child` descendants), `search` (case-insensitive substring over
+  GPO name, summary, and rule id, with LIKE wildcards escaped so a stray `%`
+  cannot match everything), `offset`, and lifecycle states `regressed` and
+  `new_or_regressed`. The WI-1.2 guarantee extends to the new filters:
+  `LIMIT`/`OFFSET` bound the matching set, never a pre-filter superset.
+- **New queries.** `finding_inbox_count` returns the true total for a filter
+  set, and `finding_inbox_categories` returns unfiltered rule-id facet counts.
+  Both share one predicate builder with `finding_inbox`, so a page of rows and
+  its total cannot disagree about what "matching" means.
+- **Default filter is now the actionable set** — new *or regressed*, open
+  (Plan 025 WI-1). A merely-persisting finding is no longer in the default
+  view; a finding that returned after being resolved is. Nothing is deleted:
+  `lifecycle=all` still shows everything, and the picker gained explicit
+  "New or regressed" and "Regressed" options.
+- **Pagination is bounded and stable.** The page window comes from SQL, ordered
+  by a total order (severity, rule id, occurrence id) so paging cannot repeat
+  or skip rows. An out-of-range `page=` clamps to the last page rather than
+  rendering an empty inbox for a bookmarked deep link, and an unrecognised
+  filter value widens the view instead of erroring.
+- One triage fold is shared across the count and the row query, so the two
+  always agree on which occurrences are open.
+- Lifecycle evidence now reports **evaluation run** provenance rather than
+  snapshot numbers, and shows the claim level.
+
+Bookmarks are unaffected: every previous query parameter still addresses the
+same filter.
+
+### Occurrence view (Plan 025 WI-1)
+
+Each finding summary in the inbox now links to `/findings/{occurrence_id}`, a
+page for the question the inbox row has no room for: *why does this finding say
+what it says, and has that changed?*
+
+- **Observations across evaluation runs**, oldest first, each with its bounded
+  evidence and the provenance of the run that produced it — snapshot,
+  evaluation kind, detector-set digest, comparator input, application version,
+  and run status.
+- **A "what changed between runs" table.** Severity, claim level, and
+  detector-set digest transitions are called out explicitly, so a severity
+  change can be attributed to the estate or to a detector revision rather than
+  left ambiguous.
+- **Regression provenance.** A regressed occurrence links to the predecessor
+  interval it reappeared from, and states plainly that accepted risk is not
+  inherited — the predecessor's acceptance does not silence the new occurrence.
+- **The full triage log**, append-only: an acceptance that was later revoked
+  stays visible above its revocation rather than being overwritten.
+- New core query `finding_observation_history` joins `finding_observation` to
+  `evaluation_run`. Malformed evidence JSON in one row degrades that row's
+  evidence to empty rather than failing the page.
+
+### Briefing page (Plan 025 WI-2)
+
+A new `/briefing` destination answering one question — *do I need to care
+today?* — as typed facts plus deterministic prose:
+
+```text
+Since snapshot #1: 2 GPOs changed, 1 finding is new, and 3 resolved.
+```
+
+- **Deterministic, not narrated.** The sentences come from formatters over typed
+  deltas in the new `gpo_lens.briefing` core module. No model is involved and the
+  same inputs always produce byte-identical text, which is what makes the output
+  golden-testable. Goldens pin the exact prose for the first-snapshot, ordinary,
+  degraded, and no-change scenarios.
+- **Honest about what it cannot say.** With one snapshot it presents a
+  first-snapshot summary instead of implying a comparison against nothing. When
+  the latest evaluation run did not complete it reports the analysis as
+  incomplete and emits *no* delta sentence at all, rather than laundering
+  partial counts into a confident answer.
+- **Problems outrank good news.** Coverage gaps and missing or failed evaluation
+  provenance are rendered before favorable counts, so a reassuring "3 resolved"
+  can never appear above the reason it is untrustworthy.
+- **No unlinked stat tiles** (a WI-2 acceptance criterion). Vitals carry a
+  stable key rather than a URL — the core module stays web-free — and the web
+  layer maps keys to routes, so a vital with no destination fails loudly instead
+  of rendering a dead tile.
+- **Expiring accepted risks** are surfaced with their finding, severity, and
+  approver, noting that an expired acceptance returns the finding to the
+  actionable inbox rather than deleting it.
+- **Historical selection.** `?snapshot=N` produces the briefing as of that
+  snapshot, diffed against *its* predecessor rather than the current runner-up.
+- No detector re-runs: every number reads materialized lifecycle and snapshot
+  state, unlike the dashboard, which re-evaluates the estate per page view.
+
+The briefing ships alongside the dashboard rather than replacing it; Plan 027
+Phase 2 sequences the navigation migration separately.
+
 ### Review hardening
 
 - Correct the accepted-risk register's point-in-time behavior and retain

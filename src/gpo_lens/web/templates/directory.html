@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+
+{% block title %}gpo-lens — {{ page_title }}{% endblock %}
+
+{% block breadcrumb %}
+<nav class="gp-breadcrumb" aria-label="Breadcrumb">
+  <a href="{{ url_for('home') }}">Dashboard</a>
+  <span class="sep">/</span>
+  <span class="current" aria-current="page">{{ page_title }}</span>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="gp-page-head">
+  <div>
+    <div class="gp-eyebrow">{{ eyebrow }}</div>
+    <h1>{{ page_title }}</h1>
+  </div>
+</div>
+
+<p class="muted gp-dir-intro">{{ intro }}</p>
+
+{% for section in sections %}
+<section class="gp-dir-section" aria-labelledby="dir-{{ loop.index }}">
+  <h2 id="dir-{{ loop.index }}">{{ section.title }}</h2>
+  <div class="gp-panel">
+    {% for dest in section.destinations %}
+    <a class="gp-dir-row" href="{{ dest.href }}">
+      <span class="gp-dir-title">{{ dest.title }}</span>
+      <span class="gp-dir-desc muted">{{ dest.description }}</span>
+    </a>
+    {% endfor %}
+  </div>
+</section>
+{% endfor %}
+{% endblock %}

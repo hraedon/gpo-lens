@@ -1,8 +1,14 @@
 """WI-5: Findings inbox — unified findings page with triage annotations.
 
 Replaces danger list / conflicts / delegation / admx-coverage / baseline /
-golden as destinations. One inbox, default filter new + unacknowledged,
+golden as destinations. One inbox, default filter new-or-regressed + open,
 facets by category, severity, GPO, lifecycle state, triage state.
+
+Plan 025 WI-1: the page consumes the Plan 024 core queries (``finding_inbox``,
+``finding_inbox_count``, ``finding_inbox_categories``) rather than loading every
+active finding and filtering in Python. Every filter and the page window run in
+SQL, so a filtered page reflects the whole matching set instead of whatever
+survived a pre-filter row cap.
 
 Handlers are plain ``def`` (not ``async def``) so FastAPI runs them in its
 threadpool, preventing synchronous SQLite from blocking the event loop.
@@ -23,12 +29,19 @@ from gpo_lens.web._helpers import (
     base_qs,
     get_ro_conn,
     get_rw_conn,
-    paginate,
+    paginate_total,
     parse_pagination,
 )
 from gpo_lens.web.auth import Permission, Principal, requires
 
 _VALID_TRIAGE = {"open", "acknowledged", "accepted_risk"}
+_VALID_SEVERITIES = {"critical", "high", "medium", "low", "info"}
+
+# ``all`` means "no lifecycle predicate"; the rest map straight through to
+# finding_inbox's lifecycle_state. The default is Plan 025 WI-1's actionable
+# set: first appearances plus regressions.
+_DEFAULT_LIFECYCLE = "new_or_regressed"
+_VALID_LIFECYCLE = {"new", "persisting", "regressed", "new_or_regressed"}
 
 
 def register(app: FastAPI, templates: Jinja2Templates) -> None:
@@ -38,18 +51,63 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         request: Request,
         severity: str = "",
         category: str = "",
-        lifecycle: str = "new",
+        lifecycle: str = _DEFAULT_LIFECYCLE,
         triage: str = "open",
         q: str = "",
         principal: Principal = Depends(requires(Permission.VIEW)),
     ) -> HTMLResponse:
-        from gpo_lens.findings import load_active_findings, load_finding_triage_map
+        from gpo_lens.findings import (
+            finding_inbox,
+            finding_inbox_categories,
+            finding_inbox_count,
+            load_triage_status_map,
+        )
         from gpo_lens.store import load_estate
+
+        # Unknown values fall back to "no predicate" rather than 400ing: these
+        # arrive from bookmarked URLs, and a stale filter should widen the view,
+        # not break it.
+        severities = sorted(
+            {
+                part.strip()
+                for part in severity.split(",")
+                if part.strip() in _VALID_SEVERITIES
+            }
+        )
+        lifecycle_state = lifecycle if lifecycle in _VALID_LIFECYCLE else None
+        triage_status = triage if triage in _VALID_TRIAGE else None
+        q = (q or "")[:_MAX_SEARCH_LEN]
+
+        page, per_page_int, per_page_raw = parse_pagination(request)
 
         conn = get_ro_conn(app.state.db_path)
         try:
-            active_findings = load_active_findings(conn)
-            triage_map = load_finding_triage_map(conn)
+            # One triage fold, shared by the count and the page query, so the
+            # two can never disagree about which occurrences are open.
+            status_map = load_triage_status_map(conn)
+            filters: dict[str, Any] = {
+                "lifecycle_state": lifecycle_state,
+                "triage_status": triage_status,
+                "category_prefix": category or None,
+                "severities": severities or None,
+                "search": q or None,
+                "status_map": status_map,
+            }
+            filtered_count = finding_inbox_count(conn, **filters)
+            categories = finding_inbox_categories(conn)
+
+            # Clamp the page against the real total before querying, so an
+            # out-of-range ``page=`` returns the last page instead of nothing.
+            page, offset, pag = paginate_total(
+                filtered_count, page, per_page_int, per_page_raw
+            )
+            # per_page=all means no window; the query's own limit still caps it.
+            views = finding_inbox(
+                conn,
+                limit=per_page_int if per_page_int > 0 else 10_000,
+                offset=offset,
+                **filters,
+            )
             try:
                 estate = load_estate(conn)
                 resolvable_gpo_ids = {g.id for g in estate.gpos}
@@ -58,78 +116,31 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         finally:
             conn.close()
 
-        # Lifecycle rows are materialized at ingest. Read those directly here
-        # instead of re-running whole-estate detectors for every page view.
+        all_count = sum(count for _, count in categories)
+
         rows: list[dict[str, Any]] = []
-        for af in active_findings:
-            triage_event = triage_map.get(af.id, {})
-            triage_state = triage_event.get("status", "open")
+        for view in views:
+            ts = status_map.get(view.occurrence_id)
             rows.append({
-                "id": af.id,
-                "rule_id": af.rule_id,
-                "severity": af.severity,
-                "summary": af.summary,
-                "detail": af.detail,
-                "remediation": af.remediation,
-                "gpo_id": af.gpo_id,
-                "gpo_name": af.gpo_name,
-                "first_seen_snapshot": af.first_seen_snapshot,
-                "last_seen_snapshot": af.last_seen_snapshot,
-                "predecessor_id": af.predecessor_id,
-                "triage_state": triage_state,
-                "triage_note": triage_event.get("note", ""),
-                "triage_actor": triage_event.get("actor", ""),
-                "triage_timestamp": triage_event.get("timestamp", ""),
-                "is_new": af.first_seen_snapshot == af.last_seen_snapshot,
+                "id": view.occurrence_id,
+                "rule_id": view.category,
+                "severity": view.severity,
+                "summary": view.summary,
+                "detail": view.detail,
+                "remediation": view.remediation,
+                "gpo_id": view.gpo_id,
+                "gpo_name": view.gpo_name,
+                "first_seen_run": view.first_seen_run_id,
+                "last_seen_run": view.last_seen_run_id,
+                "predecessor_id": view.predecessor_id,
+                "claim_level": view.claim_level,
+                "triage_state": view.triage_status,
+                "triage_note": view.triage_note,
+                "triage_actor": view.triage_actor,
+                "triage_timestamp": ts.updated_at.isoformat() if ts else "",
+                "is_new": view.lifecycle_state == "new",
             })
 
-        # Facet counts (from the full set, pre-filter)
-        all_rows = rows
-
-        # Apply filters
-        if severity and severity != "all":
-            wanted = {s.strip() for s in severity.split(",") if s.strip()}
-            rows = [r for r in rows if r["severity"] in wanted]
-        if category:
-            rows = [
-                r for r in rows
-                if r["rule_id"] == category
-                or r["rule_id"].startswith(category + ":")
-            ]
-        if lifecycle == "new":
-            rows = [r for r in rows if r["is_new"]]
-        elif lifecycle == "persisting":
-            rows = [r for r in rows if not r["is_new"]]
-        if triage and triage != "all":
-            rows = [r for r in rows if r["triage_state"] == triage]
-        q = (q or "")[:_MAX_SEARCH_LEN]
-        if q:
-            needle = q.lower()
-            rows = [
-                r for r in rows
-                if needle in (r["gpo_name"] or "").lower()
-                or needle in (r["summary"] or "").lower()
-                or needle in (r["rule_id"] or "").lower()
-            ]
-
-        # Sort: new first, then by severity, then by GPO name
-        sev_rank = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
-        rows.sort(
-            key=lambda r: (
-                not r["is_new"],
-                sev_rank.get(r["severity"], 9),
-                (r["gpo_name"] or "").lower(),
-            )
-        )
-
-        # Facet counts (from the full set, pre-filter)
-        categories: dict[str, int] = {}
-        for r in all_rows:
-            cat = r["rule_id"]
-            categories[cat] = categories.get(cat, 0) + 1
-
-        page, per_page_int, per_page_raw = parse_pagination(request)
-        page_rows, pag = paginate(rows, page, per_page_int, per_page_raw)
         findings_qs = base_qs(request, "page", "per_page")
 
         return templates.TemplateResponse(
@@ -137,18 +148,117 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
             "findings.html",
             {
                 "request": request,
-                "rows": page_rows,
-                "all_count": len(active_findings),
-                "filtered_count": len(rows),
+                "rows": rows,
+                "all_count": all_count,
+                "filtered_count": filtered_count,
                 "resolvable_gpo_ids": resolvable_gpo_ids,
                 "f_severity": severity,
                 "f_category": category,
                 "f_lifecycle": lifecycle,
                 "f_triage": triage,
                 "f_q": q,
-                "categories": sorted(categories.items()),
+                "categories": categories,
                 "pag": pag,
                 "f_base_qs": findings_qs,
+                "can_triage": principal.has(Permission.TRIAGE),
+            },
+        )
+
+    @app.get(
+        "/findings/{occurrence_id}",
+        response_class=HTMLResponse,
+        name="finding_occurrence",
+    )
+    def finding_occurrence(
+        request: Request,
+        occurrence_id: int,
+        principal: Principal = Depends(requires(Permission.VIEW)),
+    ) -> HTMLResponse:
+        """Plan 025 WI-1: one occurrence's observations, provenance, and triage.
+
+        Answers "why does this finding say what it says, and has that changed?"
+        — the question the inbox row deliberately does not have room for.
+        """
+        from gpo_lens.findings import (
+            finding_history,
+            finding_observation_history,
+            load_triage_status_map,
+        )
+        from gpo_lens.store import load_estate
+
+        conn = get_ro_conn(app.state.db_path)
+        try:
+            try:
+                history = finding_history(conn, occurrence_id)
+            except ValueError:
+                return HTMLResponse("Finding not found", status_code=404)
+            observations = finding_observation_history(conn, occurrence_id)
+            status = load_triage_status_map(conn).get(occurrence_id)
+
+            # A regression's predecessor is the same finding_key in an earlier,
+            # resolved interval. Show enough to justify the "regression" label.
+            predecessor = None
+            if history.occurrence.predecessor_id is not None:
+                try:
+                    prior = finding_history(
+                        conn, history.occurrence.predecessor_id
+                    )
+                except ValueError:
+                    prior = None
+                if prior is not None:
+                    predecessor = {
+                        "id": prior.occurrence.id,
+                        "category": prior.occurrence.category,
+                        "first_seen_run": prior.occurrence.first_seen_run_id,
+                        "resolved_run": prior.occurrence.resolved_run_id,
+                    }
+
+            try:
+                estate = load_estate(conn)
+                gpo_names = {g.id: g.name for g in estate.gpos}
+            except ValueError:
+                gpo_names = {}
+        finally:
+            conn.close()
+
+        # The occurrence row carries no GPO columns; take the subject from the
+        # newest observation's evidence, which is where the detector recorded it.
+        gpo_id = ""
+        for obs in reversed(observations):
+            for ref in obs["evidence"]:
+                if isinstance(ref, dict) and ref.get("gpo_id"):
+                    gpo_id = str(ref["gpo_id"])
+                    break
+            if gpo_id:
+                break
+
+        # Severity and claim can move between runs without the finding's
+        # identity changing; surfacing the transitions is the point of the page.
+        changes: list[dict[str, Any]] = []
+        for prev, curr in zip(observations, observations[1:], strict=False):
+            for field in ("severity", "claim_level", "detector_set_digest"):
+                if prev[field] != curr[field]:
+                    changes.append({
+                        "run_id": curr["run_id"],
+                        "field": field,
+                        "before": prev[field],
+                        "after": curr[field],
+                    })
+
+        return templates.TemplateResponse(
+            request,
+            "finding_occurrence.html",
+            {
+                "request": request,
+                "occ": history.occurrence,
+                "observations": observations,
+                "triage_events": history.triage_events,
+                "triage_status": status,
+                "predecessor": predecessor,
+                "changes": changes,
+                "gpo_id": gpo_id,
+                "gpo_name": gpo_names.get(gpo_id, gpo_id),
+                "gpo_resolvable": gpo_id in gpo_names,
                 "can_triage": principal.has(Permission.TRIAGE),
             },
         )
