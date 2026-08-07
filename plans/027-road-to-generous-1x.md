@@ -204,8 +204,8 @@ rollback flag exercised at least once in lab.
 ## Phase 3 — Operational generosity + docs → the milestone tag — **NOT STARTED**
 
 *Nothing here has begun. `deploy/` contains only `iis`, so criterion 4 of the
-definition of done is unmet. See `plans/028-module-decomposition.md`, which
-scopes WI-3.1 alongside the source-file decomposition it shares a release with.*
+definition of done is unmet — WI-3.1 is the largest single piece of unstarted
+work on this plan.*
 
 - **WI-3.1 — WI-086: Docker/systemd deployment option.** Container image +
   compose example + systemd unit; same loopback-XOR-token auth model with the
