@@ -8,14 +8,17 @@ threadpool, preventing synchronous SQLite from blocking the event loop
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 from fastapi import Depends, FastAPI, Form, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
-from gpo_lens import store as _store
-from gpo_lens.web._helpers import get_ro_conn
+from gpo_lens.web._helpers import get_estate
 from gpo_lens.web.auth import Permission, Principal, requires
+
+if TYPE_CHECKING:
+    from gpo_lens.model import Estate
 
 _logger = logging.getLogger(__name__)
 
@@ -49,6 +52,7 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         dn: str = Form(""),
         computer_dn: str = Form(""),
         _principal_auth: Principal = Depends(requires(Permission.VIEW)),
+        estate: Estate = Depends(get_estate),
     ) -> HTMLResponse:
         from gpo_lens.merge import principal_resultant, resolve_principal_input
 
@@ -60,11 +64,6 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
                 {"request": request, "result": None,
                  "error": "A principal SID or name is required."},
             )
-        conn = get_ro_conn(app.state.db_path)
-        try:
-            estate = _store.load_estate(conn)
-        finally:
-            conn.close()
 
         resolved_sid = resolve_principal_input(estate, principal_input)
         if resolved_sid is None:

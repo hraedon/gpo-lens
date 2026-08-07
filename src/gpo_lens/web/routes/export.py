@@ -7,6 +7,8 @@ threadpool, preventing synchronous SQLite from blocking the event loop
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import Response
 from fastapi.templating import Jinja2Templates
@@ -14,10 +16,14 @@ from fastapi.templating import Jinja2Templates
 from gpo_lens.display import serialize_result
 from gpo_lens.web._helpers import (
     csv_response,
+    get_estate,
     get_ro_conn,
     json_attachment,
 )
 from gpo_lens.web.auth import Permission, Principal, requires
+
+if TYPE_CHECKING:
+    from gpo_lens.model import Estate
 
 
 def register(app: FastAPI, templates: Jinja2Templates) -> None:
@@ -73,9 +79,9 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         gpo_id: str,
         format: str = "json",
         _principal: Principal = Depends(requires(Permission.VIEW)),
+        estate: Estate = Depends(get_estate),
     ) -> Response:
         from gpo_lens.normalize import canonical_guid
-        from gpo_lens.store import load_estate
 
         # A GPO is a rich nested object (settings grouped by side/CSE, links,
         # delegation) that does not flatten to CSV sensibly — JSON only.
@@ -88,12 +94,6 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
             gpo_id = canonical_guid(gpo_id)
         except ValueError:
             raise HTTPException(status_code=404, detail="Invalid GPO ID") from None
-
-        conn = get_ro_conn(app.state.db_path)
-        try:
-            estate = load_estate(conn)
-        finally:
-            conn.close()
 
         gpo = estate.gpo_by_id(gpo_id)
         if gpo is None:
@@ -108,20 +108,14 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         path: str,
         format: str = "csv",
         _principal: Principal = Depends(requires(Permission.VIEW)),
+        estate: Estate = Depends(get_estate),
     ) -> Response:
         from gpo_lens import queries
-        from gpo_lens import store as _store
 
         if format not in ("csv", "json"):
             raise HTTPException(
                 status_code=400, detail="format must be 'csv' or 'json'"
             )
-
-        conn = get_ro_conn(app.state.db_path)
-        try:
-            estate = _store.load_estate(conn)
-        finally:
-            conn.close()
 
         target_som = None
         for som in estate.soms:

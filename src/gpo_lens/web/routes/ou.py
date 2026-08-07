@@ -7,12 +7,13 @@ threadpool, preventing synchronous SQLite from blocking the event loop
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from gpo_lens import queries, topology
-from gpo_lens import store as _store
 from gpo_lens.web._helpers import (
     _VALID_OU_SORTS,
     _VALID_OU_TYPES,
@@ -20,11 +21,14 @@ from gpo_lens.web._helpers import (
     cse_facets,
     filter_settings,
     filter_soms,
-    get_ro_conn,
+    get_estate,
     paginate,
     parse_pagination,
 )
 from gpo_lens.web.auth import Permission, Principal, requires
+
+if TYPE_CHECKING:
+    from gpo_lens.model import Estate
 
 
 def register(app: FastAPI, templates: Jinja2Templates) -> None:
@@ -36,13 +40,8 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         type: str = "",
         sort: str = "name",
         _principal: Principal = Depends(requires(Permission.VIEW)),
+        estate: Estate = Depends(get_estate),
     ) -> HTMLResponse:
-        conn = get_ro_conn(app.state.db_path)
-        try:
-            estate = _store.load_estate(conn)
-        finally:
-            conn.close()
-
         if type and type not in _VALID_OU_TYPES:
             type = ""
         if sort not in _VALID_OU_SORTS:
@@ -74,13 +73,8 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         q: str = "",
         cse: str = "",
         _principal: Principal = Depends(requires(Permission.VIEW)),
+        estate: Estate = Depends(get_estate),
     ) -> HTMLResponse:
-        conn = get_ro_conn(app.state.db_path)
-        try:
-            estate = _store.load_estate(conn)
-        finally:
-            conn.close()
-
         target_som = None
         for som in estate.soms:
             if som.path.lower() == path.lower():
