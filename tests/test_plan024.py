@@ -1022,6 +1022,45 @@ class TestCoreQueries:
         finally:
             conn.close()
 
+    def test_accepted_risk_register_reopen_cancels_acceptance(self) -> None:
+        """A ``reopened`` event after an active acceptance must appear in the
+        register as cancelled (revoked_at set), not as a live acceptance."""
+        conn = _make_db()
+        try:
+            _make_snapshot(conn, 1)
+            run_id = _make_run(conn, 1)
+            run_evaluation(conn, run_id, [
+                _make_candidate("cpassword", subject_key=("gpo1",)),
+            ])
+            occ_id = finding_inbox(conn)[0].occurrence_id
+            accept_id = append_triage_event(
+                conn, occ_id, "accepted_risk", "admin",
+                rationale="temporary exception",
+            )
+            conn.execute(
+                "UPDATE finding_triage_event SET occurred_at = ? WHERE id = ?",
+                ("2025-01-02T00:00:00+00:00", accept_id),
+            )
+            reopen_id = append_triage_event(
+                conn, occ_id, "reopened", "reviewer", note="exception withdrawn",
+            )
+            conn.execute(
+                "UPDATE finding_triage_event SET occurred_at = ? WHERE id = ?",
+                ("2025-01-03T00:00:00+00:00", reopen_id),
+            )
+            conn.commit()
+
+            register = accepted_risk_register(
+                conn, as_of=datetime(2025, 1, 4, tzinfo=UTC),
+            )
+            assert len(register) == 1
+            # Reopen cancels the acceptance: revoked_at/revoked_by populated.
+            assert register[0].revoked_by == "reviewer"
+            assert register[0].revoked_at == datetime(2025, 1, 3, tzinfo=UTC)
+            assert not register[0].is_expired
+        finally:
+            conn.close()
+
     def test_evaluation_runs_query(self) -> None:
         conn = _make_db()
         try:
