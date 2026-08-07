@@ -1,6 +1,9 @@
 # Plan 025 — Question-oriented information architecture, briefing, and exports
 
-**Status:** In Progress — WI-1 (findings inbox + occurrence view) and WI-2
+**Status:** In Progress — WI-1/2/3 **merged to `main` 2026-08-07**; WI-4, WI-5,
+and WI-6 remain open and are the bulk of what is left.
+
+WI-1 (findings inbox + occurrence view) and WI-2
 (deterministic briefing) implemented 2026-07-30 on
 `plan/025-wi1-findings-inbox-core`. WI-3 implemented 2026-07-30: `/explore` and
 `/tools` organize every specialist destination from a resolved-at-request
