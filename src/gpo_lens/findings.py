@@ -236,6 +236,14 @@ _VALID_TRIAGE_ACTIONS: frozenset[str] = frozenset(
     }
 )
 
+# Triage actions that assert something about the finding *beyond this
+# evaluation* — a decision the operator expects to still hold next run. These
+# are refused on occurrences with no stable subject (Plan 024 §4). ``commented``
+# is honestly scoped to the occurrence it is attached to, and the reopen/expiry
+# actions must stay available so the expiry sweep can unwind an acceptance
+# recorded before the subject became unstable.
+_CARRIES_ACROSS_SNAPSHOTS: frozenset[str] = frozenset({"acknowledged", "accepted_risk"})
+
 
 def _now_iso() -> str:
     return datetime.now(UTC).isoformat()
@@ -704,6 +712,26 @@ def append_triage_event(
         raise ValueError(f"invalid triage action: {action!r}")
     if action == "accepted_risk" and not rationale.strip():
         raise ValueError("accepted_risk requires a non-empty rationale")
+    if action in _CARRIES_ACROSS_SNAPSHOTS:
+        # Plan 024 §4: an occurrence with no stable subject "cannot be
+        # acknowledged across snapshots". Its fingerprint moves with the
+        # detector's wording, so the next run resolves it and mints a fresh
+        # occurrence — and the decision recorded here would silently attach to
+        # a finding that no longer exists while the real problem returns as
+        # untriaged. Refuse rather than record a decision that will not hold.
+        # ``commented`` and the reopen/expiry actions are still allowed: a note
+        # is honest about being about this occurrence, and the expiry sweep
+        # must be able to unwind whatever already exists.
+        row = conn.execute(
+            "SELECT subject_stable FROM finding WHERE id = ?", (occurrence_id,)
+        ).fetchone()
+        if row is not None and not row[0]:
+            raise ValueError(
+                f"occurrence {occurrence_id} is snapshot_scoped: its subject "
+                "cannot be identified across snapshots, so a "
+                f"{action!r} decision would not survive the next evaluation. "
+                "Give the detector a stable subject_key first."
+            )
 
     note = (note or "")[:2000]
     rationale = (rationale or "")[:2000]
@@ -1792,6 +1820,24 @@ def candidates_from_estate(
 
     candidates: list[FindingCandidate] = []
     for doc_f in doctor_findings:
+        # ``estate_doctor`` re-wraps every DangerFinding as a DoctorFinding for
+        # its own display list, and that wrapper carries neither the danger
+        # finding's ``dimensions`` nor a ``subject_key``. Converting those
+        # wrappers too produced a *second* candidate for the same real problem,
+        # with a different fingerprint, so one finding became two occurrences:
+        #
+        #   - GPO-scoped: the wrapper lost ``dimensions``, so two non-admin
+        #     writers on one GPO collapsed to one loosely-keyed occurrence
+        #     alongside the correctly-keyed pair.
+        #   - Estate-scoped (``absent`` rules, gpo_id ""): the wrapper had no
+        #     subject at all, so the copy keyed on the rule *title* — prose,
+        #     churning on every rewording.
+        #
+        # The danger family is converted below from the DangerFinding itself,
+        # which keeps its dimensions and keys on check_id. Skip the wrappers
+        # rather than making both paths agree by coincidence of fingerprint.
+        if doc_f.category.startswith("danger:"):
+            continue
         candidates.append(_doctor_finding_to_candidate(doc_f, snapshot_id))
     for dang_f in danger:
         candidates.append(_danger_finding_to_candidate(dang_f, snapshot_id))
