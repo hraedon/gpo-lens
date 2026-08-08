@@ -20,7 +20,11 @@ from typing import Literal, Protocol, TypedDict, runtime_checkable
 Side = Literal["Computer", "User"]
 
 SEVERITY_ORDER: dict[str, int] = {
-    "critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4,
+    "critical": 0,
+    "high": 1,
+    "medium": 2,
+    "low": 3,
+    "info": 4,
 }
 
 SettingRaw = TypedDict(
@@ -46,12 +50,12 @@ element's attributes; ``children`` is a recursive list of the same type.
 class SddlAce:
     """One ACE parsed from an SDDL string."""
 
-    ace_type: str       # "allow" | "deny"
-    flags: str          # e.g. "CI", "OI", "CI_OI", ""
-    rights: str         # e.g. "GA", "GR", "GW", "WD", "SD", "CC", "DC", "LC", "LO", "RP", "WP"
-    object_guid: str    # usually ""
+    ace_type: str  # "allow" | "deny"
+    flags: str  # e.g. "CI", "OI", "CI_OI", ""
+    rights: str  # e.g. "GA", "GR", "GW", "WD", "SD", "CC", "DC", "LC", "LO", "RP", "WP"
+    object_guid: str  # usually ""
     inherit_object_guid: str  # usually ""
-    trustee_sid: str    # SID string, e.g. "S-1-5-32-544"
+    trustee_sid: str  # SID string, e.g. "S-1-5-32-544"
 
 
 @dataclass(frozen=True)
@@ -98,10 +102,10 @@ class GpoLink:
     """One ``GPO/LinksTo`` element — where a GPO is linked."""
 
     gpo_id: str
-    som_name: str           # LinksTo/SOMName
-    som_path: str           # LinksTo/SOMPath
-    link_enabled: bool      # LinksTo/Enabled
-    enforced: bool          # LinksTo/NoOverride  (this is the enforced flag)
+    som_name: str  # LinksTo/SOMName
+    som_path: str  # LinksTo/SOMPath
+    link_enabled: bool  # LinksTo/Enabled
+    enforced: bool  # LinksTo/NoOverride  (this is the enforced flag)
 
 
 @dataclass
@@ -115,13 +119,13 @@ class Setting:
 
     gpo_id: str
     side: Side
-    cse: str                # ExtensionData/Name (e.g. "Registry", "Security")
-    identity: str           # CSE-specific natural key (conflict identity)
+    cse: str  # ExtensionData/Name (e.g. "Registry", "Security")
+    identity: str  # CSE-specific natural key (conflict identity)
     display_name: str
     display_value: str
     raw: dict[str, object]  # CSE-specific subtree (element_to_dict or registry_pol)
     from_disabled_side: bool  # side's Enabled=false but settings present
-    source_state: str = "normal"   # "normal" | "blocked" (<Blocked/> extension)
+    source_state: str = "normal"  # "normal" | "blocked" (<Blocked/> extension)
 
 
 @dataclass(frozen=True)
@@ -135,7 +139,7 @@ class DelegationEntry:
     gpo_id: str
     trustee: str
     trustee_sid: str | None
-    permission: str         # normalized label, e.g. "Apply Group Policy", "Read"
+    permission: str  # normalized label, e.g. "Apply Group Policy", "Read"
     allowed: bool
 
 
@@ -143,7 +147,7 @@ class DelegationEntry:
 class Gpo:
     """One ``GPO`` element, enriched with metadata + SYSVOL path."""
 
-    id: str                 # canonical guid
+    id: str  # canonical guid
     name: str
     domain: str
     created: datetime | None
@@ -158,9 +162,9 @@ class Gpo:
     sddl: str | None
     owner: str | None
     filter_data_available: bool
-    wmi_filter: str | None              # from gpo-metadata.json
-    sysvol_path: str | None             # matched SYSVOL-Policies/{GUID} dir
-    description: str | None = None      # <Description> from the report (admin's note)
+    wmi_filter: str | None  # from gpo-metadata.json
+    sysvol_path: str | None  # matched SYSVOL-Policies/{GUID} dir
+    description: str | None = None  # <Description> from the report (admin's note)
     links: list[GpoLink] = field(default_factory=list)
     settings: list[Setting] = field(default_factory=list)
     delegation: list[DelegationEntry] = field(default_factory=list)
@@ -185,10 +189,10 @@ class SomLink:
     """One entry of a SOM's resolved, ordered, inheritance-aware GPO chain."""
 
     gpo_id: str
-    order: int              # precedence order (platform-resolved)
+    order: int  # precedence order (platform-resolved)
     enabled: bool
     enforced: bool
-    target: str             # DN the link originates from
+    target: str  # DN the link originates from
 
 
 @dataclass
@@ -216,8 +220,8 @@ class OuRecord:
 
     dn: str
     name: str
-    gp_link: str | None       # raw gPLink attribute (DN-list of GUIDs)
-    gp_options: int | None    # gPOptions: 0=not blocked, 1=block inheritance
+    gp_link: str | None  # raw gPLink attribute (DN-list of GUIDs)
+    gp_options: int | None  # gPOptions: 0=not blocked, 1=block inheritance
 
 
 @dataclass(frozen=True)
@@ -265,9 +269,9 @@ class ResolvedPrincipal:
     sid: str
     name: str
     sam: str
-    principal_type: str       # "Group"|"User"|"Computer"|"WellKnown"|"Unresolved"
-    domain: str               # NetBIOS/domain or ""
-    resolved: bool            # False if no name could be found
+    principal_type: str  # "Group"|"User"|"Computer"|"WellKnown"|"Unresolved"
+    domain: str  # NetBIOS/domain or ""
+    resolved: bool  # False if no name could be found
 
 
 @dataclass
@@ -308,8 +312,7 @@ class Estate:
             for g in self.gpos:
                 if g.id in idx:
                     warnings.warn(
-                        f"Duplicate GPO id '{g.id}': "
-                        f"'{idx[g.id].name}' shadowed by '{g.name}'.",
+                        f"Duplicate GPO id '{g.id}': '{idx[g.id].name}' shadowed by '{g.name}'.",
                         stacklevel=2,
                     )
                 idx[g.id] = g

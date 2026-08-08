@@ -1,4 +1,5 @@
 """CLI subcommands for snapshot diffing, changelog, and baseline comparison."""
+
 from __future__ import annotations
 
 import argparse
@@ -16,21 +17,25 @@ def cmd_diff(args: argparse.Namespace) -> None:
     finally:
         conn.close()
     if args.json:
+
         def _asdict(obj: object) -> object:
             if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
                 return dataclasses.asdict(obj)
             return obj
-        _render_json({
-            "gpos_added": diff.gpos_added,
-            "gpos_removed": diff.gpos_removed,
-            "settings_changed": diff.settings_changed,
-            "links_changed": diff.links_changed,
-            "delegation_changed": diff.delegation_changed,
-            "version_skew_changed": diff.version_skew_changed,
-            "metadata_changes": [_asdict(m) for m in diff.metadata_changes],
-            "wmi_filter_changes": [_asdict(m) for m in diff.wmi_filter_changes],
-            "enabled_flips": [_asdict(m) for m in diff.enabled_flips],
-        })
+
+        _render_json(
+            {
+                "gpos_added": diff.gpos_added,
+                "gpos_removed": diff.gpos_removed,
+                "settings_changed": diff.settings_changed,
+                "links_changed": diff.links_changed,
+                "delegation_changed": diff.delegation_changed,
+                "version_skew_changed": diff.version_skew_changed,
+                "metadata_changes": [_asdict(m) for m in diff.metadata_changes],
+                "wmi_filter_changes": [_asdict(m) for m in diff.wmi_filter_changes],
+                "enabled_flips": [_asdict(m) for m in diff.enabled_flips],
+            }
+        )
     else:
         if diff.gpos_added:
             print(f"GPOs added: {', '.join(diff.gpos_added)}")
@@ -50,11 +55,19 @@ def cmd_diff(args: argparse.Namespace) -> None:
             print(f"WMI filter: {m.gpo_id}: {m.old_value} -> {m.new_value}")
         for m in diff.enabled_flips:
             print(f"Enabled flip: {m.gpo_id}.{m.field}: {m.old_value} -> {m.new_value}")
-        if not any([
-            diff.gpos_added, diff.gpos_removed, diff.settings_changed,
-            diff.links_changed, diff.delegation_changed, diff.version_skew_changed,
-            diff.metadata_changes, diff.wmi_filter_changes, diff.enabled_flips,
-        ]):
+        if not any(
+            [
+                diff.gpos_added,
+                diff.gpos_removed,
+                diff.settings_changed,
+                diff.links_changed,
+                diff.delegation_changed,
+                diff.version_skew_changed,
+                diff.metadata_changes,
+                diff.wmi_filter_changes,
+                diff.enabled_flips,
+            ]
+        ):
             print("No differences found.")
 
 
@@ -62,16 +75,17 @@ def cmd_diff_settings(args: argparse.Namespace) -> None:
     conn = sqlite3.connect(args.db)
     try:
         changes = snapshot_diff.snapshot_settings_diff(
-            conn, args.snapshot_a, args.snapshot_b,
-            gpo_id=args.gpo_id, side=args.side, cse=args.cse,
+            conn,
+            args.snapshot_a,
+            args.snapshot_b,
+            gpo_id=args.gpo_id,
+            side=args.side,
+            cse=args.cse,
         )
     finally:
         conn.close()
     if args.json:
-        _render_json([
-            dataclasses.asdict(c)
-            for c in changes
-        ])
+        _render_json([dataclasses.asdict(c) for c in changes])
     else:
         if not changes:
             print("No setting differences found.")
@@ -79,8 +93,15 @@ def cmd_diff_settings(args: argparse.Namespace) -> None:
         _print_table(
             ["GPO", "Side", "CSE", "Identity", "Change", "Old", "New"],
             [
-                [c.gpo_name, c.side, c.cse, c.identity, c.change_type,
-                 c.old_value or "", c.new_value or ""]
+                [
+                    c.gpo_name,
+                    c.side,
+                    c.cse,
+                    c.identity,
+                    c.change_type,
+                    c.old_value or "",
+                    c.new_value or "",
+                ]
                 for c in changes
             ],
         )
@@ -96,6 +117,7 @@ def cmd_changelog(args: argparse.Namespace) -> None:
         side_lower = args.side.lower()
         entries = [e for e in entries if e.side and e.side.lower() == side_lower]
     if args.json:
+
         def _sc_asdict(sc: snapshot_diff.SnapshotSettingChange) -> dict[str, object]:
             return dataclasses.asdict(sc)
 
@@ -104,18 +126,20 @@ def cmd_changelog(args: argparse.Namespace) -> None:
                 return None
             return dataclasses.asdict(vc)
 
-        _render_json([
-            {
-                "gpo_id": e.gpo_id,
-                "gpo_name": e.gpo_name,
-                "kind": e.kind,
-                "side": e.side,
-                "summary": e.summary,
-                "version_change": _vc_asdict(e.version_change),
-                "setting_changes": [_sc_asdict(sc) for sc in e.setting_changes],
-            }
-            for e in entries
-        ])
+        _render_json(
+            [
+                {
+                    "gpo_id": e.gpo_id,
+                    "gpo_name": e.gpo_name,
+                    "kind": e.kind,
+                    "side": e.side,
+                    "summary": e.summary,
+                    "version_change": _vc_asdict(e.version_change),
+                    "setting_changes": [_sc_asdict(sc) for sc in e.setting_changes],
+                }
+                for e in entries
+            ]
+        )
     else:
         if not entries:
             print("No changes found between snapshots.")
@@ -137,10 +161,7 @@ def cmd_snapshots(args: argparse.Namespace) -> None:
         conn.close()
     if args.json:
         _render_json(
-            [
-                {"id": sid, "domain": domain, "taken_at": taken}
-                for sid, domain, taken in result
-            ]
+            [{"id": sid, "domain": domain, "taken_at": taken} for sid, domain, taken in result]
         )
     else:
         _print_table(
@@ -159,6 +180,7 @@ def cmd_baseline_diff(args: argparse.Namespace) -> None:
     if baseline_src.suffix.lower() == ".zip":
         baseline_gpos = load_baseline_from_zip(baseline_src)
         from gpo_lens.model import Estate as _Estate
+
         baseline_estate = _Estate(gpos=baseline_gpos)
     else:
         baseline_estate = ingest.load_estate(baseline_src)
@@ -168,10 +190,7 @@ def cmd_baseline_diff(args: argparse.Namespace) -> None:
 
     results = queries.baseline_diff(estate, baseline, admx)
     if args.json:
-        _render_json([
-            dataclasses.asdict(r)
-            for r in results
-        ])
+        _render_json([dataclasses.asdict(r) for r in results])
     else:
         if not results:
             print("No baseline settings to compare.")
@@ -183,12 +202,13 @@ def cmd_baseline_diff(args: argparse.Namespace) -> None:
 
         print("Baseline Diff")
         print("=" * 60)
-        print(f"  Compliant: {len(compliant)}  |  Drift: {len(drift)}  |  "
-              f"Missing: {len(missing)}  |  Extra: {len(extra)}")
+        print(
+            f"  Compliant: {len(compliant)}  |  Drift: {len(drift)}  |  "
+            f"Missing: {len(missing)}  |  Extra: {len(extra)}"
+        )
         print()
 
-        for group_name, group in [("DRIFT", drift), ("MISSING", missing),
-                                   ("EXTRA", extra)]:
+        for group_name, group in [("DRIFT", drift), ("MISSING", missing), ("EXTRA", extra)]:
             if group:
                 print(f"--- {group_name} ---")
                 for r in group:
@@ -225,22 +245,29 @@ def cmd_golden_diff(args: argparse.Namespace) -> None:
     live_names = {g.name.lower() for g in live_estate.gpos}
     golden_names = {g.name.lower() for g in golden_estate.gpos}
     summary = queries.golden_diff_summary(
-        results, matched_gpo_count=len(live_names & golden_names),
+        results,
+        matched_gpo_count=len(live_names & golden_names),
     )
 
     if args.json:
-        _render_json({
-            "summary": dataclasses.asdict(summary),
-            "entries": [dataclasses.asdict(r) for r in results],
-        })
+        _render_json(
+            {
+                "summary": dataclasses.asdict(summary),
+                "entries": [dataclasses.asdict(r) for r in results],
+            }
+        )
     else:
         print("Golden-Backup Diff")
         print("=" * 60)
-        print(f"  GPOs matched: {summary.gpos_matched}  |  "
-              f"Added: {summary.gpos_added}  |  Removed: {summary.gpos_removed}")
-        print(f"  Settings — Compliant: {summary.settings_compliant}  |  "
-              f"Changed: {summary.settings_changed}  |  "
-              f"Added: {summary.settings_added}  |  Removed: {summary.settings_removed}")
+        print(
+            f"  GPOs matched: {summary.gpos_matched}  |  "
+            f"Added: {summary.gpos_added}  |  Removed: {summary.gpos_removed}"
+        )
+        print(
+            f"  Settings — Compliant: {summary.settings_compliant}  |  "
+            f"Changed: {summary.settings_changed}  |  "
+            f"Added: {summary.settings_added}  |  Removed: {summary.settings_removed}"
+        )
         print()
 
         non_compliant = [r for r in results if r.status != "compliant"]

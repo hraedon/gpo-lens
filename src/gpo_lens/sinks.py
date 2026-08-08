@@ -139,7 +139,7 @@ class HecSink:
                 return False
             except OSError as exc:
                 if attempt < max_retries - 1:
-                    time.sleep(2 ** attempt)
+                    time.sleep(2**attempt)
                     continue
                 print(f"Warning: HEC transport error: {exc}", file=sys.stderr)
                 return False

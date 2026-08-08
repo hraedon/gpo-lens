@@ -1,4 +1,5 @@
 """CLI subcommand: trends -- posture-over-time from snapshot history."""
+
 from __future__ import annotations
 
 import argparse
@@ -44,8 +45,14 @@ def cmd_trends(args: argparse.Namespace) -> None:
             return
         _print_table(
             [
-                "Snapshot ID", "Date", "GPOs", "Dangers",
-                "Cpassword", "MS16-072", "Skew", "Broken Refs",
+                "Snapshot ID",
+                "Date",
+                "GPOs",
+                "Dangers",
+                "Cpassword",
+                "MS16-072",
+                "Skew",
+                "Broken Refs",
                 "Coverage Gaps",
             ],
             [

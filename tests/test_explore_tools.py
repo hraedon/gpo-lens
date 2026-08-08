@@ -5,6 +5,7 @@ The registry in ``gpo_lens.web.routes.explore`` resolves every entry through
 ``app.url_path_for`` at request time, so these tests are what turn a renamed
 route into a loud failure instead of a dead link.
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -24,6 +25,7 @@ def empty_db(tmp_path):
     db = tmp_path / "test.db"
     conn = sqlite3.connect(str(db))
     from gpo_lens.store import init_db
+
     init_db(conn)
     conn.close()
     return str(db)
@@ -59,9 +61,7 @@ class TestDirectoryPages:
         ("path", "sections"),
         [("/explore", EXPLORE_SECTIONS), ("/tools", TOOLS_SECTIONS)],
     )
-    def test_every_destination_resolves_and_is_linked(
-        self, empty_db, auth_token, path, sections
-    ):
+    def test_every_destination_resolves_and_is_linked(self, empty_db, auth_token, path, sections):
         """No dead links: each registry entry resolves and appears as an href."""
         client = _client(empty_db, auth_token)
         app = client.app
@@ -70,16 +70,12 @@ class TestDirectoryPages:
             assert section.title in page
             for dest in section.destinations:
                 href = app.url_path_for(dest.route_name)  # raises if renamed
-                assert f'href="{href}"' in page, (
-                    f"{path} does not link {dest.route_name} ({href})"
-                )
+                assert f'href="{href}"' in page, f"{path} does not link {dest.route_name} ({href})"
                 assert dest.title in page
 
     def test_registry_routes_are_distinct(self):
         """The two pages organize different surfaces; overlap is a smell."""
-        explore = {
-            d.route_name for s in EXPLORE_SECTIONS for d in s.destinations
-        }
+        explore = {d.route_name for s in EXPLORE_SECTIONS for d in s.destinations}
         tools = {d.route_name for s in TOOLS_SECTIONS for d in s.destinations}
         assert not explore & tools
 

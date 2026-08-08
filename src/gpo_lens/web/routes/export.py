@@ -45,9 +45,7 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         from gpo_lens.store import load_estate
 
         if format not in ("csv", "json"):
-            raise HTTPException(
-                status_code=400, detail="format must be 'csv' or 'json'"
-            )
+            raise HTTPException(status_code=400, detail="format must be 'csv' or 'json'")
 
         conn = get_ro_conn(app.state.db_path)
         try:
@@ -86,9 +84,7 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         # A GPO is a rich nested object (settings grouped by side/CSE, links,
         # delegation) that does not flatten to CSV sensibly — JSON only.
         if format != "json":
-            raise HTTPException(
-                status_code=400, detail="GPO export supports JSON format only"
-            )
+            raise HTTPException(status_code=400, detail="GPO export supports JSON format only")
 
         try:
             gpo_id = canonical_guid(gpo_id)
@@ -113,9 +109,7 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         from gpo_lens import queries
 
         if format not in ("csv", "json"):
-            raise HTTPException(
-                status_code=400, detail="format must be 'csv' or 'json'"
-            )
+            raise HTTPException(status_code=400, detail="format must be 'csv' or 'json'")
 
         target_som = None
         for som in estate.soms:
@@ -132,10 +126,14 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         # default: csv
         rows = [
             [
-                s.cse, s.side, s.identity, s.display_name, s.display_value,
-                s.winner_gpo_id, s.winner_gpo_name, ", ".join(
-                    f"{name}={val}" for name, val in s.overridden_by
-                ),
+                s.cse,
+                s.side,
+                s.identity,
+                s.display_name,
+                s.display_value,
+                s.winner_gpo_id,
+                s.winner_gpo_name,
+                ", ".join(f"{name}={val}" for name, val in s.overridden_by),
                 "yes" if s.enforced else "no",
             ]
             for s in settings
@@ -143,8 +141,15 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         return csv_response(
             rows,
             [
-                "cse", "side", "identity", "display_name", "display_value",
-                "winner_gpo_id", "winner_gpo_name", "overridden_by", "enforced",
+                "cse",
+                "side",
+                "identity",
+                "display_name",
+                "display_value",
+                "winner_gpo_id",
+                "winner_gpo_name",
+                "overridden_by",
+                "enforced",
             ],
             "gpo-lens-ou-settings.csv",
         )

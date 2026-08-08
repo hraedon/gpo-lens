@@ -30,15 +30,11 @@ def test_no_inline_registry_cse_checks() -> None:
     for py_file in SRC_DIR.rglob("*.py"):
         if py_file.name == "normalize.py":
             continue
-        for lineno, line in enumerate(
-            py_file.read_text(encoding="utf-8").splitlines(), start=1
-        ):
+        for lineno, line in enumerate(py_file.read_text(encoding="utf-8").splitlines(), start=1):
             for pattern in _HARD_FORBIDDEN:
                 if pattern in line:
                     rel = py_file.relative_to(SRC_DIR)
-                    offenders.append(
-                        f"{rel}:{lineno}: found {pattern!r} in {line.strip()!r}"
-                    )
+                    offenders.append(f"{rel}:{lineno}: found {pattern!r} in {line.strip()!r}")
             if _SOFT_FORBIDDEN in line and _SOFT_ALLOWED not in line:
                 rel = py_file.relative_to(SRC_DIR)
                 offenders.append(
@@ -46,6 +42,5 @@ def test_no_inline_registry_cse_checks() -> None:
                     f"without .lower() in {line.strip()!r}"
                 )
     assert not offenders, (
-        "Inline Registry-CSE checks found — use normalize.is_registry_cse() "
-        f"instead: {offenders}"
+        f"Inline Registry-CSE checks found — use normalize.is_registry_cse() instead: {offenders}"
     )

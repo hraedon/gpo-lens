@@ -1,4 +1,5 @@
 """CLI subcommand: danger — scan for dangerous GPO configurations."""
+
 from __future__ import annotations
 
 import argparse
@@ -23,8 +24,7 @@ def cmd_danger(args: argparse.Namespace) -> None:
                     "detail": f.detail,
                     "reference": f.reference,
                     "compliance": [
-                        {"framework": c.framework, "control_id": c.control_id}
-                        for c in f.compliance
+                        {"framework": c.framework, "control_id": c.control_id} for c in f.compliance
                     ],
                     "remediation": f.remediation,
                 }
@@ -36,8 +36,13 @@ def cmd_danger(args: argparse.Namespace) -> None:
             print("No dangerous configurations found.")
         else:
             headers = [
-                "severity", "check_id", "gpo_name", "title",
-                "compliance", "reference", "remediation",
+                "severity",
+                "check_id",
+                "gpo_name",
+                "title",
+                "compliance",
+                "reference",
+                "remediation",
             ]
             rows: list[list[str]] = [
                 [
@@ -45,8 +50,7 @@ def cmd_danger(args: argparse.Namespace) -> None:
                     f.check_id,
                     f.gpo_name,
                     f.title,
-                    ", ".join(f"{c.framework}:{c.control_id}" for c in f.compliance)
-                    or "—",
+                    ", ".join(f"{c.framework}:{c.control_id}" for c in f.compliance) or "—",
                     f.reference,
                     f.remediation or "—",
                 ]

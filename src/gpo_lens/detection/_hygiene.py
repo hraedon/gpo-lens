@@ -38,14 +38,20 @@ def _scan_gpo_for_cpassword(gpo: Gpo) -> list[CpasswordHit]:
             cpw = elem.get("cpassword")
             if cpw is not None:
                 tag = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
-                results.append(CpasswordHit(
-                    gpo_id=gpo.id, gpo_name=gpo.name,
-                    file=str(walk.rel_file), tag=tag, cpassword=cpw,
-                ))
+                results.append(
+                    CpasswordHit(
+                        gpo_id=gpo.id,
+                        gpo_name=gpo.name,
+                        file=str(walk.rel_file),
+                        tag=tag,
+                        cpassword=cpw,
+                    )
+                )
     return results
 
 
 # WI-047: authorization predicates consolidated into authz.py.
+
 
 def _has_ms16_072_read(delegation: list[DelegationEntry]) -> bool:
     return any(

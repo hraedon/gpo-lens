@@ -114,15 +114,18 @@ class TestCsrfGetRequests:
 class TestCsrfMatchingOrigin:
     """POST requests with a localhost Origin header are allowed."""
 
-    @pytest.mark.parametrize("origin", [
-        "http://localhost",
-        "http://localhost:8000",
-        "http://127.0.0.1",
-        "http://127.0.0.1:8080",
-        "http://[::1]",
-        "http://[::1]:8000",
-        "http://localhost.localdomain",
-    ])
+    @pytest.mark.parametrize(
+        "origin",
+        [
+            "http://localhost",
+            "http://localhost:8000",
+            "http://127.0.0.1",
+            "http://127.0.0.1:8080",
+            "http://[::1]",
+            "http://[::1]:8000",
+            "http://localhost.localdomain",
+        ],
+    )
     def test_post_with_localhost_origin_passes(self, csrf_client, origin: str) -> None:
         resp = csrf_client.post("/ingest", headers={"origin": origin})
         assert resp.status_code != 403
@@ -147,16 +150,19 @@ class TestCsrfMatchingOrigin:
 class TestCsrfMismatchedOrigin:
     """POST requests with a non-localhost Origin are blocked (403)."""
 
-    @pytest.mark.parametrize("origin", [
-        "https://evil.com",
-        "http://evil.com",
-        "https://attacker.example.com",
-        "http://192.168.1.1",
-        "http://10.0.0.1",
-        "http://localhost.evil.com",  # hostname is NOT "localhost"
-        "http://0.0.0.0",             # bind-any wildcard — spoofable, not allow-listed
-        "http://0.0.0.0:8000",
-    ])
+    @pytest.mark.parametrize(
+        "origin",
+        [
+            "https://evil.com",
+            "http://evil.com",
+            "https://attacker.example.com",
+            "http://192.168.1.1",
+            "http://10.0.0.1",
+            "http://localhost.evil.com",  # hostname is NOT "localhost"
+            "http://0.0.0.0",  # bind-any wildcard — spoofable, not allow-listed
+            "http://0.0.0.0:8000",
+        ],
+    )
     def test_post_with_external_origin_rejected(self, csrf_client, origin: str) -> None:
         resp = csrf_client.post("/ingest", headers={"origin": origin})
         assert resp.status_code == 403
@@ -187,16 +193,17 @@ class TestCsrfMismatchedOrigin:
 class TestCsrfMatchingReferer:
     """When no Origin header is present, Referer is checked as fallback."""
 
-    @pytest.mark.parametrize("referer", [
-        "http://localhost:8000/ask",
-        "http://localhost/ingest",
-        "http://127.0.0.1:8000/ask",
-        "http://[::1]:8000/ask",
-        "http://localhost.localdomain:8000/ask",
-    ])
-    def test_post_with_localhost_referer_no_origin_passes(
-        self, csrf_client, referer: str
-    ) -> None:
+    @pytest.mark.parametrize(
+        "referer",
+        [
+            "http://localhost:8000/ask",
+            "http://localhost/ingest",
+            "http://127.0.0.1:8000/ask",
+            "http://[::1]:8000/ask",
+            "http://localhost.localdomain:8000/ask",
+        ],
+    )
+    def test_post_with_localhost_referer_no_origin_passes(self, csrf_client, referer: str) -> None:
         resp = csrf_client.post("/ingest", headers={"referer": referer})
         assert resp.status_code != 403
 
@@ -209,15 +216,16 @@ class TestCsrfMatchingReferer:
 class TestCsrfMismatchedReferer:
     """When no Origin is present and Referer is non-localhost, blocked."""
 
-    @pytest.mark.parametrize("referer", [
-        "https://evil.com/page",
-        "http://evil.com/attack",
-        "https://attacker.example.com/csrf",
-        "http://localhost.evil.com/page",  # hostname is NOT "localhost"
-    ])
-    def test_post_with_external_referer_no_origin_rejected(
-        self, csrf_client, referer: str
-    ) -> None:
+    @pytest.mark.parametrize(
+        "referer",
+        [
+            "https://evil.com/page",
+            "http://evil.com/attack",
+            "https://attacker.example.com/csrf",
+            "http://localhost.evil.com/page",  # hostname is NOT "localhost"
+        ],
+    )
+    def test_post_with_external_referer_no_origin_rejected(self, csrf_client, referer: str) -> None:
         resp = csrf_client.post("/ingest", headers={"referer": referer})
         assert resp.status_code == 403
 
@@ -379,9 +387,7 @@ class TestCsrfSameHostOrigin:
     def test_mismatched_host_origin_rejected(self, csrf_db) -> None:
         # Origin host != Host header (gpo-lens.example.com) -> CSRF blocked.
         client = _proxy_client(csrf_db, "https://gpo-lens.example.com")
-        resp = client.post(
-            "/ingest", headers={"origin": "https://evil.example.com"}
-        )
+        resp = client.post("/ingest", headers={"origin": "https://evil.example.com"})
         assert resp.status_code == 403
         assert "CSRF" in resp.json()["detail"]
 
@@ -405,17 +411,13 @@ class TestCsrfSameHostEdgeCases:
         # Origin carries :443 explicitly; Host (from base_url) omits it.
         # Default-port stripping must make these match (curl/scripts send this).
         client = _proxy_client(csrf_db, "https://gpo-lens.example.com")
-        resp = client.post(
-            "/ingest", headers={"origin": "https://gpo-lens.example.com:443"}
-        )
+        resp = client.post("/ingest", headers={"origin": "https://gpo-lens.example.com:443"})
         assert resp.status_code != 403
 
     def test_case_insensitive_host_matches(self, csrf_db) -> None:
         # Origin uppercased; Host lowercased by the browser/proxy.
         client = _proxy_client(csrf_db, "https://gpo-lens.example.com")
-        resp = client.post(
-            "/ingest", headers={"origin": "https://GPO-LENS.EXAMPLE.COM"}
-        )
+        resp = client.post("/ingest", headers={"origin": "https://GPO-LENS.EXAMPLE.COM"})
         assert resp.status_code != 403
 
     def test_subdomain_suffix_rejected(self, csrf_db) -> None:
@@ -449,9 +451,7 @@ class TestCsrfStateChangingMethods:
         assert "CSRF" in resp.json()["detail"]
 
     @pytest.mark.parametrize("method", ["PUT", "PATCH", "DELETE"])
-    def test_state_changing_method_no_headers_blocked(
-        self, csrf_client, method: str
-    ) -> None:
+    def test_state_changing_method_no_headers_blocked(self, csrf_client, method: str) -> None:
         resp = csrf_client.request(method, "/ingest")
         assert resp.status_code == 403
         assert "CSRF" in resp.json()["detail"]
@@ -467,12 +467,15 @@ class TestNonHttpSchemeOriginRejected:
     rejected even if the hostname is localhost — such schemes cannot originate
     from a legitimate browser navigation."""
 
-    @pytest.mark.parametrize("origin", [
-        "ftp://localhost",
-        "data:text/html,<script>1</script>",
-        "javascript:alert(1)",
-        "file:///etc/passwd",
-    ])
+    @pytest.mark.parametrize(
+        "origin",
+        [
+            "ftp://localhost",
+            "data:text/html,<script>1</script>",
+            "javascript:alert(1)",
+            "file:///etc/passwd",
+        ],
+    )
     def test_non_http_scheme_origin_rejected(self, csrf_client, origin: str) -> None:
         resp = csrf_client.post("/ingest", headers={"origin": origin})
         assert resp.status_code == 403

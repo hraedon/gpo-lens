@@ -65,7 +65,9 @@ class EstateSummary:
 
 
 def estate_summary(
-    estate: Estate, *, danger_count: int | None = None,
+    estate: Estate,
+    *,
+    danger_count: int | None = None,
 ) -> EstateSummary:
     """One-command estate health overview.
 

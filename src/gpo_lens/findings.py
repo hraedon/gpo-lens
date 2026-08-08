@@ -52,6 +52,7 @@ from gpo_lens.finding_model import (
     FindingObservation,
     FindingOccurrence,
     FindingView,
+    OccurrenceState,
     RiskAcceptance,
     TriageAction,
     TriageEvent,
@@ -99,11 +100,20 @@ def load_active_findings(conn: sqlite3.Connection) -> list[FindingRecord]:
     ).fetchall()
     return [
         FindingRecord(
-            id=row[0], finding_key=row[1], rule_id=row[2],
-            subject_identity=row[3], severity=row[4], summary=row[5],
-            detail=row[6], remediation=row[7], gpo_id=row[8], gpo_name=row[9],
-            first_seen_snapshot=row[10], last_seen_snapshot=row[11],
-            resolved_in_snapshot=row[12], predecessor_id=row[13],
+            id=row[0],
+            finding_key=row[1],
+            rule_id=row[2],
+            subject_identity=row[3],
+            severity=row[4],
+            summary=row[5],
+            detail=row[6],
+            remediation=row[7],
+            gpo_id=row[8],
+            gpo_name=row[9],
+            first_seen_snapshot=row[10],
+            last_seen_snapshot=row[11],
+            resolved_in_snapshot=row[12],
+            predecessor_id=row[13],
         )
         for row in rows
     ]
@@ -215,10 +225,24 @@ def load_finding_triage_map(
 # and core queries.
 # ---------------------------------------------------------------------------
 
-_VALID_TRIAGE_ACTIONS: frozenset[str] = frozenset({
-    "commented", "acknowledged", "reopened",
-    "accepted_risk", "risk_acceptance_expired", "risk_acceptance_revoked",
-})
+_VALID_TRIAGE_ACTIONS: frozenset[str] = frozenset(
+    {
+        "commented",
+        "acknowledged",
+        "reopened",
+        "accepted_risk",
+        "risk_acceptance_expired",
+        "risk_acceptance_revoked",
+    }
+)
+
+# Triage actions that assert something about the finding *beyond this
+# evaluation* — a decision the operator expects to still hold next run. These
+# are refused on occurrences with no stable subject (Plan 024 §4). ``commented``
+# is honestly scoped to the occurrence it is attached to, and the reopen/expiry
+# actions must stay available so the expiry sweep can unwind an acceptance
+# recorded before the subject became unstable.
+_CARRIES_ACROSS_SNAPSHOTS: frozenset[str] = frozenset({"acknowledged", "accepted_risk"})
 
 
 def _now_iso() -> str:
@@ -285,9 +309,17 @@ def create_evaluation_run(
         "(snapshot_id, evaluation_kind, detector_set_digest, "
         "comparator_input_id, application_version, started_at, completed_at, "
         "status, error_summary) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (snapshot_id, evaluation_kind, detector_set_digest,
-         comparator_input_id, application_version, started, started,
-         status, error_summary),
+        (
+            snapshot_id,
+            evaluation_kind,
+            detector_set_digest,
+            comparator_input_id,
+            application_version,
+            started,
+            started,
+            status,
+            error_summary,
+        ),
     )
     assert cursor.lastrowid is not None
     conn.commit()
@@ -305,8 +337,7 @@ def complete_evaluation_run(
     if status not in ("completed", "failed", "partial"):
         raise ValueError(f"invalid run status: {status!r}")
     conn.execute(
-        "UPDATE evaluation_run SET completed_at = ?, status = ?, "
-        "error_summary = ? WHERE id = ?",
+        "UPDATE evaluation_run SET completed_at = ?, status = ?, error_summary = ? WHERE id = ?",
         (_now_iso(), status, error_summary, run_id),
     )
     conn.commit()
@@ -339,10 +370,16 @@ def list_evaluation_runs(
     rows = conn.execute(sql, params).fetchall()
     return [
         {
-            "id": r[0], "snapshot_id": r[1], "evaluation_kind": r[2],
-            "detector_set_digest": r[3], "comparator_input_id": r[4],
-            "application_version": r[5], "started_at": r[6],
-            "completed_at": r[7], "status": r[8], "error_summary": r[9],
+            "id": r[0],
+            "snapshot_id": r[1],
+            "evaluation_kind": r[2],
+            "detector_set_digest": r[3],
+            "comparator_input_id": r[4],
+            "application_version": r[5],
+            "started_at": r[6],
+            "completed_at": r[7],
+            "status": r[8],
+            "error_summary": r[9],
         }
         for r in rows
     ]
@@ -443,13 +480,20 @@ def run_evaluation(
     active_by_fp: dict[str, dict[str, Any]] = {}
     for row in active_rows:
         active_by_fp[row[1]] = {
-            "id": row[0], "fingerprint": row[1],
-            "fingerprint_version": row[2], "series_key": row[3],
-            "detector_id": row[4], "detector_version": row[5],
-            "category": row[6], "subject_type": row[7],
-            "subject_key_json": row[8], "first_seen_run_id": row[9],
-            "last_seen_run_id": row[10], "resolved_run_id": row[11],
-            "predecessor_id": row[12], "gpo_id": row[13],
+            "id": row[0],
+            "fingerprint": row[1],
+            "fingerprint_version": row[2],
+            "series_key": row[3],
+            "detector_id": row[4],
+            "detector_version": row[5],
+            "category": row[6],
+            "subject_type": row[7],
+            "subject_key_json": row[8],
+            "first_seen_run_id": row[9],
+            "last_seen_run_id": row[10],
+            "resolved_run_id": row[11],
+            "predecessor_id": row[12],
+            "gpo_id": row[13],
         }
 
     new_count = 0
@@ -491,18 +535,33 @@ def run_evaluation(
                     "evaluation_run WHERE id = ?), "
                     "severity = ?, summary = ?, detail = ?, remediation = ? "
                     "WHERE id = ?",
-                    (run_id, run_id, cand.severity, cand.summary,
-                     cand_detail, cand.remediation, occ_id),
+                    (
+                        run_id,
+                        run_id,
+                        cand.severity,
+                        cand.summary,
+                        cand_detail,
+                        cand.remediation,
+                        occ_id,
+                    ),
                 )
                 conn.execute(
                     "INSERT INTO finding_observation "
                     "(run_id, occurrence_id, severity, summary, evidence_json, "
                     "claim_level, remediation, compliance_json, gpo_id, gpo_name) "
                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (run_id, occ_id, cand.severity, cand.summary,
-                     evidence_json, cand.claim, cand.remediation,
-                     compliance_json, gpo_id,
-                     cand.gpo_name),
+                    (
+                        run_id,
+                        occ_id,
+                        cand.severity,
+                        cand.summary,
+                        evidence_json,
+                        cand.claim,
+                        cand.remediation,
+                        compliance_json,
+                        gpo_id,
+                        cand.gpo_name,
+                    ),
                 )
                 persisting_count += 1
             else:
@@ -534,17 +593,33 @@ def run_evaluation(
                     "resolved_in_snapshot, predecessor_id, "
                     "fingerprint_version, series_key, detector_id, "
                     "detector_version, subject_type, subject_key_json, "
-                    "first_seen_run_id, last_seen_run_id, resolved_run_id) "
+                    "first_seen_run_id, last_seen_run_id, resolved_run_id, "
+                    "subject_stable) "
                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, "
-                    "?, ?, ?, ?, ?, ?, ?, ?, NULL)",
-                    (fp, cand.detector_id, gpo_id, cand.severity,
-                     cand.summary, cand_detail, cand.remediation,
-                     gpo_id,
-                     cand.gpo_name,
-                     snapshot_id, snapshot_id, predecessor_id,
-                     FINGERPRINT_VERSION, sk, cand.detector_id,
-                     cand.detector_version, cand.subject_type,
-                     subject_key_json, run_id, run_id),
+                    "?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)",
+                    (
+                        fp,
+                        cand.detector_id,
+                        gpo_id,
+                        cand.severity,
+                        cand.summary,
+                        cand_detail,
+                        cand.remediation,
+                        gpo_id,
+                        cand.gpo_name,
+                        snapshot_id,
+                        snapshot_id,
+                        predecessor_id,
+                        FINGERPRINT_VERSION,
+                        sk,
+                        cand.detector_id,
+                        cand.detector_version,
+                        cand.subject_type,
+                        subject_key_json,
+                        run_id,
+                        run_id,
+                        int(cand.subject_stable),
+                    ),
                 )
                 occ_id = cursor.lastrowid
                 conn.execute(
@@ -552,10 +627,18 @@ def run_evaluation(
                     "(run_id, occurrence_id, severity, summary, evidence_json, "
                     "claim_level, remediation, compliance_json, gpo_id, gpo_name) "
                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (run_id, occ_id, cand.severity, cand.summary,
-                     evidence_json, cand.claim, cand.remediation,
-                     compliance_json, gpo_id,
-                     cand.gpo_name),
+                    (
+                        run_id,
+                        occ_id,
+                        cand.severity,
+                        cand.summary,
+                        evidence_json,
+                        cand.claim,
+                        cand.remediation,
+                        compliance_json,
+                        gpo_id,
+                        cand.gpo_name,
+                    ),
                 )
                 new_count += 1
 
@@ -629,6 +712,26 @@ def append_triage_event(
         raise ValueError(f"invalid triage action: {action!r}")
     if action == "accepted_risk" and not rationale.strip():
         raise ValueError("accepted_risk requires a non-empty rationale")
+    if action in _CARRIES_ACROSS_SNAPSHOTS:
+        # Plan 024 §4: an occurrence with no stable subject "cannot be
+        # acknowledged across snapshots". Its fingerprint moves with the
+        # detector's wording, so the next run resolves it and mints a fresh
+        # occurrence — and the decision recorded here would silently attach to
+        # a finding that no longer exists while the real problem returns as
+        # untriaged. Refuse rather than record a decision that will not hold.
+        # ``commented`` and the reopen/expiry actions are still allowed: a note
+        # is honest about being about this occurrence, and the expiry sweep
+        # must be able to unwind whatever already exists.
+        row = conn.execute(
+            "SELECT subject_stable FROM finding WHERE id = ?", (occurrence_id,)
+        ).fetchone()
+        if row is not None and not row[0]:
+            raise ValueError(
+                f"occurrence {occurrence_id} is snapshot_scoped: its subject "
+                "cannot be identified across snapshots, so a "
+                f"{action!r} decision would not survive the next evaluation. "
+                "Give the detector a stable subject_key first."
+            )
 
     note = (note or "")[:2000]
     rationale = (rationale or "")[:2000]
@@ -639,8 +742,16 @@ def append_triage_event(
         "INSERT INTO finding_triage_event "
         "(occurrence_id, action, actor, occurred_at, note, rationale, "
         "expires_at, supersedes_event_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        (occurrence_id, action, actor, _now_iso(), note, rationale,
-         expires_iso, supersedes_event_id),
+        (
+            occurrence_id,
+            action,
+            actor,
+            _now_iso(),
+            note,
+            rationale,
+            expires_iso,
+            supersedes_event_id,
+        ),
     )
     assert cursor.lastrowid is not None
     conn.commit()
@@ -696,8 +807,12 @@ def fold_triage(events: list[TriageEvent]) -> TriageStatus:
             note = ev.note
 
     return TriageStatus(
-        status=status, actor=actor, note=note,
-        updated_at=updated_at, expires_at=expires_at, rationale=rationale,
+        status=status,
+        actor=actor,
+        note=note,
+        updated_at=updated_at,
+        expires_at=expires_at,
+        rationale=rationale,
     )
 
 
@@ -715,9 +830,13 @@ def load_triage_events(
     ).fetchall()
     return [
         TriageEvent(
-            id=r[0], occurrence_id=r[1], action=r[2], actor=r[3],
+            id=r[0],
+            occurrence_id=r[1],
+            action=r[2],
+            actor=r[3],
             occurred_at=_parse_dt(r[4]) or datetime.min.replace(tzinfo=UTC),
-            note=r[5], rationale=r[6],
+            note=r[5],
+            rationale=r[6],
             expires_at=_parse_dt(r[7]),
             supersedes_event_id=r[8],
         )
@@ -753,17 +872,18 @@ def load_triage_status_map(
     for r in rows:
         events_by_occ.setdefault(r[1], []).append(
             TriageEvent(
-                id=r[0], occurrence_id=r[1], action=r[2], actor=r[3],
+                id=r[0],
+                occurrence_id=r[1],
+                action=r[2],
+                actor=r[3],
                 occurred_at=_parse_dt(r[4]) or datetime.min.replace(tzinfo=UTC),
-                note=r[5], rationale=r[6],
+                note=r[5],
+                rationale=r[6],
                 expires_at=_parse_dt(r[7]),
                 supersedes_event_id=r[8],
             )
         )
-    return {
-        occ_id: fold_triage(events)
-        for occ_id, events in events_by_occ.items()
-    }
+    return {occ_id: fold_triage(events) for occ_id, events in events_by_occ.items()}
 
 
 def expire_risk_acceptances(
@@ -798,9 +918,16 @@ def expire_risk_acceptances(
                 "INSERT INTO finding_triage_event "
                 "(occurrence_id, action, actor, occurred_at, note, rationale, "
                 "expires_at, supersedes_event_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (occ_id, "risk_acceptance_expired", "system", _now_iso(),
-                 f"Risk acceptance expired at {status.expires_at.isoformat()}",
-                 "", None, None),
+                (
+                    occ_id,
+                    "risk_acceptance_expired",
+                    "system",
+                    _now_iso(),
+                    f"Risk acceptance expired at {status.expires_at.isoformat()}",
+                    "",
+                    None,
+                    None,
+                ),
             )
             expired_count += 1
         conn.commit()
@@ -871,9 +998,7 @@ def _inbox_predicate(
     # triage_status into a pre-LIMIT id-set predicate. "open" is the implicit
     # status of an occurrence with no events, so it filters by *excluding*
     # occurrences whose folded status is non-open.
-    resolved_status_map = (
-        load_triage_status_map(conn) if status_map is None else status_map
-    )
+    resolved_status_map = load_triage_status_map(conn) if status_map is None else status_map
 
     # WI-1.4: only rows with evaluation-run provenance are v2 findings. Every
     # deployed ingest path (CLI cmd_ingest, web _persist) runs the v2 engine,
@@ -919,18 +1044,26 @@ def _inbox_predicate(
     if subject_type is not None:
         clauses.append("f.subject_type = ?")
         params.append(subject_type)
+    # Every run-relative state below is qualified by ``subject_stable = 1``.
+    # An occurrence with no stable subject renders as ``snapshot_scoped``, so
+    # letting it match ``new`` here would put a row on the page whose displayed
+    # state contradicts the filter that selected it — the same page/filter
+    # divergence this predicate exists to prevent.
     if lifecycle_state == "new":
-        clauses.append("f.first_seen_run_id = f.last_seen_run_id")
+        clauses.append("f.subject_stable = 1 AND f.first_seen_run_id = f.last_seen_run_id")
     elif lifecycle_state == "persisting":
-        clauses.append("f.first_seen_run_id < f.last_seen_run_id")
+        clauses.append("f.subject_stable = 1 AND f.first_seen_run_id < f.last_seen_run_id")
     elif lifecycle_state == "regressed":
-        clauses.append("f.predecessor_id IS NOT NULL")
+        clauses.append("f.subject_stable = 1 AND f.predecessor_id IS NOT NULL")
+    elif lifecycle_state == "snapshot_scoped":
+        clauses.append("f.subject_stable = 0")
     elif lifecycle_state == "new_or_regressed":
         # Plan 025 WI-1's actionable default: first appearance, or a
         # reappearance after being resolved. A regression is actionable even
         # when it has been observed across several runs since returning.
         clauses.append(
-            "(f.first_seen_run_id = f.last_seen_run_id "
+            "f.subject_stable = 1 "
+            "AND (f.first_seen_run_id = f.last_seen_run_id "
             "OR f.predecessor_id IS NOT NULL)"
         )
     if claim_level is not None:
@@ -938,20 +1071,14 @@ def _inbox_predicate(
         params.append(claim_level)
     if triage_status is not None:
         if triage_status == "open":
-            non_open = [
-                oid
-                for oid, ts in resolved_status_map.items()
-                if ts.status != "open"
-            ]
+            non_open = [oid for oid, ts in resolved_status_map.items() if ts.status != "open"]
             if non_open:
                 ph = ",".join("?" * len(non_open))
                 clauses.append(f"f.id NOT IN ({ph})")
                 params.extend(non_open)
         else:
             matching = [
-                oid
-                for oid, ts in resolved_status_map.items()
-                if ts.status == triage_status
+                oid for oid, ts in resolved_status_map.items() if ts.status == triage_status
             ]
             if matching:
                 ph = ",".join("?" * len(matching))
@@ -1049,8 +1176,10 @@ def finding_inbox(
 
     *as_of_run* limits to findings observed in the given evaluation run.
 
-    *lifecycle_state* accepts ``new``, ``persisting``, ``regressed``, and
-    ``new_or_regressed`` (Plan 025 WI-1's actionable default).
+    *lifecycle_state* accepts ``new``, ``persisting``, ``regressed``,
+    ``new_or_regressed`` (Plan 025 WI-1's actionable default), and
+    ``snapshot_scoped`` (occurrences with no stable subject, which the
+    run-relative states deliberately exclude).
 
     *category* matches a rule id exactly; *category_prefix* also matches its
     ``parent:child`` descendants. *severity* matches one severity;
@@ -1087,7 +1216,8 @@ def finding_inbox(
         "f.gpo_id, f.gpo_name, f.subject_type, f.subject_key_json, "
         "f.first_seen_run_id, f.last_seen_run_id, f.resolved_run_id, "
         "f.predecessor_id, "
-        f"COALESCE({_LATEST_CLAIM_SQ}, 'confirmed') AS claim_level "
+        f"COALESCE({_LATEST_CLAIM_SQ}, 'confirmed') AS claim_level, "
+        "f.subject_stable "
         "FROM finding f" + where
     )
     # ``f.id`` is the tiebreaker so the order is total, not merely sorted —
@@ -1116,36 +1246,44 @@ def finding_inbox(
 
         first_run = r[12] or 0
         last_run = r[13] or 0
-        if first_run == last_run:
+        lc_state: OccurrenceState
+        if not r[17]:
+            # No stable subject to key on, so "new" and "persisting" would both
+            # be assertions the data cannot support — the fingerprint moves
+            # with the wording. Report the honest state instead (Plan 024 §4).
+            lc_state = "snapshot_scoped"
+        elif first_run == last_run:
             lc_state = "new"
         else:
             lc_state = "persisting"
 
-        views.append(FindingView(
-            occurrence_id=occ_id,
-            fingerprint=r[1],
-            detector_id=r[2] or r[1][:8],
-            category=r[3],
-            severity=r[4],
-            summary=r[5],
-            detail=r[6] or r[5],
-            remediation=r[7] or "",
-            gpo_id=r[8],
-            gpo_name=r[9],
-            subject_type=r[10] or "",
-            subject_key=subject_key,
-            claim_level=c_level,  # type: ignore[arg-type]
-            lifecycle_state=lc_state,  # type: ignore[arg-type]
-            triage_status=t_status,
-            triage_actor=t_actor,
-            triage_note=t_note,
-            triage_expires_at=t_expires,
-            first_seen_run_id=r[12] or 0,
-            last_seen_run_id=r[13] or 0,
-            resolved_run_id=r[14],
-            predecessor_id=r[15],
-            compliance=(),
-        ))
+        views.append(
+            FindingView(
+                occurrence_id=occ_id,
+                fingerprint=r[1],
+                detector_id=r[2] or r[1][:8],
+                category=r[3],
+                severity=r[4],
+                summary=r[5],
+                detail=r[6] or r[5],
+                remediation=r[7] or "",
+                gpo_id=r[8],
+                gpo_name=r[9],
+                subject_type=r[10] or "",
+                subject_key=subject_key,
+                claim_level=c_level,  # type: ignore[arg-type]
+                lifecycle_state=lc_state,
+                triage_status=t_status,
+                triage_actor=t_actor,
+                triage_note=t_note,
+                triage_expires_at=t_expires,
+                first_seen_run_id=r[12] or 0,
+                last_seen_run_id=r[13] or 0,
+                resolved_run_id=r[14],
+                predecessor_id=r[15],
+                compliance=(),
+            )
+        )
 
     return views
 
@@ -1170,12 +1308,19 @@ def finding_history(
         raise ValueError(f"Occurrence {occurrence_id} not found")
 
     occurrence = FindingOccurrence(
-        id=row[0], fingerprint=row[1], fingerprint_version=row[2],
-        series_key=row[3], detector_id=row[4], detector_version=row[5],
-        category=row[6], subject_type=row[7],
+        id=row[0],
+        fingerprint=row[1],
+        fingerprint_version=row[2],
+        series_key=row[3],
+        detector_id=row[4],
+        detector_version=row[5],
+        category=row[6],
+        subject_type=row[7],
         subject_key=tuple(json.loads(row[8])) if row[8] else (),
-        first_seen_run_id=row[9] or 0, last_seen_run_id=row[10] or 0,
-        resolved_run_id=row[11], predecessor_id=row[12],
+        first_seen_run_id=row[9] or 0,
+        last_seen_run_id=row[10] or 0,
+        resolved_run_id=row[11],
+        predecessor_id=row[12],
     )
 
     obs_rows = conn.execute(
@@ -1187,9 +1332,14 @@ def finding_history(
     ).fetchall()
     observations = tuple(
         FindingObservation(
-            run_id=r[0], occurrence_id=r[1], severity=r[2],
-            summary=r[3], evidence_json=r[4], claim_level=r[5],
-            remediation=r[6], compliance_json=r[7],
+            run_id=r[0],
+            occurrence_id=r[1],
+            severity=r[2],
+            summary=r[3],
+            evidence_json=r[4],
+            claim_level=r[5],
+            remediation=r[6],
+            compliance_json=r[7],
         )
         for r in obs_rows
     )
@@ -1232,24 +1382,26 @@ def finding_observation_history(
     ).fetchall()
     history: list[dict[str, Any]] = []
     for r in rows:
-        history.append({
-            "run_id": r[0],
-            "severity": r[1],
-            "summary": r[2],
-            "evidence": _safe_json_list(r[3]),
-            "claim_level": r[4],
-            "remediation": r[5],
-            "compliance": _safe_json_list(r[6]),
-            "evaluation_kind": r[7],
-            "detector_set_digest": r[8] or "",
-            "comparator_input_id": r[9],
-            "application_version": r[10] or "",
-            "started_at": r[11] or "",
-            "completed_at": r[12] or "",
-            "status": r[13] or "",
-            "error_summary": r[14] or "",
-            "snapshot_id": r[15],
-        })
+        history.append(
+            {
+                "run_id": r[0],
+                "severity": r[1],
+                "summary": r[2],
+                "evidence": _safe_json_list(r[3]),
+                "claim_level": r[4],
+                "remediation": r[5],
+                "compliance": _safe_json_list(r[6]),
+                "evaluation_kind": r[7],
+                "detector_set_digest": r[8] or "",
+                "comparator_input_id": r[9],
+                "application_version": r[10] or "",
+                "started_at": r[11] or "",
+                "completed_at": r[12] or "",
+                "status": r[13] or "",
+                "error_summary": r[14] or "",
+                "snapshot_id": r[15],
+            }
+        )
     return history
 
 
@@ -1280,13 +1432,15 @@ def finding_delta(
     """
     # Occurrence IDs observed in each run.
     run_a_occ_ids = {
-        r[0] for r in conn.execute(
+        r[0]
+        for r in conn.execute(
             "SELECT occurrence_id FROM finding_observation WHERE run_id = ?",
             (run_a,),
         ).fetchall()
     }
     run_b_occ_ids = {
-        r[0] for r in conn.execute(
+        r[0]
+        for r in conn.execute(
             "SELECT occurrence_id FROM finding_observation WHERE run_id = ?",
             (run_b,),
         ).fetchall()
@@ -1296,12 +1450,15 @@ def finding_delta(
     all_occ_ids = run_a_occ_ids | run_b_occ_ids
     if not all_occ_ids:
         return FindingDelta(
-            new_fingerprints=(), resolved_fingerprints=(),
-            persisting_fingerprints=(), regressed_fingerprints=(),
+            new_fingerprints=(),
+            resolved_fingerprints=(),
+            persisting_fingerprints=(),
+            regressed_fingerprints=(),
         )
     placeholders = ",".join("?" * len(all_occ_ids))
     fp_map = {
-        r[0]: r[1] for r in conn.execute(
+        r[0]: r[1]
+        for r in conn.execute(
             f"SELECT id, finding_key FROM finding WHERE id IN ({placeholders})",
             list(all_occ_ids),
         ).fetchall()
@@ -1361,15 +1518,18 @@ def accepted_risk_register(
     events_by_occurrence: dict[int, list[tuple[TriageEvent, tuple[Any, ...]]]] = {}
     for row in rows:
         event = TriageEvent(
-            id=row[0], occurrence_id=row[1], action=row[2], actor=row[3],
+            id=row[0],
+            occurrence_id=row[1],
+            action=row[2],
+            actor=row[3],
             occurred_at=_parse_dt(row[4]) or datetime.min.replace(tzinfo=UTC),
-            note=row[5], rationale=row[6], expires_at=_parse_dt(row[7]),
+            note=row[5],
+            rationale=row[6],
+            expires_at=_parse_dt(row[7]),
             supersedes_event_id=row[8],
         )
         if event.occurred_at <= as_of:
-            events_by_occurrence.setdefault(event.occurrence_id, []).append(
-                (event, row[9:13])
-            )
+            events_by_occurrence.setdefault(event.occurrence_id, []).append((event, row[9:13]))
 
     result: list[RiskAcceptance] = []
     for occ_id, event_rows in events_by_occurrence.items():
@@ -1398,28 +1558,26 @@ def accepted_risk_register(
         if accepted_ev is None or finding_row is None:
             continue
 
-        is_expired = (
-            explicitly_expired
-            or (
-                accepted_ev.expires_at is not None
-                and accepted_ev.expires_at <= as_of
-            )
+        is_expired = explicitly_expired or (
+            accepted_ev.expires_at is not None and accepted_ev.expires_at <= as_of
         )
 
-        result.append(RiskAcceptance(
-            occurrence_id=occ_id,
-            fingerprint=finding_row[0],
-            category=finding_row[1],
-            severity=finding_row[2],
-            summary=finding_row[3] or finding_row[2],
-            actor=accepted_ev.actor,
-            rationale=accepted_ev.rationale,
-            accepted_at=accepted_ev.occurred_at,
-            expires_at=accepted_ev.expires_at,
-            is_expired=is_expired,
-            revoked_at=revoked_ev.occurred_at if revoked_ev else None,
-            revoked_by=revoked_ev.actor if revoked_ev else "",
-        ))
+        result.append(
+            RiskAcceptance(
+                occurrence_id=occ_id,
+                fingerprint=finding_row[0],
+                category=finding_row[1],
+                severity=finding_row[2],
+                summary=finding_row[3] or finding_row[2],
+                actor=accepted_ev.actor,
+                rationale=accepted_ev.rationale,
+                accepted_at=accepted_ev.occurred_at,
+                expires_at=accepted_ev.expires_at,
+                is_expired=is_expired,
+                revoked_at=revoked_ev.occurred_at if revoked_ev else None,
+                revoked_by=revoked_ev.actor if revoked_ev else "",
+            )
+        )
 
     return result
 
@@ -1435,7 +1593,9 @@ def evaluation_runs(
     ``evaluation_runs(snapshot_id | series_key) -> list[EvaluationRun]``.
     """
     return list_evaluation_runs(
-        conn, snapshot_id=snapshot_id, series=series_key,
+        conn,
+        snapshot_id=snapshot_id,
+        series=series_key,
     )
 
 
@@ -1469,6 +1629,16 @@ def _doctor_finding_to_candidate(
     # (a coverage gap's kind, etc.) rides in ``dimensions`` so ``gpo_id`` can
     # be recovered from ``subject_key[0]`` downstream. Estate-scoped findings
     # (no GPO) carry their full identity in the declared ``subject_key``.
+    # A GPO-less finding that declares no subject_key leaves the prose summary
+    # as the only thing to key on, so its fingerprint moves whenever the
+    # wording does — the WI-1.1 failure class, one layer up in ``subject_key``
+    # rather than in ``dimensions``. Every deployed detector declares a subject
+    # (locked by test_doctor_contract.py), so this is a guard against a future
+    # one forgetting, not a live path. Keep the prose key so the finding is
+    # still reported, but mark it unstable: Plan 024 §4 says such findings are
+    # ``snapshot_scoped`` and cannot be tracked across snapshots, and saying so
+    # beats presenting a churning identity as a genuine new/persisting finding.
+    subject_stable = True
     if gpo_id:
         subject_type = "gpo"
         subject_key: tuple[str, ...] = (gpo_id,)
@@ -1478,6 +1648,7 @@ def _doctor_finding_to_candidate(
     else:
         subject_type = "estate"
         subject_key = (getattr(f, "summary", ""),)
+        subject_stable = False
 
     # Identity-bearing dimensions are declared by the detector as typed
     # key/value pairs (WI-1.1) — never parsed out of the prose summary/detail,
@@ -1500,20 +1671,34 @@ def _doctor_finding_to_candidate(
     )
 
     compliance = getattr(f, "compliance", ()) or ()
-    compliance_tuples = tuple(
-        (c.framework, c.control_id) for c in compliance
-    ) if compliance else ()
+    compliance_tuples = tuple((c.framework, c.control_id) for c in compliance) if compliance else ()
 
     # Claim level: directly observed = confirmed, inferred = probable.
-    confirmed_categories = frozenset({
-        "cpassword", "ms16_072", "version_skew", "dangling_link",
-        "disabled_but_populated", "unlinked", "empty", "enforced_link",
-        "coverage_gap", "broken_wmi_ref", "orphaned_wmi_filter",
-        "ilt_gpo", "stale_gpo", "admx_gap",
-    })
-    probable_categories = frozenset({
-        "deny_ace", "excessive_writer", "topology_discrepancy",
-    })
+    confirmed_categories = frozenset(
+        {
+            "cpassword",
+            "ms16_072",
+            "version_skew",
+            "dangling_link",
+            "disabled_but_populated",
+            "unlinked",
+            "empty",
+            "enforced_link",
+            "coverage_gap",
+            "broken_wmi_ref",
+            "orphaned_wmi_filter",
+            "ilt_gpo",
+            "stale_gpo",
+            "admx_gap",
+        }
+    )
+    probable_categories = frozenset(
+        {
+            "deny_ace",
+            "excessive_writer",
+            "topology_discrepancy",
+        }
+    )
     if category in confirmed_categories or category.startswith("broken_ref:"):
         claim: ClaimLevel = "confirmed"
     elif category in probable_categories:
@@ -1538,6 +1723,7 @@ def _doctor_finding_to_candidate(
         remediation=getattr(f, "remediation", "") or "",
         compliance=compliance_tuples,
         gpo_name=getattr(f, "gpo_name", "") or "",
+        subject_stable=subject_stable,
     )
 
 
@@ -1577,9 +1763,7 @@ def _danger_finding_to_candidate(
     )
 
     compliance = getattr(f, "compliance", ()) or ()
-    compliance_tuples = tuple(
-        (c.framework, c.control_id) for c in compliance
-    ) if compliance else ()
+    compliance_tuples = tuple((c.framework, c.control_id) for c in compliance) if compliance else ()
 
     return FindingCandidate(
         detector_id=category,
@@ -1636,6 +1820,24 @@ def candidates_from_estate(
 
     candidates: list[FindingCandidate] = []
     for doc_f in doctor_findings:
+        # ``estate_doctor`` re-wraps every DangerFinding as a DoctorFinding for
+        # its own display list, and that wrapper carries neither the danger
+        # finding's ``dimensions`` nor a ``subject_key``. Converting those
+        # wrappers too produced a *second* candidate for the same real problem,
+        # with a different fingerprint, so one finding became two occurrences:
+        #
+        #   - GPO-scoped: the wrapper lost ``dimensions``, so two non-admin
+        #     writers on one GPO collapsed to one loosely-keyed occurrence
+        #     alongside the correctly-keyed pair.
+        #   - Estate-scoped (``absent`` rules, gpo_id ""): the wrapper had no
+        #     subject at all, so the copy keyed on the rule *title* — prose,
+        #     churning on every rewording.
+        #
+        # The danger family is converted below from the DangerFinding itself,
+        # which keeps its dimensions and keys on check_id. Skip the wrappers
+        # rather than making both paths agree by coincidence of fingerprint.
+        if doc_f.category.startswith("danger:"):
+            continue
         candidates.append(_doctor_finding_to_candidate(doc_f, snapshot_id))
     for dang_f in danger:
         candidates.append(_danger_finding_to_candidate(dang_f, snapshot_id))
@@ -1668,7 +1870,9 @@ def evaluate_finding_lifecycle_v2(
     :mod:`gpo_lens._legacy_findings` and is test-only.
     """
     candidates = candidates_from_estate(
-        estate, snapshot_id=snapshot_id, admx=admx,
+        estate,
+        snapshot_id=snapshot_id,
+        admx=admx,
     )
 
     detector_set_digest = hashlib.sha256(
@@ -1695,7 +1899,9 @@ def evaluate_finding_lifecycle_v2(
         complete_evaluation_run(conn, run_id)
     except Exception:
         complete_evaluation_run(
-            conn, run_id, status="failed",
+            conn,
+            run_id,
+            status="failed",
             error_summary="evaluation run failed",
         )
         raise

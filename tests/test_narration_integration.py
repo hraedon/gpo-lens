@@ -74,9 +74,7 @@ class TestRealEndpoint:
         assert isinstance(result, dict)
         assert "query" in result
         assert isinstance(result["query"], str)
-        assert result["query"] in _VALID_QUERIES, (
-            f"LLM routed to unknown query: {result['query']}"
-        )
+        assert result["query"] in _VALID_QUERIES, f"LLM routed to unknown query: {result['query']}"
         assert "params" in result
         assert isinstance(result["params"], dict)
 

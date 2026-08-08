@@ -20,6 +20,4 @@ def test_fromisoformat_only_in_normalize() -> None:
         text = py_file.read_text(encoding="utf-8")
         if "fromisoformat" in text:
             offenders.append(str(py_file.relative_to(SRC_DIR)))
-    assert not offenders, (
-        f"datetime.fromisoformat found outside normalize.py: {offenders}"
-    )
+    assert not offenders, f"datetime.fromisoformat found outside normalize.py: {offenders}"

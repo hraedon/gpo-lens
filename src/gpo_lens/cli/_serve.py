@@ -1,4 +1,5 @@
 """CLI subcommand for launching the local web UI."""
+
 from __future__ import annotations
 
 import os

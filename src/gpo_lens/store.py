@@ -51,7 +51,7 @@ from gpo_lens.normalize import parse_dt
 #      log; the legacy table remains (unused) for audit. Writes to
 #      ``finding_triage`` stop entirely — v1 triage APIs become shims over
 #      the event log.
-CURRENT_SCHEMA_VERSION: int = 8
+CURRENT_SCHEMA_VERSION: int = 9
 
 
 def _safe_json_loads(raw: str | None, default: Any) -> Any:
@@ -420,14 +420,10 @@ def init_db(conn: sqlite3.Connection) -> None:
     # ahead of the columns' existence. IF NOT EXISTS keeps this idempotent and
     # backfills the indexes onto DBs already stamped at the current version.
     for index_ddl in (
-        "CREATE INDEX IF NOT EXISTS idx_finding_last_seen_run "
-        "ON finding(last_seen_run_id)",
-        "CREATE INDEX IF NOT EXISTS idx_finding_first_seen_run "
-        "ON finding(first_seen_run_id)",
-        "CREATE INDEX IF NOT EXISTS idx_finding_resolved_run "
-        "ON finding(resolved_run_id)",
-        "CREATE INDEX IF NOT EXISTS idx_finding_series_key "
-        "ON finding(series_key)",
+        "CREATE INDEX IF NOT EXISTS idx_finding_last_seen_run ON finding(last_seen_run_id)",
+        "CREATE INDEX IF NOT EXISTS idx_finding_first_seen_run ON finding(first_seen_run_id)",
+        "CREATE INDEX IF NOT EXISTS idx_finding_resolved_run ON finding(resolved_run_id)",
+        "CREATE INDEX IF NOT EXISTS idx_finding_series_key ON finding(series_key)",
     ):
         conn.execute(index_ddl)
     conn.commit()
@@ -488,13 +484,9 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
         # v4 -> v5: retain the evidence already produced at ingest so the
         # findings inbox remains actionable without detector recomputation.
         if not _column_exists(conn, "finding", "detail"):
-            conn.execute(
-                "ALTER TABLE finding ADD COLUMN detail TEXT NOT NULL DEFAULT ''"
-            )
+            conn.execute("ALTER TABLE finding ADD COLUMN detail TEXT NOT NULL DEFAULT ''")
         if not _column_exists(conn, "finding", "remediation"):
-            conn.execute(
-                "ALTER TABLE finding ADD COLUMN remediation TEXT NOT NULL DEFAULT ''"
-            )
+            conn.execute("ALTER TABLE finding ADD COLUMN remediation TEXT NOT NULL DEFAULT ''")
 
         # v5 -> v6: Plan 024 — evaluation provenance, occurrence/observation
         # separation, enhanced triage. Add columns to existing tables so the
@@ -538,14 +530,9 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
                 )
                 """
             )
-            conn.execute(
-                "INSERT OR IGNORE INTO coverage_gap_new "
-                "SELECT * FROM coverage_gap"
-            )
+            conn.execute("INSERT OR IGNORE INTO coverage_gap_new SELECT * FROM coverage_gap")
             conn.execute("DROP TABLE coverage_gap")
-            conn.execute(
-                "ALTER TABLE coverage_gap_new RENAME TO coverage_gap"
-            )
+            conn.execute("ALTER TABLE coverage_gap_new RENAME TO coverage_gap")
 
         # v7 -> v8 (WI-092): migrate legacy ``finding_triage`` rows into the
         # Plan 024 ``finding_triage_event`` log so triage state lives in one
@@ -594,6 +581,19 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
             ORDER BY t.id
             """
         )
+
+        # v8 -> v9 (Plan 024 §4): record whether an occurrence's subject can be
+        # identified stably across snapshots. A detector that emits no GPO and
+        # declares no ``subject_key`` leaves the adapter nothing to key on but
+        # the prose summary, so the occurrence's identity churns whenever the
+        # wording changes. Plan 024 says such findings are ``snapshot_scoped``
+        # and cannot be tracked across runs; this column is what lets the
+        # queries say so instead of silently presenting them as new/persisting.
+        # Defaulting to 1 is correct for existing rows: every deployed detector
+        # declares a subject today (locked by a contract test), so no stored
+        # occurrence is retroactively unstable.
+        if not _column_exists(conn, "finding", "subject_stable"):
+            conn.execute("ALTER TABLE finding ADD COLUMN subject_stable INTEGER NOT NULL DEFAULT 1")
 
     conn.execute(f"PRAGMA user_version = {CURRENT_SCHEMA_VERSION}")
 
@@ -792,8 +792,7 @@ def save_estate(conn: sqlite3.Connection, estate: Estate, taken_at: datetime | N
         [(snapshot_id, wf.name, wf.query) for wf in estate.wmi_filters],
     )
     conn.executemany(
-        "INSERT INTO ou_tree (snapshot_id, dn, name, gp_link, gp_options) "
-        "VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO ou_tree (snapshot_id, dn, name, gp_link, gp_options) VALUES (?, ?, ?, ?, ?)",
         [(snapshot_id, ou.dn, ou.name, ou.gp_link, ou.gp_options) for ou in estate.ou_tree],
     )
     conn.executemany(
@@ -818,8 +817,14 @@ def save_estate(conn: sqlite3.Connection, estate: Estate, taken_at: datetime | N
         "(snapshot_id, sid, name, members, member_count, implicit) "
         "VALUES (?, ?, ?, ?, ?, ?)",
         [
-            (snapshot_id, gm.sid, gm.name, json.dumps(list(gm.members)),
-             gm.member_count, gm.implicit)
+            (
+                snapshot_id,
+                gm.sid,
+                gm.name,
+                json.dumps(list(gm.members)),
+                gm.member_count,
+                gm.implicit,
+            )
             for gm in estate.group_members.values()
         ],
     )
@@ -1001,8 +1006,7 @@ def load_estate(conn: sqlite3.Connection, snapshot_id: int | None = None) -> Est
 
     ou_tree: list[OuRecord] = []
     for row in conn.execute(
-        "SELECT dn, name, gp_link, gp_options FROM ou_tree "
-        "WHERE snapshot_id = ? ORDER BY dn",
+        "SELECT dn, name, gp_link, gp_options FROM ou_tree WHERE snapshot_id = ? ORDER BY dn",
         (snapshot_id,),
     ):
         ou_tree.append(OuRecord(dn=row[0], name=row[1], gp_link=row[2], gp_options=row[3]))
@@ -1026,8 +1030,12 @@ def load_estate(conn: sqlite3.Connection, snapshot_id: int | None = None) -> Est
             (snapshot_id,),
         ):
             principals[row[0]] = ResolvedPrincipal(
-                sid=row[0], name=row[1], sam=row[2], principal_type=row[3],
-                domain=row[4], resolved=bool(row[5]),
+                sid=row[0],
+                name=row[1],
+                sam=row[2],
+                principal_type=row[3],
+                domain=row[4],
+                resolved=bool(row[5]),
             )
 
     group_members: dict[str, GroupMembership] = {}
@@ -1039,9 +1047,11 @@ def load_estate(conn: sqlite3.Connection, snapshot_id: int | None = None) -> Est
         ):
             raw_members = _safe_json_loads(row[2], [])
             group_members[row[0]] = GroupMembership(
-                sid=row[0], name=row[1],
+                sid=row[0],
+                name=row[1],
                 members=tuple(raw_members) if isinstance(raw_members, list) else (),
-                member_count=row[3], implicit=row[4],
+                member_count=row[3],
+                implicit=row[4],
             )
 
     return Estate(
@@ -1058,9 +1068,7 @@ def load_estate(conn: sqlite3.Connection, snapshot_id: int | None = None) -> Est
 
 def list_snapshots(conn: sqlite3.Connection) -> list[tuple[int, str, datetime | None]]:
     """Return ``(id, domain, taken_at)`` newest first."""
-    rows = conn.execute(
-        "SELECT id, domain, taken_at FROM snapshot ORDER BY id DESC"
-    ).fetchall()
+    rows = conn.execute("SELECT id, domain, taken_at FROM snapshot ORDER BY id DESC").fetchall()
     return [(row[0], row[1], parse_dt(row[2])) for row in rows]
 
 

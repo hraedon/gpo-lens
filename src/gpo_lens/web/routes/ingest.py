@@ -50,9 +50,7 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
             snapshots = _store.list_snapshots(conn)
         finally:
             conn.close()
-        return templates.TemplateResponse(
-            request, "ingest.html", {"snapshots": snapshots}
-        )
+        return templates.TemplateResponse(request, "ingest.html", {"snapshots": snapshots})
 
     @app.post("/ingest", response_class=HTMLResponse, response_model=None, name="ingest_post")
     async def ingest_post(
@@ -64,7 +62,8 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         if not lock.acquire(blocking=False):
             _audit("ingest", principal, "failure", "another ingest in progress", request)
             return templates.TemplateResponse(
-                request, "ingest.html",
+                request,
+                "ingest.html",
                 {"error": "Another ingest is in progress, please try again."},
                 status_code=409,
             )
@@ -77,7 +76,8 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
                 if await stream_upload_to_file(file, zip_path, _app_module._MAX_UPLOAD_BYTES):
                     _audit("ingest", principal, "failure", "upload exceeds size limit", request)
                     return templates.TemplateResponse(
-                        request, "ingest.html",
+                        request,
+                        "ingest.html",
                         {"error": "Upload exceeds 500MB limit."},
                         status_code=413,
                     )
@@ -86,13 +86,18 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
                     extract_dir.mkdir()
                     await asyncio.to_thread(_safe_extract, zip_path, extract_dir)
                 except (
-                    ValueError, zipfile.BadZipFile,
-                    OSError, NotImplementedError, RuntimeError, MemoryError,
+                    ValueError,
+                    zipfile.BadZipFile,
+                    OSError,
+                    NotImplementedError,
+                    RuntimeError,
+                    MemoryError,
                 ) as exc:
                     _logger.warning("Malformed zip upload: %s", exc)
                     _audit("ingest", principal, "failure", type(exc).__name__, request)
                     return templates.TemplateResponse(
-                        request, "ingest.html",
+                        request,
+                        "ingest.html",
                         {"error": "Malformed zip file. Please check the upload and try again."},
                         status_code=400,
                     )
@@ -103,7 +108,8 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
                     _logger.warning("Invalid estate data: %s", exc)
                     _audit("ingest", principal, "failure", type(exc).__name__, request)
                     return templates.TemplateResponse(
-                        request, "ingest.html",
+                        request,
+                        "ingest.html",
                         {"error": "Invalid estate data in upload."},
                         status_code=400,
                     )
@@ -114,7 +120,8 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
                         _store.init_db(rw_conn)
                         snapshot_id = _store.save_estate(rw_conn, estate)
                         _events.append_event(
-                            rw_conn, "audit.ingest",
+                            rw_conn,
+                            "audit.ingest",
                             {"principal": principal.name},
                         )
                         # WI-4: update finding lifecycle after ingest
@@ -122,12 +129,16 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
                             from gpo_lens.findings import evaluate_finding_lifecycle_v2
 
                             evaluate_finding_lifecycle_v2(
-                                rw_conn, snapshot_id, estate, admx=app.state.admx,
+                                rw_conn,
+                                snapshot_id,
+                                estate,
+                                admx=app.state.admx,
                             )
                         except Exception as exc:
                             _logger.error(
-                                "Finding lifecycle update failed for "
-                                "snapshot %s: %s", snapshot_id, exc,
+                                "Finding lifecycle update failed for snapshot %s: %s",
+                                snapshot_id,
+                                exc,
                             )
                     finally:
                         rw_conn.close()
@@ -136,15 +147,20 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
 
             filename = (file.filename or "unknown")[:256]
             _audit(
-                "ingest", principal, "success",
-                f"{filename} ({len(estate.gpos)} GPOs)", request,
+                "ingest",
+                principal,
+                "success",
+                f"{filename} ({len(estate.gpos)} GPOs)",
+                request,
             )
             return RedirectResponse(url=request.url_for("home"), status_code=303)
         finally:
             lock.release()
 
     @app.post(
-        "/ingest/delete", response_class=HTMLResponse, response_model=None,
+        "/ingest/delete",
+        response_class=HTMLResponse,
+        response_model=None,
         name="ingest_delete",
     )
     def ingest_delete(
@@ -158,8 +174,11 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
         lock = app.state.ingest_lock
         if not lock.acquire(blocking=False):
             _audit(
-                "snapshot_delete", principal, "failure",
-                "another ingest in progress", request,
+                "snapshot_delete",
+                principal,
+                "failure",
+                "another ingest in progress",
+                request,
             )
             conn = get_ro_conn(app.state.db_path)
             try:
@@ -167,9 +186,12 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
             finally:
                 conn.close()
             return templates.TemplateResponse(
-                request, "ingest.html",
-                {"snapshots": snapshots,
-                 "error": "Another ingest operation is in progress. Try again."},
+                request,
+                "ingest.html",
+                {
+                    "snapshots": snapshots,
+                    "error": "Another ingest operation is in progress. Try again.",
+                },
                 status_code=409,
             )
 
@@ -179,7 +201,8 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
                 deleted = _store.delete_snapshot(rw_conn, snapshot_id)
                 if deleted:
                     _events.append_event(
-                        rw_conn, "audit.snapshot_delete",
+                        rw_conn,
+                        "audit.snapshot_delete",
                         {"principal": principal.name, "snapshot_id": snapshot_id},
                     )
             finally:
@@ -187,8 +210,11 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
 
             if not deleted:
                 _audit(
-                    "snapshot_delete", principal, "failure",
-                    f"snapshot {snapshot_id} not found", request,
+                    "snapshot_delete",
+                    principal,
+                    "failure",
+                    f"snapshot {snapshot_id} not found",
+                    request,
                 )
                 conn = get_ro_conn(app.state.db_path)
                 try:
@@ -196,15 +222,18 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
                 finally:
                     conn.close()
                 return templates.TemplateResponse(
-                    request, "ingest.html",
-                    {"snapshots": snapshots,
-                     "error": f"Snapshot {snapshot_id} not found."},
+                    request,
+                    "ingest.html",
+                    {"snapshots": snapshots, "error": f"Snapshot {snapshot_id} not found."},
                     status_code=404,
                 )
 
             _audit(
-                "snapshot_delete", principal, "success",
-                f"snapshot {snapshot_id}", request,
+                "snapshot_delete",
+                principal,
+                "success",
+                f"snapshot {snapshot_id}",
+                request,
             )
             return RedirectResponse(url=request.url_for("ingest_get"), status_code=303)
         finally:

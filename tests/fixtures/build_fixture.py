@@ -191,17 +191,19 @@ def gpo_to_xml(g: GpoDef) -> str:
     ]
     if g.description:
         lines.append(f"    <Description>{_xe(g.description)}</Description>")
-    lines.extend([
-        f"    <CreatedTime>{TS}</CreatedTime>",
-        f"    <ModifiedTime>{g.modified}</ModifiedTime>",
-        f"    <ReadTime>{TS}</ReadTime>",
-        "    <Computer>",
-        _make_side_xml(g.computer),
-        "    </Computer>",
-        "    <User>",
-        _make_side_xml(g.user),
-        "    </User>",
-    ])
+    lines.extend(
+        [
+            f"    <CreatedTime>{TS}</CreatedTime>",
+            f"    <ModifiedTime>{g.modified}</ModifiedTime>",
+            f"    <ReadTime>{TS}</ReadTime>",
+            "    <Computer>",
+            _make_side_xml(g.computer),
+            "    </Computer>",
+            "    <User>",
+            _make_side_xml(g.user),
+            "    </User>",
+        ]
+    )
     if g.delegation:
         compact = g.guid in (GUID_F, GUID_G, GUID_H)
         lines.append(_make_delegation_xml(g.delegation, compact=compact))
@@ -408,8 +410,11 @@ GPO_DEFS = [
                 {
                     "cse": "Registry",
                     "blocks": [
-                        {"KeyName": r"HKLM\Software\Fake",
-                         "ValueName": "SecFiltered", "value": "1"},
+                        {
+                            "KeyName": r"HKLM\Software\Fake",
+                            "ValueName": "SecFiltered",
+                            "value": "1",
+                        },
                     ],
                 }
             ]
@@ -510,8 +515,21 @@ def build_ou_tree() -> list[dict]:
 def build_gp_inheritance() -> list[dict]:
     root_links = []
     for order, guid in enumerate(
-        [GUID_A, GUID_B, GUID_C, GUID_E, GUID_F, GUID_G, GUID_H, GUID_I, GUID_J,
-         GUID_K, GUID_L, GUID_M, GUID_N],
+        [
+            GUID_A,
+            GUID_B,
+            GUID_C,
+            GUID_E,
+            GUID_F,
+            GUID_G,
+            GUID_H,
+            GUID_I,
+            GUID_J,
+            GUID_K,
+            GUID_L,
+            GUID_M,
+            GUID_N,
+        ],
         start=1,
     ):
         root_links.append(
@@ -575,8 +593,10 @@ def build_metadata() -> list[dict]:
                 "ComputerVersionSysvol": g.computer.ver_sysvol,
                 "UserVersionDirectory": g.user.ver_ds,
                 "UserVersionSysvol": g.user.ver_sysvol,
-                "WmiFilter": "Fake WMI Filter" if g.guid == GUID_E
-                else "Nonexistent WMI Filter" if g.guid == GUID_L
+                "WmiFilter": "Fake WMI Filter"
+                if g.guid == GUID_E
+                else "Nonexistent WMI Filter"
+                if g.guid == GUID_L
                 else None,
             }
         )
@@ -649,11 +669,7 @@ def write_all(target: Path = FIXTURE_DIR) -> None:
     (target / "sites.json").write_bytes(b"\xef\xbb\xbf" + sites_data.encode("utf-8"))
 
     sysvol = (
-        target
-        / "SYSVOL-Policies"
-        / f"{{{GUID_A.strip('{}').upper()}}}"
-        / "Machine"
-        / "Preferences"
+        target / "SYSVOL-Policies" / f"{{{GUID_A.strip('{}').upper()}}}" / "Machine" / "Preferences"
     )
     sysvol.mkdir(parents=True, exist_ok=True)
     groups_xml = (
@@ -661,7 +677,7 @@ def write_all(target: Path = FIXTURE_DIR) -> None:
         '<Groups clsid="{3125E937-EB16-4b4c-9934-544FC6D66F83}">\n'
         '  <User clsid="{DF5F1855-51E5-4d24-8B1A-D9BDE98BA1D1}" name="Administrator">\n'
         '    <Properties cpassword="'
-        'AzV93mAPDnE3UNvYggAjKSIi6wN6h/TnRqUyF+5Z0wWmS6D0mN8Y5g=='
+        "AzV93mAPDnE3UNvYggAjKSIi6wN6h/TnRqUyF+5Z0wWmS6D0mN8Y5g=="
         '" fullName="Admin" description="" changeLogon="0" noChange="0"'
         ' neverExpires="0" acctDisabled="0" userName="Administrator" />\n'
         "  </User>\n"
@@ -678,12 +694,12 @@ def write_all(target: Path = FIXTURE_DIR) -> None:
         '  <Task clsid="{...}" name="Update App Catalog" changed="2025-06-01">\n'
         '    <Properties action="UPDATE" appName="%SystemRoot%\\System32\\app.exe"\n'
         '      arguments="--sync" runAs="NT AUTHORITY\\SYSTEM"/>\n'
-        '  </Task>\n'
+        "  </Task>\n"
         '  <ImmediateTaskV2 clsid="{...}" name="OneShot Bootstrap">\n'
         '    <Properties action="CREATE" appName="bootstrap.cmd"\n'
         '      arguments="" runAs="FAKEFIXTURE\\JoinAccount"/>\n'
-        '  </ImmediateTaskV2>\n'
-        '</ScheduledTasks>\n'
+        "  </ImmediateTaskV2>\n"
+        "</ScheduledTasks>\n"
     )
     (sysvol / "ScheduledTasks.xml").write_text(tasks_xml, encoding="utf-8")
 
@@ -693,24 +709,20 @@ def write_all(target: Path = FIXTURE_DIR) -> None:
         '  <Group clsid="{...}" name="Administrators (local)" changed="2025-06-01">\n'
         '    <Properties action="UPDATE" groupName="Administrators"\n'
         '      groupSid="S-1-5-32-544" removePolicy="0">\n'
-        '      <Members>\n'
+        "      <Members>\n"
         '        <Member name="FAKEFIXTURE\\Tier1Admins" action="ADD"\n'
         '          sid="S-1-5-21-1234567890-1234567890-1234567890-1101"/>\n'
         '        <Member name="FAKEFIXTURE\\LegacyAdmin" action="REMOVE"\n'
         '          sid="S-1-5-21-1234567890-1234567890-1234567890-1102"/>\n'
-        '      </Members>\n'
-        '    </Properties>\n'
-        '  </Group>\n'
-        '</Groups>\n'
+        "      </Members>\n"
+        "    </Properties>\n"
+        "  </Group>\n"
+        "</Groups>\n"
     )
     (sysvol / "LocalUsersAndGroups.xml").write_text(lug_xml, encoding="utf-8")
 
     ilt_sysvol = (
-        target
-        / "SYSVOL-Policies"
-        / f"{{{GUID_M.strip('{}').upper()}}}"
-        / "User"
-        / "Preferences"
+        target / "SYSVOL-Policies" / f"{{{GUID_M.strip('{}').upper()}}}" / "User" / "Preferences"
     )
     ilt_sysvol.mkdir(parents=True, exist_ok=True)
     ilt_xml = (
@@ -719,17 +731,17 @@ def write_all(target: Path = FIXTURE_DIR) -> None:
         '  <Registry clsid="{9CDCCB0F-DE08-463b-B39D-646F54292F80}"'
         ' name="IltSetting" status="IltSetting"'
         ' changed="2025-06-01" uid="{00000000-0000-0000-0000-000000000000}">\n'
-        '    <Filters>\n'
+        "    <Filters>\n"
         '      <FilterGroup bool="AND" not="0"'
         ' name="FAKEFIXTURE\\SecurityGroup"'
         ' sid="S-1-5-21-1234567890-1234567890-1234567890-1001"'
         ' userContext="1" primaryGroup="0" localGroup="0"/>\n'
-        '    </Filters>\n'
+        "    </Filters>\n"
         '    <Properties action="U" displayDecimal="0" default="0"'
         ' hive="HKEY_CURRENT_USER" key="Software\\Fake"'
         ' name="IltSetting" type="REG_SZ" value="1"/>\n'
-        '  </Registry>\n'
-        '</Registry>\n'
+        "  </Registry>\n"
+        "</Registry>\n"
     )
     (ilt_sysvol / "Registry.xml").write_text(ilt_xml, encoding="utf-8")
 

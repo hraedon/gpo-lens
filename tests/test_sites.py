@@ -1,4 +1,5 @@
 """AD site-linked GPO support (Plan 014)."""
+
 from __future__ import annotations
 
 import shutil
@@ -11,6 +12,7 @@ FIXTURES = Path(__file__).parent / "fixtures"
 
 
 # --- gPLink parsing ---------------------------------------------------------
+
 
 def test_parse_gplink_flags():
     raw = (
@@ -37,6 +39,7 @@ def test_parse_gplink_empty():
 
 # --- ingest -----------------------------------------------------------------
 
+
 def test_parse_sites_produces_site_soms():
     soms = parse_sites(FIXTURES / "sites.json")
     assert {s.name for s in soms} == {"Default-First-Site-Name", "Branch-Office"}
@@ -54,9 +57,7 @@ def test_load_estate_includes_sites():
 
 def test_load_estate_without_sites_json_is_backward_compatible(tmp_path):
     dest = tmp_path / "export"
-    shutil.copytree(
-        FIXTURES, dest, ignore=shutil.ignore_patterns("*.sqlite3*", "__pycache__")
-    )
+    shutil.copytree(FIXTURES, dest, ignore=shutil.ignore_patterns("*.sqlite3*", "__pycache__"))
     (dest / "sites.json").unlink()
     estate = ingest.load_estate(dest)
     assert [s for s in estate.soms if s.container_type == "site"] == []
@@ -64,6 +65,7 @@ def test_load_estate_without_sites_json_is_backward_compatible(tmp_path):
 
 
 # --- queries ----------------------------------------------------------------
+
 
 def test_site_scopes_resolves_gpo_names():
     estate = ingest.load_estate(FIXTURES)
@@ -80,9 +82,10 @@ def test_has_site_links():
 
 # --- sites excluded from OU-centric views -----------------------------------
 
+
 def test_sites_excluded_from_som_count_and_counted_separately():
     summary = queries.estate_summary(ingest.load_estate(FIXTURES))
-    assert summary.som_count == 2          # OU/domain SOMs only
+    assert summary.som_count == 2  # OU/domain SOMs only
     assert summary.linked_site_count == 1  # one site with an enabled link
 
 
@@ -94,6 +97,7 @@ def test_sites_excluded_from_precedence_conflicts():
 
 # --- OU caveat --------------------------------------------------------------
 
+
 def test_site_caveat_present_in_ou_scope():
     estate = ingest.load_estate(FIXTURES)
     caveats = queries.scope_caveats(estate, "dc=fakefixture,dc=local")
@@ -102,9 +106,7 @@ def test_site_caveat_present_in_ou_scope():
 
 def test_no_site_caveat_without_sites(tmp_path):
     dest = tmp_path / "export"
-    shutil.copytree(
-        FIXTURES, dest, ignore=shutil.ignore_patterns("*.sqlite3*", "__pycache__")
-    )
+    shutil.copytree(FIXTURES, dest, ignore=shutil.ignore_patterns("*.sqlite3*", "__pycache__"))
     (dest / "sites.json").unlink()
     estate = ingest.load_estate(dest)
     caveats = queries.scope_caveats(estate, "dc=fakefixture,dc=local")

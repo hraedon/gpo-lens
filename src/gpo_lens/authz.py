@@ -196,9 +196,31 @@ ACE_TYPE_MAP = {
 }
 
 _VALID_SDDL_RIGHTS = {
-    "GA", "GR", "GW", "GX", "RC", "SD", "WD", "WO", "RP", "WP",
-    "CC", "DC", "LC", "LO", "DT", "CR", "SW", "FA", "FR", "FW", "FX",
-    "KA", "KR", "KW", "KX",
+    "GA",
+    "GR",
+    "GW",
+    "GX",
+    "RC",
+    "SD",
+    "WD",
+    "WO",
+    "RP",
+    "WP",
+    "CC",
+    "DC",
+    "LC",
+    "LO",
+    "DT",
+    "CR",
+    "SW",
+    "FA",
+    "FR",
+    "FW",
+    "FX",
+    "KA",
+    "KR",
+    "KW",
+    "KX",
 }
 
 # Mapping of ADS_RIGHTS_ENUM bit values to SDDL 2-letter right codes.
@@ -206,24 +228,24 @@ _VALID_SDDL_RIGHTS = {
 # instead of the mnemonic 2-letter codes. Values from Microsoft's
 # iads.h ADS_RIGHTS_ENUM documentation.
 _HEX_RIGHTS_MAP: tuple[tuple[int, str], ...] = (
-    (0x80000000, "GR"),   # ADS_RIGHT_GENERIC_READ
-    (0x40000000, "GW"),   # ADS_RIGHT_GENERIC_WRITE
-    (0x20000000, "GX"),   # ADS_RIGHT_GENERIC_EXECUTE
-    (0x10000000, "GA"),   # ADS_RIGHT_GENERIC_ALL
-    (0x00080000, "WO"),   # ADS_RIGHT_WRITE_OWNER
-    (0x00040000, "WD"),   # ADS_RIGHT_WRITE_DAC
-    (0x00020000, "RC"),   # ADS_RIGHT_READ_CONTROL
-    (0x00010000, "SD"),   # ADS_RIGHT_DELETE
-    (0x00000100, "CR"),   # ADS_RIGHT_DS_CONTROL_ACCESS (extended rights,
-                          # e.g. Apply Group Policy)
-    (0x00000080, "LO"),   # ADS_RIGHT_DS_LIST_OBJECT
-    (0x00000040, "DT"),   # ADS_RIGHT_DS_DELETE_TREE
-    (0x00000020, "WP"),   # ADS_RIGHT_DS_WRITE_PROP
-    (0x00000010, "RP"),   # ADS_RIGHT_DS_READ_PROP
-    (0x00000008, "SW"),   # ADS_RIGHT_DS_SELF (validated write)
-    (0x00000004, "LC"),   # ADS_RIGHT_ACTRL_DS_LIST
-    (0x00000002, "DC"),   # ADS_RIGHT_DS_DELETE_CHILD
-    (0x00000001, "CC"),   # ADS_RIGHT_DS_CREATE_CHILD
+    (0x80000000, "GR"),  # ADS_RIGHT_GENERIC_READ
+    (0x40000000, "GW"),  # ADS_RIGHT_GENERIC_WRITE
+    (0x20000000, "GX"),  # ADS_RIGHT_GENERIC_EXECUTE
+    (0x10000000, "GA"),  # ADS_RIGHT_GENERIC_ALL
+    (0x00080000, "WO"),  # ADS_RIGHT_WRITE_OWNER
+    (0x00040000, "WD"),  # ADS_RIGHT_WRITE_DAC
+    (0x00020000, "RC"),  # ADS_RIGHT_READ_CONTROL
+    (0x00010000, "SD"),  # ADS_RIGHT_DELETE
+    (0x00000100, "CR"),  # ADS_RIGHT_DS_CONTROL_ACCESS (extended rights,
+    # e.g. Apply Group Policy)
+    (0x00000080, "LO"),  # ADS_RIGHT_DS_LIST_OBJECT
+    (0x00000040, "DT"),  # ADS_RIGHT_DS_DELETE_TREE
+    (0x00000020, "WP"),  # ADS_RIGHT_DS_WRITE_PROP
+    (0x00000010, "RP"),  # ADS_RIGHT_DS_READ_PROP
+    (0x00000008, "SW"),  # ADS_RIGHT_DS_SELF (validated write)
+    (0x00000004, "LC"),  # ADS_RIGHT_ACTRL_DS_LIST
+    (0x00000002, "DC"),  # ADS_RIGHT_DS_DELETE_CHILD
+    (0x00000001, "CC"),  # ADS_RIGHT_DS_CREATE_CHILD
 )
 
 _SDDL_SID_ALIASES: dict[str, str] = {
@@ -287,7 +309,7 @@ def resolve_well_known(sid: str) -> str | None:
     if s.startswith(_MANDATORY_PREFIX):
         return _MANDATORY_LABEL_WELL_KNOWN.get(s)
     if s.startswith(_BUILTIN_PREFIX):
-        return _BUILTIN_WELL_KNOWN.get(s[len(_BUILTIN_PREFIX):])
+        return _BUILTIN_WELL_KNOWN.get(s[len(_BUILTIN_PREFIX) :])
     if s.startswith(DOMAIN_SID_PREFIX):
         parts = s.split("-")
         if len(parts) >= 7:
@@ -301,31 +323,31 @@ def resolve_well_known(sid: str) -> str | None:
 # :func:`canonical_sddl_sid` so alias and raw-SID forms of the same trustee
 # compare equal in the security gate (WI-084).
 _SDDL_ALIAS_ABS_SID: dict[str, str] = {
-    "wd": EVERYONE_SID,        # Everyone               S-1-1-0
-    "an": "s-1-5-7",           # Anonymous
-    "au": AU_SID,              # Authenticated Users    S-1-5-11
-    "sy": "s-1-5-18",          # SYSTEM
-    "ns": "s-1-5-20",          # Network Service
-    "ls": "s-1-5-19",          # Local Service
-    "iu": "s-1-5-4",           # Interactive
-    "nu": "s-1-5-2",           # Network
-    "su": "s-1-5-6",           # Service
-    "wr": "s-1-5-33",          # Write Restricted
-    "rc": "s-1-5-12",          # Restricted Code
-    "ed": "s-1-5-9",           # Enterprise Domain Controllers
-    "co": "s-1-3-0",           # Creator Owner
-    "cg": "s-1-3-1",           # Creator Group
-    "ow": "s-1-3-4",           # Owner Rights
-    "ba": "s-1-5-32-544",      # BUILTIN\\Administrators
-    "bu": "s-1-5-32-545",      # BUILTIN\\Users
-    "bg": "s-1-5-32-546",      # BUILTIN\\Guests
-    "bo": "s-1-5-32-551",      # Backup Operators
-    "bf": "s-1-5-32-549",      # Server Operators
-    "br": "s-1-5-32-548",      # Account Operators
-    "bp": "s-1-5-32-550",      # Print Operators
-    "ps": "s-1-5-10",          # Principal Self (sddl.h SDDL_PERSONAL_SELF)
-    "ru": "s-1-5-32-554",      # Pre-Windows 2000 Compatible Access
-    "rd": "s-1-5-32-555",      # Remote Desktop Users
+    "wd": EVERYONE_SID,  # Everyone               S-1-1-0
+    "an": "s-1-5-7",  # Anonymous
+    "au": AU_SID,  # Authenticated Users    S-1-5-11
+    "sy": "s-1-5-18",  # SYSTEM
+    "ns": "s-1-5-20",  # Network Service
+    "ls": "s-1-5-19",  # Local Service
+    "iu": "s-1-5-4",  # Interactive
+    "nu": "s-1-5-2",  # Network
+    "su": "s-1-5-6",  # Service
+    "wr": "s-1-5-33",  # Write Restricted
+    "rc": "s-1-5-12",  # Restricted Code
+    "ed": "s-1-5-9",  # Enterprise Domain Controllers
+    "co": "s-1-3-0",  # Creator Owner
+    "cg": "s-1-3-1",  # Creator Group
+    "ow": "s-1-3-4",  # Owner Rights
+    "ba": "s-1-5-32-544",  # BUILTIN\\Administrators
+    "bu": "s-1-5-32-545",  # BUILTIN\\Users
+    "bg": "s-1-5-32-546",  # BUILTIN\\Guests
+    "bo": "s-1-5-32-551",  # Backup Operators
+    "bf": "s-1-5-32-549",  # Server Operators
+    "br": "s-1-5-32-548",  # Account Operators
+    "bp": "s-1-5-32-550",  # Print Operators
+    "ps": "s-1-5-10",  # Principal Self (sddl.h SDDL_PERSONAL_SELF)
+    "ru": "s-1-5-32-554",  # Pre-Windows 2000 Compatible Access
+    "rd": "s-1-5-32-555",  # Remote Desktop Users
 }
 
 _SDDL_ALIAS_DOMREL_RID: dict[str, str] = {
@@ -481,28 +503,28 @@ def is_deny_ace_type(ace_type: str) -> bool:
 # to a GPO is expected and not a security concern.  The lowercase subset is
 # used by the name-based predicate; the full set is used by the SID-based
 # predicate via resolve_well_known.
-DEFAULT_WRITER_NAMES = frozenset({
-    "BUILTIN\\Administrators",
-    "Domain Admins",
-    "Enterprise Admins",
-    "SYSTEM",
-    # Non-actionable placeholder identities present in the default GPO DACL.
-    # No security principal ever authenticates as Creator Owner / Creator
-    # Group / Owner Rights, so a write ACE for them is not a hijack primitive
-    # — flagging them buries the real findings under per-GPO noise.
-    "Creator Owner",
-    "Creator Group",
-    "Owner Rights",
-})
+DEFAULT_WRITER_NAMES = frozenset(
+    {
+        "BUILTIN\\Administrators",
+        "Domain Admins",
+        "Enterprise Admins",
+        "SYSTEM",
+        # Non-actionable placeholder identities present in the default GPO DACL.
+        # No security principal ever authenticates as Creator Owner / Creator
+        # Group / Owner Rights, so a write ACE for them is not a hijack primitive
+        # — flagging them buries the real findings under per-GPO noise.
+        "Creator Owner",
+        "Creator Group",
+        "Owner Rights",
+    }
+)
 
 DEFAULT_WRITER_SID_SUFFIXES = frozenset({"-512", "-519"})
 
 # Lowercase subset for the name-based check (queries/_delegation.py formerly
 # used only {"domain admins", "enterprise admins", "system"} — missing
 # "administrators" and the placeholder identities).
-_DEFAULT_WRITER_NAMES_LOWER = frozenset(
-    n.lower() for n in DEFAULT_WRITER_NAMES
-)
+_DEFAULT_WRITER_NAMES_LOWER = frozenset(n.lower() for n in DEFAULT_WRITER_NAMES)
 
 
 def is_default_writer(trustee: str) -> bool:
@@ -518,9 +540,8 @@ def is_default_writer_sid(sid: str) -> bool:
     s = sid.strip().lower()
     if resolve_well_known(s) in DEFAULT_WRITER_NAMES:
         return True
-    return (
-        s.startswith(DOMAIN_SID_PREFIX)
-        and any(s.endswith(suffix) for suffix in DEFAULT_WRITER_SID_SUFFIXES)
+    return s.startswith(DOMAIN_SID_PREFIX) and any(
+        s.endswith(suffix) for suffix in DEFAULT_WRITER_SID_SUFFIXES
     )
 
 
@@ -540,21 +561,19 @@ def is_default_writer_sid(sid: str) -> bool:
 # ("Edit settings" / "Edit Settings" / "Edit, delete, modify security" /
 # "Edit settings, delete, modify security"), so we match that family by prefix
 # rather than enumerating every spelling.
-READ_IMPLYING_PERMISSIONS = frozenset({
-    "read",
-    "apply group policy",
-    "full control",
-})
+READ_IMPLYING_PERMISSIONS = frozenset(
+    {
+        "read",
+        "apply group policy",
+        "full control",
+    }
+)
 
 
 def permission_implies_read(permission: str) -> bool:
     """True if a GPMC grouped-permission label confers the READ access right."""
     p = permission.strip().lower()
-    return (
-        p in READ_IMPLYING_PERMISSIONS
-        or p.startswith("edit ")
-        or p.startswith("edit,")
-    )
+    return p in READ_IMPLYING_PERMISSIONS or p.startswith("edit ") or p.startswith("edit,")
 
 
 def permission_implies_apply(permission: str) -> bool:
@@ -569,6 +588,7 @@ def permission_implies_apply(permission: str) -> bool:
 # ---------------------------------------------------------------------------
 # SDDL fallback (WI-046: consolidated from topology.py, danger.py, merge.py).
 # ---------------------------------------------------------------------------
+
 
 @dataclass(frozen=True)
 class SddlApplyAce:
@@ -634,7 +654,7 @@ def parse_sddl_rights(rights: str) -> list[str]:
             continue
         i = 0
         while i + 1 < len(part):
-            code = part[i:i + 2]
+            code = part[i : i + 2]
             if code in _VALID_SDDL_RIGHTS:
                 result.append(code)
                 i += 2

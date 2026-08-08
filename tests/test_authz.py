@@ -207,16 +207,18 @@ def test_resolve_principal_domain_rid_well_known():
 def test_resolve_principal_collected_sid():
     """AC-1: a collected SID resolves from estate.principals."""
     sid = "s-1-5-21-100-200-300-1131"
-    estate = Estate(principals={
-        sid: ResolvedPrincipal(
-            sid=sid,
-            name="HRAENET\\GPO-Admins",
-            sam="GPO-Admins",
-            principal_type="Group",
-            domain="HRAENET",
-            resolved=True,
-        ),
-    })
+    estate = Estate(
+        principals={
+            sid: ResolvedPrincipal(
+                sid=sid,
+                name="HRAENET\\GPO-Admins",
+                sam="GPO-Admins",
+                principal_type="Group",
+                domain="HRAENET",
+                resolved=True,
+            ),
+        }
+    )
     rp = resolve_principal(estate, "S-1-5-21-100-200-300-1131")
     assert rp.resolved is True
     assert rp.name == "HRAENET\\GPO-Admins"
@@ -239,12 +241,18 @@ def test_resolve_principal_unknown_sid_unresolved():
 def test_resolve_principal_well_known_takes_precedence_over_collected():
     """The static table is tried first (tier 1) per Plan 020 A.3."""
     sid = "s-1-5-11"
-    estate = Estate(principals={
-        sid: ResolvedPrincipal(
-            sid=sid, name="Custom Name", sam="x",
-            principal_type="Group", domain="X", resolved=True,
-        ),
-    })
+    estate = Estate(
+        principals={
+            sid: ResolvedPrincipal(
+                sid=sid,
+                name="Custom Name",
+                sam="x",
+                principal_type="Group",
+                domain="X",
+                resolved=True,
+            ),
+        }
+    )
     rp = resolve_principal(estate, "S-1-5-11")
     assert rp.name == "Authenticated Users"
     assert rp.principal_type == "WellKnown"
@@ -252,12 +260,18 @@ def test_resolve_principal_well_known_takes_precedence_over_collected():
 
 def test_resolve_principal_case_insensitive_sid_lookup():
     sid = "s-1-5-21-100-200-300-1131"
-    estate = Estate(principals={
-        sid: ResolvedPrincipal(
-            sid=sid, name="GPO-Admins", sam="GPO-Admins",
-            principal_type="Group", domain="X", resolved=True,
-        ),
-    })
+    estate = Estate(
+        principals={
+            sid: ResolvedPrincipal(
+                sid=sid,
+                name="GPO-Admins",
+                sam="GPO-Admins",
+                principal_type="Group",
+                domain="X",
+                resolved=True,
+            ),
+        }
+    )
     rp = resolve_principal(estate, "S-1-5-21-100-200-300-1131")
     assert rp.resolved is True
     assert rp.name == "GPO-Admins"
@@ -320,8 +334,8 @@ def test_parse_ace_string_too_few_fields_returns_none():
     """ACEs with fewer than 6 fields are still rejected."""
     from gpo_lens.authz import _parse_ace_string
 
-    assert _parse_ace_string("A;;GA;;") is None   # 5 fields
-    assert _parse_ace_string("A;;GA") is None      # 3 fields
+    assert _parse_ace_string("A;;GA;;") is None  # 5 fields
+    assert _parse_ace_string("A;;GA") is None  # 3 fields
 
 
 def test_parse_sddl_with_conditional_ace():
@@ -350,8 +364,19 @@ def test_parse_sddl_rights_sw_in_full_ad_rights_string():
 
     codes = parse_sddl_rights("CCDCLCSWRPWPDTLOCRSDRCWDWO")
     assert codes == [
-        "CC", "DC", "LC", "SW", "RP", "WP", "DT", "LO", "CR", "SD",
-        "RC", "WD", "WO",
+        "CC",
+        "DC",
+        "LC",
+        "SW",
+        "RP",
+        "WP",
+        "DT",
+        "LO",
+        "CR",
+        "SD",
+        "RC",
+        "WD",
+        "WO",
     ]
 
 
@@ -417,11 +442,11 @@ def test_parse_sddl_rights_hex_mask_0x1200a9():
     from gpo_lens.authz import parse_sddl_rights
 
     codes = parse_sddl_rights("0x1200a9")
-    assert "RC" in codes   # READ_CONTROL (0x00020000)
-    assert "LO" in codes   # DS_LIST_OBJECT (0x00000080)
-    assert "WP" in codes   # DS_WRITE_PROP (0x00000020)
-    assert "SW" in codes   # DS_SELF (0x00000008)
-    assert "CC" in codes   # DS_CREATE_CHILD (0x00000001)
+    assert "RC" in codes  # READ_CONTROL (0x00020000)
+    assert "LO" in codes  # DS_LIST_OBJECT (0x00000080)
+    assert "WP" in codes  # DS_WRITE_PROP (0x00000020)
+    assert "SW" in codes  # DS_SELF (0x00000008)
+    assert "CC" in codes  # DS_CREATE_CHILD (0x00000001)
     # DS_SELF must NOT decode to CR: CR is ADS_RIGHT_DS_CONTROL_ACCESS
     # (0x100). Mapping 0x8 → CR made a self-write mask count as an apply
     # right (READ_OR_APPLY_RIGHTS includes CR) — a false "applies".
@@ -495,6 +520,7 @@ def test_read_or_apply_rights_excludes_cc():
 # WI-084: SDDL alias vs canonical SID must compare equal
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize(
     "alias,raw,key",
     [
@@ -527,7 +553,7 @@ def test_applies_broadly_alias_deny_cancels_raw_allow():
     from gpo_lens.authz import applies_broadly, broad_trustee_key
 
     allow = broad_trustee_key("", "s-1-5-11")  # raw SID
-    deny = broad_trustee_key("", "au")         # alias
+    deny = broad_trustee_key("", "au")  # alias
     assert allow == deny  # same key is the whole point
     assert applies_broadly([(allow, True), (deny, False)]) is False
 
@@ -540,9 +566,9 @@ def test_applies_broadly_alias_deny_cancels_raw_allow():
         ("BA", None, "s-1-5-32-544"),
         ("DA", "s-1-5-21-1-2-3", "s-1-5-21-1-2-3-512"),
         ("DC", "s-1-5-21-1-2-3", "s-1-5-21-1-2-3-515"),
-        ("da", None, "da"),                     # domain-relative, no domain SID
-        ("s-1-5-11", None, "s-1-5-11"),          # raw SID passes through
-        ("S-1-5-11", None, "s-1-5-11"),          # lowercased
+        ("da", None, "da"),  # domain-relative, no domain SID
+        ("s-1-5-11", None, "s-1-5-11"),  # raw SID passes through
+        ("S-1-5-11", None, "s-1-5-11"),  # lowercased
     ],
 )
 def test_canonical_sddl_sid(token, domain_sid, expected):

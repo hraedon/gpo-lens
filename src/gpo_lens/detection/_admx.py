@@ -73,10 +73,15 @@ def admx_gaps(
             parts = s.identity.split(":", 1)
             key_path = parts[0] if parts else s.identity
             value_name = parts[1] if len(parts) > 1 else s.display_name
-            results.append(AdmxGap(
-                gpo_id=g.id, gpo_name=g.name,
-                side=s.side, identity=s.identity,
-                display_name=s.display_name,
-                key_path=key_path, value_name=value_name,
-            ))
+            results.append(
+                AdmxGap(
+                    gpo_id=g.id,
+                    gpo_name=g.name,
+                    side=s.side,
+                    identity=s.identity,
+                    display_name=s.display_name,
+                    key_path=key_path,
+                    value_name=value_name,
+                )
+            )
     return results

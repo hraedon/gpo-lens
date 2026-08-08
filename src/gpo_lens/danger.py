@@ -201,21 +201,23 @@ def gpo_writable_by_nonadmin(estate: Estate) -> list[DangerFinding]:
 
         if acl.owner_sid and not is_default_writer_sid(acl.owner_sid):
             owner_display = _format_trustee(estate, acl.owner_sid)
-            findings.append(DangerFinding(
-                check_id="gpo_owner_nonadmin",
-                severity="high",
-                title="GPO owned by a non-admin trustee",
-                gpo_id=g.id,
-                gpo_name=g.name,
-                detail=(
-                    f"GPO Owner is {owner_display} — the Owner implicitly "
-                    f"holds WRITE_DAC and can escalate to full control"
-                ),
-                reference=_GPO_MODIFY_REF,
-                compliance=_BUCKET2_COMPLIANCE.get("gpo_owner_nonadmin", ()),
-                remediation=_BUCKET2_REMEDIATION.get("gpo_owner_nonadmin", ""),
-                dimensions=(("owner_sid", acl.owner_sid),),
-            ))
+            findings.append(
+                DangerFinding(
+                    check_id="gpo_owner_nonadmin",
+                    severity="high",
+                    title="GPO owned by a non-admin trustee",
+                    gpo_id=g.id,
+                    gpo_name=g.name,
+                    detail=(
+                        f"GPO Owner is {owner_display} — the Owner implicitly "
+                        f"holds WRITE_DAC and can escalate to full control"
+                    ),
+                    reference=_GPO_MODIFY_REF,
+                    compliance=_BUCKET2_COMPLIANCE.get("gpo_owner_nonadmin", ()),
+                    remediation=_BUCKET2_REMEDIATION.get("gpo_owner_nonadmin", ""),
+                    dimensions=(("owner_sid", acl.owner_sid),),
+                )
+            )
 
         for ace in acl.dacl:
             if not is_allow_ace_type(ace.ace_type):
@@ -226,21 +228,23 @@ def gpo_writable_by_nonadmin(estate: Estate) -> list[DangerFinding]:
             if not sid or is_default_writer_sid(sid):
                 continue
             trustee_display = _format_trustee(estate, sid)
-            findings.append(DangerFinding(
-                check_id="gpo_writable_nonadmin",
-                severity="high",
-                title="GPO writable by a non-admin trustee",
-                gpo_id=g.id,
-                gpo_name=g.name,
-                detail=(
-                    f"Trustee {trustee_display} has write access ({ace.rights}) "
-                    f"to this GPO — a GPO-hijack primitive"
-                ),
-                reference=_GPO_MODIFY_REF,
-                compliance=_BUCKET2_COMPLIANCE.get("gpo_writable_nonadmin", ()),
-                remediation=_BUCKET2_REMEDIATION.get("gpo_writable_nonadmin", ""),
-                dimensions=(("trustee_sid", sid),),
-            ))
+            findings.append(
+                DangerFinding(
+                    check_id="gpo_writable_nonadmin",
+                    severity="high",
+                    title="GPO writable by a non-admin trustee",
+                    gpo_id=g.id,
+                    gpo_name=g.name,
+                    detail=(
+                        f"Trustee {trustee_display} has write access ({ace.rights}) "
+                        f"to this GPO — a GPO-hijack primitive"
+                    ),
+                    reference=_GPO_MODIFY_REF,
+                    compliance=_BUCKET2_COMPLIANCE.get("gpo_writable_nonadmin", ()),
+                    remediation=_BUCKET2_REMEDIATION.get("gpo_writable_nonadmin", ""),
+                    dimensions=(("trustee_sid", sid),),
+                )
+            )
     return findings
 
 
@@ -256,27 +260,26 @@ def local_admin_push(estate: Estate) -> list[DangerFinding]:
     for g in estate.gpos:
         pushes: list[str] = []
         for mod in scan_local_groups(g):
-            is_admin = (
-                (mod.group_sid and mod.group_sid.upper() == "S-1-5-32-544")
-                or "ADMIN" in (mod.group_name or "").upper()
-            )
+            is_admin = (mod.group_sid and mod.group_sid.upper() == "S-1-5-32-544") or "ADMIN" in (
+                mod.group_name or ""
+            ).upper()
             if not is_admin or not mod.members_added:
                 continue
-            pushes.append(
-                f"adds {', '.join(mod.members_added)} to '{mod.group_name}'"
-            )
+            pushes.append(f"adds {', '.join(mod.members_added)} to '{mod.group_name}'")
         if pushes:
-            findings.append(DangerFinding(
-                check_id="local_admin_push",
-                severity="high",
-                title="GPO pushes local Administrators membership",
-                gpo_id=g.id,
-                gpo_name=g.name,
-                detail="; ".join(pushes),
-                reference=_LOCAL_ADMIN_REF,
-                compliance=_BUCKET2_COMPLIANCE.get("local_admin_push", ()),
-                remediation=_BUCKET2_REMEDIATION.get("local_admin_push", ""),
-            ))
+            findings.append(
+                DangerFinding(
+                    check_id="local_admin_push",
+                    severity="high",
+                    title="GPO pushes local Administrators membership",
+                    gpo_id=g.id,
+                    gpo_name=g.name,
+                    detail="; ".join(pushes),
+                    reference=_LOCAL_ADMIN_REF,
+                    compliance=_BUCKET2_COMPLIANCE.get("local_admin_push", ()),
+                    remediation=_BUCKET2_REMEDIATION.get("local_admin_push", ""),
+                )
+            )
     return findings
 
 
@@ -317,19 +320,19 @@ def overbroad_apply_group_policy(estate: Estate) -> list[DangerFinding]:
                 sid = (d.trustee_sid or "").lower()
                 if sid not in _BROAD_APPLY_SIDS:
                     continue
-                findings.append(DangerFinding(
-                    check_id="overbroad_apply_gp",
-                    severity="medium",
-                    title="GPO apply scope is over-broad (Everyone/Anonymous)",
-                    gpo_id=g.id,
-                    gpo_name=g.name,
-                    detail=(
-                        f"'Apply Group Policy' granted to {d.trustee or sid} ({sid})"
-                    ),
-                    reference=_APPLY_GP_REF,
-                    compliance=_BUCKET2_COMPLIANCE.get("overbroad_apply_gp", ()),
-                    remediation=_BUCKET2_REMEDIATION.get("overbroad_apply_gp", ""),
-                ))
+                findings.append(
+                    DangerFinding(
+                        check_id="overbroad_apply_gp",
+                        severity="medium",
+                        title="GPO apply scope is over-broad (Everyone/Anonymous)",
+                        gpo_id=g.id,
+                        gpo_name=g.name,
+                        detail=(f"'Apply Group Policy' granted to {d.trustee or sid} ({sid})"),
+                        reference=_APPLY_GP_REF,
+                        compliance=_BUCKET2_COMPLIANCE.get("overbroad_apply_gp", ()),
+                        remediation=_BUCKET2_REMEDIATION.get("overbroad_apply_gp", ""),
+                    )
+                )
                 break
         elif g.sddl:
             # SDDL fallback: collect allow and deny ACEs for broad trustees,
@@ -361,20 +364,19 @@ def overbroad_apply_group_policy(estate: Estate) -> list[DangerFinding]:
                 if sid not in _BROAD_APPLY_SIDS:
                     continue
                 trustee_display = _format_trustee(estate, ace.trustee_sid)
-                findings.append(DangerFinding(
-                    check_id="overbroad_apply_gp",
-                    severity="medium",
-                    title="GPO apply scope is over-broad (Everyone/Anonymous)",
-                    gpo_id=g.id,
-                    gpo_name=g.name,
-                    detail=(
-                        f"SDDL grants apply rights to {trustee_display} "
-                        f"({ace.rights})"
-                    ),
-                    reference=_APPLY_GP_REF,
-                    compliance=_BUCKET2_COMPLIANCE.get("overbroad_apply_gp", ()),
-                    remediation=_BUCKET2_REMEDIATION.get("overbroad_apply_gp", ""),
-                ))
+                findings.append(
+                    DangerFinding(
+                        check_id="overbroad_apply_gp",
+                        severity="medium",
+                        title="GPO apply scope is over-broad (Everyone/Anonymous)",
+                        gpo_id=g.id,
+                        gpo_name=g.name,
+                        detail=(f"SDDL grants apply rights to {trustee_display} ({ace.rights})"),
+                        reference=_APPLY_GP_REF,
+                        compliance=_BUCKET2_COMPLIANCE.get("overbroad_apply_gp", ()),
+                        remediation=_BUCKET2_REMEDIATION.get("overbroad_apply_gp", ""),
+                    )
+                )
                 break
     return findings
 
@@ -382,6 +384,7 @@ def overbroad_apply_group_policy(estate: Estate) -> list[DangerFinding]:
 # ---------------------------------------------------------------------------
 # Bucket 1 — setting-value dangers (data table + pure evaluator)
 # ---------------------------------------------------------------------------
+
 
 def _resolve_display_name(admx: AdmxResolver, identity: str) -> str | None:
     """Resolve a setting identity to an ADMX policy display name.
@@ -465,17 +468,19 @@ def evaluate_danger_rules(
                 if not _identity_matches(rule, s.identity, admx):
                     continue
                 if _predicate_matches(rule, s.display_value):
-                    present_findings.append(DangerFinding(
-                        check_id=rule.id,
-                        severity=rule.severity,
-                        title=rule.title,
-                        gpo_id=g.id,
-                        gpo_name=g.name,
-                        detail=f"{s.identity} = {s.display_value}",
-                        reference=rule.reference,
-                        compliance=rule.compliance,
-                        remediation=rule.remediation,
-                    ))
+                    present_findings.append(
+                        DangerFinding(
+                            check_id=rule.id,
+                            severity=rule.severity,
+                            title=rule.title,
+                            gpo_id=g.id,
+                            gpo_name=g.name,
+                            detail=f"{s.identity} = {s.display_value}",
+                            reference=rule.reference,
+                            compliance=rule.compliance,
+                            remediation=rule.remediation,
+                        )
+                    )
 
     absent_findings: list[DangerFinding] = []
     for rule in absent_rules:
@@ -494,28 +499,44 @@ def evaluate_danger_rules(
             if found_any:
                 break
         if not found_any:
-            absent_findings.append(DangerFinding(
-                check_id=rule.id,
-                severity=rule.severity,
-                title=rule.title,
-                gpo_id="",
-                gpo_name="",
-                detail=f"Expected setting not found estate-wide: {rule.identity}",
-                reference=rule.reference,
-                compliance=rule.compliance,
-                remediation=rule.remediation,
-            ))
+            absent_findings.append(
+                DangerFinding(
+                    check_id=rule.id,
+                    severity=rule.severity,
+                    title=rule.title,
+                    gpo_id="",
+                    gpo_name="",
+                    detail=f"Expected setting not found estate-wide: {rule.identity}",
+                    reference=rule.reference,
+                    compliance=rule.compliance,
+                    remediation=rule.remediation,
+                )
+            )
 
     return present_findings + absent_findings
 
 
-_VALID_PREDICATES = frozenset({
-    "equals", "in", "min", "max", "present", "absent",
-})
+_VALID_PREDICATES = frozenset(
+    {
+        "equals",
+        "in",
+        "min",
+        "max",
+        "present",
+        "absent",
+    }
+)
 
-_REQUIRED_RULE_FIELDS = frozenset({
-    "id", "title", "severity", "applies", "identity", "reference",
-})
+_REQUIRED_RULE_FIELDS = frozenset(
+    {
+        "id",
+        "title",
+        "severity",
+        "applies",
+        "identity",
+        "reference",
+    }
+)
 
 
 def _parse_compliance(raw: object, path: Path) -> tuple[ComplianceMapping, ...]:
@@ -531,8 +552,12 @@ def _parse_compliance(raw: object, path: Path) -> tuple[ComplianceMapping, ...]:
             continue
         framework = item.get("framework")
         control_id = item.get("control_id")
-        if (not isinstance(framework, str) or not isinstance(control_id, str)
-                or not framework.strip() or not control_id.strip()):
+        if (
+            not isinstance(framework, str)
+            or not isinstance(control_id, str)
+            or not framework.strip()
+            or not control_id.strip()
+        ):
             warnings.warn(
                 f"Skipping compliance entry with missing or empty framework/control_id "
                 f"in {path.name}",
@@ -582,18 +607,20 @@ def _load_rules_file(path: Path) -> list[DangerRule]:
             )
             continue
         remediation_raw = entry.get("remediation", "")
-        rules.append(DangerRule(
-            id=entry["id"],
-            title=entry["title"],
-            severity=entry["severity"],
-            applies=entry["applies"],
-            identity=entry["identity"],
-            predicate=predicate,
-            value=str(entry.get("value", "")),
-            reference=entry["reference"],
-            compliance=_parse_compliance(entry.get("compliance"), path),
-            remediation=remediation_raw if isinstance(remediation_raw, str) else "",
-        ))
+        rules.append(
+            DangerRule(
+                id=entry["id"],
+                title=entry["title"],
+                severity=entry["severity"],
+                applies=entry["applies"],
+                identity=entry["identity"],
+                predicate=predicate,
+                value=str(entry.get("value", "")),
+                reference=entry["reference"],
+                compliance=_parse_compliance(entry.get("compliance"), path),
+                remediation=remediation_raw if isinstance(remediation_raw, str) else "",
+            )
+        )
     return rules
 
 
@@ -643,6 +670,7 @@ def load_danger_rules(rules_path: Path | None = None) -> list[DangerRule]:
 # Aggregate
 # ---------------------------------------------------------------------------
 
+
 def danger_findings(
     estate: Estate, *, admx: AdmxResolver | None = None, rules: list[DangerRule] | None = None
 ) -> list[DangerFinding]:
@@ -654,7 +682,5 @@ def danger_findings(
     findings.extend(local_admin_push(estate))
     findings.extend(overbroad_apply_group_policy(estate))
     findings.extend(evaluate_danger_rules(estate, rules, admx))
-    findings.sort(
-        key=lambda f: (_SEVERITY_ORDER.get(f.severity, 99), f.check_id, f.gpo_id)
-    )
+    findings.sort(key=lambda f: (_SEVERITY_ORDER.get(f.severity, 99), f.check_id, f.gpo_id))
     return findings

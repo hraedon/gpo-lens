@@ -184,9 +184,7 @@ def test_parse_admx_dir_falls_back_to_first_locale(tmp_path):
     (pd_dir / "TestPolicies.admx").write_text(_ADMX_SAMPLE, encoding="utf-8")
     de_de = pd_dir / "de-de"
     de_de.mkdir()
-    de_adml = _ADML_SAMPLE.replace(
-        "Account Lockout Threshold", "Kontosperrschwelle"
-    )
+    de_adml = _ADML_SAMPLE.replace("Account Lockout Threshold", "Kontosperrschwelle")
     (de_de / "TestPolicies.adml").write_text(de_adml, encoding="utf-8")
     pd = parse_admx_dir(pd_dir)
     by_name = {p.name: p for p in pd.policies}

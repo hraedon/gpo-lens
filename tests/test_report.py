@@ -67,9 +67,7 @@ def test_generate_markdown_per_gpo_links(fixture_estate):
 
 def test_generate_markdown_per_gpo_delegation(fixture_estate):
     report = generate_markdown(fixture_estate)
-    gpo_with_delegation = next(
-        (g for g in fixture_estate.gpos if g.delegation), None
-    )
+    gpo_with_delegation = next((g for g in fixture_estate.gpos if g.delegation), None)
     if gpo_with_delegation:
         assert "**Delegation:**" in report
 
@@ -110,20 +108,32 @@ def test_generate_html_contains_per_gpo(fixture_estate):
 
 def test_generate_html_escaping():
     gpo = model.Gpo(
-        id="test-id", name="GPO <script>alert(1)</script>",
+        id="test-id",
+        name="GPO <script>alert(1)</script>",
         domain="test.local",
-        created=None, modified=None, read=None,
-        computer_enabled=True, user_enabled=True,
-        computer_ver_ds=None, computer_ver_sysvol=None,
-        user_ver_ds=None, user_ver_sysvol=None,
-        sddl=None, owner=None, filter_data_available=False,
-        wmi_filter=None, sysvol_path=None,
+        created=None,
+        modified=None,
+        read=None,
+        computer_enabled=True,
+        user_enabled=True,
+        computer_ver_ds=None,
+        computer_ver_sysvol=None,
+        user_ver_ds=None,
+        user_ver_sysvol=None,
+        sddl=None,
+        owner=None,
+        filter_data_available=False,
+        wmi_filter=None,
+        sysvol_path=None,
         settings=[
             model.Setting(
-                gpo_id="test-id", side="Computer", cse="Registry",
+                gpo_id="test-id",
+                side="Computer",
+                cse="Registry",
                 identity="HKLM\\Software\\Foo & Bar",
                 display_name="Foo & Bar",
-                display_value="<val>", raw={},
+                display_value="<val>",
+                raw={},
                 from_disabled_side=False,
             ),
         ],
@@ -140,29 +150,43 @@ def test_generate_markdown_escaping():
     """Markdown report must escape HTML in user-controlled values to prevent
     XSS when the Markdown is rendered to HTML."""
     gpo = model.Gpo(
-        id="test-id", name="GPO <script>alert(1)</script>",
+        id="test-id",
+        name="GPO <script>alert(1)</script>",
         domain="<b>evil</b>.local",
-        created=None, modified=None, read=None,
-        computer_enabled=True, user_enabled=True,
-        computer_ver_ds=None, computer_ver_sysvol=None,
-        user_ver_ds=None, user_ver_sysvol=None,
-        sddl=None, owner="Owner <img src=x onerror=alert(1)>",
+        created=None,
+        modified=None,
+        read=None,
+        computer_enabled=True,
+        user_enabled=True,
+        computer_ver_ds=None,
+        computer_ver_sysvol=None,
+        user_ver_ds=None,
+        user_ver_sysvol=None,
+        sddl=None,
+        owner="Owner <img src=x onerror=alert(1)>",
         filter_data_available=False,
-        wmi_filter=None, sysvol_path=None,
+        wmi_filter=None,
+        sysvol_path=None,
         description="Desc <iframe src=evil>",
         settings=[
             model.Setting(
-                gpo_id="test-id", side="Computer", cse="Registry",
+                gpo_id="test-id",
+                side="Computer",
+                cse="Registry",
                 identity="HKLM\\Software\\Foo & Bar",
                 display_name="Foo & Bar",
-                display_value="<val>", raw={},
+                display_value="<val>",
+                raw={},
                 from_disabled_side=False,
             ),
         ],
         delegation=[
             model.DelegationEntry(
-                gpo_id="test-id", trustee="TRUSTEE<script>",
-                trustee_sid=None, permission="READ", allowed=True,
+                gpo_id="test-id",
+                trustee="TRUSTEE<script>",
+                trustee_sid=None,
+                permission="READ",
+                allowed=True,
             ),
         ],
     )
@@ -181,14 +205,23 @@ def test_generate_markdown_escaping():
 def test_generate_markdown_pipe_escaping():
     """Markdown table cells must escape pipe characters."""
     gpo = model.Gpo(
-        id="test-id", name="GPO|Name",
+        id="test-id",
+        name="GPO|Name",
         domain="test|local",
-        created=None, modified=None, read=None,
-        computer_enabled=True, user_enabled=True,
-        computer_ver_ds=None, computer_ver_sysvol=None,
-        user_ver_ds=None, user_ver_sysvol=None,
-        sddl=None, owner=None, filter_data_available=False,
-        wmi_filter=None, sysvol_path=None,
+        created=None,
+        modified=None,
+        read=None,
+        computer_enabled=True,
+        user_enabled=True,
+        computer_ver_ds=None,
+        computer_ver_sysvol=None,
+        user_ver_ds=None,
+        user_ver_sysvol=None,
+        sddl=None,
+        owner=None,
+        filter_data_available=False,
+        wmi_filter=None,
+        sysvol_path=None,
     )
     estate = model.Estate(domain="test|local", gpos=[gpo])
     report = generate_markdown(estate)
@@ -259,18 +292,33 @@ def test_report_with_changelog(tmp_path):
         domain="test.local",
         gpos=[
             model.Gpo(
-                id="aaa-bbb", name="GPO A", domain="test.local",
-                created=None, modified=None, read=None,
-                computer_enabled=True, user_enabled=True,
-                computer_ver_ds=1, computer_ver_sysvol=2,
-                user_ver_ds=0, user_ver_sysvol=0,
-                sddl=None, owner=None, filter_data_available=False,
-                wmi_filter=None, sysvol_path=None,
+                id="aaa-bbb",
+                name="GPO A",
+                domain="test.local",
+                created=None,
+                modified=None,
+                read=None,
+                computer_enabled=True,
+                user_enabled=True,
+                computer_ver_ds=1,
+                computer_ver_sysvol=2,
+                user_ver_ds=0,
+                user_ver_sysvol=0,
+                sddl=None,
+                owner=None,
+                filter_data_available=False,
+                wmi_filter=None,
+                sysvol_path=None,
                 settings=[
                     model.Setting(
-                        gpo_id="aaa-bbb", side="Computer", cse="Registry",
-                        identity="Setting1", display_name="Setting1",
-                        display_value="old", raw={}, from_disabled_side=False,
+                        gpo_id="aaa-bbb",
+                        side="Computer",
+                        cse="Registry",
+                        identity="Setting1",
+                        display_name="Setting1",
+                        display_value="old",
+                        raw={},
+                        from_disabled_side=False,
                     ),
                 ],
             ),
@@ -278,9 +326,14 @@ def test_report_with_changelog(tmp_path):
     )
     sid_a = store.save_estate(conn, estate)
     estate.gpos[0].settings[0] = model.Setting(
-        gpo_id="aaa-bbb", side="Computer", cse="Registry",
-        identity="Setting1", display_name="Setting1",
-        display_value="new", raw={}, from_disabled_side=False,
+        gpo_id="aaa-bbb",
+        side="Computer",
+        cse="Registry",
+        identity="Setting1",
+        display_name="Setting1",
+        display_value="new",
+        raw={},
+        from_disabled_side=False,
     )
     sid_b = store.save_estate(conn, estate)
     changelog = queries.snapshot_changelog(conn, sid_a, sid_b)
@@ -301,18 +354,33 @@ def test_report_changelog_html(tmp_path):
         domain="test.local",
         gpos=[
             model.Gpo(
-                id="aaa-bbb", name="GPO A", domain="test.local",
-                created=None, modified=None, read=None,
-                computer_enabled=True, user_enabled=True,
-                computer_ver_ds=1, computer_ver_sysvol=2,
-                user_ver_ds=0, user_ver_sysvol=0,
-                sddl=None, owner=None, filter_data_available=False,
-                wmi_filter=None, sysvol_path=None,
+                id="aaa-bbb",
+                name="GPO A",
+                domain="test.local",
+                created=None,
+                modified=None,
+                read=None,
+                computer_enabled=True,
+                user_enabled=True,
+                computer_ver_ds=1,
+                computer_ver_sysvol=2,
+                user_ver_ds=0,
+                user_ver_sysvol=0,
+                sddl=None,
+                owner=None,
+                filter_data_available=False,
+                wmi_filter=None,
+                sysvol_path=None,
                 settings=[
                     model.Setting(
-                        gpo_id="aaa-bbb", side="Computer", cse="Registry",
-                        identity="Setting1", display_name="Setting1",
-                        display_value="old", raw={}, from_disabled_side=False,
+                        gpo_id="aaa-bbb",
+                        side="Computer",
+                        cse="Registry",
+                        identity="Setting1",
+                        display_name="Setting1",
+                        display_value="old",
+                        raw={},
+                        from_disabled_side=False,
                     ),
                 ],
             ),
@@ -320,9 +388,14 @@ def test_report_changelog_html(tmp_path):
     )
     sid_a = store.save_estate(conn, estate)
     estate.gpos[0].settings[0] = model.Setting(
-        gpo_id="aaa-bbb", side="Computer", cse="Registry",
-        identity="Setting1", display_name="Setting1",
-        display_value="new", raw={}, from_disabled_side=False,
+        gpo_id="aaa-bbb",
+        side="Computer",
+        cse="Registry",
+        identity="Setting1",
+        display_name="Setting1",
+        display_value="new",
+        raw={},
+        from_disabled_side=False,
     )
     sid_b = store.save_estate(conn, estate)
     changelog = queries.snapshot_changelog(conn, sid_a, sid_b)
@@ -380,7 +453,8 @@ def test_cli_report_stdout(tmp_path, fixture_estate):
 
     r = subprocess.run(
         [sys.executable, "-m", "gpo_lens.cli", "report", str(FIXTURE_DIR)],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     assert r.returncode == 0
     assert "# Estate Report:" in r.stdout
@@ -391,9 +465,9 @@ def test_cli_report_html_stdout(tmp_path, fixture_estate):
     import sys
 
     r = subprocess.run(
-        [sys.executable, "-m", "gpo_lens.cli", "report", str(FIXTURE_DIR),
-         "--format", "html"],
-        capture_output=True, text=True,
+        [sys.executable, "-m", "gpo_lens.cli", "report", str(FIXTURE_DIR), "--format", "html"],
+        capture_output=True,
+        text=True,
     )
     assert r.returncode == 0
     assert "<!DOCTYPE html>" in r.stdout
@@ -405,9 +479,9 @@ def test_cli_report_output_file(tmp_path, fixture_estate):
 
     out = tmp_path / "out.md"
     r = subprocess.run(
-        [sys.executable, "-m", "gpo_lens.cli", "report", str(FIXTURE_DIR),
-         "--output", str(out)],
-        capture_output=True, text=True,
+        [sys.executable, "-m", "gpo_lens.cli", "report", str(FIXTURE_DIR), "--output", str(out)],
+        capture_output=True,
+        text=True,
     )
     assert r.returncode == 0
     assert out.exists()
@@ -420,9 +494,19 @@ def test_cli_report_html_output_file(tmp_path, fixture_estate):
 
     out = tmp_path / "out.html"
     r = subprocess.run(
-        [sys.executable, "-m", "gpo_lens.cli", "report", str(FIXTURE_DIR),
-         "--format", "html", "--output", str(out)],
-        capture_output=True, text=True,
+        [
+            sys.executable,
+            "-m",
+            "gpo_lens.cli",
+            "report",
+            str(FIXTURE_DIR),
+            "--format",
+            "html",
+            "--output",
+            str(out),
+        ],
+        capture_output=True,
+        text=True,
     )
     assert r.returncode == 0
     assert out.exists()
@@ -448,6 +532,7 @@ def test_html_effective_settings_surface_scope_caveats(fixture_estate):
 # Remediation rendering (WI-055)
 # ---------------------------------------------------------------------------
 
+
 def test_markdown_renders_remediation_for_danger_finding():
     """When a danger finding carries remediation text, the Markdown report
     must surface it under the finding."""
@@ -455,13 +540,20 @@ def test_markdown_renders_remediation_for_danger_finding():
         id="11111111111111111111111111111111",
         name="writable-gpo",
         domain="test.local",
-        created=None, modified=None, read=None,
-        computer_enabled=True, user_enabled=True,
-        computer_ver_ds=None, computer_ver_sysvol=None,
-        user_ver_ds=None, user_ver_sysvol=None,
+        created=None,
+        modified=None,
+        read=None,
+        computer_enabled=True,
+        user_enabled=True,
+        computer_ver_ds=None,
+        computer_ver_sysvol=None,
+        user_ver_ds=None,
+        user_ver_sysvol=None,
         sddl="D:(A;;GA;;;S-1-5-21-1-2-3-1000)",
-        owner=None, filter_data_available=False,
-        wmi_filter=None, sysvol_path=None,
+        owner=None,
+        filter_data_available=False,
+        wmi_filter=None,
+        sysvol_path=None,
     )
     estate = model.Estate(domain="test.local", gpos=[gpo])
     md = generate_markdown(estate)
@@ -477,13 +569,20 @@ def test_html_renders_remediation_for_danger_finding():
         id="11111111111111111111111111111111",
         name="writable-gpo",
         domain="test.local",
-        created=None, modified=None, read=None,
-        computer_enabled=True, user_enabled=True,
-        computer_ver_ds=None, computer_ver_sysvol=None,
-        user_ver_ds=None, user_ver_sysvol=None,
+        created=None,
+        modified=None,
+        read=None,
+        computer_enabled=True,
+        user_enabled=True,
+        computer_ver_ds=None,
+        computer_ver_sysvol=None,
+        user_ver_ds=None,
+        user_ver_sysvol=None,
         sddl="D:(A;;GA;;;S-1-5-21-1-2-3-1000)",
-        owner=None, filter_data_available=False,
-        wmi_filter=None, sysvol_path=None,
+        owner=None,
+        filter_data_available=False,
+        wmi_filter=None,
+        sysvol_path=None,
     )
     estate = model.Estate(domain="test.local", gpos=[gpo])
     html = generate_html(estate)
@@ -498,12 +597,20 @@ def test_markdown_no_remediation_line_when_empty():
         id="11111111111111111111111111111111",
         name="skew-gpo",
         domain="test.local",
-        created=None, modified=None, read=None,
-        computer_enabled=True, user_enabled=True,
-        computer_ver_ds=2, computer_ver_sysvol=1,
-        user_ver_ds=None, user_ver_sysvol=None,
-        sddl=None, owner=None, filter_data_available=False,
-        wmi_filter=None, sysvol_path=None,
+        created=None,
+        modified=None,
+        read=None,
+        computer_enabled=True,
+        user_enabled=True,
+        computer_ver_ds=2,
+        computer_ver_sysvol=1,
+        user_ver_ds=None,
+        user_ver_sysvol=None,
+        sddl=None,
+        owner=None,
+        filter_data_available=False,
+        wmi_filter=None,
+        sysvol_path=None,
     )
     estate = model.Estate(domain="test.local", gpos=[gpo])
     md = generate_markdown(estate)

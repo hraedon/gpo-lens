@@ -1,4 +1,5 @@
 """Web route tests for /delegation."""
+
 from __future__ import annotations
 
 import sqlite3
@@ -17,6 +18,7 @@ def empty_db(tmp_path):
     db = tmp_path / "test.db"
     conn = sqlite3.connect(str(db))
     from gpo_lens.store import init_db
+
     init_db(conn)
     conn.close()
     return str(db)
@@ -44,21 +46,32 @@ def populated_db(tmp_path):
     writer_sid_lower = writer_sid.lower()
     principals = {
         writer_sid_lower: ResolvedPrincipal(
-            sid=writer_sid_lower, name="TEST\\Helpdesk", sam="Helpdesk",
-            principal_type="Group", domain="TEST", resolved=True,
+            sid=writer_sid_lower,
+            name="TEST\\Helpdesk",
+            sam="Helpdesk",
+            principal_type="Group",
+            domain="TEST",
+            resolved=True,
         ),
     }
     gpo = Gpo(
         id="11111111111111111111111111111111",
         name="gpo-writer",
         domain="test.local",
-        created=None, modified=None, read=None,
-        computer_enabled=True, user_enabled=True,
-        computer_ver_ds=None, computer_ver_sysvol=None,
-        user_ver_ds=None, user_ver_sysvol=None,
+        created=None,
+        modified=None,
+        read=None,
+        computer_enabled=True,
+        user_enabled=True,
+        computer_ver_ds=None,
+        computer_ver_sysvol=None,
+        user_ver_ds=None,
+        user_ver_sysvol=None,
         sddl=f"O:BAG:BAD:(A;;GA;;;{writer_sid})",
-        owner=None, filter_data_available=False,
-        wmi_filter=None, sysvol_path=None,
+        owner=None,
+        filter_data_available=False,
+        wmi_filter=None,
+        sysvol_path=None,
         settings=[],
         delegation=[
             DelegationEntry(

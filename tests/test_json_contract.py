@@ -13,6 +13,7 @@ A change here is a contract change, not an incidental test edit:
 The volatile envelope fields (``tool_version``, ``generated_at``) are
 informational and deliberately not pinned to exact values.
 """
+
 from __future__ import annotations
 
 import json
@@ -67,6 +68,7 @@ def _assert_keys(obj: dict, required: set[str], where: str) -> None:
 
 
 # --- Envelope invariants ----------------------------------------------------
+
 
 def test_every_consumed_command_emits_the_envelope(capsys, contract_db):
     """Every DB-driven --json command carries the versioned envelope.
@@ -127,6 +129,7 @@ def test_every_consumed_command_emits_the_envelope(capsys, contract_db):
 
 # --- Per-command data shapes ------------------------------------------------
 
+
 def test_summary_shape(capsys, contract_db):
     data = _payload(capsys, contract_db, "summary")
     assert isinstance(data, dict)
@@ -154,8 +157,15 @@ def test_settings_dump_shape(capsys, contract_db):
     _assert_keys(
         data[0],
         {
-            "gpo_id", "gpo_name", "side", "cse", "identity",
-            "display_name", "display_value", "from_disabled_side", "source_state",
+            "gpo_id",
+            "gpo_name",
+            "side",
+            "cse",
+            "identity",
+            "display_name",
+            "display_value",
+            "from_disabled_side",
+            "source_state",
         },
         "settings-dump[]",
     )
@@ -178,8 +188,15 @@ def test_baseline_diff_shape(capsys, contract_db):
     _assert_keys(
         data[0],
         {
-            "status", "side", "cse", "identity", "display_name",
-            "expected_value", "actual_value", "gpo_id", "admx_name",
+            "status",
+            "side",
+            "cse",
+            "identity",
+            "display_name",
+            "expected_value",
+            "actual_value",
+            "gpo_id",
+            "admx_name",
         },
         "baseline-diff[]",
     )
@@ -215,8 +232,16 @@ def test_scope_shape(capsys, contract_db):
     _assert_keys(
         data,
         {
-            "gpo_id", "gpo_name", "domain", "computer_enabled", "user_enabled",
-            "links", "security_filtering", "wmi_filter", "loopback_mode", "caveats",
+            "gpo_id",
+            "gpo_name",
+            "domain",
+            "computer_enabled",
+            "user_enabled",
+            "links",
+            "security_filtering",
+            "wmi_filter",
+            "loopback_mode",
+            "caveats",
         },
         "scope",
     )
@@ -233,8 +258,16 @@ def test_gpp_tasks_shape(capsys, contract_db):
     _assert_keys(
         data[0],
         {
-            "gpo_id", "gpo_name", "side", "file", "kind", "name",
-            "action", "command", "arguments", "run_as",
+            "gpo_id",
+            "gpo_name",
+            "side",
+            "file",
+            "kind",
+            "name",
+            "action",
+            "command",
+            "arguments",
+            "run_as",
         },
         "gpp-tasks[]",
     )
@@ -246,8 +279,14 @@ def test_gpp_groups_shape(capsys, contract_db):
     _assert_keys(
         data[0],
         {
-            "gpo_id", "gpo_name", "side", "file", "group_name",
-            "group_sid", "members_added", "members_removed",
+            "gpo_id",
+            "gpo_name",
+            "side",
+            "file",
+            "group_name",
+            "group_sid",
+            "members_added",
+            "members_removed",
         },
         "gpp-groups[]",
     )
@@ -261,14 +300,22 @@ def test_show_shape(capsys, contract_db):
     _assert_keys(
         data,
         {
-            "id", "name", "domain", "description", "computer_enabled",
-            "user_enabled", "links", "settings_count", "delegation_count",
+            "id",
+            "name",
+            "domain",
+            "description",
+            "computer_enabled",
+            "user_enabled",
+            "links",
+            "settings_count",
+            "delegation_count",
         },
         "show",
     )
 
 
 # --- Hygiene-list command shapes -------------------------------------------
+
 
 def _assert_list_of(obj, required: set[str], where: str) -> None:
     assert isinstance(obj, list), f"{where}: expected list"
@@ -333,6 +380,7 @@ def test_topology_check_shape(capsys, contract_db):
 
 # --- Topology command shapes ------------------------------------------------
 
+
 def test_som_shape(capsys, contract_db):
     data = _payload(capsys, contract_db, "som", ROOT_DN)
     assert isinstance(data, list) and data
@@ -346,7 +394,9 @@ def test_som_shape(capsys, contract_db):
 def test_dangling_shape(capsys, contract_db):
     data = _payload(capsys, contract_db, "dangling")
     _assert_list_of(
-        data, {"som_path", "som_name", "gpo_id", "order"}, "dangling[]",
+        data,
+        {"som_path", "som_name", "gpo_id", "order"},
+        "dangling[]",
     )
 
 
@@ -388,8 +438,15 @@ def test_settings_at_shape(capsys, contract_db):
         _assert_keys(
             data["settings"][0],
             {
-                "cse", "side", "identity", "display_name", "display_value",
-                "winner_gpo_id", "winner_gpo_name", "overridden_by", "enforced",
+                "cse",
+                "side",
+                "identity",
+                "display_name",
+                "display_value",
+                "winner_gpo_id",
+                "winner_gpo_name",
+                "overridden_by",
+                "enforced",
             },
             "settings-at.settings[]",
         )
@@ -424,6 +481,7 @@ def test_precedence_conflicts_shape(capsys, contract_db):
 
 # --- Settings-inspection command shapes ------------------------------------
 
+
 def test_who_sets_shape(capsys, contract_db):
     data = _payload(capsys, contract_db, "who-sets", "BadValue")
     assert isinstance(data, list) and data
@@ -455,11 +513,14 @@ def test_search_shape(capsys, contract_db):
     data = _payload(capsys, contract_db, "search", "gpo")
     assert isinstance(data, list) and data
     _assert_keys(
-        data[0], {"gpo_id", "field", "detail"}, "search[]",
+        data[0],
+        {"gpo_id", "field", "detail"},
+        "search[]",
     )
 
 
 # --- Delegation / permissions shapes ---------------------------------------
+
 
 def test_perms_shape(capsys, contract_db):
     data = _payload(capsys, contract_db, "perms")
@@ -472,8 +533,11 @@ def test_delegation_shape(capsys, contract_db):
     _assert_keys(
         data,
         {
-            "privilege_rollup", "orphaned_sids", "broad_writers",
-            "deny_aces", "excessive_writers",
+            "privilege_rollup",
+            "orphaned_sids",
+            "broad_writers",
+            "deny_aces",
+            "excessive_writers",
         },
         "delegation",
     )
@@ -490,6 +554,7 @@ def test_sddl_shape(capsys, contract_db):
 
 # --- Snapshot / diff command shapes ----------------------------------------
 
+
 def test_snapshots_shape(capsys, contract_db):
     data = _payload(capsys, contract_db, "snapshots")
     assert isinstance(data, list) and data
@@ -502,9 +567,15 @@ def test_diff_shape(capsys, contract_db):
     _assert_keys(
         data,
         {
-            "gpos_added", "gpos_removed", "settings_changed", "links_changed",
-            "delegation_changed", "version_skew_changed", "metadata_changes",
-            "wmi_filter_changes", "enabled_flips",
+            "gpos_added",
+            "gpos_removed",
+            "settings_changed",
+            "links_changed",
+            "delegation_changed",
+            "version_skew_changed",
+            "metadata_changes",
+            "wmi_filter_changes",
+            "enabled_flips",
         },
         "diff",
     )
@@ -515,8 +586,14 @@ def test_diff_settings_shape(capsys, contract_db):
     _assert_list_of(
         data,
         {
-            "gpo_id", "gpo_name", "side", "cse", "identity",
-            "change_type", "old_value", "new_value",
+            "gpo_id",
+            "gpo_name",
+            "side",
+            "cse",
+            "identity",
+            "change_type",
+            "old_value",
+            "new_value",
         },
         "diff-settings[]",
     )
@@ -529,14 +606,20 @@ def test_changelog_shape(capsys, contract_db):
         _assert_keys(
             data[0],
             {
-                "gpo_id", "gpo_name", "kind", "side", "summary",
-                "version_change", "setting_changes",
+                "gpo_id",
+                "gpo_name",
+                "kind",
+                "side",
+                "summary",
+                "version_change",
+                "setting_changes",
             },
             "changelog[]",
         )
 
 
 # --- Special-case commands (non-standard invocation) -----------------------
+
 
 def test_ingest_shape(capsys, contract_db):
     """``ingest`` is mutating, so it is pinned here, not in ``cases``.
@@ -578,6 +661,7 @@ def test_settings_diff_shape(capsys, contract_db, tmp_path):
 
 # --- Contract guards (the gaps this freeze closed) --------------------------
 
+
 def test_report_json_is_refused_not_silently_markdown(capsys, contract_db):
     """`report` is a human document; --json must error, not emit Markdown."""
     rc = main(["--json", "--db", str(contract_db), "report"])
@@ -602,6 +686,7 @@ def test_scope_not_found_errors_off_stdout(capsys, contract_db):
 # have a subcommand-level ``--json`` flag that historically shadowed the global
 # flag; both flag positions now work, but these tests keep using the
 # post-subcommand form for consistency.
+
 
 def _run_subjson(capsys, db, kind, *argv):
     """Run a command whose subparser defines its own --json (post-subcommand)."""
@@ -632,8 +717,15 @@ def test_danger_shape(capsys, contract_db):
     _assert_list_of(
         data,
         {
-            "check_id", "severity", "title", "gpo_id", "gpo_name",
-            "detail", "reference", "compliance", "remediation",
+            "check_id",
+            "severity",
+            "title",
+            "gpo_id",
+            "gpo_name",
+            "detail",
+            "reference",
+            "compliance",
+            "remediation",
         },
         "danger[]",
     )
@@ -660,10 +752,18 @@ def test_trends_shape(capsys, contract_db):
     _assert_keys(
         data[0],
         {
-            "snapshot_id", "taken_at", "gpo_count", "danger_finding_count",
-            "cpassword_hit_count", "ms16_072_vulnerable_count",
-            "version_skew_count", "broken_ref_count", "unlinked_count",
-            "empty_count", "total_settings", "coverage_gap_count",
+            "snapshot_id",
+            "taken_at",
+            "gpo_count",
+            "danger_finding_count",
+            "cpassword_hit_count",
+            "ms16_072_vulnerable_count",
+            "version_skew_count",
+            "broken_ref_count",
+            "unlinked_count",
+            "empty_count",
+            "total_settings",
+            "coverage_gap_count",
         },
         "trends[]",
     )
@@ -702,42 +802,80 @@ def test_resultant_shape(capsys, tmp_path):
     store.init_db(conn)
     estate = Estate(
         domain="test.local",
-        gpos=[Gpo(
-            id=gpo_id, name="gpo-test", domain="test.local",
-            created=None, modified=None, read=None,
-            computer_enabled=True, user_enabled=True,
-            computer_ver_ds=None, computer_ver_sysvol=None,
-            user_ver_ds=None, user_ver_sysvol=None,
-            sddl=None, owner=None, filter_data_available=False,
-            wmi_filter=None, sysvol_path=None,
-            settings=[Setting(
-                gpo_id=gpo_id, side="User", cse="Registry",
-                identity=r"HKCU\Software\A", display_name="A",
-                display_value="1", raw={}, from_disabled_side=False,
-            )],
-            delegation=[DelegationEntry(
-                gpo_id=gpo_id, trustee="Authenticated Users",
-                trustee_sid="S-1-5-11", permission="Apply Group Policy",
-                allowed=True,
-            )],
-        )],
-        soms=[Som(
-            path=root_dn, name="test", container_type="domain",
-            inheritance_blocked=False,
-            links=[SomLink(
-                gpo_id=gpo_id, order=1, enabled=True, enforced=False,
-                target=root_dn,
-            )],
-        )],
+        gpos=[
+            Gpo(
+                id=gpo_id,
+                name="gpo-test",
+                domain="test.local",
+                created=None,
+                modified=None,
+                read=None,
+                computer_enabled=True,
+                user_enabled=True,
+                computer_ver_ds=None,
+                computer_ver_sysvol=None,
+                user_ver_ds=None,
+                user_ver_sysvol=None,
+                sddl=None,
+                owner=None,
+                filter_data_available=False,
+                wmi_filter=None,
+                sysvol_path=None,
+                settings=[
+                    Setting(
+                        gpo_id=gpo_id,
+                        side="User",
+                        cse="Registry",
+                        identity=r"HKCU\Software\A",
+                        display_name="A",
+                        display_value="1",
+                        raw={},
+                        from_disabled_side=False,
+                    )
+                ],
+                delegation=[
+                    DelegationEntry(
+                        gpo_id=gpo_id,
+                        trustee="Authenticated Users",
+                        trustee_sid="S-1-5-11",
+                        permission="Apply Group Policy",
+                        allowed=True,
+                    )
+                ],
+            )
+        ],
+        soms=[
+            Som(
+                path=root_dn,
+                name="test",
+                container_type="domain",
+                inheritance_blocked=False,
+                links=[
+                    SomLink(
+                        gpo_id=gpo_id,
+                        order=1,
+                        enabled=True,
+                        enforced=False,
+                        target=root_dn,
+                    )
+                ],
+            )
+        ],
         principals={
             user_sid: ResolvedPrincipal(
-                sid=user_sid, name="TEST\\jdoe", sam="jdoe",
-                principal_type="User", domain="TEST", resolved=True,
+                sid=user_sid,
+                name="TEST\\jdoe",
+                sam="jdoe",
+                principal_type="User",
+                domain="TEST",
+                resolved=True,
             ),
         },
         group_members={
             group_sid: GroupMembership(
-                sid=group_sid, name="TEST\\Users", members=(user_sid,),
+                sid=group_sid,
+                name="TEST\\Users",
+                members=(user_sid,),
                 member_count=1,
             ),
         },
@@ -750,9 +888,15 @@ def test_resultant_shape(capsys, tmp_path):
     _assert_keys(
         data,
         {
-            "principal_sid", "principal_name", "computer_sid", "settings",
-            "excluded", "excluded_settings", "conditional_dangers",
-            "token_caveats", "caveat_summary",
+            "principal_sid",
+            "principal_name",
+            "computer_sid",
+            "settings",
+            "excluded",
+            "excluded_settings",
+            "conditional_dangers",
+            "token_caveats",
+            "caveat_summary",
         },
         "resultant",
     )
@@ -760,9 +904,17 @@ def test_resultant_shape(capsys, tmp_path):
         _assert_keys(
             data["settings"][0],
             {
-                "cse", "side", "identity", "display_name", "winning_value",
-                "winning_gpo_id", "winning_gpo_name", "merge_mode",
-                "overridden_by", "approximate", "conditional",
+                "cse",
+                "side",
+                "identity",
+                "display_name",
+                "winning_value",
+                "winning_gpo_id",
+                "winning_gpo_name",
+                "merge_mode",
+                "overridden_by",
+                "approximate",
+                "conditional",
             },
             "resultant.settings[]",
         )

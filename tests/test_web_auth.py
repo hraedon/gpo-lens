@@ -67,7 +67,9 @@ class TestRolePermissions:
 
     def test_operator_has_view_ingest_triage(self):
         assert ROLE_PERMISSIONS["operator"] == {
-            Permission.VIEW, Permission.INGEST, Permission.TRIAGE
+            Permission.VIEW,
+            Permission.INGEST,
+            Permission.TRIAGE,
         }
 
     def test_admin_has_all_permissions(self):
@@ -287,9 +289,7 @@ class TestForwardedUser:
     def test_forwarded_name_is_sanitized_and_capped(self, monkeypatch):
         monkeypatch.delenv("GPO_LENS_AUTH_TOKEN", raising=False)
         monkeypatch.setenv("GPO_LENS_FORWARDED_USER_HEADER", "X-Forwarded-User")
-        req = FakeRequest(
-            "127.0.0.1", {"X-Forwarded-User": "al\x00ice\r\n" + "x" * 400}
-        )
+        req = FakeRequest("127.0.0.1", {"X-Forwarded-User": "al\x00ice\r\n" + "x" * 400})
         principal = get_principal(req)
         assert "\x00" not in principal.name
         assert "\n" not in principal.name
@@ -303,6 +303,3 @@ class TestForwardedUser:
         req = FakeRequest("127.0.0.1", {"X-Forwarded-User": "CONTOSO\\alice"})
         principal = get_principal(req, authorization="Bearer secret")
         assert principal == LOCAL_PRINCIPAL
-
-
-

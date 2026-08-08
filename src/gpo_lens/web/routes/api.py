@@ -168,7 +168,8 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
                 hits: list[CpasswordHit] = query_result  # type: ignore[assignment]
                 query_result = [
                     dataclasses.replace(
-                        hit, cpassword=mask_cpassword(hit.cpassword),
+                        hit,
+                        cpassword=mask_cpassword(hit.cpassword),
                     )
                     for hit in hits
                 ]

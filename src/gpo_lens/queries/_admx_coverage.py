@@ -28,23 +28,23 @@ if TYPE_CHECKING:
 class AdmxCoverageEntry:
     """One ADMX policy's coverage status in the estate."""
 
-    policy_name: str        # ADMX policy name (e.g. "Pol_NoControlPanel")
-    display_name: str       # resolved display name from ADML
-    class_scope: str        # "Machine" | "User" | "Both"
-    registry_key: str      # registry key path
-    value_name: str         # registry value name
-    is_referenced: bool     # True if any GPO sets this policy
-    referenced_gpos: str    # comma-separated GPO names (empty if not referenced)
+    policy_name: str  # ADMX policy name (e.g. "Pol_NoControlPanel")
+    display_name: str  # resolved display name from ADML
+    class_scope: str  # "Machine" | "User" | "Both"
+    registry_key: str  # registry key path
+    value_name: str  # registry value name
+    is_referenced: bool  # True if any GPO sets this policy
+    referenced_gpos: str  # comma-separated GPO names (empty if not referenced)
 
 
 @dataclass(frozen=True)
 class AdmxCoverageSummary:
     """Summary of ADMX template coverage across the estate."""
 
-    total_policies: int         # total policies defined in ADMX templates
-    referenced_policies: int     # policies referenced by >=1 GPO
+    total_policies: int  # total policies defined in ADMX templates
+    referenced_policies: int  # policies referenced by >=1 GPO
     unreferenced_policies: int  # policies defined but not used
-    gap_count: int              # estate Registry settings with no ADMX match
+    gap_count: int  # estate Registry settings with no ADMX match
 
 
 @dataclass(frozen=True)
@@ -115,25 +115,29 @@ def admx_coverage(
                     break
 
         if refs:
-            referenced.append(AdmxCoverageEntry(
-                policy_name=policy.name,
-                display_name=policy.display_name,
-                class_scope=policy.class_scope,
-                registry_key=policy.key,
-                value_name=policy.value_name,
-                is_referenced=True,
-                referenced_gpos=",".join(sorted(set(refs))),
-            ))
+            referenced.append(
+                AdmxCoverageEntry(
+                    policy_name=policy.name,
+                    display_name=policy.display_name,
+                    class_scope=policy.class_scope,
+                    registry_key=policy.key,
+                    value_name=policy.value_name,
+                    is_referenced=True,
+                    referenced_gpos=",".join(sorted(set(refs))),
+                )
+            )
         else:
-            unreferenced.append(AdmxCoverageEntry(
-                policy_name=policy.name,
-                display_name=policy.display_name,
-                class_scope=policy.class_scope,
-                registry_key=policy.key,
-                value_name=policy.value_name,
-                is_referenced=False,
-                referenced_gpos="",
-            ))
+            unreferenced.append(
+                AdmxCoverageEntry(
+                    policy_name=policy.name,
+                    display_name=policy.display_name,
+                    class_scope=policy.class_scope,
+                    registry_key=policy.key,
+                    value_name=policy.value_name,
+                    is_referenced=False,
+                    referenced_gpos="",
+                )
+            )
 
     gaps: list[AdmxCoverageEntry] = []
     for g in estate.gpos:
@@ -151,15 +155,17 @@ def admx_coverage(
             key_path = parts[0] if parts else s.identity
             value_name = parts[1] if len(parts) > 1 else s.display_name
 
-            gaps.append(AdmxCoverageEntry(
-                policy_name="",
-                display_name=s.display_name,
-                class_scope="Machine" if s.side == "Computer" else "User",
-                registry_key=key_path,
-                value_name=value_name,
-                is_referenced=False,
-                referenced_gpos=g.name,
-            ))
+            gaps.append(
+                AdmxCoverageEntry(
+                    policy_name="",
+                    display_name=s.display_name,
+                    class_scope="Machine" if s.side == "Computer" else "User",
+                    registry_key=key_path,
+                    value_name=value_name,
+                    is_referenced=False,
+                    referenced_gpos=g.name,
+                )
+            )
 
     summary = AdmxCoverageSummary(
         total_policies=len(policies),

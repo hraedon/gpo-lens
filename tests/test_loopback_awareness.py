@@ -3,6 +3,7 @@
 Acceptance criterion: a fixture with a loopback-replace GPO shows the loopback
 caveat banner in the CLI output.
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -26,27 +27,45 @@ _LOOPBACK_RAW = {
     "tag": "Policy",
     "children": [
         {"tag": "State", "text": "Enabled"},
-        {"tag": "DropDownList", "children": [
-            {"tag": "Value", "children": [
-                {"tag": "Name", "text": "Replace"},
-            ]},
-        ]},
+        {
+            "tag": "DropDownList",
+            "children": [
+                {
+                    "tag": "Value",
+                    "children": [
+                        {"tag": "Name", "text": "Replace"},
+                    ],
+                },
+            ],
+        },
     ],
 }
 
 
 def _make_loopback_estate() -> Estate:
     gpo_lb = Gpo(
-        id=GPO_LOOPBACK, name="Loopback-Policy", domain="test.local",
-        created=None, modified=None, read=None,
-        computer_enabled=True, user_enabled=True,
-        computer_ver_ds=None, computer_ver_sysvol=None,
-        user_ver_ds=None, user_ver_sysvol=None,
-        sddl=None, owner=None, filter_data_available=False,
-        wmi_filter=None, sysvol_path=None,
+        id=GPO_LOOPBACK,
+        name="Loopback-Policy",
+        domain="test.local",
+        created=None,
+        modified=None,
+        read=None,
+        computer_enabled=True,
+        user_enabled=True,
+        computer_ver_ds=None,
+        computer_ver_sysvol=None,
+        user_ver_ds=None,
+        user_ver_sysvol=None,
+        sddl=None,
+        owner=None,
+        filter_data_available=False,
+        wmi_filter=None,
+        sysvol_path=None,
         settings=[
             Setting(
-                gpo_id=GPO_LOOPBACK, side="Computer", cse="Registry",
+                gpo_id=GPO_LOOPBACK,
+                side="Computer",
+                cse="Registry",
                 identity="Configure user group policy loopback processing mode",
                 display_name="Loopback Processing Mode",
                 display_value="Replace",
@@ -56,18 +75,33 @@ def _make_loopback_estate() -> Estate:
         ],
     )
     gpo_normal = Gpo(
-        id=GPO_NORMAL, name="Normal-Policy", domain="test.local",
-        created=None, modified=None, read=None,
-        computer_enabled=True, user_enabled=True,
-        computer_ver_ds=None, computer_ver_sysvol=None,
-        user_ver_ds=None, user_ver_sysvol=None,
-        sddl=None, owner=None, filter_data_available=False,
-        wmi_filter=None, sysvol_path=None,
+        id=GPO_NORMAL,
+        name="Normal-Policy",
+        domain="test.local",
+        created=None,
+        modified=None,
+        read=None,
+        computer_enabled=True,
+        user_enabled=True,
+        computer_ver_ds=None,
+        computer_ver_sysvol=None,
+        user_ver_ds=None,
+        user_ver_sysvol=None,
+        sddl=None,
+        owner=None,
+        filter_data_available=False,
+        wmi_filter=None,
+        sysvol_path=None,
         settings=[
             Setting(
-                gpo_id=GPO_NORMAL, side="User", cse="Registry",
-                identity=r"HKCU\Software\Foo:Bar", display_name="Foo Bar",
-                display_value="42", raw={}, from_disabled_side=False,
+                gpo_id=GPO_NORMAL,
+                side="User",
+                cse="Registry",
+                identity=r"HKCU\Software\Foo:Bar",
+                display_name="Foo Bar",
+                display_value="42",
+                raw={},
+                from_disabled_side=False,
             ),
         ],
     )
@@ -76,28 +110,39 @@ def _make_loopback_estate() -> Estate:
         gpos=[gpo_lb, gpo_normal],
         soms=[
             Som(
-                path=SOM_DOMAIN, name="test.local",
-                container_type="domain", inheritance_blocked=False,
+                path=SOM_DOMAIN,
+                name="test.local",
+                container_type="domain",
+                inheritance_blocked=False,
                 links=[
-                    SomLink(gpo_id=GPO_NORMAL, order=1, enabled=True,
-                            enforced=False, target=SOM_DOMAIN),
+                    SomLink(
+                        gpo_id=GPO_NORMAL, order=1, enabled=True, enforced=False, target=SOM_DOMAIN
+                    ),
                 ],
             ),
             Som(
-                path=SOM_OU, name="Workstations",
-                container_type="ou", inheritance_blocked=False,
+                path=SOM_OU,
+                name="Workstations",
+                container_type="ou",
+                inheritance_blocked=False,
                 links=[
-                    SomLink(gpo_id=GPO_LOOPBACK, order=1, enabled=True,
-                            enforced=False, target=SOM_OU),
-                    SomLink(gpo_id=GPO_NORMAL, order=2, enabled=True,
-                            enforced=False, target=SOM_OU),
+                    SomLink(
+                        gpo_id=GPO_LOOPBACK, order=1, enabled=True, enforced=False, target=SOM_OU
+                    ),
+                    SomLink(
+                        gpo_id=GPO_NORMAL, order=2, enabled=True, enforced=False, target=SOM_OU
+                    ),
                 ],
             ),
         ],
         principals={
             USER_SID_LOWER: __import__("gpo_lens").model.ResolvedPrincipal(
-                sid=USER_SID_LOWER, name="TEST\\user1", sam="user1",
-                principal_type="User", domain="TEST", resolved=True,
+                sid=USER_SID_LOWER,
+                name="TEST\\user1",
+                sam="user1",
+                principal_type="User",
+                domain="TEST",
+                resolved=True,
             ),
         },
     )

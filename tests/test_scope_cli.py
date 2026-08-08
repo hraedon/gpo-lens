@@ -320,8 +320,8 @@ class TestScopeCLIDetail:
 
     def test_settings_at_shows_caveats(self, multi_gpo_db) -> None:
         r = subprocess.run(
-            GPO_LENS + ["--db", str(multi_gpo_db), "settings-at",
-                        "ou=workstations,dc=test,dc=local"],
+            GPO_LENS
+            + ["--db", str(multi_gpo_db), "settings-at", "ou=workstations,dc=test,dc=local"],
             capture_output=True,
             text=True,
         )
@@ -332,8 +332,14 @@ class TestScopeCLIDetail:
         import json
 
         r = subprocess.run(
-            GPO_LENS + ["--json", "--db", str(multi_gpo_db), "settings-at",
-                        "ou=workstations,dc=test,dc=local"],
+            GPO_LENS
+            + [
+                "--json",
+                "--db",
+                str(multi_gpo_db),
+                "settings-at",
+                "ou=workstations,dc=test,dc=local",
+            ],
             capture_output=True,
             text=True,
         )

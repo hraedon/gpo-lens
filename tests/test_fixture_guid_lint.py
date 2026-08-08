@@ -5,6 +5,7 @@ GPO identifiers must be canonical (lowercase, no hyphens, no braces) per
 simulate real GPO XML / collector output.  ``test_normalize.py`` is exempt
 because it exercises ``canonical_guid`` with hyphenated input.
 """
+
 from __future__ import annotations
 
 import ast

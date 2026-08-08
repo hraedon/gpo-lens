@@ -43,8 +43,7 @@ class TrendPoint:
 # Derived automatically from TrendPoint fields so it stays in sync if new
 # metrics are added.
 _CHANGE_METRICS: tuple[str, ...] = tuple(
-    f.name for f in dataclasses.fields(TrendPoint)
-    if f.name not in ("snapshot_id", "taken_at")
+    f.name for f in dataclasses.fields(TrendPoint) if f.name not in ("snapshot_id", "taken_at")
 )
 
 # Unicode block elements for sparklines (low -> high).
@@ -123,7 +122,4 @@ def sparkline(values: list[int]) -> str:
     if hi == 0:
         return _BLOCKS[0] * len(values)
     n = len(_BLOCKS) - 1
-    return "".join(
-        _BLOCKS[min(n, int(v / hi * n))]
-        for v in values
-    )
+    return "".join(_BLOCKS[min(n, int(v / hi * n))] for v in values)

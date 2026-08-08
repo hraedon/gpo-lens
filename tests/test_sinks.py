@@ -281,6 +281,7 @@ class TestHecSink:
 def _make_handler(code: int):
     def handler(*args: Any, **kwargs: Any):
         return _StubHandler(code, *args, **kwargs)
+
     return handler
 
 

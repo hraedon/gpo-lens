@@ -42,21 +42,23 @@ class DelegationAudit:
 class DelegationRollupEntry:
     """One trustee's delegation across the estate (estate-wide rollup)."""
 
-    trustee: str               # display name from delegation entry
-    trustee_sid: str           # canonical SID (lowercase, or "")
-    resolved_name: str         # resolved name (or SID if unresolved)
-    is_resolved: bool          # True if SID was resolved to a name
-    is_unknown_sid: bool       # True if SID is not well-known or collected
-    is_default_writer: bool    # True if trustee is a default GPO writer
-    gpo_count: int             # number of GPOs with non-Read rights
+    trustee: str  # display name from delegation entry
+    trustee_sid: str  # canonical SID (lowercase, or "")
+    resolved_name: str  # resolved name (or SID if unresolved)
+    is_resolved: bool  # True if SID was resolved to a name
+    is_unknown_sid: bool  # True if SID is not well-known or collected
+    is_default_writer: bool  # True if trustee is a default GPO writer
+    gpo_count: int  # number of GPOs with non-Read rights
     gpo_names: tuple[str, ...]  # sorted GPO names
     permissions: tuple[str, ...]  # distinct permission labels
 
 
-_READ_PERMISSIONS = frozenset({
-    "read",
-    "apply group policy",
-})
+_READ_PERMISSIONS = frozenset(
+    {
+        "read",
+        "apply group policy",
+    }
+)
 
 
 def _is_read_only(permission: str) -> bool:
@@ -81,8 +83,10 @@ def delegation_rollup(estate: Estate) -> list[DelegationRollupEntry]:
     Results are sorted by ``gpo_count`` descending (breadth-first), then by
     trustee name.
     """
+
     class _Acc:
         __slots__ = ("trustee", "sid", "gpos", "permissions")
+
         def __init__(self) -> None:
             self.trustee: str = ""
             self.sid: str = ""
@@ -128,17 +132,19 @@ def delegation_rollup(estate: Estate) -> list[DelegationRollupEntry]:
             is_unknown = not trustee_name
             is_default = _is_default_writer(trustee_name)
 
-        results.append(DelegationRollupEntry(
-            trustee=trustee_name,
-            trustee_sid=sid,
-            resolved_name=resolved_name,
-            is_resolved=is_resolved,
-            is_unknown_sid=is_unknown,
-            is_default_writer=is_default,
-            gpo_count=len(acc.gpos),
-            gpo_names=tuple(sorted(acc.gpos)),
-            permissions=tuple(sorted(acc.permissions)),
-        ))
+        results.append(
+            DelegationRollupEntry(
+                trustee=trustee_name,
+                trustee_sid=sid,
+                resolved_name=resolved_name,
+                is_resolved=is_resolved,
+                is_unknown_sid=is_unknown,
+                is_default_writer=is_default,
+                gpo_count=len(acc.gpos),
+                gpo_names=tuple(sorted(acc.gpos)),
+                permissions=tuple(sorted(acc.permissions)),
+            )
+        )
 
     results.sort(key=lambda e: (-e.gpo_count, e.resolved_name.lower()))
     return results

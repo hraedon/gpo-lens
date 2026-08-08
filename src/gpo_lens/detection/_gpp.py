@@ -37,14 +37,14 @@ class ScheduledTaskInfo:
 
     gpo_id: str
     gpo_name: str
-    side: Side              # "Computer" (Machine) or "User"
-    file: str               # rel file path within SYSVOL
-    kind: str               # element local name: "Task", "ImmediateTaskV2", ...
-    name: str               # task name attribute
-    action: str             # CREATE / REPLACE / UPDATE / DELETE
-    command: str            # executable path (appName / Path)
+    side: Side  # "Computer" (Machine) or "User"
+    file: str  # rel file path within SYSVOL
+    kind: str  # element local name: "Task", "ImmediateTaskV2", ...
+    name: str  # task name attribute
+    action: str  # CREATE / REPLACE / UPDATE / DELETE
+    command: str  # executable path (appName / Path)
     arguments: str
-    run_as: str             # run-as account, if specified
+    run_as: str  # run-as account, if specified
 
 
 @dataclass(frozen=True)
@@ -55,8 +55,8 @@ class LocalGroupMod:
     gpo_name: str
     side: Side
     file: str
-    group_name: str                 # target local group, e.g. "Administrators"
-    group_sid: str                  # e.g. S-1-5-32-544
+    group_name: str  # target local group, e.g. "Administrators"
+    group_sid: str  # e.g. S-1-5-32-544
     members_added: tuple[str, ...]
     members_removed: tuple[str, ...]
 
@@ -70,11 +70,23 @@ class _GppXmlFile:
 
 
 _GPP_XML_FILES = (
-    "Groups.xml", "Services.xml", "Drives.xml", "ScheduledTasks.xml",
-    "DataSources.xml", "Printers.xml", "Folders.xml", "Files.xml",
-    "Registry.xml", "Environment.xml", "Shortcuts.xml", "InternetSettings.xml",
-    "Regional.xml", "PowerOptions.xml", "NetworkShares.xml",
-    "LocalUsersAndGroups.xml", "EventLogs.xml",
+    "Groups.xml",
+    "Services.xml",
+    "Drives.xml",
+    "ScheduledTasks.xml",
+    "DataSources.xml",
+    "Printers.xml",
+    "Folders.xml",
+    "Files.xml",
+    "Registry.xml",
+    "Environment.xml",
+    "Shortcuts.xml",
+    "InternetSettings.xml",
+    "Regional.xml",
+    "PowerOptions.xml",
+    "NetworkShares.xml",
+    "LocalUsersAndGroups.xml",
+    "EventLogs.xml",
 )
 
 _SIDE_MAP: dict[str, Side] = {"Machine": "Computer", "User": "User"}
@@ -92,15 +104,23 @@ _GPP_PATH_ATTRS: dict[str, tuple[str, ...]] = {
     "LocalPrinter": ("path", "port"),
 }
 
-_TASK_ELEMENT_NAMES = frozenset({
-    "Task", "TaskV2", "ScheduledTask", "ImmediateTask", "ImmediateTaskV2",
-})
+_TASK_ELEMENT_NAMES = frozenset(
+    {
+        "Task",
+        "TaskV2",
+        "ScheduledTask",
+        "ImmediateTask",
+        "ImmediateTaskV2",
+    }
+)
 
 _localname = localname
 
 
 def _walk_gpp_xml(
-    gpo: Gpo, *, only_known: bool = False,
+    gpo: Gpo,
+    *,
+    only_known: bool = False,
 ) -> Iterable[_GppXmlFile]:
     """Yield normalized ``(side, cse, tree, rel_file)`` for parseable GPP XML."""
     if not gpo.sysvol_path:
@@ -132,9 +152,7 @@ def _walk_gpp_xml(
         for entry in entries:
             try:
                 if entry.is_dir():
-                    candidates.extend(
-                        sorted(c for c in entry.iterdir() if c.is_file())
-                    )
+                    candidates.extend(sorted(c for c in entry.iterdir() if c.is_file()))
                 elif entry.is_file():
                     candidates.append(entry)
             except OSError:
@@ -237,19 +255,27 @@ def _scan_gpp_xml_for_refs(gpo: Gpo) -> list[BrokenRef]:
                             if cse_lower in ("drives", "printers")
                             else "gpp_file_ref"
                         )
-                        results.append(BrokenRef(
-                            gpo_id=gpo.id, gpo_name=gpo.name,
-                            ref_type=ref_type, ref_value=unc,
-                            detail=f"GPP {rel_file} <{src_tag} @{attr}>: UNC path",
-                        ))
+                        results.append(
+                            BrokenRef(
+                                gpo_id=gpo.id,
+                                gpo_name=gpo.name,
+                                ref_type=ref_type,
+                                ref_value=unc,
+                                detail=f"GPP {rel_file} <{src_tag} @{attr}>: UNC path",
+                            )
+                        )
             exe_val = _extract_xml_attr(elem, "appPath", "exePath", "Path")
             if exe_val and tag in ("ScheduledTask", "Task", "ImmediateTask"):
                 if exe_val and not exe_val.startswith("\\\\") and not exe_val.startswith("%"):
-                    results.append(BrokenRef(
-                        gpo_id=gpo.id, gpo_name=gpo.name,
-                        ref_type="scheduled_task_path", ref_value=exe_val,
-                        detail=f"GPP {rel_file} <{tag}>: executable path '{exe_val}'",
-                    ))
+                    results.append(
+                        BrokenRef(
+                            gpo_id=gpo.id,
+                            gpo_name=gpo.name,
+                            ref_type="scheduled_task_path",
+                            ref_value=exe_val,
+                            detail=f"GPP {rel_file} <{tag}>: executable path '{exe_val}'",
+                        )
+                    )
     return results
 
 
@@ -283,11 +309,7 @@ def scan_scheduled_tasks(gpo: Gpo) -> list[ScheduledTaskInfo]:
                 command = _extract_xml_attr(props, "appName", "Path", "exePath") or ""
                 arguments = props.get("arguments", "") or ""
                 action = props.get("action", "") or ""
-                run_as = (
-                    _extract_xml_attr(props, "runAs")
-                    or elem.get("runAs", "")
-                    or ""
-                )
+                run_as = _extract_xml_attr(props, "runAs") or elem.get("runAs", "") or ""
                 # V2 tasks store command/arguments/runAs in nested Task XML.
                 is_v2 = ln.endswith("V2")
                 if (not command or not arguments) and is_v2:
@@ -317,18 +339,20 @@ def scan_scheduled_tasks(gpo: Gpo) -> list[ScheduledTaskInfo]:
                                         run_as = user_id.text.strip()
             else:
                 run_as = elem.get("runAs", "") or ""
-            results.append(ScheduledTaskInfo(
-                gpo_id=gpo.id,
-                gpo_name=gpo.name,
-                side=walk.side,
-                file=str(walk.rel_file),
-                kind=ln,
-                name=elem.get("name", "") or "",
-                action=action,
-                command=command,
-                arguments=arguments,
-                run_as=run_as,
-            ))
+            results.append(
+                ScheduledTaskInfo(
+                    gpo_id=gpo.id,
+                    gpo_name=gpo.name,
+                    side=walk.side,
+                    file=str(walk.rel_file),
+                    kind=ln,
+                    name=elem.get("name", "") or "",
+                    action=action,
+                    command=command,
+                    arguments=arguments,
+                    run_as=run_as,
+                )
+            )
     return results
 
 
@@ -373,16 +397,18 @@ def scan_local_groups(gpo: Gpo) -> list[LocalGroupMod]:
                 else:
                     if m_name not in added:
                         added.append(m_name)
-            results.append(LocalGroupMod(
-                gpo_id=gpo.id,
-                gpo_name=gpo.name,
-                side=walk.side,
-                file=str(walk.rel_file),
-                group_name=group_name,
-                group_sid=group_sid,
-                members_added=tuple(added),
-                members_removed=tuple(removed),
-            ))
+            results.append(
+                LocalGroupMod(
+                    gpo_id=gpo.id,
+                    gpo_name=gpo.name,
+                    side=walk.side,
+                    file=str(walk.rel_file),
+                    group_name=group_name,
+                    group_sid=group_sid,
+                    members_added=tuple(added),
+                    members_removed=tuple(removed),
+                )
+            )
     return results
 
 
@@ -437,22 +463,30 @@ def broken_refs(estate: Estate) -> list[BrokenRef]:
                 ref_type = "unc_path"
                 if s.cse in ("Printers", "Drives", "Drive Maps"):
                     ref_type = "drive_mapping_unc"
-                _add(BrokenRef(
-                    gpo_id=g.id, gpo_name=g.name,
-                    ref_type=ref_type, ref_value=unc,
-                    detail=f"[{s.cse}] {s.identity}: UNC in display value",
-                ))
+                _add(
+                    BrokenRef(
+                        gpo_id=g.id,
+                        gpo_name=g.name,
+                        ref_type=ref_type,
+                        ref_value=unc,
+                        detail=f"[{s.cse}] {s.identity}: UNC in display value",
+                    )
+                )
 
             for text in _raw_strings(s.raw):
                 for unc in _scan_text_for_unc(text):
                     ref_type = "unc_path"
                     if s.cse in ("Printers", "Drives", "Drive Maps"):
                         ref_type = "drive_mapping_unc"
-                    _add(BrokenRef(
-                        gpo_id=g.id, gpo_name=g.name,
-                        ref_type=ref_type, ref_value=unc,
-                        detail=f"[{s.cse}] {s.identity}: UNC in raw data",
-                    ))
+                    _add(
+                        BrokenRef(
+                            gpo_id=g.id,
+                            gpo_name=g.name,
+                            ref_type=ref_type,
+                            ref_value=unc,
+                            detail=f"[{s.cse}] {s.identity}: UNC in raw data",
+                        )
+                    )
 
             if g.sysvol_path and s.cse in ("Scripts", "Group Policy Scripts"):
                 script_name = s.display_value.strip()
@@ -467,23 +501,31 @@ def broken_refs(estate: Estate) -> list[BrokenRef]:
                         for sub in ((), ("Logon",), ("Shutdown",), ("Startup",))
                     )
                     if not found_script:
-                        _add(BrokenRef(
-                            gpo_id=g.id, gpo_name=g.name,
-                            ref_type="missing_script", ref_value=script_name,
-                            detail=(
-                                f"[{s.cse}] {s.side}: "
-                                f"script '{script_name}' not found in SYSVOL"
-                            ),
-                        ))
+                        _add(
+                            BrokenRef(
+                                gpo_id=g.id,
+                                gpo_name=g.name,
+                                ref_type="missing_script",
+                                ref_value=script_name,
+                                detail=(
+                                    f"[{s.cse}] {s.side}: "
+                                    f"script '{script_name}' not found in SYSVOL"
+                                ),
+                            )
+                        )
 
             if s.cse in ("Scheduled Tasks",):
                 exe = s.display_value.strip()
                 if exe and not exe.startswith("\\\\") and not exe.startswith("%"):
-                    _add(BrokenRef(
-                        gpo_id=g.id, gpo_name=g.name,
-                        ref_type="scheduled_task_path", ref_value=exe,
-                        detail=f"[{s.cse}] {s.identity}: task path '{exe}'",
-                    ))
+                    _add(
+                        BrokenRef(
+                            gpo_id=g.id,
+                            gpo_name=g.name,
+                            ref_type="scheduled_task_path",
+                            ref_value=exe,
+                            detail=f"[{s.cse}] {s.identity}: task path '{exe}'",
+                        )
+                    )
 
     return results
 
@@ -526,10 +568,12 @@ def scan_ilt(estate: Estate) -> list[IltHit]:
             if file_has_filters:
                 gpo_files.add(walk.rel_file.as_posix())
         if gpo_filter_types:
-            results.append(IltHit(
-                gpo_id=gpo.id,
-                gpo_name=gpo.name,
-                files=tuple(sorted(gpo_files)),
-                filter_types=tuple(sorted(gpo_filter_types)),
-            ))
+            results.append(
+                IltHit(
+                    gpo_id=gpo.id,
+                    gpo_name=gpo.name,
+                    files=tuple(sorted(gpo_files)),
+                    filter_types=tuple(sorted(gpo_filter_types)),
+                )
+            )
     return results

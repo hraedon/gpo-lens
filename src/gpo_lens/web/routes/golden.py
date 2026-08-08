@@ -70,9 +70,7 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
                         },
                         status_code=413,
                     )
-                golden_gpos = await asyncio.to_thread(
-                    _ingest.load_baseline_from_zip, zip_path
-                )
+                golden_gpos = await asyncio.to_thread(_ingest.load_baseline_from_zip, zip_path)
 
             def _compute_diff():  # type: ignore[no-untyped-def]
                 golden_estate = _Estate(domain="golden", gpos=golden_gpos)
@@ -81,9 +79,7 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
                     estate = _store.load_estate(conn)
                 finally:
                     conn.close()
-                diff = queries.golden_diff(
-                    estate, golden_estate, admx=app.state.admx
-                )
+                diff = queries.golden_diff(estate, golden_estate, admx=app.state.admx)
                 live_names = {g.name.lower() for g in estate.gpos}
                 golden_names = {g.name.lower() for g in golden_estate.gpos}
                 summ = queries.golden_diff_summary(
@@ -98,8 +94,13 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
             )
             _audit("golden_diff", _principal, "success", detail, request)
         except (
-            ValueError, zipfile.BadZipFile, FileNotFoundError,
-            OSError, NotImplementedError, RuntimeError, MemoryError,
+            ValueError,
+            zipfile.BadZipFile,
+            FileNotFoundError,
+            OSError,
+            NotImplementedError,
+            RuntimeError,
+            MemoryError,
         ) as exc:
             _logger.warning("Invalid golden zip: %s", exc)
             _audit("golden_diff", _principal, "failure", type(exc).__name__, request)

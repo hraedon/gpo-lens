@@ -120,17 +120,13 @@ class TestRateLimitMiddleware:
             resp = rate_client.get("/static/favicon.svg")
             assert resp.status_code == 200
 
-    def test_ask_limit_separate_from_general(
-        self, rate_client: TestClient
-    ) -> None:
+    def test_ask_limit_separate_from_general(self, rate_client: TestClient) -> None:
         for _ in range(10):
             rate_client.get("/ask")
         resp = rate_client.get("/")
         assert resp.status_code == 200
 
-    def test_ingest_get_separate_from_ask_limit(
-        self, rate_client: TestClient
-    ) -> None:
+    def test_ingest_get_separate_from_ask_limit(self, rate_client: TestClient) -> None:
         for _ in range(10):
             rate_client.get("/ask")
         resp = rate_client.get("/ingest")
@@ -149,9 +145,7 @@ class TestRateLimitMiddleware:
         )
         assert resp.status_code == 429
 
-    def test_ingest_post_limit_separate_from_ask(
-        self, rate_client: TestClient
-    ) -> None:
+    def test_ingest_post_limit_separate_from_ask(self, rate_client: TestClient) -> None:
         for _ in range(10):
             rate_client.get("/ask")
         resp = rate_client.post(
@@ -160,9 +154,7 @@ class TestRateLimitMiddleware:
         )
         assert resp.status_code != 429
 
-    def test_disable_via_env_var(
-        self, rate_db: str, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_disable_via_env_var(self, rate_db: str, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("GPO_LENS_AUTH_TOKEN", "test-secret-token")
         monkeypatch.setenv("GPO_LENS_DISABLE_RATE_LIMIT", "1")
         app = create_app(rate_db)

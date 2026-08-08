@@ -1,4 +1,5 @@
 """Shared CLI helpers: estate loading, JSON rendering, default DB path."""
+
 from __future__ import annotations
 
 import argparse

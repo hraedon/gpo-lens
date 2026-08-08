@@ -115,9 +115,7 @@ def parse_identifier_set(raw: str) -> frozenset[str]:
         try:
             tokens.update(shlex.split(content))
         except ValueError as exc:  # unbalanced quote
-            raise ValueError(
-                f"denylist entry could not be parsed (check quoting): {exc}"
-            ) from exc
+            raise ValueError(f"denylist entry could not be parsed (check quoting): {exc}") from exc
     return _filter_identifiers(frozenset(tokens))
 
 
@@ -342,8 +340,13 @@ def collect_staged_paths() -> list[Path]:
     """
     return _paths_from_git(
         [
-            "git", "diff", "--cached", "--name-only",
-            "--diff-filter=ACM", "--no-renames", "-z",
+            "git",
+            "diff",
+            "--cached",
+            "--name-only",
+            "--diff-filter=ACM",
+            "--no-renames",
+            "-z",
         ]
     )
 
@@ -378,8 +381,7 @@ def _resolve_identifiers() -> frozenset[str] | None:
         # substitution: the longest name in the estate is 52 characters, 19 more
         # than the canonical one, which pushed this over the limit in two repos.
         print(
-            "GPO_LENS_FORBIDDEN_IDENTIFIERS is empty or unset; "
-            "skipping identifier gate.",
+            "GPO_LENS_FORBIDDEN_IDENTIFIERS is empty or unset; skipping identifier gate.",
             file=sys.stderr,
         )
         return None
@@ -472,8 +474,7 @@ def _run(args: argparse.Namespace) -> int:
         # substitution: the longest name in the estate is 52 characters, 19 more
         # than the canonical one, which pushed this over the limit in two repos.
         print(
-            "GPO_LENS_FORBIDDEN_IDENTIFIERS is empty or unset; "
-            "skipping identifier gate.",
+            "GPO_LENS_FORBIDDEN_IDENTIFIERS is empty or unset; skipping identifier gate.",
             file=sys.stderr,
         )
         return 0

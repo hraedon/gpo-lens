@@ -1,4 +1,5 @@
 """CLI subcommands for GPO hygiene checks (doctor, cpassword, version-skew, etc.)."""
+
 from __future__ import annotations
 
 import argparse
@@ -31,9 +32,7 @@ def cmd_disabled_populated(args: argparse.Namespace) -> None:
     estate = _get_estate(args)
     result = queries.disabled_but_populated(estate)
     if args.json:
-        _render_json(
-            [{"id": g.id, "name": g.name, "side": side} for g, side in result]
-        )
+        _render_json([{"id": g.id, "name": g.name, "side": side} for g, side in result])
     else:
         _print_table(
             ["id", "name", "side"],
@@ -46,10 +45,7 @@ def cmd_blocked(args: argparse.Namespace) -> None:
     result = queries.blocked_extensions(estate)
     if args.json:
         _render_json(
-            [
-                {"id": g.id, "name": g.name, "side": side, "cse": cse}
-                for g, side, cse in result
-            ]
+            [{"id": g.id, "name": g.name, "side": side, "cse": cse} for g, side, cse in result]
         )
     else:
         _print_table(
@@ -62,9 +58,7 @@ def cmd_version_skew(args: argparse.Namespace) -> None:
     estate = _get_estate(args)
     result = queries.version_skew(estate)
     if args.json:
-        _render_json(
-            [{"id": g.id, "name": g.name, "side": side} for g, side in result]
-        )
+        _render_json([{"id": g.id, "name": g.name, "side": side} for g, side in result])
     else:
         _print_table(
             ["id", "name", "side"],
@@ -102,8 +96,7 @@ def cmd_cpassword(args: argparse.Namespace) -> None:
         _print_table(
             ["gpo_id", "file", "tag", "cpassword"],
             [
-                [h.gpo_id, h.file, h.tag,
-                 h.cpassword if show else mask_cpassword(h.cpassword)]
+                [h.gpo_id, h.file, h.tag, h.cpassword if show else mask_cpassword(h.cpassword)]
                 for h in result
             ],
         )
@@ -128,10 +121,7 @@ def cmd_broken_refs(args: argparse.Namespace) -> None:
     else:
         _print_table(
             ["gpo_id", "gpo_name", "ref_type", "ref_value", "detail"],
-            [
-                [r.gpo_id, r.gpo_name, r.ref_type, r.ref_value, r.detail]
-                for r in result
-            ],
+            [[r.gpo_id, r.gpo_name, r.ref_type, r.ref_value, r.detail] for r in result],
         )
 
 
@@ -160,10 +150,7 @@ def cmd_gpp_tasks(args: argparse.Namespace) -> None:
     else:
         _print_table(
             ["gpo", "side", "kind", "name", "action", "command", "run_as"],
-            [
-                [t.gpo_name, t.side, t.kind, t.name, t.action, t.command, t.run_as]
-                for t in result
-            ],
+            [[t.gpo_name, t.side, t.kind, t.name, t.action, t.command, t.run_as] for t in result],
         )
 
 
@@ -192,8 +179,12 @@ def cmd_gpp_groups(args: argparse.Namespace) -> None:
             ["gpo", "side", "group", "sid", "+added", "-removed"],
             [
                 [
-                    m.gpo_name, m.side, m.group_name, m.group_sid,
-                    "; ".join(m.members_added), "; ".join(m.members_removed),
+                    m.gpo_name,
+                    m.side,
+                    m.group_name,
+                    m.group_sid,
+                    "; ".join(m.members_added),
+                    "; ".join(m.members_removed),
                 ]
                 for m in result
             ],

@@ -128,9 +128,7 @@ class TestAskPostRoutingErrors:
         assert "Cannot answer" in resp.text
 
     def test_post_ask_unknown_query_name(self, client):
-        mock_route = MagicMock(
-            return_value={"query": "nonexistent_query", "params": {}}
-        )
+        mock_route = MagicMock(return_value={"query": "nonexistent_query", "params": {}})
         with patch.dict(os.environ, {"GPO_LENS_API_KEY": "test-key"}):
             with patch("gpo_lens.narration.route_question", mock_route):
                 resp = client.post("/ask", data={"question": "Summary?"})
@@ -149,9 +147,7 @@ class TestAskPostValidation:
         assert resp.status_code == 422
 
     def test_post_ask_whitespace_question_with_key(self, client):
-        mock_route = MagicMock(
-            return_value={"error": "cannot_route", "reason": "empty question"}
-        )
+        mock_route = MagicMock(return_value={"error": "cannot_route", "reason": "empty question"})
         with patch.dict(os.environ, {"GPO_LENS_API_KEY": "test-key"}):
             with patch("gpo_lens.narration.route_question", mock_route):
                 resp = client.post("/ask", data={"question": " "})

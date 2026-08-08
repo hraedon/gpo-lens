@@ -82,14 +82,10 @@ def register(app: FastAPI, templates: Jinja2Templates) -> None:
                     for s in settings:
                         grp = by_gpo.get(s.gpo_id)
                         if grp is None:
-                            grp = _GpoGroup(
-                                s.gpo_id, names.get(s.gpo_id, s.gpo_id), []
-                            )
+                            grp = _GpoGroup(s.gpo_id, names.get(s.gpo_id, s.gpo_id), [])
                             by_gpo[s.gpo_id] = grp
                         grp.results.append(s)
-                    groups = sorted(
-                        by_gpo.values(), key=lambda g: g.gpo_name.lower()
-                    )
+                    groups = sorted(by_gpo.values(), key=lambda g: g.gpo_name.lower())
                 except ValueError:
                     groups = []
             finally:

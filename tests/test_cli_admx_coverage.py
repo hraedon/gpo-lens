@@ -1,4 +1,5 @@
 """Direct-call CLI tests for the admx-coverage subcommand."""
+
 from __future__ import annotations
 
 import json
@@ -15,13 +16,23 @@ GPO_B = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 
 def _make_gpo(gpo_id: str, name: str, settings: list[Setting] | None = None) -> Gpo:
     return Gpo(
-        id=gpo_id, name=name, domain="test.local",
-        created=None, modified=None, read=None,
-        computer_enabled=True, user_enabled=True,
-        computer_ver_ds=None, computer_ver_sysvol=None,
-        user_ver_ds=None, user_ver_sysvol=None,
-        sddl=None, owner=None, filter_data_available=False,
-        wmi_filter=None, sysvol_path=None,
+        id=gpo_id,
+        name=name,
+        domain="test.local",
+        created=None,
+        modified=None,
+        read=None,
+        computer_enabled=True,
+        user_enabled=True,
+        computer_ver_ds=None,
+        computer_ver_sysvol=None,
+        user_ver_ds=None,
+        user_ver_sysvol=None,
+        sddl=None,
+        owner=None,
+        filter_data_available=False,
+        wmi_filter=None,
+        sysvol_path=None,
         settings=settings or [],
     )
 
@@ -42,7 +53,10 @@ def _make_registry_setting(
         "children": [],
     }
     return Setting(
-        gpo_id=gpo_id, side=side, cse="Registry", identity=identity,
+        gpo_id=gpo_id,
+        side=side,
+        cse="Registry",
+        identity=identity,
         display_name=display_name or identity,
         display_value=value,
         raw=raw,
@@ -101,16 +115,25 @@ class FakeAdmxResolver:
     def __init__(self):
         self.policies = [
             FakeAdmxPolicy(
-                "PolA", "Policy A", "Machine",
-                "HKLM\\SOFTWARE\\Policies\\Example\\PolicyA", "value_a",
+                "PolA",
+                "Policy A",
+                "Machine",
+                "HKLM\\SOFTWARE\\Policies\\Example\\PolicyA",
+                "value_a",
             ),
             FakeAdmxPolicy(
-                "PolB", "Policy B", "User",
-                "HKCU\\SOFTWARE\\Policies\\Example\\PolicyB", "value_b",
+                "PolB",
+                "Policy B",
+                "User",
+                "HKCU\\SOFTWARE\\Policies\\Example\\PolicyB",
+                "value_b",
             ),
             FakeAdmxPolicy(
-                "PolC", "Policy C", "Machine",
-                "HKLM\\SOFTWARE\\Policies\\Example\\PolicyC", "value_c",
+                "PolC",
+                "Policy C",
+                "Machine",
+                "HKLM\\SOFTWARE\\Policies\\Example\\PolicyC",
+                "value_c",
             ),
         ]
 
@@ -180,12 +203,10 @@ class TestAdmxCoverageDirectCall:
         referenced = data["data"]["referenced"]
         assert len(referenced) == 2
         assert any(
-            e["policy_name"] == "PolA" and e["referenced_gpos"] == "gpo-a"
-            for e in referenced
+            e["policy_name"] == "PolA" and e["referenced_gpos"] == "gpo-a" for e in referenced
         )
         assert any(
-            e["policy_name"] == "PolB" and e["referenced_gpos"] == "gpo-b"
-            for e in referenced
+            e["policy_name"] == "PolB" and e["referenced_gpos"] == "gpo-b" for e in referenced
         )
 
         unreferenced = data["data"]["unreferenced"]

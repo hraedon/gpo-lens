@@ -128,16 +128,13 @@ class TestTriage:
             # And the event log itself holds the row (occurrence ids are
             # finding ids — both triage generations key off ``finding.id``).
             row = conn.execute(
-                "SELECT action, actor, note FROM finding_triage_event "
-                "WHERE occurrence_id = ?",
+                "SELECT action, actor, note FROM finding_triage_event WHERE occurrence_id = ?",
                 (finding_id,),
             ).fetchone()
             assert row == ("acknowledged", "alice", "looking into it")
 
             # The legacy v1 table is no longer written.
-            assert conn.execute(
-                "SELECT COUNT(*) FROM finding_triage"
-            ).fetchone()[0] == 0
+            assert conn.execute("SELECT COUNT(*) FROM finding_triage").fetchone()[0] == 0
         finally:
             conn.close()
 
@@ -257,8 +254,7 @@ class TestFindingsInboxWeb:
                 from gpo_lens._legacy_findings import update_finding_lifecycle
 
                 update_finding_lifecycle(
-                    conn, sid,
-                    [_make_finding("test_rule", "test_gpo", "medium", "test finding")]
+                    conn, sid, [_make_finding("test_rule", "test_gpo", "medium", "test finding")]
                 )
         finally:
             conn.close()
@@ -375,8 +371,6 @@ class TestFindingsInboxWeb:
             assert any(v.occurrence_id == finding_id for v in inbox)
 
             # And the legacy v1 table stays empty — one triage store only.
-            assert conn.execute(
-                "SELECT COUNT(*) FROM finding_triage"
-            ).fetchone()[0] == 0
+            assert conn.execute("SELECT COUNT(*) FROM finding_triage").fetchone()[0] == 0
         finally:
             conn.close()

@@ -221,7 +221,10 @@ them as read-only — callers that mutate break determinism.
 
 ```python
 def snapshot_settings_diff(
-    conn, snap_a, snap_b, *,
+    conn,
+    snap_a,
+    snap_b,
+    *,
     gpo_id: str | None = None,
     side: str | None = None,
     cse: str | None = None,

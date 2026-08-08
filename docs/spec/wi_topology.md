@@ -142,7 +142,10 @@ or does not.
 
 ```python
 def som_effective_gpos(
-    estate: Estate, som_path: str, *, _som: Som | None = None,
+    estate: Estate,
+    som_path: str,
+    *,
+    _som: Som | None = None,
 ) -> list[EffectiveGpo]: ...
 ```
 
@@ -399,7 +402,8 @@ ending in `-515` is not falsely matched).
 
 ```python
 def security_filtering_detail(
-    gpo: Gpo, estate: Estate | None = None,
+    gpo: Gpo,
+    estate: Estate | None = None,
 ) -> SecurityFiltering: ...
 ```
 
@@ -504,7 +508,10 @@ templates render the list as-is inside a `<pre>` block.
 
 ```python
 def gate_summaries(
-    estate: Estate, som_path: str, *, _som: Som | None = None,
+    estate: Estate,
+    som_path: str,
+    *,
+    _som: Som | None = None,
 ) -> list[tuple[EffectiveGpo, GateSummary]]: ...
 ```
 

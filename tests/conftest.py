@@ -80,6 +80,3 @@ def work_estate(tmp_path_factory):
 def lab_estate(tmp_path_factory):
     """lab.example.com — the clean lab domain."""
     return _estate("lab", "LABDOMAIN", "lab", tmp_path_factory)
-
-
-

@@ -31,12 +31,18 @@ def _make_gpo(**kwargs) -> Gpo:
     return Gpo(**defaults)
 
 
-def _make_setting(gpo_id: str, side: str, cse: str, identity: str,
-                  display_name: str = "", display_value: str = "") -> Setting:
+def _make_setting(
+    gpo_id: str, side: str, cse: str, identity: str, display_name: str = "", display_value: str = ""
+) -> Setting:
     return Setting(
-        gpo_id=gpo_id, side=side, cse=cse, identity=identity,
-        display_name=display_name, display_value=display_value,
-        raw={}, from_disabled_side=False,
+        gpo_id=gpo_id,
+        side=side,
+        cse=cse,
+        identity=identity,
+        display_name=display_name,
+        display_value=display_value,
+        raw={},
+        from_disabled_side=False,
     )
 
 
@@ -44,22 +50,23 @@ def _make_setting(gpo_id: str, side: str, cse: str, identity: str,
 # Golden-backup comparison (WI-061)
 # ====================================================================================
 
+
 class TestGoldenDiff:
     def test_identical_estates_are_all_compliant(self):
         gpo = _make_gpo(id="aaa", name="Policy A")
         gpo.settings = [
-            _make_setting("aaa", "Computer", "Security", "Lockout:Threshold",
-                          "Lockout Threshold", "5"),
-            _make_setting("aaa", "User", "Registry", r"Software\Foo:Bar",
-                          "Foo Bar", "1"),
+            _make_setting(
+                "aaa", "Computer", "Security", "Lockout:Threshold", "Lockout Threshold", "5"
+            ),
+            _make_setting("aaa", "User", "Registry", r"Software\Foo:Bar", "Foo Bar", "1"),
         ]
         live = Estate(gpos=[gpo])
         golden = Estate(gpos=[_make_gpo(id="bbb", name="Policy A")])
         golden.gpos[0].settings = [
-            _make_setting("bbb", "Computer", "Security", "Lockout:Threshold",
-                          "Lockout Threshold", "5"),
-            _make_setting("bbb", "User", "Registry", r"Software\Foo:Bar",
-                          "Foo Bar", "1"),
+            _make_setting(
+                "bbb", "Computer", "Security", "Lockout:Threshold", "Lockout Threshold", "5"
+            ),
+            _make_setting("bbb", "User", "Registry", r"Software\Foo:Bar", "Foo Bar", "1"),
         ]
         results = queries.golden_diff(live, golden)
         assert all(r.status == "compliant" for r in results)
@@ -68,14 +75,16 @@ class TestGoldenDiff:
     def test_changed_setting_detected(self):
         gpo = _make_gpo(id="aaa", name="Policy A")
         gpo.settings = [
-            _make_setting("aaa", "Computer", "Security", "Lockout:Threshold",
-                          "Lockout Threshold", "10"),
+            _make_setting(
+                "aaa", "Computer", "Security", "Lockout:Threshold", "Lockout Threshold", "10"
+            ),
         ]
         live = Estate(gpos=[gpo])
         golden_gpo = _make_gpo(id="bbb", name="Policy A")
         golden_gpo.settings = [
-            _make_setting("bbb", "Computer", "Security", "Lockout:Threshold",
-                          "Lockout Threshold", "5"),
+            _make_setting(
+                "bbb", "Computer", "Security", "Lockout:Threshold", "Lockout Threshold", "5"
+            ),
         ]
         golden = Estate(gpos=[golden_gpo])
         results = queries.golden_diff(live, golden)
@@ -87,16 +96,19 @@ class TestGoldenDiff:
     def test_added_setting_detected(self):
         gpo = _make_gpo(id="aaa", name="Policy A")
         gpo.settings = [
-            _make_setting("aaa", "Computer", "Security", "Lockout:Threshold",
-                          "Lockout Threshold", "5"),
-            _make_setting("aaa", "Computer", "Registry", r"Software\New:Setting",
-                          "New Setting", "1"),
+            _make_setting(
+                "aaa", "Computer", "Security", "Lockout:Threshold", "Lockout Threshold", "5"
+            ),
+            _make_setting(
+                "aaa", "Computer", "Registry", r"Software\New:Setting", "New Setting", "1"
+            ),
         ]
         live = Estate(gpos=[gpo])
         golden_gpo = _make_gpo(id="bbb", name="Policy A")
         golden_gpo.settings = [
-            _make_setting("bbb", "Computer", "Security", "Lockout:Threshold",
-                          "Lockout Threshold", "5"),
+            _make_setting(
+                "bbb", "Computer", "Security", "Lockout:Threshold", "Lockout Threshold", "5"
+            ),
         ]
         golden = Estate(gpos=[golden_gpo])
         results = queries.golden_diff(live, golden)
@@ -108,16 +120,19 @@ class TestGoldenDiff:
     def test_removed_setting_detected(self):
         gpo = _make_gpo(id="aaa", name="Policy A")
         gpo.settings = [
-            _make_setting("aaa", "Computer", "Security", "Lockout:Threshold",
-                          "Lockout Threshold", "5"),
+            _make_setting(
+                "aaa", "Computer", "Security", "Lockout:Threshold", "Lockout Threshold", "5"
+            ),
         ]
         live = Estate(gpos=[gpo])
         golden_gpo = _make_gpo(id="bbb", name="Policy A")
         golden_gpo.settings = [
-            _make_setting("bbb", "Computer", "Security", "Lockout:Threshold",
-                          "Lockout Threshold", "5"),
-            _make_setting("bbb", "Computer", "Registry", r"Software\Old:Setting",
-                          "Old Setting", "0"),
+            _make_setting(
+                "bbb", "Computer", "Security", "Lockout:Threshold", "Lockout Threshold", "5"
+            ),
+            _make_setting(
+                "bbb", "Computer", "Registry", r"Software\Old:Setting", "Old Setting", "0"
+            ),
         ]
         golden = Estate(gpos=[golden_gpo])
         results = queries.golden_diff(live, golden)
@@ -127,14 +142,18 @@ class TestGoldenDiff:
         assert removed[0].live_value == ""
 
     def test_gpo_added_and_removed(self):
-        live = Estate(gpos=[
-            _make_gpo(id="aaa", name="Policy A"),
-            _make_gpo(id="ccc", name="Policy C"),
-        ])
-        golden = Estate(gpos=[
-            _make_gpo(id="bbb", name="Policy A"),
-            _make_gpo(id="ddd", name="Policy B"),
-        ])
+        live = Estate(
+            gpos=[
+                _make_gpo(id="aaa", name="Policy A"),
+                _make_gpo(id="ccc", name="Policy C"),
+            ]
+        )
+        golden = Estate(
+            gpos=[
+                _make_gpo(id="bbb", name="Policy A"),
+                _make_gpo(id="ddd", name="Policy B"),
+            ]
+        )
         results = queries.golden_diff(live, golden)
         added = [r for r in results if r.status == "gpo_added"]
         removed = [r for r in results if r.status == "gpo_removed"]
@@ -145,9 +164,14 @@ class TestGoldenDiff:
         gpo = _make_gpo(id="aaa", name="Policy A")
         gpo.settings = [
             Setting(
-                gpo_id="aaa", side="Computer", cse="Registry",
-                identity=r"Software\Foo:Bar", display_name="Foo Bar",
-                display_value="1", raw={}, from_disabled_side=False,
+                gpo_id="aaa",
+                side="Computer",
+                cse="Registry",
+                identity=r"Software\Foo:Bar",
+                display_name="Foo Bar",
+                display_value="1",
+                raw={},
+                from_disabled_side=False,
                 source_state="blocked",
             ),
         ]
@@ -157,20 +181,26 @@ class TestGoldenDiff:
         assert all(r.status != "added" for r in results)
 
     def test_summary_counts(self):
-        live = Estate(gpos=[
-            _make_gpo(id="aaa", name="Policy A"),
-            _make_gpo(id="ccc", name="Policy C"),
-        ])
+        live = Estate(
+            gpos=[
+                _make_gpo(id="aaa", name="Policy A"),
+                _make_gpo(id="ccc", name="Policy C"),
+            ]
+        )
         live.gpos[0].settings = [
-            _make_setting("aaa", "Computer", "Security", "Lockout:Threshold",
-                          "Lockout Threshold", "10"),
+            _make_setting(
+                "aaa", "Computer", "Security", "Lockout:Threshold", "Lockout Threshold", "10"
+            ),
         ]
-        golden = Estate(gpos=[
-            _make_gpo(id="bbb", name="Policy A"),
-        ])
+        golden = Estate(
+            gpos=[
+                _make_gpo(id="bbb", name="Policy A"),
+            ]
+        )
         golden.gpos[0].settings = [
-            _make_setting("bbb", "Computer", "Security", "Lockout:Threshold",
-                          "Lockout Threshold", "5"),
+            _make_setting(
+                "bbb", "Computer", "Security", "Lockout:Threshold", "Lockout Threshold", "5"
+            ),
         ]
         results = queries.golden_diff(live, golden)
         summary = queries.golden_diff_summary(results)
@@ -180,24 +210,31 @@ class TestGoldenDiff:
         assert summary.settings_changed == 1
 
     def test_admx_name_resolved(self):
-        admx = PolicyDefinitions(policies=[
-            AdmxPolicy(
-                name="LockoutPolicy", class_scope="Machine",
-                key=r"Software\Lockout", value_name="Threshold",
-                display_name_ref="", display_name="Account Lockout Threshold",
-                explain_text="",
-            ),
-        ])
+        admx = PolicyDefinitions(
+            policies=[
+                AdmxPolicy(
+                    name="LockoutPolicy",
+                    class_scope="Machine",
+                    key=r"Software\Lockout",
+                    value_name="Threshold",
+                    display_name_ref="",
+                    display_name="Account Lockout Threshold",
+                    explain_text="",
+                ),
+            ]
+        )
         gpo = _make_gpo(id="aaa", name="Policy A")
         gpo.settings = [
-            _make_setting("aaa", "Computer", "Registry",
-                          r"Software\Lockout:Threshold", "Threshold", "5"),
+            _make_setting(
+                "aaa", "Computer", "Registry", r"Software\Lockout:Threshold", "Threshold", "5"
+            ),
         ]
         live = Estate(gpos=[gpo])
         golden_gpo = _make_gpo(id="bbb", name="Policy A")
         golden_gpo.settings = [
-            _make_setting("bbb", "Computer", "Registry",
-                          r"Software\Lockout:Threshold", "Threshold", "5"),
+            _make_setting(
+                "bbb", "Computer", "Registry", r"Software\Lockout:Threshold", "Threshold", "5"
+            ),
         ]
         golden = Estate(gpos=[golden_gpo])
         results = queries.golden_diff(live, golden, admx)
@@ -208,14 +245,16 @@ class TestGoldenDiff:
     def test_original_casing_preserved(self):
         gpo = _make_gpo(id="aaa", name="Policy A")
         gpo.settings = [
-            _make_setting("aaa", "Computer", "Security", "Lockout:Threshold",
-                          "Lockout Threshold", "5"),
+            _make_setting(
+                "aaa", "Computer", "Security", "Lockout:Threshold", "Lockout Threshold", "5"
+            ),
         ]
         live = Estate(gpos=[gpo])
         golden_gpo = _make_gpo(id="bbb", name="Policy A")
         golden_gpo.settings = [
-            _make_setting("bbb", "Computer", "Security", "Lockout:Threshold",
-                          "Lockout Threshold", "5"),
+            _make_setting(
+                "bbb", "Computer", "Security", "Lockout:Threshold", "Lockout Threshold", "5"
+            ),
         ]
         golden = Estate(gpos=[golden_gpo])
         results = queries.golden_diff(live, golden)
@@ -231,21 +270,24 @@ class TestGoldenDiff:
         live_names = {g.name.lower() for g in live.gpos}
         golden_names = {g.name.lower() for g in golden.gpos}
         summary = queries.golden_diff_summary(
-            results, matched_gpo_count=len(live_names & golden_names),
+            results,
+            matched_gpo_count=len(live_names & golden_names),
         )
         assert summary.gpos_matched == 1
 
     def test_case_insensitive_gpo_name_matching(self):
         gpo = _make_gpo(id="aaa", name="Policy A")
         gpo.settings = [
-            _make_setting("aaa", "Computer", "Security", "Lockout:Threshold",
-                          "Lockout Threshold", "5"),
+            _make_setting(
+                "aaa", "Computer", "Security", "Lockout:Threshold", "Lockout Threshold", "5"
+            ),
         ]
         live = Estate(gpos=[gpo])
         golden_gpo = _make_gpo(id="bbb", name="policy a")
         golden_gpo.settings = [
-            _make_setting("bbb", "Computer", "Security", "Lockout:Threshold",
-                          "Lockout Threshold", "5"),
+            _make_setting(
+                "bbb", "Computer", "Security", "Lockout:Threshold", "Lockout Threshold", "5"
+            ),
         ]
         golden = Estate(gpos=[golden_gpo])
         results = queries.golden_diff(live, golden)
@@ -254,8 +296,9 @@ class TestGoldenDiff:
     def test_added_setting_display_name_from_live(self):
         gpo = _make_gpo(id="aaa", name="Policy A")
         gpo.settings = [
-            _make_setting("aaa", "Computer", "Registry", r"Software\New:Setting",
-                          "New Setting Name", "1"),
+            _make_setting(
+                "aaa", "Computer", "Registry", r"Software\New:Setting", "New Setting Name", "1"
+            ),
         ]
         live = Estate(gpos=[gpo])
         golden = Estate(gpos=[_make_gpo(id="bbb", name="Policy A")])
@@ -269,6 +312,7 @@ class TestGoldenDiff:
 # ADMX coverage view (WI-062)
 # ====================================================================================
 
+
 class TestAdmxCoverage:
     def test_empty_admx_returns_empty_report(self):
         estate = Estate(gpos=[_make_gpo()])
@@ -277,20 +321,29 @@ class TestAdmxCoverage:
         assert report.summary.referenced_policies == 0
 
     def test_referenced_policy_detected(self):
-        admx = PolicyDefinitions(policies=[
-            AdmxPolicy(
-                name="NoControlPanel", class_scope="User",
-                key=r"Software\Microsoft\Windows\CurrentVersion\Policies\Explorer",
-                value_name="NoControlPanel",
-                display_name_ref="", display_name="Prohibit access to Control Panel",
-                explain_text="",
-            ),
-        ])
+        admx = PolicyDefinitions(
+            policies=[
+                AdmxPolicy(
+                    name="NoControlPanel",
+                    class_scope="User",
+                    key=r"Software\Microsoft\Windows\CurrentVersion\Policies\Explorer",
+                    value_name="NoControlPanel",
+                    display_name_ref="",
+                    display_name="Prohibit access to Control Panel",
+                    explain_text="",
+                ),
+            ]
+        )
         gpo = _make_gpo(id="aaa", name="Lockdown")
         gpo.settings = [
-            _make_setting("aaa", "User", "Registry",
-                          r"Software\Microsoft\Windows\CurrentVersion\Policies\Explorer:NoControlPanel",
-                          "NoControlPanel", "1"),
+            _make_setting(
+                "aaa",
+                "User",
+                "Registry",
+                r"Software\Microsoft\Windows\CurrentVersion\Policies\Explorer:NoControlPanel",
+                "NoControlPanel",
+                "1",
+            ),
         ]
         estate = Estate(gpos=[gpo])
         report = queries.admx_coverage(estate, admx)
@@ -301,14 +354,19 @@ class TestAdmxCoverage:
         assert "Lockdown" in report.referenced[0].referenced_gpos
 
     def test_unreferenced_policy_detected(self):
-        admx = PolicyDefinitions(policies=[
-            AdmxPolicy(
-                name="UnusedPolicy", class_scope="Machine",
-                key=r"Software\Unused", value_name="Setting",
-                display_name_ref="", display_name="Unused Setting",
-                explain_text="",
-            ),
-        ])
+        admx = PolicyDefinitions(
+            policies=[
+                AdmxPolicy(
+                    name="UnusedPolicy",
+                    class_scope="Machine",
+                    key=r"Software\Unused",
+                    value_name="Setting",
+                    display_name_ref="",
+                    display_name="Unused Setting",
+                    explain_text="",
+                ),
+            ]
+        )
         estate = Estate(gpos=[_make_gpo()])
         report = queries.admx_coverage(estate, admx)
         assert report.summary.unreferenced_policies == 1
@@ -318,8 +376,9 @@ class TestAdmxCoverage:
         admx = PolicyDefinitions(policies=[])
         gpo = _make_gpo(id="aaa", name="Policy A")
         gpo.settings = [
-            _make_setting("aaa", "Computer", "Registry",
-                          r"Software\Unknown\Path:Value", "Unknown Value", "1"),
+            _make_setting(
+                "aaa", "Computer", "Registry", r"Software\Unknown\Path:Value", "Unknown Value", "1"
+            ),
         ]
         estate = Estate(gpos=[gpo])
         report = queries.admx_coverage(estate, admx)
@@ -332,9 +391,14 @@ class TestAdmxCoverage:
         gpo = _make_gpo(id="aaa", name="Policy A")
         gpo.settings = [
             Setting(
-                gpo_id="aaa", side="Computer", cse="Registry",
-                identity=r"Software\Blocked:Path", display_name="Blocked",
-                display_value="1", raw={}, from_disabled_side=False,
+                gpo_id="aaa",
+                side="Computer",
+                cse="Registry",
+                identity=r"Software\Blocked:Path",
+                display_name="Blocked",
+                display_value="1",
+                raw={},
+                from_disabled_side=False,
                 source_state="blocked",
             ),
         ]
@@ -347,6 +411,7 @@ class TestAdmxCoverage:
 # Delegation rollup (breadcrumb: estate-wide-delegation-view)
 # ====================================================================================
 
+
 class TestDelegationRollup:
     def test_empty_estate(self):
         estate = Estate()
@@ -355,9 +420,13 @@ class TestDelegationRollup:
     def test_read_only_excluded(self):
         gpo = _make_gpo(id="aaa", name="Policy A")
         gpo.delegation = [
-            DelegationEntry(gpo_id="aaa", trustee="Domain Admins",
-                           trustee_sid="S-1-5-21-1-512", permission="Read",
-                           allowed=True),
+            DelegationEntry(
+                gpo_id="aaa",
+                trustee="Domain Admins",
+                trustee_sid="S-1-5-21-1-512",
+                permission="Read",
+                allowed=True,
+            ),
         ]
         estate = Estate(gpos=[gpo])
         assert queries.delegation_rollup(estate) == []
@@ -365,9 +434,13 @@ class TestDelegationRollup:
     def test_edit_permission_included(self):
         gpo = _make_gpo(id="aaa", name="Policy A")
         gpo.delegation = [
-            DelegationEntry(gpo_id="aaa", trustee="Domain Admins",
-                           trustee_sid="S-1-5-21-1-512", permission="Edit settings",
-                           allowed=True),
+            DelegationEntry(
+                gpo_id="aaa",
+                trustee="Domain Admins",
+                trustee_sid="S-1-5-21-1-512",
+                permission="Edit settings",
+                allowed=True,
+            ),
         ]
         estate = Estate(gpos=[gpo])
         rollup = queries.delegation_rollup(estate)
@@ -380,9 +453,13 @@ class TestDelegationRollup:
     def test_unknown_sid_flagged(self):
         gpo = _make_gpo(id="aaa", name="Policy A")
         gpo.delegation = [
-            DelegationEntry(gpo_id="aaa", trustee="",
-                           trustee_sid="S-1-5-21-99-12345", permission="Edit settings",
-                           allowed=True),
+            DelegationEntry(
+                gpo_id="aaa",
+                trustee="",
+                trustee_sid="S-1-5-21-99-12345",
+                permission="Edit settings",
+                allowed=True,
+            ),
         ]
         estate = Estate(gpos=[gpo])
         rollup = queries.delegation_rollup(estate)
@@ -393,16 +470,24 @@ class TestDelegationRollup:
     def test_non_default_writer_flagged(self):
         gpo = _make_gpo(id="aaa", name="Policy A")
         gpo.delegation = [
-            DelegationEntry(gpo_id="aaa", trustee="Helpdesk Team",
-                           trustee_sid="S-1-5-21-1-1001", permission="Edit settings",
-                           allowed=True),
+            DelegationEntry(
+                gpo_id="aaa",
+                trustee="Helpdesk Team",
+                trustee_sid="S-1-5-21-1-1001",
+                permission="Edit settings",
+                allowed=True,
+            ),
         ]
         estate = Estate(
             gpos=[gpo],
             principals={
                 "s-1-5-21-1-1001": ResolvedPrincipal(
-                    sid="s-1-5-21-1-1001", name="Helpdesk Team", sam="Helpdesk",
-                    principal_type="Group", domain="TEST", resolved=True,
+                    sid="s-1-5-21-1-1001",
+                    name="Helpdesk Team",
+                    sam="Helpdesk",
+                    principal_type="Group",
+                    domain="TEST",
+                    resolved=True,
                 ),
             },
         )
@@ -415,21 +500,33 @@ class TestDelegationRollup:
     def test_sorted_by_breadth(self):
         gpo_a = _make_gpo(id="aaa", name="Policy A")
         gpo_a.delegation = [
-            DelegationEntry(gpo_id="aaa", trustee="Trustee X",
-                           trustee_sid="", permission="Edit settings",
-                           allowed=True),
+            DelegationEntry(
+                gpo_id="aaa",
+                trustee="Trustee X",
+                trustee_sid="",
+                permission="Edit settings",
+                allowed=True,
+            ),
         ]
         gpo_b = _make_gpo(id="bbb", name="Policy B")
         gpo_b.delegation = [
-            DelegationEntry(gpo_id="bbb", trustee="Trustee X",
-                           trustee_sid="", permission="Edit settings",
-                           allowed=True),
+            DelegationEntry(
+                gpo_id="bbb",
+                trustee="Trustee X",
+                trustee_sid="",
+                permission="Edit settings",
+                allowed=True,
+            ),
         ]
         gpo_c = _make_gpo(id="ccc", name="Policy C")
         gpo_c.delegation = [
-            DelegationEntry(gpo_id="ccc", trustee="Trustee Y",
-                           trustee_sid="", permission="Edit settings",
-                           allowed=True),
+            DelegationEntry(
+                gpo_id="ccc",
+                trustee="Trustee Y",
+                trustee_sid="",
+                permission="Edit settings",
+                allowed=True,
+            ),
         ]
         estate = Estate(gpos=[gpo_a, gpo_b, gpo_c])
         rollup = queries.delegation_rollup(estate)
@@ -441,9 +538,13 @@ class TestDelegationRollup:
     def test_deny_entries_excluded(self):
         gpo = _make_gpo(id="aaa", name="Policy A")
         gpo.delegation = [
-            DelegationEntry(gpo_id="aaa", trustee="Denied Trustee",
-                           trustee_sid="", permission="Edit settings",
-                           allowed=False),
+            DelegationEntry(
+                gpo_id="aaa",
+                trustee="Denied Trustee",
+                trustee_sid="",
+                permission="Edit settings",
+                allowed=False,
+            ),
         ]
         estate = Estate(gpos=[gpo])
         assert queries.delegation_rollup(estate) == []
@@ -451,9 +552,13 @@ class TestDelegationRollup:
     def test_apply_group_policy_excluded(self):
         gpo = _make_gpo(id="aaa", name="Policy A")
         gpo.delegation = [
-            DelegationEntry(gpo_id="aaa", trustee="Authenticated Users",
-                           trustee_sid="S-1-5-11", permission="Apply Group Policy",
-                           allowed=True),
+            DelegationEntry(
+                gpo_id="aaa",
+                trustee="Authenticated Users",
+                trustee_sid="S-1-5-11",
+                permission="Apply Group Policy",
+                allowed=True,
+            ),
         ]
         estate = Estate(gpos=[gpo])
         assert queries.delegation_rollup(estate) == []
@@ -462,6 +567,7 @@ class TestDelegationRollup:
 # ===========================================================================
 # ADMX auto-detection (Plan 010 WI-B.2)
 # ====================================================================================
+
 
 class TestFindAdmxDir:
     def test_returns_none_for_nonexistent(self, tmp_path):

@@ -110,8 +110,8 @@ class EvidenceRef:
 
     snapshot_id: int
     gpo_id: str
-    source: str          # e.g. "gpp_xml", "registry_pol", "delegation", "sddl"
-    field_path: str      # dotted path to the evidence field
+    source: str  # e.g. "gpp_xml", "registry_pol", "delegation", "sddl"
+    field_path: str  # dotted path to the evidence field
     safe_projection: str  # truncated, masked, or summarized evidence text
 
 
@@ -157,6 +157,19 @@ class FindingCandidate:
     (e.g. baseline digest + version). Different comparator = different series.
     """
 
+    subject_stable: bool = True
+    """False when the candidate has no stable subject to key identity on.
+
+    The adapter sets this when a finding carries neither a ``gpo_id`` nor a
+    declared ``subject_key``, leaving the prose summary as the only available
+    subject. Such a finding's fingerprint changes whenever the wording does,
+    so it cannot be tracked — or acknowledged — across snapshots. Plan 024 §4
+    calls this ``snapshot_scoped``; the queries surface that state rather than
+    presenting a churning identity as a genuine new/persisting finding.
+
+    Defaults True: a detector that declares a subject is the normal case.
+    """
+
 
 # ---------------------------------------------------------------------------
 # Fingerprint computation
@@ -183,10 +196,7 @@ def compute_fingerprint(candidate: FindingCandidate) -> str:
     # Sort identity-bearing dimensions for ordering invariance,
     # and normalize values (strip + lowercase) for consistency.
     sorted_dims = tuple(
-        sorted(
-            (k.strip().lower(), v.strip().lower())
-            for k, v in candidate.dimensions
-        )
+        sorted((k.strip().lower(), v.strip().lower()) for k, v in candidate.dimensions)
     )
 
     raw = json.dumps(
@@ -194,9 +204,7 @@ def compute_fingerprint(candidate: FindingCandidate) -> str:
             "v": FINGERPRINT_VERSION,
             "detector_id": candidate.detector_id.strip().lower(),
             "subject_type": candidate.subject_type.strip().lower(),
-            "subject_key": tuple(
-                s.strip().lower() for s in candidate.subject_key
-            ),
+            "subject_key": tuple(s.strip().lower() for s in candidate.subject_key),
             "dimensions": sorted_dims,
             "comparator_series": candidate.comparator_series.strip().lower(),
         },
@@ -232,10 +240,10 @@ class AnalysisInput:
     """One pinned analysis input (danger rules, ADMX catalogue, etc.)."""
 
     id: int
-    kind: str               # "danger_rules" | "admx_catalogue" | "comparator"
-    canonical_digest: str   # SHA-256 of the input content
-    version: str            # semantic version or "unknown"
-    metadata_json: str      # bounded JSON metadata
+    kind: str  # "danger_rules" | "admx_catalogue" | "comparator"
+    canonical_digest: str  # SHA-256 of the input content
+    version: str  # semantic version or "unknown"
+    metadata_json: str  # bounded JSON metadata
 
 
 @dataclass(frozen=True)
@@ -317,7 +325,7 @@ class TriageStatus:
     - ``commented`` never changes status (it's a note-only event)
     """
 
-    status: str       # "open" | "acknowledged" | "accepted_risk"
+    status: str  # "open" | "acknowledged" | "accepted_risk"
     actor: str
     note: str
     updated_at: datetime

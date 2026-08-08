@@ -76,6 +76,7 @@ def _entry(
 # B.1 — cse_merge_mode mapping
 # ---------------------------------------------------------------------------
 
+
 class TestCseMergeMode:
     def test_registry_is_last_writer_wins(self) -> None:
         assert cse_merge_mode("Registry") is CseMergeMode.LAST_WRITER_WINS
@@ -86,13 +87,23 @@ class TestCseMergeMode:
         assert cse_merge_mode("Group Policy Scripts") is CseMergeMode.UNION
 
     def test_security_restricted_groups_members_is_authoritative_replace(self) -> None:
-        s = _setting("g1", "Security", "RestrictedGroups:Administrators", "",
-                     raw={"children": [{"tag": "Members", "children": []}]})
+        s = _setting(
+            "g1",
+            "Security",
+            "RestrictedGroups:Administrators",
+            "",
+            raw={"children": [{"tag": "Members", "children": []}]},
+        )
         assert cse_merge_mode("Security", s) is CseMergeMode.AUTHORITATIVE_REPLACE
 
     def test_security_restricted_groups_member_of_is_additive(self) -> None:
-        s = _setting("g1", "Security", "RestrictedGroups:GroupName", "",
-                     raw={"children": [{"tag": "MemberOf", "children": []}]})
+        s = _setting(
+            "g1",
+            "Security",
+            "RestrictedGroups:GroupName",
+            "",
+            raw={"children": [{"tag": "MemberOf", "children": []}]},
+        )
         assert cse_merge_mode("Security", s) is CseMergeMode.ADDITIVE
 
     def test_security_non_restricted_is_last_writer_wins(self) -> None:
@@ -103,9 +114,15 @@ class TestCseMergeMode:
         assert cse_merge_mode("Software Installation") is CseMergeMode.ACCUMULATE
 
     def test_gpp_cses_are_accumulate(self) -> None:
-        for cse in ("Group Policy Preferences", "GPP",
-                    "GPP Drive Maps", "GPP Registry", "GPP Files",
-                    "GPP Local Users and Groups", "GPP Scheduled Tasks"):
+        for cse in (
+            "Group Policy Preferences",
+            "GPP",
+            "GPP Drive Maps",
+            "GPP Registry",
+            "GPP Files",
+            "GPP Local Users and Groups",
+            "GPP Scheduled Tasks",
+        ):
             assert cse_merge_mode(cse) is CseMergeMode.ACCUMULATE, cse
 
     def test_ipsec_wireless_wired_are_single_winner(self) -> None:
@@ -133,15 +150,26 @@ class TestCseMergeMode:
 # merge_settings — per-mode resolution
 # ---------------------------------------------------------------------------
 
+
 class TestMergeSettingsLastWriterWins:
     def test_highest_order_wins(self) -> None:
         entries = [
-            _entry("g1", "GPO A", 1, [
-                _setting("g1", "Registry", r"HKLM\Software\Foo:Bar", "5"),
-            ]),
-            _entry("g2", "GPO B", 2, [
-                _setting("g2", "Registry", r"HKLM\Software\Foo:Bar", "10"),
-            ]),
+            _entry(
+                "g1",
+                "GPO A",
+                1,
+                [
+                    _setting("g1", "Registry", r"HKLM\Software\Foo:Bar", "5"),
+                ],
+            ),
+            _entry(
+                "g2",
+                "GPO B",
+                2,
+                [
+                    _setting("g2", "Registry", r"HKLM\Software\Foo:Bar", "10"),
+                ],
+            ),
         ]
         result = merge_settings(entries)
         assert len(result) == 1
@@ -155,9 +183,14 @@ class TestMergeSettingsLastWriterWins:
 
     def test_single_entry_no_overrides(self) -> None:
         entries = [
-            _entry("g1", "GPO A", 1, [
-                _setting("g1", "Registry", r"HKLM\Software\Foo:Bar", "5"),
-            ]),
+            _entry(
+                "g1",
+                "GPO A",
+                1,
+                [
+                    _setting("g1", "Registry", r"HKLM\Software\Foo:Bar", "5"),
+                ],
+            ),
         ]
         result = merge_settings(entries)
         assert len(result) == 1
@@ -165,13 +198,23 @@ class TestMergeSettingsLastWriterWins:
 
     def test_excludes_disabled_side_settings(self) -> None:
         entries = [
-            _entry("g1", "GPO A", 1, [
-                Setting(
-                    gpo_id="g1", side="Computer", cse="Registry",
-                    identity="HKLM\\Software\\Foo:Bar", display_name="Bar",
-                    display_value="5", raw={}, from_disabled_side=True,
-                ),
-            ]),
+            _entry(
+                "g1",
+                "GPO A",
+                1,
+                [
+                    Setting(
+                        gpo_id="g1",
+                        side="Computer",
+                        cse="Registry",
+                        identity="HKLM\\Software\\Foo:Bar",
+                        display_name="Bar",
+                        display_value="5",
+                        raw={},
+                        from_disabled_side=True,
+                    ),
+                ],
+            ),
         ]
         assert merge_settings(entries) == []
 
@@ -179,14 +222,34 @@ class TestMergeSettingsLastWriterWins:
 class TestMergeSettingsUnion:
     def test_union_keeps_all_entries_in_overridden_by(self) -> None:
         entries = [
-            _entry("g1", "GPO A", 1, [
-                _setting("g1", "Scripts", "Startup:logon.cmd", "logon.cmd",
-                         display_name="Startup script"),
-            ]),
-            _entry("g2", "GPO B", 2, [
-                _setting("g2", "Scripts", "Startup:logon.cmd", "startup.cmd",
-                         display_name="Startup script"),
-            ]),
+            _entry(
+                "g1",
+                "GPO A",
+                1,
+                [
+                    _setting(
+                        "g1",
+                        "Scripts",
+                        "Startup:logon.cmd",
+                        "logon.cmd",
+                        display_name="Startup script",
+                    ),
+                ],
+            ),
+            _entry(
+                "g2",
+                "GPO B",
+                2,
+                [
+                    _setting(
+                        "g2",
+                        "Scripts",
+                        "Startup:logon.cmd",
+                        "startup.cmd",
+                        display_name="Startup script",
+                    ),
+                ],
+            ),
         ]
         result = merge_settings(entries)
         assert len(result) == 1
@@ -201,14 +264,34 @@ class TestMergeSettingsAuthoritativeReplace:
     def test_restricted_groups_members_replace(self) -> None:
         raw_members = {"children": [{"tag": "Members", "children": []}]}
         entries = [
-            _entry("g1", "GPO A", 1, [
-                _setting("g1", "Security", "RestrictedGroups:Administrators",
-                         "GroupA", raw=raw_members),
-            ]),
-            _entry("g2", "GPO B", 2, [
-                _setting("g2", "Security", "RestrictedGroups:Administrators",
-                         "GroupB", raw=raw_members),
-            ]),
+            _entry(
+                "g1",
+                "GPO A",
+                1,
+                [
+                    _setting(
+                        "g1",
+                        "Security",
+                        "RestrictedGroups:Administrators",
+                        "GroupA",
+                        raw=raw_members,
+                    ),
+                ],
+            ),
+            _entry(
+                "g2",
+                "GPO B",
+                2,
+                [
+                    _setting(
+                        "g2",
+                        "Security",
+                        "RestrictedGroups:Administrators",
+                        "GroupB",
+                        raw=raw_members,
+                    ),
+                ],
+            ),
         ]
         result = merge_settings(entries)
         assert len(result) == 1
@@ -223,14 +306,26 @@ class TestMergeSettingsAdditive:
     def test_restricted_groups_member_of_additive(self) -> None:
         raw_memberof = {"children": [{"tag": "MemberOf", "children": []}]}
         entries = [
-            _entry("g1", "GPO A", 1, [
-                _setting("g1", "Security", "RestrictedGroups:GroupX",
-                         "MemberOfA", raw=raw_memberof),
-            ]),
-            _entry("g2", "GPO B", 2, [
-                _setting("g2", "Security", "RestrictedGroups:GroupX",
-                         "MemberOfB", raw=raw_memberof),
-            ]),
+            _entry(
+                "g1",
+                "GPO A",
+                1,
+                [
+                    _setting(
+                        "g1", "Security", "RestrictedGroups:GroupX", "MemberOfA", raw=raw_memberof
+                    ),
+                ],
+            ),
+            _entry(
+                "g2",
+                "GPO B",
+                2,
+                [
+                    _setting(
+                        "g2", "Security", "RestrictedGroups:GroupX", "MemberOfB", raw=raw_memberof
+                    ),
+                ],
+            ),
         ]
         result = merge_settings(entries)
         assert len(result) == 1
@@ -246,14 +341,22 @@ class TestMergeSettingsAccumulate:
         raw_create = {"@attr": {"action": "C"}}
         raw_replace = {"@attr": {"action": "R"}}
         entries = [
-            _entry("g1", "GPO A", 1, [
-                _setting("g1", "GPP Drive Maps", "Drive:H:", "H:\\share1",
-                         raw=raw_create),
-            ]),
-            _entry("g2", "GPO B", 2, [
-                _setting("g2", "GPP Drive Maps", "Drive:H:", "H:\\share2",
-                         raw=raw_replace),
-            ]),
+            _entry(
+                "g1",
+                "GPO A",
+                1,
+                [
+                    _setting("g1", "GPP Drive Maps", "Drive:H:", "H:\\share1", raw=raw_create),
+                ],
+            ),
+            _entry(
+                "g2",
+                "GPO B",
+                2,
+                [
+                    _setting("g2", "GPP Drive Maps", "Drive:H:", "H:\\share2", raw=raw_replace),
+                ],
+            ),
         ]
         result = merge_settings(entries)
         assert len(result) == 1
@@ -266,14 +369,24 @@ class TestMergeSettingsAccumulate:
         raw_create = {"@attr": {"action": "C"}}
         raw_update = {"@attr": {"action": "U"}}
         entries = [
-            _entry("g1", "GPO A", 1, [
-                _setting("g1", "GPP Drive Maps", "Drive:H:", "H:\\share1",
-                         raw=raw_create),
-            ]),
-            _entry("g2", "GPO B", 2, [
-                _setting("g2", "GPP Drive Maps", "Drive:H:", "H:\\share1-updated",
-                         raw=raw_update),
-            ]),
+            _entry(
+                "g1",
+                "GPO A",
+                1,
+                [
+                    _setting("g1", "GPP Drive Maps", "Drive:H:", "H:\\share1", raw=raw_create),
+                ],
+            ),
+            _entry(
+                "g2",
+                "GPO B",
+                2,
+                [
+                    _setting(
+                        "g2", "GPP Drive Maps", "Drive:H:", "H:\\share1-updated", raw=raw_update
+                    ),
+                ],
+            ),
         ]
         result = merge_settings(entries)
         assert len(result) == 1
@@ -285,14 +398,22 @@ class TestMergeSettingsAccumulate:
         raw_create = {"@attr": {"action": "C"}}
         raw_delete = {"@attr": {"action": "D"}}
         entries = [
-            _entry("g1", "GPO A", 1, [
-                _setting("g1", "GPP Drive Maps", "Drive:H:", "H:\\share1",
-                         raw=raw_create),
-            ]),
-            _entry("g2", "GPO B", 2, [
-                _setting("g2", "GPP Drive Maps", "Drive:H:", "",
-                         raw=raw_delete),
-            ]),
+            _entry(
+                "g1",
+                "GPO A",
+                1,
+                [
+                    _setting("g1", "GPP Drive Maps", "Drive:H:", "H:\\share1", raw=raw_create),
+                ],
+            ),
+            _entry(
+                "g2",
+                "GPO B",
+                2,
+                [
+                    _setting("g2", "GPP Drive Maps", "Drive:H:", "", raw=raw_delete),
+                ],
+            ),
         ]
         result = merge_settings(entries)
         assert result == [], "a later Delete must remove the item from the resultant"
@@ -304,10 +425,20 @@ class TestMergeSettingsAccumulate:
             ],
         }
         entries = [
-            _entry("g1", "GPO A", 1, [
-                _setting("g1", "GPP Registry", "Registry:HKEY_LOCAL_USER:Setting", "1",
-                         raw=raw_with_props),
-            ]),
+            _entry(
+                "g1",
+                "GPO A",
+                1,
+                [
+                    _setting(
+                        "g1",
+                        "GPP Registry",
+                        "Registry:HKEY_LOCAL_USER:Setting",
+                        "1",
+                        raw=raw_with_props,
+                    ),
+                ],
+            ),
         ]
         result = merge_settings(entries)
         assert len(result) == 1
@@ -317,14 +448,22 @@ class TestMergeSettingsAccumulate:
         raw_create = {"@attr": {"action": "CREATE"}}
         raw_delete = {"@attr": {"action": "DELETE"}}
         entries = [
-            _entry("g1", "GPO A", 1, [
-                _setting("g1", "GPP Files", "Files:\\\\srv\\share", "src1",
-                         raw=raw_create),
-            ]),
-            _entry("g2", "GPO B", 2, [
-                _setting("g2", "GPP Files", "Files:\\\\srv\\share", "",
-                         raw=raw_delete),
-            ]),
+            _entry(
+                "g1",
+                "GPO A",
+                1,
+                [
+                    _setting("g1", "GPP Files", "Files:\\\\srv\\share", "src1", raw=raw_create),
+                ],
+            ),
+            _entry(
+                "g2",
+                "GPO B",
+                2,
+                [
+                    _setting("g2", "GPP Files", "Files:\\\\srv\\share", "", raw=raw_delete),
+                ],
+            ),
         ]
         assert merge_settings(entries) == []
 
@@ -332,9 +471,14 @@ class TestMergeSettingsAccumulate:
 class TestMergeSettingsApproximate:
     def test_unknown_cse_flagged_approximate(self) -> None:
         entries = [
-            _entry("g1", "GPO A", 1, [
-                _setting("g1", "SomeUnknownCSE", "Foo:Bar", "5"),
-            ]),
+            _entry(
+                "g1",
+                "GPO A",
+                1,
+                [
+                    _setting("g1", "SomeUnknownCSE", "Foo:Bar", "5"),
+                ],
+            ),
         ]
         result = merge_settings(entries)
         assert len(result) == 1
@@ -345,12 +489,22 @@ class TestMergeSettingsApproximate:
 
     def test_unknown_cse_two_entries_last_wins_but_flagged(self) -> None:
         entries = [
-            _entry("g1", "GPO A", 1, [
-                _setting("g1", "SomeUnknownCSE", "Foo:Bar", "5"),
-            ]),
-            _entry("g2", "GPO B", 2, [
-                _setting("g2", "SomeUnknownCSE", "Foo:Bar", "10"),
-            ]),
+            _entry(
+                "g1",
+                "GPO A",
+                1,
+                [
+                    _setting("g1", "SomeUnknownCSE", "Foo:Bar", "5"),
+                ],
+            ),
+            _entry(
+                "g2",
+                "GPO B",
+                2,
+                [
+                    _setting("g2", "SomeUnknownCSE", "Foo:Bar", "10"),
+                ],
+            ),
         ]
         result = merge_settings(entries)
         assert len(result) == 1
@@ -367,13 +521,18 @@ class TestMergeSettingsIlt:
         """
         raw_create = {"@attr": {"action": "C"}}
         entries = [
-            _entry("g1", "GPO A", 1, [
-                _setting("g1", "GPP Drive Maps", "Drive:H:", "H:\\share",
-                         raw=raw_create),
-            ]),
+            _entry(
+                "g1",
+                "GPO A",
+                1,
+                [
+                    _setting("g1", "GPP Drive Maps", "Drive:H:", "H:\\share", raw=raw_create),
+                ],
+            ),
         ]
         result = merge_settings_with_exclusions(
-            entries, ilt_gpo_ids=frozenset({"g1"}),
+            entries,
+            ilt_gpo_ids=frozenset({"g1"}),
         )
         # The setting is EXCLUDED from the deterministic resultant.
         assert result.settings == []
@@ -391,21 +550,31 @@ class TestMergeSettingsIlt:
         """The backward-compatible ``merge_settings`` wrapper also excludes."""
         raw_create = {"@attr": {"action": "C"}}
         entries = [
-            _entry("g1", "GPO A", 1, [
-                _setting("g1", "GPP Drive Maps", "Drive:H:", "H:\\share",
-                         raw=raw_create),
-            ]),
+            _entry(
+                "g1",
+                "GPO A",
+                1,
+                [
+                    _setting("g1", "GPP Drive Maps", "Drive:H:", "H:\\share", raw=raw_create),
+                ],
+            ),
         ]
         assert merge_settings(entries, ilt_gpo_ids=frozenset({"g1"})) == []
 
     def test_ilt_on_non_gpp_cse_not_conditional(self) -> None:
         entries = [
-            _entry("g1", "GPO A", 1, [
-                _setting("g1", "Registry", r"HKLM\Software\Foo:Bar", "5"),
-            ]),
+            _entry(
+                "g1",
+                "GPO A",
+                1,
+                [
+                    _setting("g1", "Registry", r"HKLM\Software\Foo:Bar", "5"),
+                ],
+            ),
         ]
         result = merge_settings_with_exclusions(
-            entries, ilt_gpo_ids=frozenset({"g1"}),
+            entries,
+            ilt_gpo_ids=frozenset({"g1"}),
         )
         # Registry is not a GPP CSE, so ILT does not exclude it.
         assert len(result.settings) == 1
@@ -417,10 +586,14 @@ class TestMergeSettingsIlt:
     def test_no_ilt_gpo_ids_no_conditional(self) -> None:
         raw_create = {"@attr": {"action": "C"}}
         entries = [
-            _entry("g1", "GPO A", 1, [
-                _setting("g1", "GPP Drive Maps", "Drive:H:", "H:\\share",
-                         raw=raw_create),
-            ]),
+            _entry(
+                "g1",
+                "GPO A",
+                1,
+                [
+                    _setting("g1", "GPP Drive Maps", "Drive:H:", "H:\\share", raw=raw_create),
+                ],
+            ),
         ]
         result = merge_settings_with_exclusions(entries)
         assert len(result.settings) == 1
@@ -432,13 +605,19 @@ class TestMergeSettingsIlt:
 # Merge — multiple identities / sorting
 # ---------------------------------------------------------------------------
 
+
 class TestMergeSettingsMultipleIdentities:
     def test_separate_identities_produce_separate_settings(self) -> None:
         entries = [
-            _entry("g1", "GPO A", 1, [
-                _setting("g1", "Registry", r"HKLM\Software\Foo:Bar", "1"),
-                _setting("g1", "Registry", r"HKLM\Software\Foo:Baz", "2"),
-            ]),
+            _entry(
+                "g1",
+                "GPO A",
+                1,
+                [
+                    _setting("g1", "Registry", r"HKLM\Software\Foo:Bar", "1"),
+                    _setting("g1", "Registry", r"HKLM\Software\Foo:Baz", "2"),
+                ],
+            ),
         ]
         result = merge_settings(entries)
         assert len(result) == 2
@@ -448,11 +627,16 @@ class TestMergeSettingsMultipleIdentities:
 
     def test_results_sorted_by_cse_side_identity(self) -> None:
         entries = [
-            _entry("g1", "GPO A", 1, [
-                _setting("g1", "Registry", "zeta", "1"),
-                _setting("g1", "Registry", "alpha", "2", side="User"),
-                _setting("g1", "Registry", "alpha", "3", side="Computer"),
-            ]),
+            _entry(
+                "g1",
+                "GPO A",
+                1,
+                [
+                    _setting("g1", "Registry", "zeta", "1"),
+                    _setting("g1", "Registry", "alpha", "2", side="User"),
+                    _setting("g1", "Registry", "alpha", "3", side="Computer"),
+                ],
+            ),
         ]
         result = merge_settings(entries)
         keys = [(m.cse, m.side, m.identity) for m in result]
@@ -468,18 +652,30 @@ class TestCreateAfterDelete:
         raw_delete = {"@attr": {"action": "D"}}
         raw_recreate = {"@attr": {"action": "C"}}
         entries = [
-            _entry("g1", "GPO A", 1, [
-                _setting("g1", "GPP Drive Maps", "Drive:H:", "H:\\share1",
-                         raw=raw_create),
-            ]),
-            _entry("g2", "GPO B", 2, [
-                _setting("g2", "GPP Drive Maps", "Drive:H:", "",
-                         raw=raw_delete),
-            ]),
-            _entry("g3", "GPO C", 3, [
-                _setting("g3", "GPP Drive Maps", "Drive:H:", "H:\\share2",
-                         raw=raw_recreate),
-            ]),
+            _entry(
+                "g1",
+                "GPO A",
+                1,
+                [
+                    _setting("g1", "GPP Drive Maps", "Drive:H:", "H:\\share1", raw=raw_create),
+                ],
+            ),
+            _entry(
+                "g2",
+                "GPO B",
+                2,
+                [
+                    _setting("g2", "GPP Drive Maps", "Drive:H:", "", raw=raw_delete),
+                ],
+            ),
+            _entry(
+                "g3",
+                "GPO C",
+                3,
+                [
+                    _setting("g3", "GPP Drive Maps", "Drive:H:", "H:\\share2", raw=raw_recreate),
+                ],
+            ),
         ]
         result = merge_settings(entries)
         assert len(result) == 1
@@ -507,16 +703,24 @@ class TestAnonymousTokenExclusion:
 # H-5 — Escaped comma in DN (split must respect backslash-escaping)
 # ---------------------------------------------------------------------------
 
+
 class TestEscapedCommaDn:
     def test_dn_with_escaped_comma_resolves_exact_som(self) -> None:
         """A SOM whose path contains an escaped comma must match the
         principal's DN when the CN component has an escaped comma.
         """
         dn = r"CN=Last\,First,OU=Users,DC=test"
-        estate = Estate(soms=[Som(
-            path=dn, name="user", container_type="ou",
-            inheritance_blocked=False, links=[],
-        )])
+        estate = Estate(
+            soms=[
+                Som(
+                    path=dn,
+                    name="user",
+                    container_type="ou",
+                    inheritance_blocked=False,
+                    links=[],
+                )
+            ]
+        )
         result = _resolve_som_path_for_principal(estate, dn)
         assert result.lower() == dn.lower()
 
@@ -529,10 +733,17 @@ class TestEscapedCommaDn:
         """
         dn = r"CN=Last\,First,OU=Users,DC=test"
         ou_path = "ou=users,dc=test"
-        estate = Estate(soms=[Som(
-            path=ou_path, name="users", container_type="ou",
-            inheritance_blocked=False, links=[],
-        )])
+        estate = Estate(
+            soms=[
+                Som(
+                    path=ou_path,
+                    name="users",
+                    container_type="ou",
+                    inheritance_blocked=False,
+                    links=[],
+                )
+            ]
+        )
         result = _resolve_som_path_for_principal(estate, dn)
         assert result.lower() == ou_path
 
@@ -554,43 +765,67 @@ def _sec_estate(
     """Minimal estate: one user principal + one GPO delegated to AU."""
     principals = {
         _USER_SID: ResolvedPrincipal(
-            sid=_USER_SID, name="TEST\\user", sam="user",
-            principal_type="User", domain="TEST", resolved=True,
+            sid=_USER_SID,
+            name="TEST\\user",
+            sam="user",
+            principal_type="User",
+            domain="TEST",
+            resolved=True,
         ),
     }
     gpos = [
         Gpo(
-            id=gpo_id, name="gpo-test", domain="test.local",
-            created=None, modified=None, read=None,
-            computer_enabled=True, user_enabled=True,
-            computer_ver_ds=None, computer_ver_sysvol=None,
-            user_ver_ds=None, user_ver_sysvol=None,
-            sddl=None, owner=None, filter_data_available=False,
-            wmi_filter=None, sysvol_path=None,
+            id=gpo_id,
+            name="gpo-test",
+            domain="test.local",
+            created=None,
+            modified=None,
+            read=None,
+            computer_enabled=True,
+            user_enabled=True,
+            computer_ver_ds=None,
+            computer_ver_sysvol=None,
+            user_ver_ds=None,
+            user_ver_sysvol=None,
+            sddl=None,
+            owner=None,
+            filter_data_available=False,
+            wmi_filter=None,
+            sysvol_path=None,
             settings=[
                 Setting(
-                    gpo_id=gpo_id, side="User", cse="Registry",
-                    identity=r"HKCU\Software\Test", display_name="Test",
-                    display_value="1", raw={}, from_disabled_side=False,
+                    gpo_id=gpo_id,
+                    side="User",
+                    cse="Registry",
+                    identity=r"HKCU\Software\Test",
+                    display_name="Test",
+                    display_value="1",
+                    raw={},
+                    from_disabled_side=False,
                 ),
             ],
             delegation=[
                 DelegationEntry(
-                    gpo_id="", trustee="Authenticated Users",
+                    gpo_id="",
+                    trustee="Authenticated Users",
                     trustee_sid="S-1-5-11",
-                    permission=permission, allowed=True,
+                    permission=permission,
+                    allowed=True,
                 ),
             ],
         ),
     ]
     som = Som(
-        path=_ROOT_DN, name="test", container_type="domain",
+        path=_ROOT_DN,
+        name="test",
+        container_type="domain",
         inheritance_blocked=False,
-        links=[SomLink(gpo_id=gpo_id, order=1, enabled=True,
-                       enforced=False, target=_ROOT_DN)],
+        links=[SomLink(gpo_id=gpo_id, order=1, enabled=True, enforced=False, target=_ROOT_DN)],
     )
     return Estate(
-        domain="test.local", gpos=gpos, soms=[som],
+        domain="test.local",
+        gpos=gpos,
+        soms=[som],
         principals=principals,
     )
 
@@ -649,54 +884,82 @@ class TestSecurityGateReadVsApply:
 
 
 def _sec_estate_with_deny(
-    allow_perm: str, deny_perm: str,
+    allow_perm: str,
+    deny_perm: str,
 ) -> Estate:
     """Estate with one allow + one deny delegation entry for the same trustee."""
     gpo_id = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
     principals = {
         _USER_SID: ResolvedPrincipal(
-            sid=_USER_SID, name="TEST\\user", sam="user",
-            principal_type="User", domain="TEST", resolved=True,
+            sid=_USER_SID,
+            name="TEST\\user",
+            sam="user",
+            principal_type="User",
+            domain="TEST",
+            resolved=True,
         ),
     }
     gpos = [
         Gpo(
-            id=gpo_id, name="gpo-deny", domain="test.local",
-            created=None, modified=None, read=None,
-            computer_enabled=True, user_enabled=True,
-            computer_ver_ds=None, computer_ver_sysvol=None,
-            user_ver_ds=None, user_ver_sysvol=None,
-            sddl=None, owner=None, filter_data_available=False,
-            wmi_filter=None, sysvol_path=None,
+            id=gpo_id,
+            name="gpo-deny",
+            domain="test.local",
+            created=None,
+            modified=None,
+            read=None,
+            computer_enabled=True,
+            user_enabled=True,
+            computer_ver_ds=None,
+            computer_ver_sysvol=None,
+            user_ver_ds=None,
+            user_ver_sysvol=None,
+            sddl=None,
+            owner=None,
+            filter_data_available=False,
+            wmi_filter=None,
+            sysvol_path=None,
             settings=[
                 Setting(
-                    gpo_id=gpo_id, side="User", cse="Registry",
-                    identity=r"HKCU\Software\Test", display_name="Test",
-                    display_value="1", raw={}, from_disabled_side=False,
+                    gpo_id=gpo_id,
+                    side="User",
+                    cse="Registry",
+                    identity=r"HKCU\Software\Test",
+                    display_name="Test",
+                    display_value="1",
+                    raw={},
+                    from_disabled_side=False,
                 ),
             ],
             delegation=[
                 DelegationEntry(
-                    gpo_id="", trustee="Authenticated Users",
+                    gpo_id="",
+                    trustee="Authenticated Users",
                     trustee_sid="S-1-5-11",
-                    permission=allow_perm, allowed=True,
+                    permission=allow_perm,
+                    allowed=True,
                 ),
                 DelegationEntry(
-                    gpo_id="", trustee="Authenticated Users",
+                    gpo_id="",
+                    trustee="Authenticated Users",
                     trustee_sid="S-1-5-11",
-                    permission=deny_perm, allowed=False,
+                    permission=deny_perm,
+                    allowed=False,
                 ),
             ],
         ),
     ]
     som = Som(
-        path=_ROOT_DN, name="test", container_type="domain",
+        path=_ROOT_DN,
+        name="test",
+        container_type="domain",
         inheritance_blocked=False,
-        links=[SomLink(gpo_id=gpo_id, order=1, enabled=True,
-                       enforced=False, target=_ROOT_DN)],
+        links=[SomLink(gpo_id=gpo_id, order=1, enabled=True, enforced=False, target=_ROOT_DN)],
     )
     return Estate(
-        domain="test.local", gpos=gpos, soms=[som], principals=principals,
+        domain="test.local",
+        gpos=gpos,
+        soms=[som],
+        principals=principals,
     )
 
 
@@ -704,42 +967,66 @@ def _sec_estate_with_deny(
 # WI-084 — SDDL alias-form deny must cancel a raw-SID allow in the gate
 # ---------------------------------------------------------------------------
 
+
 def _sddl_sec_estate(sddl: str) -> Estate:
     """Estate with one SDDL-only GPO (no delegation) linked at the domain root."""
     gpo_id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     principals = {
         _USER_SID: ResolvedPrincipal(
-            sid=_USER_SID, name="TEST\\user", sam="user",
-            principal_type="User", domain="TEST", resolved=True,
+            sid=_USER_SID,
+            name="TEST\\user",
+            sam="user",
+            principal_type="User",
+            domain="TEST",
+            resolved=True,
         ),
     }
     gpos = [
         Gpo(
-            id=gpo_id, name="gpo-sddl", domain="test.local",
-            created=None, modified=None, read=None,
-            computer_enabled=True, user_enabled=True,
-            computer_ver_ds=None, computer_ver_sysvol=None,
-            user_ver_ds=None, user_ver_sysvol=None,
-            sddl=sddl, owner=None, filter_data_available=False,
-            wmi_filter=None, sysvol_path=None,
+            id=gpo_id,
+            name="gpo-sddl",
+            domain="test.local",
+            created=None,
+            modified=None,
+            read=None,
+            computer_enabled=True,
+            user_enabled=True,
+            computer_ver_ds=None,
+            computer_ver_sysvol=None,
+            user_ver_ds=None,
+            user_ver_sysvol=None,
+            sddl=sddl,
+            owner=None,
+            filter_data_available=False,
+            wmi_filter=None,
+            sysvol_path=None,
             settings=[
                 Setting(
-                    gpo_id=gpo_id, side="User", cse="Registry",
-                    identity=r"HKCU\Software\Test", display_name="Test",
-                    display_value="1", raw={}, from_disabled_side=False,
+                    gpo_id=gpo_id,
+                    side="User",
+                    cse="Registry",
+                    identity=r"HKCU\Software\Test",
+                    display_name="Test",
+                    display_value="1",
+                    raw={},
+                    from_disabled_side=False,
                 ),
             ],
             delegation=[],
         ),
     ]
     som = Som(
-        path=_ROOT_DN, name="test", container_type="domain",
+        path=_ROOT_DN,
+        name="test",
+        container_type="domain",
         inheritance_blocked=False,
-        links=[SomLink(gpo_id=gpo_id, order=1, enabled=True,
-                       enforced=False, target=_ROOT_DN)],
+        links=[SomLink(gpo_id=gpo_id, order=1, enabled=True, enforced=False, target=_ROOT_DN)],
     )
     return Estate(
-        domain="test.local", gpos=gpos, soms=[som], principals=principals,
+        domain="test.local",
+        gpos=gpos,
+        soms=[som],
+        principals=principals,
     )
 
 
@@ -776,9 +1063,14 @@ _LOOPBACK_IDENT = "Configure user group policy loopback processing mode"
 
 def _loopback_setting(gpo_id: str, mode: str) -> Setting:
     return Setting(
-        gpo_id=gpo_id, side="Computer", cse="Security",
-        identity=_LOOPBACK_IDENT, display_name="Loopback",
-        display_value=mode, raw={}, from_disabled_side=False,
+        gpo_id=gpo_id,
+        side="Computer",
+        cse="Security",
+        identity=_LOOPBACK_IDENT,
+        display_name="Loopback",
+        display_value=mode,
+        raw={},
+        from_disabled_side=False,
     )
 
 
@@ -787,12 +1079,20 @@ class TestExcludedGpoSide:
         comp_sid = f"{_DOM_SID}-5001"
         principals = {
             _USER_SID: ResolvedPrincipal(
-                sid=_USER_SID, name="TEST\\user", sam="user",
-                principal_type="User", domain="TEST", resolved=True,
+                sid=_USER_SID,
+                name="TEST\\user",
+                sam="user",
+                principal_type="User",
+                domain="TEST",
+                resolved=True,
             ),
             comp_sid: ResolvedPrincipal(
-                sid=comp_sid, name="TEST\\WKS$", sam="WKS$",
-                principal_type="Computer", domain="TEST", resolved=True,
+                sid=comp_sid,
+                name="TEST\\WKS$",
+                sam="WKS$",
+                principal_type="Computer",
+                domain="TEST",
+                resolved=True,
             ),
         }
         user_dn = f"ou=users,{_ROOT_DN}"
@@ -804,76 +1104,122 @@ class TestExcludedGpoSide:
         filtered_gpo = "cccccccccccccccccccccccccccccccc"
         gpos = [
             Gpo(
-                id=loopback_gpo, name="gpo-loopback", domain="test.local",
-                created=None, modified=None, read=None,
-                computer_enabled=True, user_enabled=True,
-                computer_ver_ds=None, computer_ver_sysvol=None,
-                user_ver_ds=None, user_ver_sysvol=None,
-                sddl=None, owner=None, filter_data_available=False,
-                wmi_filter=None, sysvol_path=None,
+                id=loopback_gpo,
+                name="gpo-loopback",
+                domain="test.local",
+                created=None,
+                modified=None,
+                read=None,
+                computer_enabled=True,
+                user_enabled=True,
+                computer_ver_ds=None,
+                computer_ver_sysvol=None,
+                user_ver_ds=None,
+                user_ver_sysvol=None,
+                sddl=None,
+                owner=None,
+                filter_data_available=False,
+                wmi_filter=None,
+                sysvol_path=None,
                 settings=[
                     _loopback_setting(loopback_gpo, "Replace"),
                     Setting(
-                        gpo_id=loopback_gpo, side="User", cse="Registry",
-                        identity=r"HKCU\Software\Loopback", display_name="LB",
-                        display_value="1", raw={}, from_disabled_side=False,
+                        gpo_id=loopback_gpo,
+                        side="User",
+                        cse="Registry",
+                        identity=r"HKCU\Software\Loopback",
+                        display_name="LB",
+                        display_value="1",
+                        raw={},
+                        from_disabled_side=False,
                     ),
                 ],
                 delegation=[
                     DelegationEntry(
-                        gpo_id="", trustee="Authenticated Users",
+                        gpo_id="",
+                        trustee="Authenticated Users",
                         trustee_sid="S-1-5-11",
-                        permission="Apply Group Policy", allowed=True,
+                        permission="Apply Group Policy",
+                        allowed=True,
                     ),
                 ],
             ),
             Gpo(
-                id=filtered_gpo, name="gpo-filtered", domain="test.local",
-                created=None, modified=None, read=None,
-                computer_enabled=True, user_enabled=True,
-                computer_ver_ds=None, computer_ver_sysvol=None,
-                user_ver_ds=None, user_ver_sysvol=None,
-                sddl=None, owner=None, filter_data_available=False,
-                wmi_filter=None, sysvol_path=None,
+                id=filtered_gpo,
+                name="gpo-filtered",
+                domain="test.local",
+                created=None,
+                modified=None,
+                read=None,
+                computer_enabled=True,
+                user_enabled=True,
+                computer_ver_ds=None,
+                computer_ver_sysvol=None,
+                user_ver_ds=None,
+                user_ver_sysvol=None,
+                sddl=None,
+                owner=None,
+                filter_data_available=False,
+                wmi_filter=None,
+                sysvol_path=None,
                 settings=[
                     Setting(
-                        gpo_id=filtered_gpo, side="User", cse="Registry",
-                        identity=r"HKCU\Software\Filtered", display_name="F",
-                        display_value="1", raw={}, from_disabled_side=False,
+                        gpo_id=filtered_gpo,
+                        side="User",
+                        cse="Registry",
+                        identity=r"HKCU\Software\Filtered",
+                        display_name="F",
+                        display_value="1",
+                        raw={},
+                        from_disabled_side=False,
                     ),
                 ],
                 # Delegated to a SID the computer token does NOT carry.
                 delegation=[
                     DelegationEntry(
-                        gpo_id="", trustee="Helpdesk Operators",
+                        gpo_id="",
+                        trustee="Helpdesk Operators",
                         trustee_sid=f"{_DOM_SID}-2001",
-                        permission="Apply Group Policy", allowed=True,
+                        permission="Apply Group Policy",
+                        allowed=True,
                     ),
                 ],
             ),
         ]
         soms = [
             Som(
-                path=_ROOT_DN, name="test", container_type="domain",
-                inheritance_blocked=False, links=[],
+                path=_ROOT_DN,
+                name="test",
+                container_type="domain",
+                inheritance_blocked=False,
+                links=[],
             ),
             Som(
-                path=user_dn, name="users", container_type="ou",
-                inheritance_blocked=False, links=[],
+                path=user_dn,
+                name="users",
+                container_type="ou",
+                inheritance_blocked=False,
+                links=[],
             ),
             Som(
-                path=comp_dn, name="computers", container_type="ou",
+                path=comp_dn,
+                name="computers",
+                container_type="ou",
                 inheritance_blocked=False,
                 links=[
-                    SomLink(gpo_id=loopback_gpo, order=1, enabled=True,
-                            enforced=False, target=comp_dn),
-                    SomLink(gpo_id=filtered_gpo, order=2, enabled=True,
-                            enforced=False, target=comp_dn),
+                    SomLink(
+                        gpo_id=loopback_gpo, order=1, enabled=True, enforced=False, target=comp_dn
+                    ),
+                    SomLink(
+                        gpo_id=filtered_gpo, order=2, enabled=True, enforced=False, target=comp_dn
+                    ),
                 ],
             ),
         ]
         estate = Estate(
-            domain="test.local", gpos=gpos, soms=soms,
+            domain="test.local",
+            gpos=gpos,
+            soms=soms,
             principals=principals,
         )
         return estate, comp_sid, user_dn, comp_dn, filtered_gpo
@@ -881,7 +1227,10 @@ class TestExcludedGpoSide:
     def test_excluded_gpo_has_side_field(self) -> None:
         """ExcludedGpo must carry a ``side`` attribute."""
         exc = ExcludedGpo(
-            gpo_id="x", gpo_name="x", reason="test", kind="security_filter",
+            gpo_id="x",
+            gpo_name="x",
+            reason="test",
+            kind="security_filter",
             side="User",
         )
         assert exc.side == "User"
@@ -889,19 +1238,23 @@ class TestExcludedGpoSide:
     def test_excluded_gpo_side_default_empty(self) -> None:
         """ExcludedGpo.side defaults to '' for backward compatibility."""
         exc = ExcludedGpo(
-            gpo_id="x", gpo_name="x", reason="test", kind="security_filter",
+            gpo_id="x",
+            gpo_name="x",
+            reason="test",
+            kind="security_filter",
         )
         assert exc.side == ""
 
     def test_loopback_excluded_gpo_side_populated(self) -> None:
         """In loopback replace mode, a GPO excluded on both sides now
         produces one ExcludedGpo per side (dedup keys on side, WI-078)."""
-        estate, comp_sid, user_dn, comp_dn, filtered_gpo = (
-            self._setup_loopback_estate()
-        )
+        estate, comp_sid, user_dn, comp_dn, filtered_gpo = self._setup_loopback_estate()
         result = principal_resultant(
-            estate, _USER_SID, computer_sid=comp_sid,
-            dn=user_dn, computer_dn=comp_dn,
+            estate,
+            _USER_SID,
+            computer_sid=comp_sid,
+            dn=user_dn,
+            computer_dn=comp_dn,
         )
         exc = [e for e in result.excluded if e.gpo_id == filtered_gpo]
         sides = {e.side for e in exc}
@@ -909,8 +1262,7 @@ class TestExcludedGpoSide:
         assert all(e.kind == "security_filter" for e in exc)
 
     def test_non_loopback_excluded_gpo_side_populated(self) -> None:
-        """Outside loopback, an excluded GPO must carry the principal's side.
-        """
+        """Outside loopback, an excluded GPO must carry the principal's side."""
         estate = _sec_estate("Read")
         result = principal_resultant(estate, _USER_SID, dn=_ROOT_DN)
         exc = [e for e in result.excluded if e.kind == "security_filter"]
@@ -926,36 +1278,64 @@ class TestExcludedGpoSide:
         comp_sid = f"{_DOM_SID}-5001"
         principals = {
             _USER_SID: ResolvedPrincipal(
-                sid=_USER_SID, name="TEST\\user", sam="user",
-                principal_type="User", domain="TEST", resolved=True,
+                sid=_USER_SID,
+                name="TEST\\user",
+                sam="user",
+                principal_type="User",
+                domain="TEST",
+                resolved=True,
             ),
             comp_sid: ResolvedPrincipal(
-                sid=comp_sid, name="TEST\\WKS$", sam="WKS$",
-                principal_type="Computer", domain="TEST", resolved=True,
+                sid=comp_sid,
+                name="TEST\\WKS$",
+                sam="WKS$",
+                principal_type="Computer",
+                domain="TEST",
+                resolved=True,
             ),
         }
         comp_dn = f"ou=computers,{_ROOT_DN}"
         dual_gpo = "dddddddddddddddddddddddddddddddd"
         gpos = [
             Gpo(
-                id=dual_gpo, name="gpo-dual", domain="test.local",
-                created=None, modified=None, read=None,
-                computer_enabled=True, user_enabled=True,
-                computer_ver_ds=None, computer_ver_sysvol=None,
-                user_ver_ds=None, user_ver_sysvol=None,
-                sddl=None, owner=None, filter_data_available=False,
-                wmi_filter=None, sysvol_path=None,
+                id=dual_gpo,
+                name="gpo-dual",
+                domain="test.local",
+                created=None,
+                modified=None,
+                read=None,
+                computer_enabled=True,
+                user_enabled=True,
+                computer_ver_ds=None,
+                computer_ver_sysvol=None,
+                user_ver_ds=None,
+                user_ver_sysvol=None,
+                sddl=None,
+                owner=None,
+                filter_data_available=False,
+                wmi_filter=None,
+                sysvol_path=None,
                 settings=[
                     _loopback_setting(dual_gpo, "Replace"),
                     Setting(
-                        gpo_id=dual_gpo, side="User", cse="Registry",
-                        identity=r"HKCU\Software\Dual", display_name="Dual-U",
-                        display_value="1", raw={}, from_disabled_side=False,
+                        gpo_id=dual_gpo,
+                        side="User",
+                        cse="Registry",
+                        identity=r"HKCU\Software\Dual",
+                        display_name="Dual-U",
+                        display_value="1",
+                        raw={},
+                        from_disabled_side=False,
                     ),
                     Setting(
-                        gpo_id=dual_gpo, side="Computer", cse="Registry",
-                        identity=r"HKLM\Software\Dual", display_name="Dual-C",
-                        display_value="1", raw={}, from_disabled_side=False,
+                        gpo_id=dual_gpo,
+                        side="Computer",
+                        cse="Registry",
+                        identity=r"HKLM\Software\Dual",
+                        display_name="Dual-C",
+                        display_value="1",
+                        raw={},
+                        from_disabled_side=False,
                     ),
                 ],
                 # Delegated ONLY to the user's SID. In replace mode the
@@ -964,30 +1344,44 @@ class TestExcludedGpoSide:
                 # SID) → passes, so the Computer setting is applied.
                 delegation=[
                     DelegationEntry(
-                        gpo_id="", trustee="user",
+                        gpo_id="",
+                        trustee="user",
                         trustee_sid=_USER_SID,
-                        permission="Apply Group Policy", allowed=True,
+                        permission="Apply Group Policy",
+                        allowed=True,
                     ),
                 ],
             ),
         ]
         soms = [
             Som(
-                path=_ROOT_DN, name="test", container_type="domain",
-                inheritance_blocked=False, links=[],
+                path=_ROOT_DN,
+                name="test",
+                container_type="domain",
+                inheritance_blocked=False,
+                links=[],
             ),
             Som(
-                path=comp_dn, name="computers", container_type="ou",
+                path=comp_dn,
+                name="computers",
+                container_type="ou",
                 inheritance_blocked=False,
-                links=[SomLink(gpo_id=dual_gpo, order=1, enabled=True,
-                               enforced=False, target=comp_dn)],
+                links=[
+                    SomLink(gpo_id=dual_gpo, order=1, enabled=True, enforced=False, target=comp_dn)
+                ],
             ),
         ]
         estate = Estate(
-            domain="test.local", gpos=gpos, soms=soms, principals=principals,
+            domain="test.local",
+            gpos=gpos,
+            soms=soms,
+            principals=principals,
         )
         result = principal_resultant(
-            estate, _USER_SID, computer_sid=comp_sid, computer_dn=comp_dn,
+            estate,
+            _USER_SID,
+            computer_sid=comp_sid,
+            computer_dn=comp_dn,
         )
         excluded_ids = {e.gpo_id for e in result.excluded}
         applied_gpo_ids = {s.winning_gpo_id for s in result.settings}
@@ -1006,31 +1400,52 @@ def test_principal_resultant_parent_walk_caveat():
     gpo_id = "ffffffffffffffffffffffffffffffff"
     principals = {
         _USER_SID: ResolvedPrincipal(
-            sid=_USER_SID, name="TEST\\user", sam="user",
-            principal_type="User", domain="TEST", resolved=True,
+            sid=_USER_SID,
+            name="TEST\\user",
+            sam="user",
+            principal_type="User",
+            domain="TEST",
+            resolved=True,
         ),
     }
     gpos = [
         Gpo(
-            id=gpo_id, name="gpo-root", domain="test.local",
-            created=None, modified=None, read=None,
-            computer_enabled=True, user_enabled=True,
-            computer_ver_ds=None, computer_ver_sysvol=None,
-            user_ver_ds=None, user_ver_sysvol=None,
-            sddl=None, owner=None, filter_data_available=False,
-            wmi_filter=None, sysvol_path=None,
+            id=gpo_id,
+            name="gpo-root",
+            domain="test.local",
+            created=None,
+            modified=None,
+            read=None,
+            computer_enabled=True,
+            user_enabled=True,
+            computer_ver_ds=None,
+            computer_ver_sysvol=None,
+            user_ver_ds=None,
+            user_ver_sysvol=None,
+            sddl=None,
+            owner=None,
+            filter_data_available=False,
+            wmi_filter=None,
+            sysvol_path=None,
             settings=[
                 Setting(
-                    gpo_id=gpo_id, side="User", cse="Registry",
-                    identity=r"HKCU\Software\Root", display_name="Root",
-                    display_value="1", raw={}, from_disabled_side=False,
+                    gpo_id=gpo_id,
+                    side="User",
+                    cse="Registry",
+                    identity=r"HKCU\Software\Root",
+                    display_name="Root",
+                    display_value="1",
+                    raw={},
+                    from_disabled_side=False,
                 ),
             ],
             delegation=[
                 DelegationEntry(
-                    gpo_id="", trustee="Authenticated Users",
+                    gpo_id="",
+                    trustee="Authenticated Users",
                     trustee_sid="S-1-5-11",
-                    permission="Apply Group Policy", allowed=True,
+                    permission="Apply Group Policy",
+                    allowed=True,
                 ),
             ],
         ),
@@ -1038,18 +1453,24 @@ def test_principal_resultant_parent_walk_caveat():
     # Only the domain-root SOM is in the estate; the principal's OU is absent.
     soms = [
         Som(
-            path=_ROOT_DN, name="test", container_type="domain",
+            path=_ROOT_DN,
+            name="test",
+            container_type="domain",
             inheritance_blocked=False,
-            links=[SomLink(gpo_id=gpo_id, order=1, enabled=True,
-                           enforced=False, target=_ROOT_DN)],
+            links=[SomLink(gpo_id=gpo_id, order=1, enabled=True, enforced=False, target=_ROOT_DN)],
         ),
     ]
     estate = Estate(
-        domain="test.local", gpos=gpos, soms=soms, principals=principals,
+        domain="test.local",
+        gpos=gpos,
+        soms=soms,
+        principals=principals,
     )
     # Query with a DN whose OU is not collected — parent walk to domain root.
     result = principal_resultant(
-        estate, _USER_SID, dn=f"ou=missing,{_ROOT_DN}",
+        estate,
+        _USER_SID,
+        dn=f"ou=missing,{_ROOT_DN}",
     )
     assert any("not in the collected estate" in m for m in result.caveat_mechanisms)
 
@@ -1058,9 +1479,7 @@ def test_principal_resultant_no_caveat_when_ou_present():
     """When the principal's OU IS in the estate, no parent-walk caveat fires."""
     estate = _sec_estate("Apply Group Policy")
     result = principal_resultant(estate, _USER_SID, dn=_ROOT_DN)
-    assert not any(
-        "not in the collected estate" in m for m in result.caveat_mechanisms
-    )
+    assert not any("not in the collected estate" in m for m in result.caveat_mechanisms)
 
 
 def test_build_token_no_forward_expansion_of_individual_principals():
@@ -1073,6 +1492,7 @@ def test_build_token_no_forward_expansion_of_individual_principals():
     User1.
     """
     from gpo_lens.model import GroupMembership
+
     user2 = "s-1-5-21-100-200-300-1002"
     estate = Estate(
         domain="test.local",
@@ -1080,12 +1500,20 @@ def test_build_token_no_forward_expansion_of_individual_principals():
         soms=[],
         principals={
             _USER_SID: ResolvedPrincipal(
-                sid=_USER_SID, name="TEST\\user1", sam="user1",
-                principal_type="User", domain="TEST", resolved=True,
+                sid=_USER_SID,
+                name="TEST\\user1",
+                sam="user1",
+                principal_type="User",
+                domain="TEST",
+                resolved=True,
             ),
             user2: ResolvedPrincipal(
-                sid=user2, name="TEST\\user2", sam="user2",
-                principal_type="User", domain="TEST", resolved=True,
+                sid=user2,
+                name="TEST\\user2",
+                sam="user2",
+                principal_type="User",
+                domain="TEST",
+                resolved=True,
             ),
         },
         group_members={
@@ -1108,22 +1536,35 @@ def test_restricted_groups_members_dominates_regardless_of_order():
     Members and MemberOf are present, regardless of XML element order.
     """
     from gpo_lens.merge import _restricted_groups_mode
+
     s_members_first = Setting(
-        gpo_id="g", side="Computer", cse="RestrictedGroups",
-        identity="Administrators", display_name="Administrators",
-        display_value="", raw={"children": [
-            {"tag": "Members", "text": "S-1-5-32-544"},
-            {"tag": "MemberOf", "text": "S-1-5-32-544"},
-        ]},
+        gpo_id="g",
+        side="Computer",
+        cse="RestrictedGroups",
+        identity="Administrators",
+        display_name="Administrators",
+        display_value="",
+        raw={
+            "children": [
+                {"tag": "Members", "text": "S-1-5-32-544"},
+                {"tag": "MemberOf", "text": "S-1-5-32-544"},
+            ]
+        },
         from_disabled_side=False,
     )
     s_memberof_first = Setting(
-        gpo_id="g", side="Computer", cse="RestrictedGroups",
-        identity="Administrators", display_name="Administrators",
-        display_value="", raw={"children": [
-            {"tag": "MemberOf", "text": "S-1-5-32-544"},
-            {"tag": "Members", "text": "S-1-5-32-544"},
-        ]},
+        gpo_id="g",
+        side="Computer",
+        cse="RestrictedGroups",
+        identity="Administrators",
+        display_name="Administrators",
+        display_value="",
+        raw={
+            "children": [
+                {"tag": "MemberOf", "text": "S-1-5-32-544"},
+                {"tag": "Members", "text": "S-1-5-32-544"},
+            ]
+        },
         from_disabled_side=False,
     )
     assert _restricted_groups_mode(s_members_first) is CseMergeMode.AUTHORITATIVE_REPLACE

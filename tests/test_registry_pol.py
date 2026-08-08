@@ -24,9 +24,9 @@ def _encode_str_utf16_null(s: str) -> bytes:
     return s.encode("utf-16-le") + b"\x00\x00"
 
 
-_W_OPEN = b"\x5b\x00"   # '[' UTF-16LE
+_W_OPEN = b"\x5b\x00"  # '[' UTF-16LE
 _W_CLOSE = b"\x5d\x00"  # ']' UTF-16LE
-_W_SEP = b"\x3b\x00"    # ';' UTF-16LE
+_W_SEP = b"\x3b\x00"  # ';' UTF-16LE
 _HEADER = b"PReg\x01\x00\x00\x00"  # signature DWORD + version DWORD
 
 
@@ -89,7 +89,10 @@ def test_signature_only() -> None:
 def test_single_dword() -> None:
     data = struct.pack("<I", 1)
     rec_bytes = _encode_record(
-        r"Software\Policies\Acme\Foo", "EnableFoo", 4, data,
+        r"Software\Policies\Acme\Foo",
+        "EnableFoo",
+        4,
+        data,
     )
     result = parse_registry_pol(_build_file(rec_bytes))
     assert len(result) == 1
@@ -111,7 +114,10 @@ def test_single_dword() -> None:
 def test_single_sz() -> None:
     raw = "Hello".encode("utf-16-le") + b"\x00\x00"  # null-terminated
     rec_bytes = _encode_record(
-        r"Software\Policies\Acme\Bar", "Greeting", 1, raw,
+        r"Software\Policies\Acme\Bar",
+        "Greeting",
+        1,
+        raw,
     )
     result = parse_registry_pol(_build_file(rec_bytes))
     assert len(result) == 1
@@ -136,7 +142,10 @@ def test_multi_sz() -> None:
         + b"\x00\x00"  # double-null terminator
     )
     rec_bytes = _encode_record(
-        r"Software\Policies\Acme\Multi", "Items", 7, raw,
+        r"Software\Policies\Acme\Multi",
+        "Items",
+        7,
+        raw,
     )
     result = parse_registry_pol(_build_file(rec_bytes))
     assert len(result) == 1
@@ -151,7 +160,10 @@ def test_multi_sz() -> None:
 def test_binary() -> None:
     raw = bytes([0x00, 0xFF, 0x10, 0xAB])
     rec_bytes = _encode_record(
-        r"Software\Policies\Acme\Bin", "RawData", 3, raw,
+        r"Software\Policies\Acme\Bin",
+        "RawData",
+        3,
+        raw,
     )
     result = parse_registry_pol(_build_file(rec_bytes))
     assert len(result) == 1
@@ -166,7 +178,10 @@ def test_binary() -> None:
 def test_qword() -> None:
     raw = struct.pack("<Q", 2**32 + 42)
     rec_bytes = _encode_record(
-        r"Software\Policies\Acme\Q", "BigNum", 11, raw,
+        r"Software\Policies\Acme\Q",
+        "BigNum",
+        11,
+        raw,
     )
     result = parse_registry_pol(_build_file(rec_bytes))
     assert len(result) == 1
@@ -181,7 +196,7 @@ def test_qword() -> None:
 def test_multiple_records() -> None:
     r1 = _encode_record(r"K1", "V1", 4, struct.pack("<I", 10))
     r2 = _encode_record(r"K2", "V2", 1, _encode_str_utf16_null("two"))
-    r3 = _encode_record(r"K3", "V3", 3, b"\xDE\xAD")
+    r3 = _encode_record(r"K3", "V3", 3, b"\xde\xad")
     result = parse_registry_pol(_build_file(r1, r2, r3))
     assert len(result) == 3
     assert result[0].key == "K1"
@@ -243,7 +258,7 @@ class TestDecodeValue:
         assert decode_value(2, raw) == "%SystemRoot%"
 
     def test_reg_binary(self) -> None:
-        assert decode_value(3, b"\xAB\xCD\xEF") == "abcdef"
+        assert decode_value(3, b"\xab\xcd\xef") == "abcdef"
 
     def test_reg_dword(self) -> None:
         assert decode_value(4, struct.pack("<I", 255)) == "255"
@@ -269,7 +284,7 @@ class TestDecodeValue:
         assert decode_value(11, struct.pack("<Q", 123456789012345)) == "123456789012345"
 
     def test_unknown_type_falls_back_to_hex(self) -> None:
-        assert decode_value(99, b"\xBE\xEF") == "beef"
+        assert decode_value(99, b"\xbe\xef") == "beef"
 
     def test_dword_short_data_falls_back_to_hex(self) -> None:
         assert decode_value(4, b"\x01\x02") == "0102"
@@ -327,8 +342,13 @@ class TestRegTypeNames:
 def test_preg_record_is_frozen() -> None:
     """PregRecord is frozen — attribute assignment raises FrozenInstanceError."""
     rec = PregRecord(
-        key="K", value_name="V", type_code=4, type_name="REG_DWORD",
-        size=4, data=b"\x01\x02\x03\x04", display_value="1",
+        key="K",
+        value_name="V",
+        type_code=4,
+        type_name="REG_DWORD",
+        size=4,
+        data=b"\x01\x02\x03\x04",
+        display_value="1",
     )
     with pytest.raises(AttributeError):
         rec.key = "other"  # type: ignore[misc]
@@ -346,7 +366,7 @@ def test_zero_size_data() -> None:
 
 def test_type_name_unknown() -> None:
     """An unknown type_code gets a REG_UNKNOWN_N type_name."""
-    rec_bytes = _encode_record(r"K", "V", 99, b"\xAB")
+    rec_bytes = _encode_record(r"K", "V", 99, b"\xab")
     result = parse_registry_pol(_build_file(rec_bytes))
     assert result[0].type_name == "REG_UNKNOWN_99"
 
@@ -397,8 +417,12 @@ class TestMalformedRecords:
     def test_truncated_type_dword(self) -> None:
         # [key;value_name;  then only 2 bytes (need 4 for DWORD)
         body = (
-            _W_OPEN + _encode_str_utf16_null("K") + _W_SEP
-            + _encode_str_utf16_null("V") + _W_SEP + b"\x01\x00"
+            _W_OPEN
+            + _encode_str_utf16_null("K")
+            + _W_SEP
+            + _encode_str_utf16_null("V")
+            + _W_SEP
+            + b"\x01\x00"
         )
         result = parse_registry_pol(_prefix_record(body))
         assert len(result) == 1
@@ -407,9 +431,13 @@ class TestMalformedRecords:
     def test_missing_sep_after_type(self) -> None:
         # [key;value_name;type  then garbage (not ';')
         body = (
-            _W_OPEN + _encode_str_utf16_null("K") + _W_SEP
-            + _encode_str_utf16_null("V") + _W_SEP
-            + struct.pack("<I", 4) + _BAD
+            _W_OPEN
+            + _encode_str_utf16_null("K")
+            + _W_SEP
+            + _encode_str_utf16_null("V")
+            + _W_SEP
+            + struct.pack("<I", 4)
+            + _BAD
         )
         result = parse_registry_pol(_prefix_record(body))
         assert len(result) == 1
@@ -418,9 +446,14 @@ class TestMalformedRecords:
     def test_truncated_size_dword(self) -> None:
         # [key;value_name;type;  then only 2 bytes (need 4 for size DWORD)
         body = (
-            _W_OPEN + _encode_str_utf16_null("K") + _W_SEP
-            + _encode_str_utf16_null("V") + _W_SEP
-            + struct.pack("<I", 4) + _W_SEP + b"\x01\x00"
+            _W_OPEN
+            + _encode_str_utf16_null("K")
+            + _W_SEP
+            + _encode_str_utf16_null("V")
+            + _W_SEP
+            + struct.pack("<I", 4)
+            + _W_SEP
+            + b"\x01\x00"
         )
         result = parse_registry_pol(_prefix_record(body))
         assert len(result) == 1
@@ -429,10 +462,15 @@ class TestMalformedRecords:
     def test_missing_sep_after_size(self) -> None:
         # [key;value_name;type;size  then garbage (not ';')
         body = (
-            _W_OPEN + _encode_str_utf16_null("K") + _W_SEP
-            + _encode_str_utf16_null("V") + _W_SEP
-            + struct.pack("<I", 4) + _W_SEP
-            + struct.pack("<I", 4) + _BAD
+            _W_OPEN
+            + _encode_str_utf16_null("K")
+            + _W_SEP
+            + _encode_str_utf16_null("V")
+            + _W_SEP
+            + struct.pack("<I", 4)
+            + _W_SEP
+            + struct.pack("<I", 4)
+            + _BAD
         )
         result = parse_registry_pol(_prefix_record(body))
         assert len(result) == 1
@@ -441,10 +479,16 @@ class TestMalformedRecords:
     def test_truncated_data(self) -> None:
         # size claims 100 bytes but only 2 follow
         body = (
-            _W_OPEN + _encode_str_utf16_null("K") + _W_SEP
-            + _encode_str_utf16_null("V") + _W_SEP
-            + struct.pack("<I", 4) + _W_SEP
-            + struct.pack("<I", 100) + _W_SEP + b"\x01\x00"
+            _W_OPEN
+            + _encode_str_utf16_null("K")
+            + _W_SEP
+            + _encode_str_utf16_null("V")
+            + _W_SEP
+            + struct.pack("<I", 4)
+            + _W_SEP
+            + struct.pack("<I", 100)
+            + _W_SEP
+            + b"\x01\x00"
         )
         result = parse_registry_pol(_prefix_record(body))
         assert len(result) == 1
@@ -453,11 +497,17 @@ class TestMalformedRecords:
     def test_missing_close_bracket(self) -> None:
         # data present but no ']' terminator
         body = (
-            _W_OPEN + _encode_str_utf16_null("K") + _W_SEP
-            + _encode_str_utf16_null("V") + _W_SEP
-            + struct.pack("<I", 4) + _W_SEP
-            + struct.pack("<I", 4) + _W_SEP
-            + struct.pack("<I", 1) + _BAD
+            _W_OPEN
+            + _encode_str_utf16_null("K")
+            + _W_SEP
+            + _encode_str_utf16_null("V")
+            + _W_SEP
+            + struct.pack("<I", 4)
+            + _W_SEP
+            + struct.pack("<I", 4)
+            + _W_SEP
+            + struct.pack("<I", 1)
+            + _BAD
         )
         result = parse_registry_pol(_prefix_record(body))
         assert len(result) == 1

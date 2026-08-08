@@ -196,8 +196,7 @@ class TestAdapterIdentityFromTypedFields:
     def test_doctor_fingerprint_changes_with_declared_dimension(self) -> None:
         a = _doctor_finding_to_candidate(self._doctor(), snapshot_id=1)
         b = _doctor_finding_to_candidate(
-            self._doctor(summary="User version skew (GPC != GPT)",
-                         dimensions=(("side", "User"),)),
+            self._doctor(summary="User version skew (GPC != GPT)", dimensions=(("side", "User"),)),
             snapshot_id=1,
         )
         assert compute_fingerprint(a) != compute_fingerprint(b)
@@ -207,13 +206,17 @@ class TestAdapterIdentityFromTypedFields:
         # gpo_id was present, collapsing two coverage-gap kinds on one GPO to a
         # single fingerprint. The kind now rides in dimensions and stays.
         a = _doctor_finding_to_candidate(
-            self._doctor(category="coverage_gap", summary="gap A",
-                         dimensions=(("kind", "inaccessible"),)),
+            self._doctor(
+                category="coverage_gap", summary="gap A", dimensions=(("kind", "inaccessible"),)
+            ),
             snapshot_id=1,
         )
         b = _doctor_finding_to_candidate(
-            self._doctor(category="coverage_gap", summary="gap B",
-                         dimensions=(("kind", "unreadable_sysvol"),)),
+            self._doctor(
+                category="coverage_gap",
+                summary="gap B",
+                dimensions=(("kind", "unreadable_sysvol"),),
+            ),
             snapshot_id=1,
         )
         assert compute_fingerprint(a) != compute_fingerprint(b)
@@ -248,6 +251,87 @@ class TestAdapterIdentityFromTypedFields:
 
     def test_fingerprint_version_included(self) -> None:
         assert FINGERPRINT_VERSION >= 1
+
+
+class TestSnapshotScopedSubjects:
+    """Plan 024 §4: a finding whose subject cannot be identified stably across
+    snapshots is ``snapshot_scoped`` and is not tracked run-to-run.
+
+    Reachable only when a GPO-less detector omits its ``subject_key`` — which
+    ``test_doctor_contract.py`` forbids — so these tests drive the adapter
+    directly rather than waiting for a detector to regress.
+    """
+
+    def _doctor(self, **over: object) -> DoctorFinding:
+        base: dict[str, object] = {
+            "severity": "medium",
+            "category": "estate_hygiene",
+            "gpo_id": "",
+            "gpo_name": "",
+            "summary": "Some estate-level issue",
+            "detail": "evidence",
+        }
+        base.update(over)
+        return DoctorFinding(**base)  # type: ignore[arg-type]
+
+    def test_declared_subject_key_is_stable(self) -> None:
+        cand = _doctor_finding_to_candidate(
+            self._doctor(subject_key=("orphaned-wmi-filter-1",)), snapshot_id=1
+        )
+        assert cand.subject_stable is True
+
+    def test_gpo_scoped_finding_is_stable(self) -> None:
+        cand = _doctor_finding_to_candidate(
+            self._doctor(gpo_id="gpo-1", gpo_name="GPO One"), snapshot_id=1
+        )
+        assert cand.subject_stable is True
+
+    def test_missing_subject_key_is_marked_unstable(self) -> None:
+        cand = _doctor_finding_to_candidate(self._doctor(), snapshot_id=1)
+        assert cand.subject_stable is False
+
+    def test_unstable_subject_fingerprint_moves_with_prose(self) -> None:
+        """Why the mark exists: identity really is prose-dependent here.
+
+        This is the behaviour ``snapshot_scoped`` reports honestly rather than
+        the behaviour it prevents — the adapter cannot invent a stable subject
+        that the detector never supplied.
+        """
+        a = _doctor_finding_to_candidate(self._doctor(), snapshot_id=1)
+        b = _doctor_finding_to_candidate(
+            self._doctor(summary="Reworded estate-level issue"), snapshot_id=2
+        )
+        assert compute_fingerprint(a) != compute_fingerprint(b)
+
+    def test_inbox_reports_snapshot_scoped_and_excludes_it_from_new(
+        self,
+    ) -> None:
+        conn = _make_db()
+        try:
+            _make_snapshot(conn, 1)
+            run_id = _make_run(conn, 1)
+            run_evaluation(
+                conn,
+                run_id,
+                [
+                    _doctor_finding_to_candidate(self._doctor(), snapshot_id=1),
+                    _make_candidate("cpassword", subject_key=("gpo1",)),
+                ],
+            )
+
+            states = {v.lifecycle_state for v in finding_inbox(conn)}
+            assert states == {"snapshot_scoped", "new"}
+
+            # The run-relative filters must not surface it: a row displayed as
+            # snapshot_scoped appearing under "new" would contradict the filter
+            # that selected it.
+            new_only = finding_inbox(conn, lifecycle_state="new")
+            assert [v.lifecycle_state for v in new_only] == ["new"]
+
+            scoped = finding_inbox(conn, lifecycle_state="snapshot_scoped")
+            assert [v.lifecycle_state for v in scoped] == ["snapshot_scoped"]
+        finally:
+            conn.close()
 
 
 class TestSeriesKey:
@@ -319,7 +403,8 @@ class TestLifecycleEngine:
 
             run2 = _make_run(conn, 2)
             result = run_evaluation(
-                conn, run2,
+                conn,
+                run2,
                 [_make_candidate("ms16_072", subject_key=("gpo2",))],
             )
             assert result.resolved_count == 1
@@ -365,10 +450,14 @@ class TestLifecycleEngine:
             run_evaluation(conn, run1, [_make_candidate("cpassword", subject_key=("gpo1",))])
 
             run2 = _make_run(conn, 2)
-            result = run_evaluation(conn, run2, [
-                _make_candidate("cpassword", subject_key=("gpo1",)),
-                _make_candidate("ms16_072", subject_key=("gpo2",), severity="high"),
-            ])
+            result = run_evaluation(
+                conn,
+                run2,
+                [
+                    _make_candidate("cpassword", subject_key=("gpo1",)),
+                    _make_candidate("ms16_072", subject_key=("gpo2",), severity="high"),
+                ],
+            )
             assert result.new_count == 1
             assert result.persisting_count == 1
         finally:
@@ -459,14 +548,20 @@ class TestFailedRuns:
             _make_snapshot(conn, 1)
             _make_snapshot(conn, 2)
             run1 = _make_run(conn, 1)
-            run_evaluation(conn, run1, [
-                _make_candidate("cpassword", subject_key=("gpo1",)),
-                _make_candidate("ms16_072", subject_key=("gpo2",)),
-            ])
+            run_evaluation(
+                conn,
+                run1,
+                [
+                    _make_candidate("cpassword", subject_key=("gpo1",)),
+                    _make_candidate("ms16_072", subject_key=("gpo2",)),
+                ],
+            )
 
             run2 = _make_run(conn, 2)
             result = run_evaluation(
-                conn, run2, [],
+                conn,
+                run2,
+                [],
                 run_status="failed",
                 coverage_complete=True,
             )
@@ -481,13 +576,19 @@ class TestFailedRuns:
             _make_snapshot(conn, 1)
             _make_snapshot(conn, 2)
             run1 = _make_run(conn, 1)
-            run_evaluation(conn, run1, [
-                _make_candidate("cpassword", subject_key=("gpo1",)),
-            ])
+            run_evaluation(
+                conn,
+                run1,
+                [
+                    _make_candidate("cpassword", subject_key=("gpo1",)),
+                ],
+            )
 
             run2 = _make_run(conn, 2)
             result = run_evaluation(
-                conn, run2, [],
+                conn,
+                run2,
+                [],
                 run_status="partial",
                 coverage_complete=True,
             )
@@ -503,14 +604,19 @@ class TestCoverageGaps:
             _make_snapshot(conn, 1)
             _make_snapshot(conn, 2)
             run1 = _make_run(conn, 1)
-            run_evaluation(conn, run1, [
-                _make_candidate("cpassword", subject_key=("gpo1",)),
-                _make_candidate("ms16_072", subject_key=("gpo2",)),
-            ])
+            run_evaluation(
+                conn,
+                run1,
+                [
+                    _make_candidate("cpassword", subject_key=("gpo1",)),
+                    _make_candidate("ms16_072", subject_key=("gpo2",)),
+                ],
+            )
 
             run2 = _make_run(conn, 2)
             result = run_evaluation(
-                conn, run2,
+                conn,
+                run2,
                 [_make_candidate("ms16_072", subject_key=("gpo2",))],
                 collected_gpo_ids={"gpo2"},
                 coverage_complete=False,
@@ -526,14 +632,20 @@ class TestCoverageGaps:
             _make_snapshot(conn, 1)
             _make_snapshot(conn, 2)
             run1 = _make_run(conn, 1)
-            run_evaluation(conn, run1, [
-                _make_candidate("cpassword", subject_key=("gpo1",)),
-                _make_candidate("ms16_072", subject_key=("gpo2",)),
-            ])
+            run_evaluation(
+                conn,
+                run1,
+                [
+                    _make_candidate("cpassword", subject_key=("gpo1",)),
+                    _make_candidate("ms16_072", subject_key=("gpo2",)),
+                ],
+            )
 
             run2 = _make_run(conn, 2)
             result = run_evaluation(
-                conn, run2, [],
+                conn,
+                run2,
+                [],
                 collected_gpo_ids={"gpo1"},
                 coverage_complete=False,
             )
@@ -548,13 +660,19 @@ class TestCoverageGaps:
             _make_snapshot(conn, 1)
             _make_snapshot(conn, 2)
             run1 = _make_run(conn, 1)
-            run_evaluation(conn, run1, [
-                _make_candidate("topology", subject_key=("ou1",), subject_type="estate"),
-            ])
+            run_evaluation(
+                conn,
+                run1,
+                [
+                    _make_candidate("topology", subject_key=("ou1",), subject_type="estate"),
+                ],
+            )
 
             run2 = _make_run(conn, 2)
             result = run_evaluation(
-                conn, run2, [],
+                conn,
+                run2,
+                [],
                 collected_gpo_ids={"gpo1"},
                 coverage_complete=False,
             )
@@ -623,54 +741,68 @@ class TestTriageFold:
         assert status.status == "acknowledged"
 
     def test_accepted_risk(self) -> None:
-        status = fold_triage([
-            self._make_event("accepted_risk", rationale="known issue"),
-        ])
+        status = fold_triage(
+            [
+                self._make_event("accepted_risk", rationale="known issue"),
+            ]
+        )
         assert status.status == "accepted_risk"
         assert status.rationale == "known issue"
 
     def test_reopened(self) -> None:
-        status = fold_triage([
-            self._make_event("acknowledged"),
-            self._make_event("reopened"),
-        ])
+        status = fold_triage(
+            [
+                self._make_event("acknowledged"),
+                self._make_event("reopened"),
+            ]
+        )
         assert status.status == "open"
 
     def test_risk_acceptance_expired(self) -> None:
-        status = fold_triage([
-            self._make_event("accepted_risk", rationale="accepted"),
-            self._make_event("risk_acceptance_expired"),
-        ])
+        status = fold_triage(
+            [
+                self._make_event("accepted_risk", rationale="accepted"),
+                self._make_event("risk_acceptance_expired"),
+            ]
+        )
         assert status.status == "open"
 
     def test_risk_acceptance_revoked(self) -> None:
-        status = fold_triage([
-            self._make_event("accepted_risk", rationale="accepted"),
-            self._make_event("risk_acceptance_revoked"),
-        ])
+        status = fold_triage(
+            [
+                self._make_event("accepted_risk", rationale="accepted"),
+                self._make_event("risk_acceptance_revoked"),
+            ]
+        )
         assert status.status == "open"
 
     def test_commented_does_not_change_status(self) -> None:
-        status = fold_triage([
-            self._make_event("acknowledged"),
-            self._make_event("commented", note="a note"),
-        ])
+        status = fold_triage(
+            [
+                self._make_event("acknowledged"),
+                self._make_event("commented", note="a note"),
+            ]
+        )
         assert status.status == "acknowledged"
         assert status.note == "a note"
 
     def test_re_acknowledge_after_expiry(self) -> None:
-        status = fold_triage([
-            self._make_event("accepted_risk", rationale="r1"),
-            self._make_event("risk_acceptance_expired"),
-            self._make_event("acknowledged"),
-        ])
+        status = fold_triage(
+            [
+                self._make_event("accepted_risk", rationale="r1"),
+                self._make_event("risk_acceptance_expired"),
+                self._make_event("acknowledged"),
+            ]
+        )
         assert status.status == "acknowledged"
 
     def test_expiry_does_not_affect_non_accepted(self) -> None:
-        status = fold_triage([
-            self._make_event("acknowledged"),
-            self._make_event("risk_acceptance_expired"),
-        ])
+        status = fold_triage(
+            [
+                self._make_event("acknowledged"),
+                self._make_event("risk_acceptance_expired"),
+            ]
+        )
         assert status.status == "acknowledged"
 
 
@@ -752,7 +884,10 @@ class TestRiskAcceptanceExpiry:
 
             past_expiry = datetime.now(UTC) - timedelta(hours=1)
             append_triage_event(
-                conn, occ_id, "accepted_risk", "admin",
+                conn,
+                occ_id,
+                "accepted_risk",
+                "admin",
                 rationale="accepted",
                 expires_at=past_expiry,
             )
@@ -774,7 +909,10 @@ class TestRiskAcceptanceExpiry:
 
             future_expiry = datetime.now(UTC) + timedelta(days=30)
             append_triage_event(
-                conn, occ_id, "accepted_risk", "admin",
+                conn,
+                occ_id,
+                "accepted_risk",
+                "admin",
                 rationale="accepted",
                 expires_at=future_expiry,
             )
@@ -793,7 +931,10 @@ class TestRiskAcceptanceExpiry:
             occ_id = finding_inbox(conn)[0].occurrence_id
 
             append_triage_event(
-                conn, occ_id, "accepted_risk", "admin",
+                conn,
+                occ_id,
+                "accepted_risk",
+                "admin",
                 rationale="accepted",
             )
             expired = expire_risk_acceptances(conn)
@@ -808,10 +949,14 @@ class TestCoreQueries:
         try:
             _make_snapshot(conn, 1)
             run_id = _make_run(conn, 1)
-            run_evaluation(conn, run_id, [
-                _make_candidate("cpassword", subject_key=("gpo1",), severity="critical"),
-                _make_candidate("ms16_072", subject_key=("gpo2",), severity="high"),
-            ])
+            run_evaluation(
+                conn,
+                run_id,
+                [
+                    _make_candidate("cpassword", subject_key=("gpo1",), severity="critical"),
+                    _make_candidate("ms16_072", subject_key=("gpo2",), severity="high"),
+                ],
+            )
             inbox = finding_inbox(conn)
             assert len(inbox) == 2
         finally:
@@ -822,10 +967,14 @@ class TestCoreQueries:
         try:
             _make_snapshot(conn, 1)
             run_id = _make_run(conn, 1)
-            run_evaluation(conn, run_id, [
-                _make_candidate("cpassword", subject_key=("gpo1",)),
-                _make_candidate("ms16_072", subject_key=("gpo2",)),
-            ])
+            run_evaluation(
+                conn,
+                run_id,
+                [
+                    _make_candidate("cpassword", subject_key=("gpo1",)),
+                    _make_candidate("ms16_072", subject_key=("gpo2",)),
+                ],
+            )
             inbox = finding_inbox(conn, category="cpassword")
             assert len(inbox) == 1
             assert inbox[0].category == "cpassword"
@@ -837,10 +986,14 @@ class TestCoreQueries:
         try:
             _make_snapshot(conn, 1)
             run_id = _make_run(conn, 1)
-            run_evaluation(conn, run_id, [
-                _make_candidate("cpassword", subject_key=("gpo1",), severity="critical"),
-                _make_candidate("ms16_072", subject_key=("gpo2",), severity="high"),
-            ])
+            run_evaluation(
+                conn,
+                run_id,
+                [
+                    _make_candidate("cpassword", subject_key=("gpo1",), severity="critical"),
+                    _make_candidate("ms16_072", subject_key=("gpo2",), severity="high"),
+                ],
+            )
             inbox = finding_inbox(conn, severity="critical")
             assert len(inbox) == 1
         finally:
@@ -851,10 +1004,14 @@ class TestCoreQueries:
         try:
             _make_snapshot(conn, 1)
             run_id = _make_run(conn, 1)
-            run_evaluation(conn, run_id, [
-                _make_candidate("cpassword", subject_key=("gpo1",)),
-                _make_candidate("ms16_072", subject_key=("gpo2",)),
-            ])
+            run_evaluation(
+                conn,
+                run_id,
+                [
+                    _make_candidate("cpassword", subject_key=("gpo1",)),
+                    _make_candidate("ms16_072", subject_key=("gpo2",)),
+                ],
+            )
             inbox = finding_inbox(conn, gpo_id="gpo1")
             assert len(inbox) == 1
         finally:
@@ -869,10 +1026,7 @@ class TestCoreQueries:
         try:
             _make_snapshot(conn, 1)
             run_id = _make_run(conn, 1)
-            cands = [
-                _make_candidate("cpassword", subject_key=(f"gpo{i}",))
-                for i in range(30)
-            ]
+            cands = [_make_candidate("cpassword", subject_key=(f"gpo{i}",)) for i in range(30)]
             run_evaluation(conn, run_id, cands)
 
             all_active = finding_inbox(conn, limit=1000)
@@ -880,7 +1034,10 @@ class TestCoreQueries:
             accepted_ids = [v.occurrence_id for v in all_active[-3:]]
             for oid in accepted_ids:
                 append_triage_event(
-                    conn, oid, "accepted_risk", "alice",
+                    conn,
+                    oid,
+                    "accepted_risk",
+                    "alice",
                     rationale="reviewed",
                 )
 
@@ -924,11 +1081,15 @@ class TestCoreQueries:
         try:
             _make_snapshot(conn, 1)
             run_id = _make_run(conn, 1)
-            run_evaluation(conn, run_id, [
-                _make_candidate("a", subject_key=("gpo1",), severity="critical"),
-                _make_candidate("b", subject_key=("gpo2",), severity="high"),
-                _make_candidate("c", subject_key=("gpo3",), severity="low"),
-            ])
+            run_evaluation(
+                conn,
+                run_id,
+                [
+                    _make_candidate("a", subject_key=("gpo1",), severity="critical"),
+                    _make_candidate("b", subject_key=("gpo2",), severity="high"),
+                    _make_candidate("c", subject_key=("gpo3",), severity="low"),
+                ],
+            )
             inbox = finding_inbox(conn, severities=["critical", "high"])
             assert {v.severity for v in inbox} == {"critical", "high"}
         finally:
@@ -942,11 +1103,15 @@ class TestCoreQueries:
         try:
             _make_snapshot(conn, 1)
             run_id = _make_run(conn, 1)
-            run_evaluation(conn, run_id, [
-                _make_candidate("delegation", subject_key=("gpo1",)),
-                _make_candidate("delegation:excessive_writers", subject_key=("gpo2",)),
-                _make_candidate("delegation_other", subject_key=("gpo3",)),
-            ])
+            run_evaluation(
+                conn,
+                run_id,
+                [
+                    _make_candidate("delegation", subject_key=("gpo1",)),
+                    _make_candidate("delegation:excessive_writers", subject_key=("gpo2",)),
+                    _make_candidate("delegation_other", subject_key=("gpo3",)),
+                ],
+            )
             got = {v.category for v in finding_inbox(conn, category_prefix="delegation")}
             assert got == {"delegation", "delegation:excessive_writers"}
         finally:
@@ -957,12 +1122,18 @@ class TestCoreQueries:
         try:
             _make_snapshot(conn, 1)
             run_id = _make_run(conn, 1)
-            run_evaluation(conn, run_id, [
-                _make_candidate(
-                    "cpassword", subject_key=("gpo1",), summary="Stored secret",
-                ),
-                _make_candidate("ms16_072", subject_key=("gpo2",), summary="Other"),
-            ])
+            run_evaluation(
+                conn,
+                run_id,
+                [
+                    _make_candidate(
+                        "cpassword",
+                        subject_key=("gpo1",),
+                        summary="Stored secret",
+                    ),
+                    _make_candidate("ms16_072", subject_key=("gpo2",), summary="Other"),
+                ],
+            )
             # Case-insensitive substring over the summary.
             assert len(finding_inbox(conn, search="stored")) == 1
             # …over the rule id.
@@ -979,10 +1150,14 @@ class TestCoreQueries:
         try:
             _make_snapshot(conn, 1)
             run_id = _make_run(conn, 1)
-            run_evaluation(conn, run_id, [
-                _make_candidate("a", subject_key=("gpo1",), summary="100% broken"),
-                _make_candidate("b", subject_key=("gpo2",), summary="plain"),
-            ])
+            run_evaluation(
+                conn,
+                run_id,
+                [
+                    _make_candidate("a", subject_key=("gpo1",), summary="100% broken"),
+                    _make_candidate("b", subject_key=("gpo2",), summary="plain"),
+                ],
+            )
             assert len(finding_inbox(conn, search="100%")) == 1
             # A bare "%" matches the row containing a literal percent sign — not
             # both rows, which is what an unescaped LIKE wildcard would do.
@@ -1028,12 +1203,14 @@ class TestCoreQueries:
         try:
             _make_snapshot(conn, 1)
             run_id = _make_run(conn, 1)
-            run_evaluation(conn, run_id, [
-                _make_candidate("a", subject_key=(f"gpo{i}",), severity="high")
-                for i in range(7)
-            ] + [
-                _make_candidate("b", subject_key=("other",), severity="low"),
-            ])
+            run_evaluation(
+                conn,
+                run_id,
+                [_make_candidate("a", subject_key=(f"gpo{i}",), severity="high") for i in range(7)]
+                + [
+                    _make_candidate("b", subject_key=("other",), severity="low"),
+                ],
+            )
             assert finding_inbox_count(conn) == 8
             assert finding_inbox_count(conn, severities=["high"]) == 7
             assert finding_inbox_count(conn, severities=["high"]) == len(
@@ -1050,9 +1227,9 @@ class TestCoreQueries:
         try:
             _make_snapshot(conn, 1)
             run_id = _make_run(conn, 1)
-            run_evaluation(conn, run_id, [
-                _make_candidate("a", subject_key=(f"gpo{i}",)) for i in range(10)
-            ])
+            run_evaluation(
+                conn, run_id, [_make_candidate("a", subject_key=(f"gpo{i}",)) for i in range(10)]
+            )
             first = finding_inbox(conn, limit=4, offset=0)
             second = finding_inbox(conn, limit=4, offset=4)
             third = finding_inbox(conn, limit=4, offset=8)
@@ -1060,9 +1237,7 @@ class TestCoreQueries:
             # Every row appears exactly once across the three pages.
             assert len(ids) == 10
             assert len(set(ids)) == 10
-            assert set(ids) == {
-                v.occurrence_id for v in finding_inbox(conn, limit=1000)
-            }
+            assert set(ids) == {v.occurrence_id for v in finding_inbox(conn, limit=1000)}
         finally:
             conn.close()
 
@@ -1071,20 +1246,26 @@ class TestCoreQueries:
         try:
             _make_snapshot(conn, 1)
             run_id = _make_run(conn, 1)
-            run_evaluation(conn, run_id, [
-                _make_candidate("cpassword", subject_key=("gpo1",)),
-                _make_candidate("cpassword", subject_key=("gpo2",)),
-                _make_candidate("ms16_072", subject_key=("gpo3",)),
-            ])
+            run_evaluation(
+                conn,
+                run_id,
+                [
+                    _make_candidate("cpassword", subject_key=("gpo1",)),
+                    _make_candidate("cpassword", subject_key=("gpo2",)),
+                    _make_candidate("ms16_072", subject_key=("gpo3",)),
+                ],
+            )
             assert finding_inbox_categories(conn) == [
-                ("cpassword", 2), ("ms16_072", 1),
+                ("cpassword", 2),
+                ("ms16_072", 1),
             ]
             # Triage state must not shrink the facet list — the operator needs
             # to see categories they could still select.
             occ = finding_inbox(conn, category="ms16_072")[0].occurrence_id
             append_triage_event(conn, occ, "acknowledged", "alice")
             assert finding_inbox_categories(conn) == [
-                ("cpassword", 2), ("ms16_072", 1),
+                ("cpassword", 2),
+                ("ms16_072", 1),
             ]
         finally:
             conn.close()
@@ -1098,15 +1279,25 @@ class TestCoreQueries:
             _make_snapshot(conn, 1)
             _make_snapshot(conn, 2)
             run1 = _make_run(conn, 1)
-            run_evaluation(conn, run1, [
-                _make_candidate("cpassword", subject_key=("gpo1",), severity="high"),
-            ])
+            run_evaluation(
+                conn,
+                run1,
+                [
+                    _make_candidate("cpassword", subject_key=("gpo1",), severity="high"),
+                ],
+            )
             run2 = _make_run(conn, 2)
-            run_evaluation(conn, run2, [
-                _make_candidate(
-                    "cpassword", subject_key=("gpo1",), severity="critical",
-                ),
-            ])
+            run_evaluation(
+                conn,
+                run2,
+                [
+                    _make_candidate(
+                        "cpassword",
+                        subject_key=("gpo1",),
+                        severity="critical",
+                    ),
+                ],
+            )
 
             occ_id = finding_inbox(conn)[0].occurrence_id
             history = finding_observation_history(conn, occ_id)
@@ -1129,12 +1320,14 @@ class TestCoreQueries:
         try:
             _make_snapshot(conn, 1)
             run_id = _make_run(conn, 1)
-            run_evaluation(conn, run_id, [
-                _make_candidate("cpassword", subject_key=("gpo1",)),
-            ])
-            conn.execute(
-                "UPDATE finding_observation SET evidence_json = 'not json'"
+            run_evaluation(
+                conn,
+                run_id,
+                [
+                    _make_candidate("cpassword", subject_key=("gpo1",)),
+                ],
             )
+            conn.execute("UPDATE finding_observation SET evidence_json = 'not json'")
             conn.commit()
 
             occ_id = finding_inbox(conn)[0].occurrence_id
@@ -1169,15 +1362,23 @@ class TestCoreQueries:
             _make_snapshot(conn, 1)
             _make_snapshot(conn, 2)
             run1 = _make_run(conn, 1)
-            run_evaluation(conn, run1, [
-                _make_candidate("cpassword", subject_key=("gpo1",)),
-                _make_candidate("ms16_072", subject_key=("gpo2",)),
-            ])
+            run_evaluation(
+                conn,
+                run1,
+                [
+                    _make_candidate("cpassword", subject_key=("gpo1",)),
+                    _make_candidate("ms16_072", subject_key=("gpo2",)),
+                ],
+            )
             run2 = _make_run(conn, 2)
-            run_evaluation(conn, run2, [
-                _make_candidate("ms16_072", subject_key=("gpo2",)),
-                _make_candidate("version_skew", subject_key=("gpo3",)),
-            ])
+            run_evaluation(
+                conn,
+                run2,
+                [
+                    _make_candidate("ms16_072", subject_key=("gpo2",)),
+                    _make_candidate("version_skew", subject_key=("gpo3",)),
+                ],
+            )
             delta = finding_delta(conn, run1, run2)
             assert len(delta.new_fingerprints) == 1
             assert len(delta.resolved_fingerprints) == 1
@@ -1194,7 +1395,10 @@ class TestCoreQueries:
             occ_id = finding_inbox(conn)[0].occurrence_id
 
             append_triage_event(
-                conn, occ_id, "accepted_risk", "admin",
+                conn,
+                occ_id,
+                "accepted_risk",
+                "admin",
                 rationale="known issue, low priority",
             )
             register = accepted_risk_register(conn)
@@ -1209,14 +1413,22 @@ class TestCoreQueries:
         try:
             _make_snapshot(conn, 1)
             run_id = _make_run(conn, 1)
-            run_evaluation(conn, run_id, [
-                _make_candidate("cpassword", subject_key=("gpo1",)),
-            ])
+            run_evaluation(
+                conn,
+                run_id,
+                [
+                    _make_candidate("cpassword", subject_key=("gpo1",)),
+                ],
+            )
             occ_id = finding_inbox(conn)[0].occurrence_id
             expires_at = datetime(2025, 1, 3, tzinfo=UTC)
             event_id = append_triage_event(
-                conn, occ_id, "accepted_risk", "admin",
-                rationale="temporary exception", expires_at=expires_at,
+                conn,
+                occ_id,
+                "accepted_risk",
+                "admin",
+                rationale="temporary exception",
+                expires_at=expires_at,
             )
             conn.execute(
                 "UPDATE finding_triage_event SET occurred_at = ? WHERE id = ?",
@@ -1224,18 +1436,26 @@ class TestCoreQueries:
             )
             conn.commit()
 
-            assert accepted_risk_register(
-                conn, as_of=datetime(2025, 1, 1, tzinfo=UTC),
-            ) == []
+            assert (
+                accepted_risk_register(
+                    conn,
+                    as_of=datetime(2025, 1, 1, tzinfo=UTC),
+                )
+                == []
+            )
 
             expired = accepted_risk_register(
-                conn, as_of=datetime(2025, 1, 4, tzinfo=UTC),
+                conn,
+                as_of=datetime(2025, 1, 4, tzinfo=UTC),
             )
             assert len(expired) == 1
             assert expired[0].is_expired
 
             revoke_id = append_triage_event(
-                conn, occ_id, "risk_acceptance_revoked", "reviewer",
+                conn,
+                occ_id,
+                "risk_acceptance_revoked",
+                "reviewer",
                 note="exception withdrawn",
             )
             conn.execute(
@@ -1245,7 +1465,8 @@ class TestCoreQueries:
             conn.commit()
 
             revoked = accepted_risk_register(
-                conn, as_of=datetime(2025, 1, 6, tzinfo=UTC),
+                conn,
+                as_of=datetime(2025, 1, 6, tzinfo=UTC),
             )
             assert len(revoked) == 1
             assert revoked[0].revoked_by == "reviewer"
@@ -1260,12 +1481,19 @@ class TestCoreQueries:
         try:
             _make_snapshot(conn, 1)
             run_id = _make_run(conn, 1)
-            run_evaluation(conn, run_id, [
-                _make_candidate("cpassword", subject_key=("gpo1",)),
-            ])
+            run_evaluation(
+                conn,
+                run_id,
+                [
+                    _make_candidate("cpassword", subject_key=("gpo1",)),
+                ],
+            )
             occ_id = finding_inbox(conn)[0].occurrence_id
             accept_id = append_triage_event(
-                conn, occ_id, "accepted_risk", "admin",
+                conn,
+                occ_id,
+                "accepted_risk",
+                "admin",
                 rationale="temporary exception",
             )
             conn.execute(
@@ -1273,7 +1501,11 @@ class TestCoreQueries:
                 ("2025-01-02T00:00:00+00:00", accept_id),
             )
             reopen_id = append_triage_event(
-                conn, occ_id, "reopened", "reviewer", note="exception withdrawn",
+                conn,
+                occ_id,
+                "reopened",
+                "reviewer",
+                note="exception withdrawn",
             )
             conn.execute(
                 "UPDATE finding_triage_event SET occurred_at = ? WHERE id = ?",
@@ -1282,7 +1514,8 @@ class TestCoreQueries:
             conn.commit()
 
             register = accepted_risk_register(
-                conn, as_of=datetime(2025, 1, 4, tzinfo=UTC),
+                conn,
+                as_of=datetime(2025, 1, 4, tzinfo=UTC),
             )
             assert len(register) == 1
             # Reopen cancels the acceptance: revoked_at/revoked_by populated.
@@ -1314,16 +1547,20 @@ class TestEvidenceSafety:
     def test_evidence_ref_safe_projection_bounded(self) -> None:
         long_text = "x" * 10000
         ev = EvidenceRef(
-            snapshot_id=1, gpo_id="gpo1",
-            source="test", field_path="test",
+            snapshot_id=1,
+            gpo_id="gpo1",
+            source="test",
+            field_path="test",
             safe_projection=long_text,
         )
         assert len(ev.safe_projection) == 10000
 
     def test_evidence_no_raw_cpassword(self) -> None:
         ev = EvidenceRef(
-            snapshot_id=1, gpo_id="gpo1",
-            source="gpp_xml", field_path="cpassword",
+            snapshot_id=1,
+            gpo_id="gpo1",
+            source="gpp_xml",
+            field_path="cpassword",
             safe_projection="masked: abcD****",
         )
         assert "****" in ev.safe_projection
@@ -1331,6 +1568,37 @@ class TestEvidenceSafety:
 
 
 class TestSchemaMigration:
+    def test_v8_db_gains_subject_stable(self, tmp_path: Path) -> None:
+        """A database written before v9 must gain ``subject_stable``.
+
+        Regressing a live schema and re-opening it is the only way to prove
+        the migration runs; asserting on a freshly created database would
+        exercise the CREATE path and report success either way.
+        """
+        db_path = str(tmp_path / "test-v8.sqlite3")
+        conn = sqlite3.connect(db_path)
+        try:
+            init_db(conn)
+            conn.execute("ALTER TABLE finding DROP COLUMN subject_stable")
+            conn.execute("PRAGMA user_version = 8")
+            conn.commit()
+            cols = {r[1] for r in conn.execute("PRAGMA table_info(finding)")}
+            assert "subject_stable" not in cols, "setup failed to regress"
+
+            init_db(conn)
+
+            cols = {r[1] for r in conn.execute("PRAGMA table_info(finding)")}
+            assert "subject_stable" in cols
+            # Pre-existing rows are stable by default: every deployed detector
+            # declares a subject, so nothing is retroactively snapshot_scoped.
+            default = conn.execute(
+                "SELECT dflt_value FROM pragma_table_info('finding') WHERE name = 'subject_stable'"
+            ).fetchone()[0]
+            assert str(default) == "1"
+            assert conn.execute("PRAGMA user_version").fetchone()[0] == CURRENT_SCHEMA_VERSION
+        finally:
+            conn.close()
+
     def test_v5_db_migrates_to_v6(self, tmp_path: Path) -> None:
         db_path = str(tmp_path / "test-v5.sqlite3")
         conn = sqlite3.connect(db_path)
@@ -1369,9 +1637,7 @@ class TestSchemaMigration:
             assert "finding_observation" in tables
             assert "finding_triage_event" in tables
 
-            finding_cols = {
-                row[1] for row in conn.execute("PRAGMA table_info(finding)").fetchall()
-            }
+            finding_cols = {row[1] for row in conn.execute("PRAGMA table_info(finding)").fetchall()}
             assert "fingerprint_version" in finding_cols
             assert "series_key" in finding_cols
             assert "detector_id" in finding_cols
@@ -1468,28 +1734,27 @@ class TestSchemaMigration:
 
             init_db(conn)
 
-            assert conn.execute("PRAGMA user_version").fetchone()[0] == 8
+            assert conn.execute("PRAGMA user_version").fetchone()[0] == CURRENT_SCHEMA_VERSION
 
             events = load_triage_events(conn, 1)
             assert [e.action for e in events] == [
-                "acknowledged", "acknowledged", "accepted_risk", "reopened",
+                "acknowledged",
+                "acknowledged",
+                "accepted_risk",
+                "reopened",
             ]
             assert [e.note for e in events[:2]] == ["looking into it", "second note"]
             assert [e.actor for e in events] == ["alice", "alice", "bob", "carol"]
             assert events[2].rationale == "temporary exception"
             # Legacy timestamps preserved as occurred_at, in order.
-            assert events[0].occurred_at == datetime(
-                2025, 1, 2, tzinfo=UTC
-            )
+            assert events[0].occurred_at == datetime(2025, 1, 2, tzinfo=UTC)
             # Fold: ack -> accepted -> reopened ends at open.
             assert get_triage_status(conn, 1).status == "open"
 
             # Idempotent: force the migration guard to execute again.
             conn.execute("PRAGMA user_version = 7")
             init_db(conn)
-            assert conn.execute(
-                "SELECT COUNT(*) FROM finding_triage_event"
-            ).fetchone()[0] == 4
+            assert conn.execute("SELECT COUNT(*) FROM finding_triage_event").fetchone()[0] == 4
         finally:
             conn.close()
 

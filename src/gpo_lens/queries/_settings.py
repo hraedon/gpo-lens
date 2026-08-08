@@ -108,31 +108,50 @@ def settings_diff(
                 continue
 
         if a_row is None and b_row is not None:
-            results.append(SettingsDiffRow(
-                gpo_id=gid, gpo_name=str(b_row.get("gpo_name", "")),
-                side=cast(Side, side_val), cse=cse_val, identity=identity,
-                display_name=str(b_row.get("display_name", "")),
-                change_type="added", old_value=None, new_value=str(b_row.get("display_value", "")),
-            ))
+            results.append(
+                SettingsDiffRow(
+                    gpo_id=gid,
+                    gpo_name=str(b_row.get("gpo_name", "")),
+                    side=cast(Side, side_val),
+                    cse=cse_val,
+                    identity=identity,
+                    display_name=str(b_row.get("display_name", "")),
+                    change_type="added",
+                    old_value=None,
+                    new_value=str(b_row.get("display_value", "")),
+                )
+            )
         elif a_row is not None and b_row is None:
-            results.append(SettingsDiffRow(
-                gpo_id=gid, gpo_name=str(a_row.get("gpo_name", "")),
-                side=cast(Side, side_val), cse=cse_val, identity=identity,
-                display_name=str(a_row.get("display_name", "")),
-                change_type="removed",
-                old_value=str(a_row.get("display_value", "")),
-                new_value=None,
-            ))
+            results.append(
+                SettingsDiffRow(
+                    gpo_id=gid,
+                    gpo_name=str(a_row.get("gpo_name", "")),
+                    side=cast(Side, side_val),
+                    cse=cse_val,
+                    identity=identity,
+                    display_name=str(a_row.get("display_name", "")),
+                    change_type="removed",
+                    old_value=str(a_row.get("display_value", "")),
+                    new_value=None,
+                )
+            )
         elif a_row is not None and b_row is not None:
             old_v = str(a_row.get("display_value", ""))
             new_v = str(b_row.get("display_value", ""))
             if old_v != new_v:
-                results.append(SettingsDiffRow(
-                    gpo_id=gid, gpo_name=str(b_row.get("gpo_name", "")),
-                    side=cast(Side, side_val), cse=cse_val, identity=identity,
-                    display_name=str(b_row.get("display_name", "")),
-                    change_type="modified", old_value=old_v, new_value=new_v,
-                ))
+                results.append(
+                    SettingsDiffRow(
+                        gpo_id=gid,
+                        gpo_name=str(b_row.get("gpo_name", "")),
+                        side=cast(Side, side_val),
+                        cse=cse_val,
+                        identity=identity,
+                        display_name=str(b_row.get("display_name", "")),
+                        change_type="modified",
+                        old_value=old_v,
+                        new_value=new_v,
+                    )
+                )
 
     results.skipped_count = skipped_a + skipped_b
     return results
@@ -159,13 +178,19 @@ def settings_dump(
                 continue
             if cse_lower and cse_lower not in s.cse.lower():
                 continue
-            results.append(SettingsDumpRow(
-                gpo_id=g.id, gpo_name=g.name,
-                side=s.side, cse=s.cse, identity=s.identity,
-                display_name=s.display_name, display_value=s.display_value,
-                from_disabled_side=s.from_disabled_side,
-                source_state=s.source_state,
-            ))
+            results.append(
+                SettingsDumpRow(
+                    gpo_id=g.id,
+                    gpo_name=g.name,
+                    side=s.side,
+                    cse=s.cse,
+                    identity=s.identity,
+                    display_name=s.display_name,
+                    display_value=s.display_value,
+                    from_disabled_side=s.from_disabled_side,
+                    source_state=s.source_state,
+                )
+            )
     results.sort(key=lambda r: (r.gpo_id, r.side, r.cse, r.identity.lower()))
     return results
 
@@ -264,23 +289,25 @@ def settings_ledger(
             resolved = admx.resolve_display_name(s.identity)
             if resolved:
                 admx_name = resolved
-        rows.append(LedgerRow(
-            gpo_id=gpo.id,
-            gpo_name=gpo.name,
-            side=s.side,
-            cse=s.cse,
-            identity=s.identity,
-            display_name=s.display_name,
-            display_value=s.display_value,
-            from_disabled_side=s.from_disabled_side,
-            source_state=s.source_state,
-            reg_key=reg_key,
-            reg_value_name=reg_val_name,
-            reg_type=reg_type,
-            reg_data=reg_data,
-            admx_name=admx_name,
-            admx_explain=admx_explain,
-        ))
+        rows.append(
+            LedgerRow(
+                gpo_id=gpo.id,
+                gpo_name=gpo.name,
+                side=s.side,
+                cse=s.cse,
+                identity=s.identity,
+                display_name=s.display_name,
+                display_value=s.display_value,
+                from_disabled_side=s.from_disabled_side,
+                source_state=s.source_state,
+                reg_key=reg_key,
+                reg_value_name=reg_val_name,
+                reg_type=reg_type,
+                reg_data=reg_data,
+                admx_name=admx_name,
+                admx_explain=admx_explain,
+            )
+        )
 
     rows.sort(key=lambda r: (r.side, r.cse, r.identity.lower()))
     return rows

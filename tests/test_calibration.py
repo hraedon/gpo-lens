@@ -16,6 +16,7 @@ pytestmark = pytest.mark.samples
 
 # ---- GPO counts ---------------------------------------------------------------
 
+
 def test_work_gpo_count(work_estate):
     assert len(work_estate.gpos) == 129
 
@@ -32,6 +33,7 @@ def test_no_duplicate_display_names(work_estate, lab_estate):
 
 # ---- Topology -----------------------------------------------------------------
 
+
 def test_work_som_counts(work_estate):
     assert len(work_estate.soms) == 1551
     assert sum(1 for s in work_estate.soms if s.inheritance_blocked) == 12
@@ -43,6 +45,7 @@ def test_lab_som_counts(lab_estate):
 
 
 # ---- Hygiene signals (queries) ------------------------------------------------
+
 
 def test_disabled_but_populated(work_estate, lab_estate):
     from gpo_lens.queries import disabled_but_populated
@@ -60,6 +63,7 @@ def test_enforced_flag_is_boolean(work_estate):
 
 # ---- Security clean (MS14-025 / structured CSE) -------------------------------
 
+
 def test_loopback_is_present_somewhere(work_estate):
     # Work has loopback configured (31 raw hits). It must survive ingest, whether
     # via a parsed display field or preserved in `raw`.
@@ -67,16 +71,13 @@ def test_loopback_is_present_somewhere(work_estate):
 
     def raw_has(term: str) -> bool:
         term = term.lower()
-        return any(
-            term in json.dumps(s.raw).lower()
-            for g in work_estate.gpos
-            for s in g.settings
-        )
+        return any(term in json.dumps(s.raw).lower() for g in work_estate.gpos for s in g.settings)
 
     assert who_sets(work_estate, "loopback") or raw_has("loopback")
 
 
 # ---- Version skew -------------------------------------------------------------
+
 
 def test_work_version_skew(work_estate):
     from gpo_lens.queries import version_skew
@@ -91,6 +92,7 @@ def test_lab_version_skew(lab_estate):
 
 
 # ---- MS16-072 (delegation audit) ---------------------------------------------
+
 
 def test_ms16_072_work(work_estate):
     from gpo_lens.queries import ms16_072_vulnerable
@@ -112,6 +114,7 @@ def test_ms16_072_lab(lab_estate):
 
 # ---- cpassword (MS14-025) -----------------------------------------------------
 
+
 def test_cpassword_clean_work(work_estate):
     from gpo_lens.queries import cpassword_scan
 
@@ -126,6 +129,7 @@ def test_cpassword_clean_lab(lab_estate):
 
 # ---- Smoke: every query runs and returns a list -------------------------------
 
+
 def test_queries_smoke(work_estate):
     from gpo_lens import queries
 
@@ -139,6 +143,7 @@ def test_queries_smoke(work_estate):
 
 
 # ---- Tier 2.5 topology calibration -------------------------------------------
+
 
 def test_work_no_dangling_links(work_estate):
     from gpo_lens.queries import dangling_links
@@ -184,14 +189,13 @@ def test_work_no_precedence_conflicts_on_clean_soms(work_estate):
 
     # Find a SOM that only links to one GPO — should have zero conflicts
     # Instead let's just assert the whole-work run doesn't crash
-    soms_with_one_link = [
-        s for s in work_estate.soms if len(s.links) == 1
-    ]
+    soms_with_one_link = [s for s in work_estate.soms if len(s.links) == 1]
     if soms_with_one_link:
         assert som_conflicts(work_estate, soms_with_one_link[0].path) == []
 
 
 # ---- Plan 009: settings_at_som calibration -----------------------------------
+
 
 def test_settings_at_som_lab_domain(lab_estate):
     from gpo_lens.queries import settings_at_som
@@ -221,15 +225,21 @@ def test_settings_at_som_work_domain(work_estate):
 
     # Work domain root
     root_som = next(
-        (s for s in work_estate.soms
-         if s.path.lower().replace(" ", "") == "dc=work-domain,dc=local"),
+        (
+            s
+            for s in work_estate.soms
+            if s.path.lower().replace(" ", "") == "dc=work-domain,dc=local"
+        ),
         None,
     )
     if root_som is None:
         # Try relaxed match
         root_som = next(
-            (s for s in work_estate.soms
-             if "work-domain" in s.path.lower() and "local" in s.path.lower()),
+            (
+                s
+                for s in work_estate.soms
+                if "work-domain" in s.path.lower() and "local" in s.path.lower()
+            ),
             None,
         )
     if root_som is None:
@@ -237,6 +247,7 @@ def test_settings_at_som_work_domain(work_estate):
 
     # Performance: fold the largest chain in < 2 seconds
     import time
+
     start = time.perf_counter()
     result = settings_at_som(work_estate, root_som.path)
     elapsed = time.perf_counter() - start
@@ -251,6 +262,7 @@ def test_settings_at_som_work_domain(work_estate):
 
 
 # ---- Plan 018 Phase B: danger rules calibration (WI-032) --------------------
+
 
 def test_danger_bucket1_work(work_estate):
     from gpo_lens.danger import evaluate_danger_rules, load_danger_rules

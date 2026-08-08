@@ -151,8 +151,7 @@ def _load_json_records(path: str | Path) -> list[dict[str, Any]]:
         return [data]
     if not isinstance(data, list):
         warnings.warn(
-            f"Unexpected top-level {type(data).__name__} in {path}; "
-            f"expected object or array",
+            f"Unexpected top-level {type(data).__name__} in {path}; expected object or array",
             stacklevel=2,
         )
         return []
@@ -207,7 +206,11 @@ def _first_non_empty_text_or_attr(elem: Element) -> str:
 
 
 _SEC_VALUE_TAGS = (
-    "SettingBoolean", "SettingNumber", "SettingString", "StartupMode", "Log",
+    "SettingBoolean",
+    "SettingNumber",
+    "SettingString",
+    "StartupMode",
+    "Log",
 )
 
 
@@ -231,9 +234,7 @@ def _parse_security_setting(block: Element) -> tuple[str, str, str] | None:
     if not name:
         gn = _child_by_localname(block, "GroupName")
         if gn is not None:
-            name = _text(_child_by_localname(gn, "Name")) or _text(
-                _child_by_localname(gn, "SID")
-            )
+            name = _text(_child_by_localname(gn, "Name")) or _text(_child_by_localname(gn, "SID"))
     if not name and block.get("Name"):
         name = block.get("Name")
         prefix = block.get("Type") or prefix
@@ -266,10 +267,17 @@ def _parse_registry_setting(block: Element) -> tuple[str, str, str] | None:
 # (WI-080). Each has a <Name> label; the value lives in <Value> (text, a nested
 # <Name>, or a collection of <Element>/<string> entries) or, for CheckBox, in a
 # per-box <State>. <Text> is a display-only label with no value (skipped).
-_ADMX_OPTION_TAGS = frozenset({
-    "DropDownList", "EditText", "EditTextBox", "Numeric",
-    "CheckBox", "ListBox", "MultiText",
-})
+_ADMX_OPTION_TAGS = frozenset(
+    {
+        "DropDownList",
+        "EditText",
+        "EditTextBox",
+        "Numeric",
+        "CheckBox",
+        "ListBox",
+        "MultiText",
+    }
+)
 _ADMX_SUMMARY_MAX = 160
 
 
@@ -302,10 +310,7 @@ def _summarize_admx_option(opt: Element) -> str | None:
             if picked and picked.strip():
                 val = picked.strip()
             else:
-                entries = [
-                    c for c in value_el
-                    if _localname(c.tag) in ("Element", "string")
-                ]
+                entries = [c for c in value_el if _localname(c.tag) in ("Element", "string")]
                 if entries:
                     plural = "entry" if len(entries) == 1 else "entries"
                     val = f"[{len(entries)} {plural}]"
@@ -326,7 +331,7 @@ def _summarize_admx_options(block: Element) -> str:
             parts.append(summary)
     joined = "; ".join(parts)
     if len(joined) > _ADMX_SUMMARY_MAX:
-        joined = joined[:_ADMX_SUMMARY_MAX - 1].rstrip() + "…"
+        joined = joined[: _ADMX_SUMMARY_MAX - 1].rstrip() + "…"
     return joined
 
 
@@ -418,11 +423,22 @@ def _parse_classic_registry_setting(block: Element) -> tuple[str, str, str] | No
 # GPP-item Properties attributes, in priority order, that name/locate the item
 # when its own ``name`` attribute is blank (e.g. File copy ops, Folder ops).
 _GPP_ITEM_KEY_ATTRS = (
-    "targetPath", "fromPath", "path", "shortcutPath", "serviceName", "key",
-    "label", "value",
+    "targetPath",
+    "fromPath",
+    "path",
+    "shortcutPath",
+    "serviceName",
+    "key",
+    "label",
+    "value",
 )
 _GPP_ITEM_VALUE_ATTRS = (
-    "path", "targetPath", "fromPath", "shortcutPath", "value", "startupType",
+    "path",
+    "targetPath",
+    "fromPath",
+    "shortcutPath",
+    "value",
+    "startupType",
     "label",
 )
 
@@ -467,12 +483,26 @@ def _parse_gpp_container(block: Element) -> list[tuple[str, str, str, SettingRaw
 
 # Child elements whose text names a setting, tried in priority order.
 _IDENTITY_CHILD_TAGS = (
-    "Name", "SubcategoryName", "KeyName", "Command", "Path", "IssuedTo", "Id",
+    "Name",
+    "SubcategoryName",
+    "KeyName",
+    "Command",
+    "Path",
+    "IssuedTo",
+    "Id",
 )
 # Child elements whose text summarises a setting's value, tried in priority order.
 _VALUE_CHILD_TAGS = (
-    "SettingValue", "SettingNumber", "SettingBoolean", "SettingString", "State",
-    "StartupMode", "DefaultSecurityLevel", "Value", "URL", "Type",
+    "SettingValue",
+    "SettingNumber",
+    "SettingBoolean",
+    "SettingString",
+    "State",
+    "StartupMode",
+    "DefaultSecurityLevel",
+    "Value",
+    "URL",
+    "Type",
 )
 
 
@@ -564,18 +594,32 @@ def _parse_settings(gpo_elem: Element, gpo_id: str) -> list[Setting]:
     seen: dict[tuple[str, str], int] = {}
 
     def _emit(
-        side: Side, cse: str, identity: str, name: str, value: str,
-        raw: dict[str, object], enabled: bool, source_state: str = "normal",
+        side: Side,
+        cse: str,
+        identity: str,
+        name: str,
+        value: str,
+        raw: dict[str, object],
+        enabled: bool,
+        source_state: str = "normal",
     ) -> None:
         n = seen.get((side, identity), 0) + 1
         seen[(side, identity)] = n
         if n > 1:
             identity = f"{identity} #{n}"
-        settings.append(Setting(
-            gpo_id=gpo_id, side=side, cse=cse, identity=identity,
-            display_name=name, display_value=value, raw=raw,
-            from_disabled_side=not enabled, source_state=source_state,
-        ))
+        settings.append(
+            Setting(
+                gpo_id=gpo_id,
+                side=side,
+                cse=cse,
+                identity=identity,
+                display_name=name,
+                display_value=value,
+                raw=raw,
+                from_disabled_side=not enabled,
+                source_state=source_state,
+            )
+        )
 
     sides: tuple[Side, ...] = ("Computer", "User")
     for side_name in sides:
@@ -590,8 +634,16 @@ def _parse_settings(gpo_elem: Element, gpo_id: str) -> list[Setting]:
                 # Check for blocked extension
                 children = list(ext)
                 if len(children) == 1 and _localname(children[0].tag) == "Blocked":
-                    _emit(side_name, cse, f"{cse}:blocked", "(blocked extension)",
-                          "", {"blocked": True}, enabled, source_state="blocked")
+                    _emit(
+                        side_name,
+                        cse,
+                        f"{cse}:blocked",
+                        "(blocked extension)",
+                        "",
+                        {"blocked": True},
+                        enabled,
+                        source_state="blocked",
+                    )
                     continue
                 # Walk direct child elements as setting blocks
                 for block in children:
@@ -600,17 +652,20 @@ def _parse_settings(gpo_elem: Element, gpo_id: str) -> list[Setting]:
                     # expand each into its own readable row rather than hashing
                     # the whole container into one opaque blob. Registry GPP has a
                     # richer key (HIVE\\key:name) so it is tried first.
-                    multi = (
-                        _parse_gpp_registry(block)
-                        if is_registry_cse(cse)
-                        else []
-                    )
+                    multi = _parse_gpp_registry(block) if is_registry_cse(cse) else []
                     if not multi:
                         multi = _parse_gpp_container(block)
                     if multi:
                         for identity, name, value, raw in multi:
-                            _emit(side_name, cse, identity, name, value,
-                                  cast(dict[str, object], raw), enabled)
+                            _emit(
+                                side_name,
+                                cse,
+                                identity,
+                                name,
+                                value,
+                                cast(dict[str, object], raw),
+                                enabled,
+                            )
                         continue
                     raw = element_to_dict(block)
                     # Try CSE-specific identity
@@ -620,8 +675,7 @@ def _parse_settings(gpo_elem: Element, gpo_id: str) -> list[Setting]:
                     elif bl == "Blocked":
                         # A <Blocked> flag sibling (extension not blocked) — give
                         # it a stable readable key, not a per-value hash.
-                        parsed = (f"{cse}:Blocked", "(extension blocked flag)",
-                                  _text(block) or "")
+                        parsed = (f"{cse}:Blocked", "(extension blocked flag)", _text(block) or "")
                     elif cse.strip().lower() == "registry" and bl == "Policy":
                         parsed = _parse_admin_template_policy(block)
                     elif cse == "Folder Redirection" and bl == "Folder":
@@ -633,8 +687,15 @@ def _parse_settings(gpo_elem: Element, gpo_id: str) -> list[Setting]:
                     if parsed is None:
                         parsed = _parse_generic_setting(cse, block)
                     identity, display_name, display_value = parsed
-                    _emit(side_name, cse, identity, display_name, display_value,
-                          cast(dict[str, object], raw), enabled)
+                    _emit(
+                        side_name,
+                        cse,
+                        identity,
+                        display_name,
+                        display_value,
+                        cast(dict[str, object], raw),
+                        enabled,
+                    )
     return settings
 
 
@@ -840,13 +901,16 @@ def load_baseline_from_zip(zip_path: str | Path) -> list[Gpo]:
             if name.endswith(".zip"):
                 try:
                     inner_data = _streaming_zip_read(
-                        outer, name, total_bytes,
+                        outer,
+                        name,
+                        total_bytes,
                         max_bytes=_MAX_BASELINE_UNCOMPRESSED_BYTES,
                     )
                     with zipfile.ZipFile(io.BytesIO(inner_data)) as inner:
                         gpos.extend(
                             _extract_gpos_from_zip(
-                                inner, total_bytes,
+                                inner,
+                                total_bytes,
                                 max_bytes=_MAX_BASELINE_UNCOMPRESSED_BYTES,
                             )
                         )
@@ -855,7 +919,9 @@ def load_baseline_from_zip(zip_path: str | Path) -> list[Gpo]:
             elif name.endswith("gpreport.xml"):
                 try:
                     raw = _streaming_zip_read(
-                        outer, name, total_bytes,
+                        outer,
+                        name,
+                        total_bytes,
                         max_bytes=_MAX_BASELINE_UNCOMPRESSED_BYTES,
                     )
                     gpos.extend(parse_report_xml(raw))
@@ -865,7 +931,8 @@ def load_baseline_from_zip(zip_path: str | Path) -> list[Gpo]:
         if not gpos:
             gpos.extend(
                 _extract_gpos_from_zip(
-                    outer, total_bytes,
+                    outer,
+                    total_bytes,
                     max_bytes=_MAX_BASELINE_UNCOMPRESSED_BYTES,
                 )
             )
@@ -1055,9 +1122,7 @@ def parse_inheritance(json_path: str | Path) -> list[Som]:
             raw_enabled = link.get("Enabled", True)
             raw_enforced = link.get("Enforced", False)
             enabled_val = (
-                parse_bool(str(raw_enabled))
-                if isinstance(raw_enabled, str)
-                else bool(raw_enabled)
+                parse_bool(str(raw_enabled)) if isinstance(raw_enabled, str) else bool(raw_enabled)
             )
             enforced_val = (
                 parse_bool(str(raw_enforced))
@@ -1163,9 +1228,9 @@ def augment_blocked_registry_from_pol(gpos: list[Gpo]) -> None:
             continue
         base = Path(gpo.sysvol_path)
         blocked_idxs = [
-            i for i, s in enumerate(gpo.settings)
-            if s.source_state == "blocked"
-            and "registr" in s.cse.lower()
+            i
+            for i, s in enumerate(gpo.settings)
+            if s.source_state == "blocked" and "registr" in s.cse.lower()
         ]
         if not blocked_idxs:
             continue
@@ -1192,30 +1257,32 @@ def augment_blocked_registry_from_pol(gpos: list[Gpo]) -> None:
                     if (rec.key and rec.value_name)
                     else (rec.key or rec.value_name)
                 )
-                additions.append(Setting(
-                    gpo_id=gpo.id,
-                    side=side,
-                    cse="Registry",
-                    identity=identity,
-                    display_name=rec.value_name or rec.key,
-                    display_value=rec.display_value,
-                    raw={
-                        "key": rec.key,
-                        "value_name": rec.value_name,
-                        "type_code": rec.type_code,
-                        "type_name": rec.type_name,
-                        "size": rec.size,
-                        "source": "registry_pol",
-                    },
-                    from_disabled_side=False,
-                    source_state="registry_pol",
-                ))
+                additions.append(
+                    Setting(
+                        gpo_id=gpo.id,
+                        side=side,
+                        cse="Registry",
+                        identity=identity,
+                        display_name=rec.value_name or rec.key,
+                        display_value=rec.display_value,
+                        raw={
+                            "key": rec.key,
+                            "value_name": rec.value_name,
+                            "type_code": rec.type_code,
+                            "type_name": rec.type_name,
+                            "size": rec.size,
+                            "source": "registry_pol",
+                        },
+                        from_disabled_side=False,
+                        source_state="registry_pol",
+                    )
+                )
         if resolved_sides:
             blocked_set = set(blocked_idxs)
             gpo.settings = [
-                s for i, s in enumerate(gpo.settings)
-                if i not in blocked_set
-                or gpo.settings[i].side not in resolved_sides
+                s
+                for i, s in enumerate(gpo.settings)
+                if i not in blocked_set or gpo.settings[i].side not in resolved_sides
             ]
             gpo.settings.extend(additions)
 
@@ -1264,12 +1331,10 @@ def parse_principals(json_path: str | Path) -> dict[str, ResolvedPrincipal]:
         return {}
     raw_principals = data.get("principals")
     if not isinstance(raw_principals, dict):
-        if isinstance(data, dict) and any(
-            k.lower().startswith("s-1-") for k in data
-        ):
+        if isinstance(data, dict) and any(k.lower().startswith("s-1-") for k in data):
             warnings.warn(
                 "principals.json appears to be a flat SID map (no 'principals' "
-                "wrapper key); expected {\"principals\": {\"<sid>\": ...}} format",
+                'wrapper key); expected {"principals": {"<sid>": ...}} format',
                 stacklevel=2,
             )
         return {}
@@ -1309,12 +1374,10 @@ def parse_group_members(json_path: str | Path) -> dict[str, GroupMembership]:
         return {}
     raw_groups = data.get("groups")
     if not isinstance(raw_groups, dict):
-        if isinstance(data, dict) and any(
-            k.lower().startswith("s-1-") for k in data
-        ):
+        if isinstance(data, dict) and any(k.lower().startswith("s-1-") for k in data):
             warnings.warn(
                 "group-members.json appears to be a flat SID map (no 'groups' "
-                "wrapper key); expected {\"groups\": {\"<sid>\": ...}} format",
+                'wrapper key); expected {"groups": {"<sid>": ...}} format',
                 stacklevel=2,
             )
         return {}
@@ -1329,10 +1392,7 @@ def parse_group_members(json_path: str | Path) -> dict[str, GroupMembership]:
         members_raw = entry.get("members")
         if not isinstance(members_raw, list):
             members_raw = []
-        members = tuple(
-            m.strip().lower() for m in members_raw
-            if isinstance(m, str) and m.strip()
-        )
+        members = tuple(m.strip().lower() for m in members_raw if isinstance(m, str) and m.strip())
         member_count = entry.get("member_count")
         if not isinstance(member_count, int):
             member_count = len(members)
@@ -1430,13 +1490,15 @@ def parse_coverage_gaps(
                 continue
             if gid in known or gid in seen:
                 continue
-            gaps.append(CoverageGap(
-                gpo_id=gid,
-                display_name=rec.get("DisplayName") or rec.get("displayName"),
-                kind="inaccessible",
-                detail="In the GPO inventory but absent from the export "
-                       "(the collection account could not read it)",
-            ))
+            gaps.append(
+                CoverageGap(
+                    gpo_id=gid,
+                    display_name=rec.get("DisplayName") or rec.get("displayName"),
+                    kind="inaccessible",
+                    detail="In the GPO inventory but absent from the export "
+                    "(the collection account could not read it)",
+                )
+            )
             seen.add(gid)
 
     if errors_path.exists():
@@ -1450,13 +1512,16 @@ def parse_coverage_gaps(
                 continue
             if gid in known or gid in seen:
                 continue
-            gaps.append(CoverageGap(
-                gpo_id=gid,
-                display_name=rec.get("DisplayName") or rec.get("display_name"),
-                kind="collection_error",
-                detail=rec.get("Error") or rec.get("Stage")
-                       or "the collector reported a read failure",
-            ))
+            gaps.append(
+                CoverageGap(
+                    gpo_id=gid,
+                    display_name=rec.get("DisplayName") or rec.get("display_name"),
+                    kind="collection_error",
+                    detail=rec.get("Error")
+                    or rec.get("Stage")
+                    or "the collector reported a read failure",
+                )
+            )
             seen.add(gid)
 
     return gaps
@@ -1498,18 +1563,14 @@ def _scan_sysvol_gaps(gpos: list[Gpo]) -> list[CoverageGap]:
             try:
                 entries = sorted(prefs.iterdir())
             except OSError as exc:
-                unreadable.append(
-                    f"{side_dir}/Preferences ({exc.__class__.__name__})"
-                )
+                unreadable.append(f"{side_dir}/Preferences ({exc.__class__.__name__})")
                 side_flagged = True
                 continue
             for entry in entries:
                 try:
                     candidates: list[Path] = []
                     if entry.is_dir():
-                        candidates.extend(
-                            sorted(c for c in entry.iterdir() if c.is_file())
-                        )
+                        candidates.extend(sorted(c for c in entry.iterdir() if c.is_file()))
                     elif entry.is_file():
                         candidates.append(entry)
                 except OSError as exc:
@@ -1518,9 +1579,7 @@ def _scan_sysvol_gaps(gpos: list[Gpo]) -> list[CoverageGap]:
                     # Flag the side once and keep walking siblings so a single
                     # bad subdir does not hide corrupt XML in its siblings.
                     if not side_flagged:
-                        unreadable.append(
-                            f"{side_dir}/Preferences ({exc.__class__.__name__})"
-                        )
+                        unreadable.append(f"{side_dir}/Preferences ({exc.__class__.__name__})")
                         side_flagged = True
                     continue
                 for fp in candidates:
@@ -1538,33 +1597,35 @@ def _scan_sysvol_gaps(gpos: list[Gpo]) -> list[CoverageGap]:
                         rel = fp.relative_to(base)
                         corrupt.append(str(rel))
         if unreadable:
-            gaps.append(CoverageGap(
-                gpo_id=gpo.id,
-                display_name=gpo.name,
-                kind="unreadable_sysvol",
-                detail=(
-                    f"GPP content in {', '.join(unreadable)} is invisible. "
-                    f"If this is a zip extraction, run: chmod -R +rX on the "
-                    f"SYSVOL-Policies directory."
-                ),
-            ))
+            gaps.append(
+                CoverageGap(
+                    gpo_id=gpo.id,
+                    display_name=gpo.name,
+                    kind="unreadable_sysvol",
+                    detail=(
+                        f"GPP content in {', '.join(unreadable)} is invisible. "
+                        f"If this is a zip extraction, run: chmod -R +rX on the "
+                        f"SYSVOL-Policies directory."
+                    ),
+                )
+            )
         if corrupt:
-            gaps.append(CoverageGap(
-                gpo_id=gpo.id,
-                display_name=gpo.name,
-                kind="corrupt_gpp_xml",
-                detail=(
-                    f"GPP XML failed to parse: {', '.join(corrupt)}. "
-                    f"cPassword/GPP detectors cannot read these files; treat "
-                    f"the GPO's GPP-derived findings as incomplete."
-                ),
-            ))
+            gaps.append(
+                CoverageGap(
+                    gpo_id=gpo.id,
+                    display_name=gpo.name,
+                    kind="corrupt_gpp_xml",
+                    detail=(
+                        f"GPP XML failed to parse: {', '.join(corrupt)}. "
+                        f"cPassword/GPP detectors cannot read these files; treat "
+                        f"the GPO's GPP-derived findings as incomplete."
+                    ),
+                )
+            )
     return gaps
 
 
-def _scan_missing_sysvol(
-    sysvol_root: Path | None, gpos: list[Gpo]
-) -> list[CoverageGap]:
+def _scan_missing_sysvol(sysvol_root: Path | None, gpos: list[Gpo]) -> list[CoverageGap]:
     """Flag an export that carries no SYSVOL policy files at all.
 
     The settings tables come from the report XML, so a SYSVOL-less export still
@@ -1587,24 +1648,29 @@ def _scan_missing_sysvol(
         reason = "the SYSVOL-Policies directory is absent from the export"
     else:
         reason = f"{sysvol_root.name} is present but contains no policy folders"
-    return [CoverageGap(
-        gpo_id="",
-        display_name=None,
-        kind="missing_sysvol",
-        detail=(
-            f"No SYSVOL policy files were collected ({reason}). GPP-based "
-            f"detectors — cPassword secrets, GPP Scheduled Tasks, GPP Local "
-            f"Users & Groups, and Registry.pol resolution — could not run and "
-            f"will report ZERO regardless of actual exposure. Re-run the "
-            f"collector and confirm its 'SYSVOL copy' section wrote files; if "
-            f"the export was zipped on Windows, also confirm the archive "
-            f"actually contains SYSVOL-Policies/."
-        ),
-    )]
+    return [
+        CoverageGap(
+            gpo_id="",
+            display_name=None,
+            kind="missing_sysvol",
+            detail=(
+                f"No SYSVOL policy files were collected ({reason}). GPP-based "
+                f"detectors — cPassword secrets, GPP Scheduled Tasks, GPP Local "
+                f"Users & Groups, and Registry.pol resolution — could not run and "
+                f"will report ZERO regardless of actual exposure. Re-run the "
+                f"collector and confirm its 'SYSVOL copy' section wrote files; if "
+                f"the export was zipped on Windows, also confirm the archive "
+                f"actually contains SYSVOL-Policies/."
+            ),
+        )
+    ]
 
 
 def _try_load[T](
-    path: Path, fn: Callable[..., T], label: str, *args: Any,
+    path: Path,
+    fn: Callable[..., T],
+    label: str,
+    *args: Any,
 ) -> T | None:
     """Load an optional file, warning on error instead of raising.
 
@@ -1651,9 +1717,14 @@ def load_estate(sample_dir: str | Path) -> Estate:
         raise OSError(f"AllGPOs.xml in {src} could not be read: {exc}") from exc
     domain = gpos[0].domain if gpos else ""
 
-    soms = _try_load(
-        src / "gp-inheritance.json", parse_inheritance, "gp-inheritance.json",
-    ) or []
+    soms = (
+        _try_load(
+            src / "gp-inheritance.json",
+            parse_inheritance,
+            "gp-inheritance.json",
+        )
+        or []
+    )
 
     # AD sites are a parallel scoping axis; append them as container_type="site"
     # SOMs. Absent sites.json (older exports) changes nothing.
@@ -1662,14 +1733,15 @@ def load_estate(sample_dir: str | Path) -> Estate:
         soms.extend(sites)
 
     _try_action(
-        src / "gpo-metadata.json", merge_metadata, "gpo-metadata.json", gpos,
+        src / "gpo-metadata.json",
+        merge_metadata,
+        "gpo-metadata.json",
+        gpos,
     )
 
     sysvol_dir = src / "SYSVOL-Policies"
     alt = src / "SYSVOL" / "Policies"
-    sysvol_root = (
-        sysvol_dir if sysvol_dir.exists() else (alt if alt.exists() else None)
-    )
+    sysvol_root = sysvol_dir if sysvol_dir.exists() else (alt if alt.exists() else None)
     if sysvol_root is not None:
         attach_sysvol_paths(sysvol_root, gpos)
 
@@ -1677,12 +1749,22 @@ def load_estate(sample_dir: str | Path) -> Estate:
     # SYSVOL is present. No-op when SYSVOL wasn't copied or nothing is blocked.
     augment_blocked_registry_from_pol(gpos)
 
-    wmi_filters = _try_load(
-        src / "wmi-filters.json", parse_wmi_filters, "wmi-filters.json",
-    ) or []
-    ou_tree = _try_load(
-        src / "ou-tree.json", parse_ou_tree, "ou-tree.json",
-    ) or []
+    wmi_filters = (
+        _try_load(
+            src / "wmi-filters.json",
+            parse_wmi_filters,
+            "wmi-filters.json",
+        )
+        or []
+    )
+    ou_tree = (
+        _try_load(
+            src / "ou-tree.json",
+            parse_ou_tree,
+            "ou-tree.json",
+        )
+        or []
+    )
 
     coverage_gaps = parse_coverage_gaps(
         src / "gpo-inventory.json", src / "collection-errors.json", gpos
@@ -1691,16 +1773,29 @@ def load_estate(sample_dir: str | Path) -> Estate:
     coverage_gaps.extend(_scan_sysvol_gaps(gpos))
     coverage_gaps.extend(_scan_missing_sysvol(sysvol_root, gpos))
 
-    principals = _try_load(
-        src / "principals.json", parse_principals, "principals.json",
-    ) or {}
-    group_members = _try_load(
-        src / "group-members.json", parse_group_members, "group-members.json",
-    ) or {}
+    principals = (
+        _try_load(
+            src / "principals.json",
+            parse_principals,
+            "principals.json",
+        )
+        or {}
+    )
+    group_members = (
+        _try_load(
+            src / "group-members.json",
+            parse_group_members,
+            "group-members.json",
+        )
+        or {}
+    )
 
     return Estate(
-        domain=domain, gpos=gpos, soms=soms,
-        wmi_filters=wmi_filters, ou_tree=ou_tree,
+        domain=domain,
+        gpos=gpos,
+        soms=soms,
+        wmi_filters=wmi_filters,
+        ou_tree=ou_tree,
         coverage_gaps=coverage_gaps,
         principals=principals,
         group_members=group_members,

@@ -18,18 +18,20 @@ from typing import Any
 # ---------------------------------------------------------------------------
 
 _ALLOWED_DIFF_TABLES = frozenset({"setting", "gpo_link", "delegation"})
-_ALLOWED_DIFF_COLSETS = frozenset({
-    "side, cse, identity, display_value",
-    "som_path, link_enabled, enforced",
-    "trustee, permission, allowed",
-})
+_ALLOWED_DIFF_COLSETS = frozenset(
+    {
+        "side, cse, identity, display_value",
+        "som_path, link_enabled, enforced",
+        "trustee, permission, allowed",
+    }
+)
 
 _CHUNK_SIZE = 500
 
 
 def _chunked_ids(common_list: list[str]) -> Iterator[list[str]]:
     for i in range(0, len(common_list), _CHUNK_SIZE):
-        yield common_list[i:i + _CHUNK_SIZE]
+        yield common_list[i : i + _CHUNK_SIZE]
 
 
 def _load_row_sets(
@@ -46,10 +48,7 @@ def _load_row_sets(
     result: dict[str, set[tuple[Any, ...]]] = defaultdict(set)
     for chunk in _chunked_ids(common_list):
         ph = ",".join("?" * len(chunk))
-        query = (
-            f"SELECT gpo_id, {cols} FROM {table} "
-            f"WHERE snapshot_id = ? AND gpo_id IN ({ph})"
-        )
+        query = f"SELECT gpo_id, {cols} FROM {table} WHERE snapshot_id = ? AND gpo_id IN ({ph})"
         for row in conn.execute(query, (snap_id, *chunk)):
             result[row[0]].add(tuple(row[1:]))
     return result
@@ -60,8 +59,8 @@ class GpoMetadataChange:
     """One metadata field that changed for a GPO between snapshots."""
 
     gpo_id: str
-    field: str       # "name", "computer_enabled", "user_enabled", "wmi_filter",
-                      # "owner", "sddl", "domain"
+    field: str  # "name", "computer_enabled", "user_enabled", "wmi_filter",
+    # "owner", "sddl", "domain"
     old_value: str
     new_value: str
 
@@ -101,7 +100,7 @@ class VersionChangeLog:
 
     gpo_id: str
     gpo_name: str
-    side: str       # "Computer" | "User"
+    side: str  # "Computer" | "User"
     old_ds: int | None
     old_sysvol: int | None
     new_ds: int | None
@@ -115,7 +114,7 @@ class ChangelogEntry:
 
     gpo_id: str
     gpo_name: str
-    kind: str       # "metadata_only" | "settings_detail"
+    kind: str  # "metadata_only" | "settings_detail"
     side: str | None
     version_change: VersionChangeLog | None
     setting_changes: list[SnapshotSettingChange]
@@ -129,25 +128,13 @@ def snapshot_changelog(
 ) -> list[ChangelogEntry]:
     """Version-aware change log between two snapshots."""
     name_map: dict[str, str] = {}
-    for row in conn.execute(
-        "SELECT id, name FROM gpo WHERE snapshot_id = ?", (snap_b,)
-    ):
+    for row in conn.execute("SELECT id, name FROM gpo WHERE snapshot_id = ?", (snap_b,)):
         name_map[row[0]] = row[1]
-    for row in conn.execute(
-        "SELECT id, name FROM gpo WHERE snapshot_id = ?", (snap_a,)
-    ):
+    for row in conn.execute("SELECT id, name FROM gpo WHERE snapshot_id = ?", (snap_a,)):
         name_map.setdefault(row[0], row[1])
 
-    a_ids = {
-        row[0] for row in conn.execute(
-            "SELECT id FROM gpo WHERE snapshot_id = ?", (snap_a,)
-        )
-    }
-    b_ids = {
-        row[0] for row in conn.execute(
-            "SELECT id FROM gpo WHERE snapshot_id = ?", (snap_b,)
-        )
-    }
+    a_ids = {row[0] for row in conn.execute("SELECT id FROM gpo WHERE snapshot_id = ?", (snap_a,))}
+    b_ids = {row[0] for row in conn.execute("SELECT id FROM gpo WHERE snapshot_id = ?", (snap_b,))}
     common = sorted(a_ids & b_ids)
 
     all_setting_changes = snapshot_settings_diff(conn, snap_a, snap_b)
@@ -160,26 +147,30 @@ def snapshot_changelog(
     # GPOs added or removed between snapshots.
     for gpo_id in sorted(b_ids - a_ids):
         name = name_map.get(gpo_id, gpo_id)
-        results.append(ChangelogEntry(
-            gpo_id=gpo_id,
-            gpo_name=name,
-            kind="gpo_added",
-            side="",
-            version_change=None,
-            setting_changes=[],
-            summary=f"GPO added: {name}",
-        ))
+        results.append(
+            ChangelogEntry(
+                gpo_id=gpo_id,
+                gpo_name=name,
+                kind="gpo_added",
+                side="",
+                version_change=None,
+                setting_changes=[],
+                summary=f"GPO added: {name}",
+            )
+        )
     for gpo_id in sorted(a_ids - b_ids):
         name = name_map.get(gpo_id, gpo_id)
-        results.append(ChangelogEntry(
-            gpo_id=gpo_id,
-            gpo_name=name,
-            kind="gpo_removed",
-            side="",
-            version_change=None,
-            setting_changes=[],
-            summary=f"GPO removed: {name}",
-        ))
+        results.append(
+            ChangelogEntry(
+                gpo_id=gpo_id,
+                gpo_name=name,
+                kind="gpo_removed",
+                side="",
+                version_change=None,
+                setting_changes=[],
+                summary=f"GPO removed: {name}",
+            )
+        )
 
     # Fetch version rows for all common GPOs in one query per snapshot instead
     # of the previous per-GPO N+1 loop.
@@ -193,10 +184,7 @@ def snapshot_changelog(
             "SELECT id, computer_ver_ds, computer_ver_sysvol, user_ver_ds, user_ver_sysvol "
             f"FROM gpo WHERE snapshot_id = ? AND id IN ({placeholders})"
         )
-        return {
-            row[0]: row[1:]
-            for row in conn.execute(query, (snapshot_id, *gpo_ids))
-        }
+        return {row[0]: row[1:] for row in conn.execute(query, (snapshot_id, *gpo_ids))}
 
     versions_a = _load_versions(snap_a, common)
     versions_b = _load_versions(snap_b, common)
@@ -279,13 +267,9 @@ def snapshot_settings_diff(
 ) -> list[SnapshotSettingChange]:
     """Per-setting delta between two snapshots."""
     gpo_name_map: dict[str, str] = {}
-    for row in conn.execute(
-        "SELECT id, name FROM gpo WHERE snapshot_id = ?", (snap_b,)
-    ):
+    for row in conn.execute("SELECT id, name FROM gpo WHERE snapshot_id = ?", (snap_b,)):
         gpo_name_map[row[0]] = row[1]
-    for row in conn.execute(
-        "SELECT id, name FROM gpo WHERE snapshot_id = ?", (snap_a,)
-    ):
+    for row in conn.execute("SELECT id, name FROM gpo WHERE snapshot_id = ?", (snap_a,)):
         gpo_name_map.setdefault(row[0], row[1])
 
     constraints_a: list[str] = ["snapshot_id = ?"]
@@ -335,30 +319,49 @@ def snapshot_settings_diff(
         old_v = old_rows.get(key)
         new_v = new_rows.get(key)
         if old_v is None and new_v is not None:
-            results.append(SnapshotSettingChange(
-                gpo_id=gid, gpo_name=gpo_name_map.get(gid, gid),
-                side=s, cse=c, identity=ident,
-                change_type="added", old_value=None, new_value=new_v,
-            ))
+            results.append(
+                SnapshotSettingChange(
+                    gpo_id=gid,
+                    gpo_name=gpo_name_map.get(gid, gid),
+                    side=s,
+                    cse=c,
+                    identity=ident,
+                    change_type="added",
+                    old_value=None,
+                    new_value=new_v,
+                )
+            )
         elif old_v is not None and new_v is None:
-            results.append(SnapshotSettingChange(
-                gpo_id=gid, gpo_name=gpo_name_map.get(gid, gid),
-                side=s, cse=c, identity=ident,
-                change_type="removed", old_value=old_v, new_value=None,
-            ))
+            results.append(
+                SnapshotSettingChange(
+                    gpo_id=gid,
+                    gpo_name=gpo_name_map.get(gid, gid),
+                    side=s,
+                    cse=c,
+                    identity=ident,
+                    change_type="removed",
+                    old_value=old_v,
+                    new_value=None,
+                )
+            )
         elif old_v != new_v:
-            results.append(SnapshotSettingChange(
-                gpo_id=gid, gpo_name=gpo_name_map.get(gid, gid),
-                side=s, cse=c, identity=ident,
-                change_type="modified", old_value=old_v, new_value=new_v,
-            ))
+            results.append(
+                SnapshotSettingChange(
+                    gpo_id=gid,
+                    gpo_name=gpo_name_map.get(gid, gid),
+                    side=s,
+                    cse=c,
+                    identity=ident,
+                    change_type="modified",
+                    old_value=old_v,
+                    new_value=new_v,
+                )
+            )
 
     return results
 
 
-def snapshot_diff(
-    conn: sqlite3.Connection, snap_a: int, snap_b: int
-) -> SnapshotDiff:
+def snapshot_diff(conn: sqlite3.Connection, snap_a: int, snap_b: int) -> SnapshotDiff:
     """Compute the diff between two snapshots.
 
     All per-GPO queries are batched into 8 total queries (2 per table:
@@ -368,8 +371,8 @@ def snapshot_diff(
 
     def _load_gpo_ids(snap_id: int) -> set[str]:
         return {
-            row[0] for row in
-            conn.execute(
+            row[0]
+            for row in conn.execute(
                 "SELECT id FROM gpo WHERE snapshot_id = ?", (snap_id,)
             ).fetchall()
         }
@@ -422,27 +425,45 @@ def snapshot_diff(
 
     # --- Batch-load settings, links, delegation (2 queries per chunk per table) ---
     settings_a = _load_row_sets(
-        conn, "setting", "side, cse, identity, display_value", snap_a,
+        conn,
+        "setting",
+        "side, cse, identity, display_value",
+        snap_a,
         common_list,
     )
     settings_b = _load_row_sets(
-        conn, "setting", "side, cse, identity, display_value", snap_b,
+        conn,
+        "setting",
+        "side, cse, identity, display_value",
+        snap_b,
         common_list,
     )
     links_a = _load_row_sets(
-        conn, "gpo_link", "som_path, link_enabled, enforced", snap_a,
+        conn,
+        "gpo_link",
+        "som_path, link_enabled, enforced",
+        snap_a,
         common_list,
     )
     links_b = _load_row_sets(
-        conn, "gpo_link", "som_path, link_enabled, enforced", snap_b,
+        conn,
+        "gpo_link",
+        "som_path, link_enabled, enforced",
+        snap_b,
         common_list,
     )
     deleg_a = _load_row_sets(
-        conn, "delegation", "trustee, permission, allowed", snap_a,
+        conn,
+        "delegation",
+        "trustee, permission, allowed",
+        snap_a,
         common_list,
     )
     deleg_b = _load_row_sets(
-        conn, "delegation", "trustee, permission, allowed", snap_b,
+        conn,
+        "delegation",
+        "trustee, permission, allowed",
+        snap_b,
         common_list,
     )
 
@@ -452,46 +473,52 @@ def snapshot_diff(
         if not old_row or not new_row:
             continue
 
-        for col_idx, field_name in enumerate(
-            ("name", "domain", "sddl", "owner")
-        ):
+        for col_idx, field_name in enumerate(("name", "domain", "sddl", "owner")):
             old_v = str(old_row[col_idx] or "")
             new_v = str(new_row[col_idx] or "")
             if old_v != new_v:
-                metadata_changes.append(GpoMetadataChange(
-                    gpo_id=gpo_id, field=field_name,
-                    old_value=old_v, new_value=new_v,
-                ))
+                metadata_changes.append(
+                    GpoMetadataChange(
+                        gpo_id=gpo_id,
+                        field=field_name,
+                        old_value=old_v,
+                        new_value=new_v,
+                    )
+                )
 
-        for col_idx, field_name in enumerate(
-            ("computer_enabled", "user_enabled"), start=4
-        ):
+        for col_idx, field_name in enumerate(("computer_enabled", "user_enabled"), start=4):
             old_v = str(bool(old_row[col_idx]))
             new_v = str(bool(new_row[col_idx]))
             if old_v != new_v:
-                enabled_flips.append(GpoMetadataChange(
-                    gpo_id=gpo_id, field=field_name,
-                    old_value=old_v, new_value=new_v,
-                ))
+                enabled_flips.append(
+                    GpoMetadataChange(
+                        gpo_id=gpo_id,
+                        field=field_name,
+                        old_value=old_v,
+                        new_value=new_v,
+                    )
+                )
 
         old_wmi = str(old_row[6] or "")
         new_wmi = str(new_row[6] or "")
         if old_wmi != new_wmi:
-            wmi_filter_changes.append(GpoMetadataChange(
-                gpo_id=gpo_id, field="wmi_filter",
-                old_value=old_wmi, new_value=new_wmi,
-            ))
+            wmi_filter_changes.append(
+                GpoMetadataChange(
+                    gpo_id=gpo_id,
+                    field="wmi_filter",
+                    old_value=old_wmi,
+                    new_value=new_wmi,
+                )
+            )
 
         # Version skew — columns 7..10 (already in the meta row)
         old_ds_c, old_sv_c, old_ds_u, old_sv_u = old_row[7], old_row[8], old_row[9], old_row[10]
         new_ds_c, new_sv_c, new_ds_u, new_sv_u = new_row[7], new_row[8], new_row[9], new_row[10]
-        old_skew = (
-            (old_ds_c is not None and old_sv_c is not None and old_ds_c != old_sv_c)
-            or (old_ds_u is not None and old_sv_u is not None and old_ds_u != old_sv_u)
+        old_skew = (old_ds_c is not None and old_sv_c is not None and old_ds_c != old_sv_c) or (
+            old_ds_u is not None and old_sv_u is not None and old_ds_u != old_sv_u
         )
-        new_skew = (
-            (new_ds_c is not None and new_sv_c is not None and new_ds_c != new_sv_c)
-            or (new_ds_u is not None and new_sv_u is not None and new_ds_u != new_sv_u)
+        new_skew = (new_ds_c is not None and new_sv_c is not None and new_ds_c != new_sv_c) or (
+            new_ds_u is not None and new_sv_u is not None and new_ds_u != new_sv_u
         )
         if old_skew != new_skew:
             version_skew_changed.append(gpo_id)

@@ -64,14 +64,12 @@ EXPLORE_SECTIONS: tuple[DirectorySection, ...] = (
             Destination(
                 "ou_list",
                 "Directory",
-                "The OU tree with linked GPOs, inheritance blocking, and "
-                "enforcement.",
+                "The OU tree with linked GPOs, inheritance blocking, and enforcement.",
             ),
             Destination(
                 "search",
                 "Search",
-                "Estate-wide search across GPOs, OUs, and configured "
-                "settings.",
+                "Estate-wide search across GPOs, OUs, and configured settings.",
             ),
         ),
     ),
@@ -81,26 +79,22 @@ EXPLORE_SECTIONS: tuple[DirectorySection, ...] = (
             Destination(
                 "resultant_form",
                 "Resultant",
-                "What applies at a scope, computed from links, enforcement, "
-                "and filtering.",
+                "What applies at a scope, computed from links, enforcement, and filtering.",
             ),
             Destination(
                 "conflicts",
                 "Conflicts",
-                "Where two GPOs configure the same setting differently, and "
-                "which value wins.",
+                "Where two GPOs configure the same setting differently, and which value wins.",
             ),
             Destination(
                 "danger_list",
                 "Dangerous settings",
-                "Configured settings matching the dangerous-configuration "
-                "detectors.",
+                "Configured settings matching the dangerous-configuration detectors.",
             ),
             Destination(
                 "delegation",
                 "Delegation",
-                "Who holds which rights on which GPOs — trustees across the "
-                "estate.",
+                "Who holds which rights on which GPOs — trustees across the estate.",
             ),
         ),
     ),

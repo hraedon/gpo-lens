@@ -40,9 +40,7 @@ def init_events_table(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
-def _compute_hash(
-    prev_hash: str | None, timestamp: str, event_type: str, payload: str
-) -> str:
+def _compute_hash(prev_hash: str | None, timestamp: str, event_type: str, payload: str) -> str:
     return hashlib.sha256(
         f"{prev_hash or ''}|{timestamp}|{event_type}|{payload}".encode()
     ).hexdigest()
@@ -65,9 +63,7 @@ def append_event(
     payload_str = json.dumps(payload, sort_keys=True)
     if not conn.in_transaction:
         conn.execute("BEGIN IMMEDIATE")
-    row = conn.execute(
-        "SELECT prev_hash FROM events ORDER BY id DESC LIMIT 1"
-    ).fetchone()
+    row = conn.execute("SELECT prev_hash FROM events ORDER BY id DESC LIMIT 1").fetchone()
     prev_hash = row[0] if row else None
     new_hash = _compute_hash(prev_hash, ts, event_type, payload_str)
     cursor = conn.execute(
@@ -90,9 +86,7 @@ def append_events(
     ts = datetime.now(UTC).isoformat()
     if not conn.in_transaction:
         conn.execute("BEGIN IMMEDIATE")
-    row = conn.execute(
-        "SELECT prev_hash FROM events ORDER BY id DESC LIMIT 1"
-    ).fetchone()
+    row = conn.execute("SELECT prev_hash FROM events ORDER BY id DESC LIMIT 1").fetchone()
     prev_hash = row[0] if row else None
     ids: list[int] = []
     for event_type, payload in events:
@@ -122,8 +116,7 @@ def verify_event_chain(conn: sqlite3.Connection) -> tuple[bool, list[int]]:
     """
     try:
         rows = conn.execute(
-            "SELECT id, timestamp, event_type, payload, prev_hash "
-            "FROM events ORDER BY id ASC"
+            "SELECT id, timestamp, event_type, payload, prev_hash FROM events ORDER BY id ASC"
         ).fetchall()
     except sqlite3.OperationalError:
         return True, []
@@ -164,12 +157,14 @@ def query_events(
     rows = conn.execute(sql, params).fetchall()
     results: list[dict[str, Any]] = []
     for row in rows:
-        results.append({
-            "id": row[0],
-            "timestamp": row[1],
-            "event_type": row[2],
-            "schema_version": row[3],
-            "payload": json.loads(row[4]),
-            "prev_hash": row[5],
-        })
+        results.append(
+            {
+                "id": row[0],
+                "timestamp": row[1],
+                "event_type": row[2],
+                "schema_version": row[3],
+                "payload": json.loads(row[4]),
+                "prev_hash": row[5],
+            }
+        )
     return results

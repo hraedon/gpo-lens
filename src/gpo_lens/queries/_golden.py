@@ -27,9 +27,9 @@ if TYPE_CHECKING:
 class GoldenDiffEntry:
     """One finding from a golden-backup comparison."""
 
-    status: str         # "compliant"|"changed"|"added"|"removed"|"gpo_added"|"gpo_removed"
+    status: str  # "compliant"|"changed"|"added"|"removed"|"gpo_added"|"gpo_removed"
     gpo_name: str
-    side: str             # "Computer" | "User" | "" (empty for GPO-level entries)
+    side: str  # "Computer" | "User" | "" (empty for GPO-level entries)
     cse: str
     identity: str
     display_name: str
@@ -37,7 +37,7 @@ class GoldenDiffEntry:
     live_value: str
     golden_gpo_id: str
     live_gpo_id: str
-    admx_name: str      # resolved ADMX policy name (empty if no crosswalk)
+    admx_name: str  # resolved ADMX policy name (empty if no crosswalk)
 
 
 @dataclass(frozen=True)
@@ -70,6 +70,7 @@ def golden_diff(
     """
     if admx is None:
         from gpo_lens.admx_parser import PolicyDefinitions as _PD
+
         admx = _PD()
 
     live_by_name: dict[str, list[Gpo]] = {}
@@ -87,35 +88,39 @@ def golden_diff(
 
     for name in sorted(golden_names - live_names):
         for g in golden_by_name[name]:
-            results.append(GoldenDiffEntry(
-                status="gpo_removed",
-                gpo_name=g.name,
-                side="",
-                cse="",
-                identity="",
-                display_name="",
-                golden_value="",
-                live_value="",
-                golden_gpo_id=g.id,
-                live_gpo_id="",
-                admx_name="",
-            ))
+            results.append(
+                GoldenDiffEntry(
+                    status="gpo_removed",
+                    gpo_name=g.name,
+                    side="",
+                    cse="",
+                    identity="",
+                    display_name="",
+                    golden_value="",
+                    live_value="",
+                    golden_gpo_id=g.id,
+                    live_gpo_id="",
+                    admx_name="",
+                )
+            )
 
     for name in sorted(live_names - golden_names):
         for g in live_by_name[name]:
-            results.append(GoldenDiffEntry(
-                status="gpo_added",
-                gpo_name=g.name,
-                side="",
-                cse="",
-                identity="",
-                display_name="",
-                golden_value="",
-                live_value="",
-                golden_gpo_id="",
-                live_gpo_id=g.id,
-                admx_name="",
-            ))
+            results.append(
+                GoldenDiffEntry(
+                    status="gpo_added",
+                    gpo_name=g.name,
+                    side="",
+                    cse="",
+                    identity="",
+                    display_name="",
+                    golden_value="",
+                    live_value="",
+                    golden_gpo_id="",
+                    live_gpo_id=g.id,
+                    admx_name="",
+                )
+            )
 
     matched_names: set[str] = set()
 
@@ -125,9 +130,9 @@ def golden_diff(
 
         if len(live_gpos) > 1 or len(golden_gpos) > 1:
             import warnings
+
             warnings.warn(
-                f"Duplicate GPO name '{live_gpos[0].name}' — "
-                "only first of each compared",
+                f"Duplicate GPO name '{live_gpos[0].name}' — only first of each compared",
                 stacklevel=2,
             )
 
@@ -173,71 +178,87 @@ def golden_diff(
             disp = golden_display.get(skey) or live_display.get(skey, "")
 
             if skey in golden_settings and skey not in live_settings:
-                results.append(GoldenDiffEntry(
-                    status="removed",
-                    gpo_name=live_gpo.name,
-                    side=side,
-                    cse=orig_cse,
-                    identity=orig_ident,
-                    display_name=disp,
-                    golden_value=golden_settings[skey],
-                    live_value="",
-                    golden_gpo_id=golden_gpo.id,
-                    live_gpo_id=live_gpo.id,
-                    admx_name=admx_name,
-                ))
+                results.append(
+                    GoldenDiffEntry(
+                        status="removed",
+                        gpo_name=live_gpo.name,
+                        side=side,
+                        cse=orig_cse,
+                        identity=orig_ident,
+                        display_name=disp,
+                        golden_value=golden_settings[skey],
+                        live_value="",
+                        golden_gpo_id=golden_gpo.id,
+                        live_gpo_id=live_gpo.id,
+                        admx_name=admx_name,
+                    )
+                )
             elif skey in live_settings and skey not in golden_settings:
-                results.append(GoldenDiffEntry(
-                    status="added",
-                    gpo_name=live_gpo.name,
-                    side=side,
-                    cse=orig_cse,
-                    identity=orig_ident,
-                    display_name=disp,
-                    golden_value="",
-                    live_value=live_settings[skey],
-                    golden_gpo_id=golden_gpo.id,
-                    live_gpo_id=live_gpo.id,
-                    admx_name=admx_name,
-                ))
+                results.append(
+                    GoldenDiffEntry(
+                        status="added",
+                        gpo_name=live_gpo.name,
+                        side=side,
+                        cse=orig_cse,
+                        identity=orig_ident,
+                        display_name=disp,
+                        golden_value="",
+                        live_value=live_settings[skey],
+                        golden_gpo_id=golden_gpo.id,
+                        live_gpo_id=live_gpo.id,
+                        admx_name=admx_name,
+                    )
+                )
             elif live_settings[skey] != golden_settings[skey]:
-                results.append(GoldenDiffEntry(
-                    status="changed",
-                    gpo_name=live_gpo.name,
-                    side=side,
-                    cse=orig_cse,
-                    identity=orig_ident,
-                    display_name=disp,
-                    golden_value=golden_settings[skey],
-                    live_value=live_settings[skey],
-                    golden_gpo_id=golden_gpo.id,
-                    live_gpo_id=live_gpo.id,
-                    admx_name=admx_name,
-                ))
+                results.append(
+                    GoldenDiffEntry(
+                        status="changed",
+                        gpo_name=live_gpo.name,
+                        side=side,
+                        cse=orig_cse,
+                        identity=orig_ident,
+                        display_name=disp,
+                        golden_value=golden_settings[skey],
+                        live_value=live_settings[skey],
+                        golden_gpo_id=golden_gpo.id,
+                        live_gpo_id=live_gpo.id,
+                        admx_name=admx_name,
+                    )
+                )
             else:
-                results.append(GoldenDiffEntry(
-                    status="compliant",
-                    gpo_name=live_gpo.name,
-                    side=side,
-                    cse=orig_cse,
-                    identity=orig_ident,
-                    display_name=disp,
-                    golden_value=golden_settings[skey],
-                    live_value=live_settings[skey],
-                    golden_gpo_id=golden_gpo.id,
-                    live_gpo_id=live_gpo.id,
-                    admx_name=admx_name,
-                ))
+                results.append(
+                    GoldenDiffEntry(
+                        status="compliant",
+                        gpo_name=live_gpo.name,
+                        side=side,
+                        cse=orig_cse,
+                        identity=orig_ident,
+                        display_name=disp,
+                        golden_value=golden_settings[skey],
+                        live_value=live_settings[skey],
+                        golden_gpo_id=golden_gpo.id,
+                        live_gpo_id=live_gpo.id,
+                        admx_name=admx_name,
+                    )
+                )
 
     _STATUS_ORDER = {
-        "gpo_removed": 0, "gpo_added": 1,
-        "changed": 2, "removed": 3, "added": 4,
+        "gpo_removed": 0,
+        "gpo_added": 1,
+        "changed": 2,
+        "removed": 3,
+        "added": 4,
         "compliant": 5,
     }
-    results.sort(key=lambda e: (
-        _STATUS_ORDER.get(e.status, 9),
-        e.gpo_name.lower(), e.side, e.cse, e.identity,
-    ))
+    results.sort(
+        key=lambda e: (
+            _STATUS_ORDER.get(e.status, 9),
+            e.gpo_name.lower(),
+            e.side,
+            e.cse,
+            e.identity,
+        )
+    )
     return results
 
 
@@ -253,10 +274,9 @@ def golden_diff_summary(
     matched GPOs that have zero settings on both sides).
     """
     if matched_gpo_count is None:
-        matched_gpo_count = len({
-            e.gpo_name for e in entries
-            if e.status not in ("gpo_added", "gpo_removed")
-        })
+        matched_gpo_count = len(
+            {e.gpo_name for e in entries if e.status not in ("gpo_added", "gpo_removed")}
+        )
     return GoldenDiffSummary(
         gpos_matched=matched_gpo_count,
         gpos_added=len({e.gpo_name for e in entries if e.status == "gpo_added"}),

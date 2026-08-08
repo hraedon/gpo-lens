@@ -70,18 +70,19 @@ class EffectiveScope:
     domain: str
     computer_enabled: bool
     user_enabled: bool
-    links: list[GpoLink]               # where linked + enabled/enforced
+    links: list[GpoLink]  # where linked + enabled/enforced
     security_filtering: SecurityFiltering
     wmi_filter: WmiFilterScope | None  # name + query text if attached
-    loopback_mode: str | None          # "merge"/"replace"/"unknown"/None
-    caveats: list[str]                 # "security-filtered", "wmi-filtered", etc.
+    loopback_mode: str | None  # "merge"/"replace"/"unknown"/None
+    caveats: list[str]  # "security-filtered", "wmi-filtered", etc.
+
 
 @dataclass(frozen=True)
 class SecurityFiltering:
-    is_filtered: bool                  # True if NOT applied to AU/DC
-    apply_trustees: list[str]          # who has "Apply Group Policy"
-    has_au_read: bool                  # Authenticated Users Read (MS16-072)
-    has_dc_read: bool                  # Domain Computers Read
+    is_filtered: bool  # True if NOT applied to AU/DC
+    apply_trustees: list[str]  # who has "Apply Group Policy"
+    has_au_read: bool  # Authenticated Users Read (MS16-072)
+    has_dc_read: bool  # Domain Computers Read
 ```
 
 - `effective_scope(estate, gpo_id) -> EffectiveScope | None`

@@ -19,6 +19,7 @@ corpus strings to ``RawSecurityDescriptor`` on any Windows host and dump
 owner/group/control plus per-ACE type/flags/mask/sid/object-GUIDs — see this
 file's git history or plans/ for the original generation script.
 """
+
 from __future__ import annotations
 
 import json
@@ -33,10 +34,22 @@ _FIXTURE_DIR = Path(__file__).parent / "fixtures" / "sddl"
 # Independent sddl.h / iads.h rights table (deliberately NOT imported from
 # gpo_lens.authz).
 _BIT_TO_CODE = (
-    (0x80000000, "GR"), (0x40000000, "GW"), (0x20000000, "GX"), (0x10000000, "GA"),
-    (0x00080000, "WO"), (0x00040000, "WD"), (0x00020000, "RC"), (0x00010000, "SD"),
-    (0x00000100, "CR"), (0x00000080, "LO"), (0x00000040, "DT"), (0x00000020, "WP"),
-    (0x00000010, "RP"), (0x00000008, "SW"), (0x00000004, "LC"), (0x00000002, "DC"),
+    (0x80000000, "GR"),
+    (0x40000000, "GW"),
+    (0x20000000, "GX"),
+    (0x10000000, "GA"),
+    (0x00080000, "WO"),
+    (0x00040000, "WD"),
+    (0x00020000, "RC"),
+    (0x00010000, "SD"),
+    (0x00000100, "CR"),
+    (0x00000080, "LO"),
+    (0x00000040, "DT"),
+    (0x00000020, "WP"),
+    (0x00000010, "RP"),
+    (0x00000008, "SW"),
+    (0x00000004, "LC"),
+    (0x00000002, "DC"),
     (0x00000001, "CC"),
 )
 _READ_OR_APPLY = frozenset({"GA", "GR", "CR", "RP"})
@@ -74,7 +87,7 @@ def _mask_to_codes(mask: int) -> frozenset[str]:
 def _sddl_flag_codes(flags: str) -> frozenset[str]:
     """Split an SDDL ACE-flags field ('CIIO') into 2-letter codes."""
     f = flags.strip().upper()
-    return frozenset(f[i:i + 2] for i in range(0, len(f) - 1, 2))
+    return frozenset(f[i : i + 2] for i in range(0, len(f) - 1, 2))
 
 
 def _ref_flag_codes(ref_flags: str) -> frozenset[str]:
@@ -120,9 +133,7 @@ def test_corpus_and_reference_in_sync(reference: list[dict]):
 
 
 @pytest.mark.parametrize("idx", range(27), ids=_corpus_ids())
-def test_parse_sddl_agrees_with_windows_reference(
-    reference: list[dict], idx: int
-):
+def test_parse_sddl_agrees_with_windows_reference(reference: list[dict], idx: int):
     entry = reference[idx]
     sddl = entry["sddl"]
     acl = parse_sddl(sddl)
@@ -138,9 +149,7 @@ def test_parse_sddl_agrees_with_windows_reference(
 
     # DACL protected flag: SDDL "P" (always leading) <-> control
     # DiscretionaryAclProtected.
-    assert acl.dacl_flags.startswith("P") == (
-        "DiscretionaryAclProtected" in entry["control"]
-    )
+    assert acl.dacl_flags.startswith("P") == ("DiscretionaryAclProtected" in entry["control"])
 
     for section, ref_key in (("dacl", "DiscretionaryAcl"), ("sacl", "SystemAcl")):
         py_aces = getattr(acl, section)

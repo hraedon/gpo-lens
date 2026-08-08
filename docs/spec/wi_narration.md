@@ -52,8 +52,7 @@ def call_llm(
     model: str | None = None,
     max_tokens: int = 2048,
     timeout: int = 30,
-) -> str:
-    ...
+) -> str: ...
 ```
 
 - `api_key`: read from `GPO_LENS_API_KEY` env var if not passed.

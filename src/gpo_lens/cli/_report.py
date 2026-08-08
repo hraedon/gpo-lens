@@ -1,4 +1,5 @@
 """CLI subcommand for generating estate reports (Markdown/HTML)."""
+
 from __future__ import annotations
 
 import argparse
@@ -67,9 +68,7 @@ def cmd_report(args: argparse.Namespace) -> int:
                 print("No snapshots found in database.", file=sys.stderr)
                 return 1
             latest = snapshots[0][0]
-            changelog_entries = snapshot_diff.snapshot_changelog(
-                conn, args.since, latest
-            )
+            changelog_entries = snapshot_diff.snapshot_changelog(conn, args.since, latest)
         finally:
             conn.close()
 
@@ -97,4 +96,3 @@ def cmd_report(args: argparse.Namespace) -> int:
         )
         print(text)
     return 0
-

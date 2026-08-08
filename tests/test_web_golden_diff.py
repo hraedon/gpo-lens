@@ -1,4 +1,5 @@
 """Web route tests for /golden-diff (WI-075)."""
+
 from __future__ import annotations
 
 import io
